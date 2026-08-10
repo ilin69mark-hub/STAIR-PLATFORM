@@ -1,0 +1,12 @@
+# STAIR PLATFORM — configuration template (DEV-0009)
+# Copy to configs/local.yaml and override with local values.
+# Secrets (passwords, tokens) must NOT be committed.
+
+http:
+  addr: ":8080"
+
+database:
+  url: "postgres://stair:stair@localhost:5432/stair_platform?sslmode=disable"
+
+redis:
+  addr: "localhost:6379"

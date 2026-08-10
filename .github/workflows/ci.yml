@@ -1,0 +1,54 @@
+# STAIR PLATFORM — CI Baseline (DEV-0010)
+# Pipeline: Format → Lint → Static Analysis → Unit Tests → Build → Security/Dependency Checks
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Format check
+        run: |
+          test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+      - name: Dependencies (govulncheck)
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: Unit Tests
+        run: go test ./... -race -coverprofile=coverage.out
+
+      - name: Build
+        run: go build ./...
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out

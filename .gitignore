@@ -1,0 +1,24 @@
+# OS
+.DS_Store
+
+# Go
+bin/
+*.test
+*.out
+coverage.out
+
+# Local env / secrets (never committed)
+.env
+.env.*
+!.env.example
+configs/local.yaml
+configs/*.local.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Runtime
+tmp/
+*.log

@@ -1,0 +1,40 @@
+# STAIR PLATFORM — Local Development Stack
+# DEV-0009: PostgreSQL + Redis for local development.
+# Secrets are NOT stored in repository. Use .env.local for overrides.
+
+name: stair-platform
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: stair-platform-postgres
+    environment:
+      POSTGRES_USER: stair
+      POSTGRES_PASSWORD: stair
+      POSTGRES_DB: stair_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - stair-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stair -d stair_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    container_name: stair-platform-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - stair-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  stair-postgres-data:
+  stair-redis-data:
