@@ -26,6 +26,7 @@ type StairConfiguration struct {
 	TreadDepth        Length
 	Clearance         Length
 	RailingHeight     Length
+	StringerLength    Length
 	StringerThickness Length
 }
 
@@ -55,6 +56,9 @@ func (c *StairConfiguration) Validate() error {
 	}
 	if c.RailingHeight.Millimeters() < 0 {
 		return fmt.Errorf("stair: railing height must not be negative")
+	}
+	if c.StringerLength.Millimeters() < 0 {
+		return fmt.Errorf("stair: stringer length must not be negative")
 	}
 	return nil
 }
