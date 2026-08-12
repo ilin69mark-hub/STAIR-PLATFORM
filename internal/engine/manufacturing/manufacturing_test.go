@@ -200,6 +200,32 @@ func TestManufactureDeterminism(t *testing.T) {
 	}
 }
 
+func TestManufactureNesting(t *testing.T) {
+	pkg, err := Manufacture(testConfig(t), genResult(t, testConfig(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pkg.Nesting == nil {
+		t.Fatal("package must contain a nesting result")
+	}
+	if int(pkg.Nesting.PartCount) != len(pkg.Parts) {
+		t.Fatalf("nesting parts = %d, want %d", pkg.Nesting.PartCount, len(pkg.Parts))
+	}
+	// n=15: 2 косоура (t=50, лист 6000×3000, по одному на лист → 2 листа);
+	// проступи и подступенки (t=40, лист 2500×1250) раскраиваются вместе:
+	// 12 проступей на первом листе, 3 проступи + 15 подступенков на втором
+	// → 2 листа. Итого 4 листа.
+	if len(pkg.Nesting.Sheets) != 4 {
+		t.Fatalf("sheets = %d, want 4", len(pkg.Nesting.Sheets))
+	}
+	if pkg.Nesting.Utilization <= 0 || pkg.Nesting.Utilization > 1 {
+		t.Fatalf("utilization out of range: %v", pkg.Nesting.Utilization)
+	}
+	if err := pkg.Nesting.Validate(); err != nil {
+		t.Fatalf("nesting must validate: %v", err)
+	}
+}
+
 func TestManufactureErrors(t *testing.T) {
 	cfg := testConfig(t)
 	gen := genResult(t, cfg)

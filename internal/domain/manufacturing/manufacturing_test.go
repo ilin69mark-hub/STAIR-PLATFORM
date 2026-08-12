@@ -93,6 +93,18 @@ func TestManufacturingPackageValidate(t *testing.T) {
 				Length: engineering.Length(800), Width: engineering.Length(270),
 			}}},
 			CutList: CutList{},
+			Nesting: &NestingResult{
+				Sheets: []SheetLayout{{
+					MaterialCode: "M", Thickness: engineering.Length(40),
+					Length: engineering.Length(800), Width: engineering.Length(270),
+					Placed: []PlacedPart{{
+						PartNumber: "P-1", Length: engineering.Length(800), Width: engineering.Length(270),
+						X: 0, Y: 0,
+					}},
+				}},
+				PartCount: 1, PartArea: 800 * 270, SheetArea: 800 * 270,
+				WasteArea: 0, Utilization: 1,
+			},
 		}
 	}
 

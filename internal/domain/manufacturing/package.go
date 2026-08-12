@@ -10,6 +10,7 @@ type ManufacturingPackage struct {
 	Parts   []Part
 	BOM     BOM
 	CutList CutList
+	Nesting *NestingResult
 }
 
 // Validate проверяет инварианты Manufacturing (BC-007): наличие деталей,
@@ -61,6 +62,23 @@ func (p *ManufacturingPackage) Validate() error {
 		}
 		if !seenNumbers[line.PartNumber] {
 			return fmt.Errorf("manufacturing: BOM line %d references unknown part %q", line.Number, line.PartNumber)
+		}
+	}
+
+	if p.Nesting == nil {
+		return fmt.Errorf("manufacturing: package has no nesting result")
+	}
+	if err := p.Nesting.Validate(); err != nil {
+		return err
+	}
+	if int(p.Nesting.PartCount) != len(p.Parts) {
+		return fmt.Errorf("manufacturing: nesting parts (%d) must match package parts (%d)", p.Nesting.PartCount, len(p.Parts))
+	}
+	for _, sheet := range p.Nesting.Sheets {
+		for _, pl := range sheet.Placed {
+			if !seenNumbers[pl.PartNumber] {
+				return fmt.Errorf("manufacturing: nesting references unknown part %q", pl.PartNumber)
+			}
 		}
 	}
 	return nil

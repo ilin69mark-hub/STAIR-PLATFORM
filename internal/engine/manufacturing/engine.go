@@ -16,10 +16,11 @@ import (
 
 // Manufacture преобразует валидный результат Geometry Engine в комплект
 // производственных данных (ENG-0003, BC-007): декомпозиция на детали,
-// назначение материалов из встроенного каталога (MFG-0005), BOM и карту
-// раскроя. Геометрия не пересчитывается. Предусловия: валидная конфигурация
-// и геометрия без ошибок валидации (производство выполняется только по
-// валидной ревизии). Результат детерминирован.
+// назначение материалов из встроенного каталога (MFG-0005), BOM, карту
+// раскроя и раскладку по стандартным листам (MFG-0012). Геометрия не
+// пересчитывается. Предусловия: валидная конфигурация и геометрия без
+// ошибок валидации (производство выполняется только по валидной ревизии).
+// Результат детерминирован.
 func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResult) (*dommfg.ManufacturingPackage, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("manufacturing: configuration is required")
@@ -50,7 +51,11 @@ func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResu
 	}
 
 	bom, cut := buildBOM(parts)
-	pkg := &dommfg.ManufacturingPackage{Parts: parts, BOM: bom, CutList: cut}
+	nesting, err := Nest(cut, DefaultStockSheetRegistry(), DefaultKerf)
+	if err != nil {
+		return nil, err
+	}
+	pkg := &dommfg.ManufacturingPackage{Parts: parts, BOM: bom, CutList: cut, Nesting: nesting}
 	if err := pkg.Validate(); err != nil {
 		return nil, err
 	}
