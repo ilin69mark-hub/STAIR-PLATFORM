@@ -1,0 +1,95 @@
+# STAIR PLATFORM
+
+Document: 24_ROADMAP_GOVERNANCE.md
+
+ID: ROADMAP-0024
+
+Status: APPROVED
+
+---
+
+# Purpose
+
+Определяет правила управления Roadmap STAIR PLATFORM.
+
+---
+
+# Governance Principles
+
+Roadmap должна быть:
+
+* Transparent
+* Traceable
+* Versioned
+* Risk-aware
+* Value-driven
+
+---
+
+# Ownership
+
+Roadmap Owner отвечает за:
+
+* актуальность Roadmap
+* consistency между phases
+* prioritization
+* milestone tracking
+* change management
+
+---
+
+# Roadmap Sources
+
+Изменения Roadmap могут инициироваться через:
+
+* Product Requirements
+* Technical Findings
+* Customer Feedback
+* Security Findings
+* Production Incidents
+* Performance Results
+* Business Decisions
+
+---
+
+# Decision Process
+
+```text
+Proposal
+   ↓
+Impact Analysis
+   ↓
+Prioritization
+   ↓
+Decision
+   ↓
+Roadmap Update
+```
+
+---
+
+# Architectural Changes
+
+Если Roadmap change затрагивает architecture, соответствующая ADR должна быть создана до реализации изменения.
+
+---
+
+# Versioning
+
+Изменения Roadmap должны быть versioned.
+
+---
+
+# Documentation
+
+Каждое существенное изменение должно иметь documented reason.
+
+---
+
+# Acceptance Criteria
+
+Roadmap changes управляются формальным process и имеют traceable rationale.
+
+---
+
+APPROVED
