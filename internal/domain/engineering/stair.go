@@ -28,6 +28,7 @@ type StairConfiguration struct {
 	RailingHeight     Length
 	StringerLength    Length
 	StringerThickness Length
+	StepThickness     Length
 }
 
 // Validate проверяет конфигурацию лестницы.
@@ -47,6 +48,9 @@ func (c *StairConfiguration) Validate() error {
 	}
 	if c.StringerThickness.Millimeters() < 0 {
 		return fmt.Errorf("stair: stringer thickness must not be negative")
+	}
+	if c.StepThickness.Millimeters() < 0 {
+		return fmt.Errorf("stair: step thickness must not be negative")
 	}
 	if c.TreadDepth.Millimeters() < 0 {
 		return fmt.Errorf("stair: tread depth must not be negative")
