@@ -21,6 +21,16 @@ func validDataset() *ManufacturingCostDataset {
 		Volume:         8640000,
 		SurfaceArea:    517600,
 		Mass:           67.824,
+		OperationPlan: &OperationPlan{Parts: []PartOperationPlan{{
+			PartNumber: "P-1",
+			Operations: []Operation{
+				{ID: 1, PartNumber: "P-1", Type: OpCutting, Sequence: 1, Machine: MachineLaserCutter, EstimatedTime: 3, OperatorRequired: true},
+				{ID: 2, PartNumber: "P-1", Type: OpFinishing, Sequence: 2, Machine: MachineManualWorkstation, EstimatedTime: 2, OperatorRequired: true},
+			},
+		}}},
+		EstimatedMachineTime:    3,
+		EstimatedLaborTime:      2,
+		EstimatedProductionTime: 5,
 	}
 }
 
@@ -90,5 +100,29 @@ func TestManufacturingCostDatasetValidate(t *testing.T) {
 	d.Volume = -1
 	if err := d.Validate(); err == nil {
 		t.Fatal("negative volume must be rejected")
+	}
+
+	d = validDataset()
+	d.OperationPlan = nil
+	if err := d.Validate(); err == nil {
+		t.Fatal("dataset without operation plan must be rejected")
+	}
+
+	d = validDataset()
+	d.OperationPlan.Parts[0].Operations = d.OperationPlan.Parts[0].Operations[:1]
+	if err := d.Validate(); err == nil {
+		t.Fatal("operation count mismatch must be rejected")
+	}
+
+	d = validDataset()
+	d.EstimatedProductionTime = 4
+	if err := d.Validate(); err == nil {
+		t.Fatal("production time mismatch must be rejected")
+	}
+
+	d = validDataset()
+	d.EstimatedMachineTime = -1
+	if err := d.Validate(); err == nil {
+		t.Fatal("negative machine time must be rejected")
 	}
 }

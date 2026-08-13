@@ -6,20 +6,6 @@ import (
 	dommfg "stairplatform/internal/domain/manufacturing"
 )
 
-// opsPerKind — детерминированное количество операций на деталь по типу
-// (заглушка до Machine Operations MFG-0009).
-func opsPerKind(kind dommfg.PartKind) int {
-	switch kind {
-	case dommfg.PartStringer:
-		return 4
-	case dommfg.PartTread:
-		return 2
-	case dommfg.PartRiser:
-		return 2
-	}
-	return 1
-}
-
 // plateSurfaceArea — площадь поверхности прямоугольной пластины
 // (l×w×t, мм): две плоскости плюс кромки.
 func plateSurfaceArea(l, w, t float64) float64 {
@@ -29,10 +15,11 @@ func plateSurfaceArea(l, w, t float64) float64 {
 // PrepareCost формирует производственный набор данных (MFG-0015) из
 // комплекта ManufacturingPackage. Выполняет только физические расчёты:
 // площади (детали и листы, отходы), объём, масса по плотности материала,
-// поверхность, счётчики. Финансовые значения (цены, тарифы, прибыль,
-// налоги) набор не содержит (правила MFG-0015). Временные оценки
-// добавляются с Machine Operations (MFG-0009). Результат детерминирован.
-func PrepareCost(pkg *dommfg.ManufacturingPackage, materials *dommfg.MaterialRegistry) (*dommfg.ManufacturingCostDataset, error) {
+// поверхность, счётчики. Временные оценки и техмаршрут поставляются
+// Machine Operations (MFG-0009). Финансовые значения (цены, тарифы,
+// прибыль, налоги) набор не содержит (правила MFG-0015). Результат
+// детерминирован.
+func PrepareCost(pkg *dommfg.ManufacturingPackage, materials *dommfg.MaterialRegistry, rates MachineRates) (*dommfg.ManufacturingCostDataset, error) {
 	if pkg == nil {
 		return nil, fmt.Errorf("manufacturing: package is required")
 	}
@@ -99,9 +86,24 @@ func PrepareCost(pkg *dommfg.ManufacturingPackage, materials *dommfg.MaterialReg
 	}
 	dataset.PartCount = dommfg.Quantity(len(pkg.Parts))
 	dataset.FastenerCount = 0 // в текущей модели крепёж отсутствует; счётчик подготовлен
-	for _, p := range pkg.Parts {
-		dataset.OperationCount += opsPerKind(p.Kind)
+
+	plan, err := PlanOperations(pkg, rates)
+	if err != nil {
+		return nil, err
 	}
+	dataset.OperationPlan = plan
+	for _, part := range plan.Parts {
+		for _, op := range part.Operations {
+			dataset.OperationCount++
+			if op.Machine == dommfg.MachineManualWorkstation {
+				dataset.EstimatedLaborTime += op.EstimatedTime
+			} else {
+				dataset.EstimatedMachineTime += op.EstimatedTime
+			}
+		}
+	}
+	dataset.EstimatedProductionTime = dataset.EstimatedMachineTime + dataset.EstimatedLaborTime
+
 	if dataset.SheetArea > 0 {
 		dataset.WastePercent = dataset.WasteArea / dataset.SheetArea
 		dataset.Utilization = dataset.PartArea / dataset.SheetArea
