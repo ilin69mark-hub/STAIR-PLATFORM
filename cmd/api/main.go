@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"stairplatform/internal/application/stair"
 	transporthttp "stairplatform/internal/transport/http"
 )
 
@@ -24,7 +25,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           transporthttp.NewRouter(),
+		Handler:           transporthttp.NewRouter(stair.NewService()),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

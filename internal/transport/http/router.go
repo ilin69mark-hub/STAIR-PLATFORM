@@ -5,9 +5,12 @@ import (
 	"net/http"
 )
 
-func NewRouter() http.Handler {
+// NewRouter собирает маршруты API v1. svc — прикладной сервис расчёта
+// (инверсия зависимостей, DOM-0008); nil недопустим.
+func NewRouter(svc StairService) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handleHealth)
+	mux.HandleFunc("POST /api/v1/stairs:calculate", handleCalculate(svc))
 	mux.HandleFunc("GET /", handleNotFound)
 	return mux
 }
