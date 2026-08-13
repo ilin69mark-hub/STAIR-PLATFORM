@@ -11,7 +11,7 @@ import (
 )
 
 func testRouter() http.Handler {
-	return NewRouter(stair.NewService())
+	return NewRouter(stair.NewService(), nil)
 }
 
 func TestHealth(t *testing.T) {
