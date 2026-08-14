@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
 )
@@ -27,7 +28,7 @@ func newFakeProjectService() *fakeProjectService {
 	return &fakeProjectService{projects: map[string]*project.Project{}}
 }
 
-func (f *fakeProjectService) CreateProject(ctx context.Context, name, description string) (*project.Project, error) {
+func (f *fakeProjectService) CreateProject(ctx context.Context, tenantID, name, description string) (*project.Project, error) {
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
@@ -37,7 +38,7 @@ func (f *fakeProjectService) CreateProject(ctx context.Context, name, descriptio
 	return p, nil
 }
 
-func (f *fakeProjectService) GetProject(ctx context.Context, id string) (*project.Project, error) {
+func (f *fakeProjectService) GetProject(ctx context.Context, tenantID, id string) (*project.Project, error) {
 	p, ok := f.projects[id]
 	if !ok {
 		return nil, project.ErrNotFound
@@ -45,7 +46,7 @@ func (f *fakeProjectService) GetProject(ctx context.Context, id string) (*projec
 	return p, nil
 }
 
-func (f *fakeProjectService) ListProjects(ctx context.Context) ([]*project.Project, error) {
+func (f *fakeProjectService) ListProjects(ctx context.Context, tenantID string) ([]*project.Project, error) {
 	out := make([]*project.Project, 0, len(f.projects))
 	for _, p := range f.projects {
 		out = append(out, p)
@@ -53,7 +54,7 @@ func (f *fakeProjectService) ListProjects(ctx context.Context) ([]*project.Proje
 	return out, nil
 }
 
-func (f *fakeProjectService) Calculate(ctx context.Context, projectID string, cfg stair.Config, opts stair.Options) (*project.Calculation, error) {
+func (f *fakeProjectService) Calculate(ctx context.Context, tenantID, projectID string, cfg stair.Config, opts stair.Options) (*project.Calculation, error) {
 	if _, ok := f.projects[projectID]; !ok {
 		return nil, project.ErrNotFound
 	}
@@ -67,7 +68,7 @@ func (f *fakeProjectService) Calculate(ctx context.Context, projectID string, cf
 	}, nil
 }
 
-func (f *fakeProjectService) GetResult(ctx context.Context, projectID string) (*project.Calculation, error) {
+func (f *fakeProjectService) GetResult(ctx context.Context, tenantID, projectID string) (*project.Calculation, error) {
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -77,14 +78,44 @@ func (f *fakeProjectService) GetResult(ctx context.Context, projectID string) (*
 	return f.calc, nil
 }
 
+// testAuth — фиктивный AuthService для тестов: любой токен валиден,
+// пользователь принадлежит tenant'у "t-1".
+type testAuth struct{}
+
+func (testAuth) Register(ctx context.Context, email, name, password string) (*auth.User, string, error) {
+	return &auth.User{ID: "u-1", Email: email, Name: name, Role: auth.RoleUser, TenantID: "t-1"}, "token-1", nil
+}
+
+func (testAuth) Login(ctx context.Context, email, password string) (*auth.User, string, error) {
+	return &auth.User{ID: "u-1", Email: email, Role: auth.RoleUser, TenantID: "t-1"}, "token-1", nil
+}
+
+func (testAuth) Authenticate(ctx context.Context, token string) (*auth.User, error) {
+	if token == "" {
+		return nil, auth.ErrSessionExpired
+	}
+	return &auth.User{ID: "u-1", Email: "test@example.com", Role: auth.RoleUser, TenantID: "t-1"}, nil
+}
+
+func (testAuth) Logout(ctx context.Context, token string) error { return nil }
+
 func testRouterWithProjects(p ProjectService) http.Handler {
-	return NewRouter(stair.NewService(), p)
+	return NewRouter(stair.NewService(), p, testAuth{}, DefaultConfig())
+}
+
+// authedRequest строит запрос с session+csrf cookie и заголовком CSRF.
+func authedRequest(method, path, body string) *http.Request {
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	r.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "token-1"})
+	r.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-1"})
+	r.Header.Set(csrfHeader, "csrf-1")
+	return r
 }
 
 func TestCreateProject(t *testing.T) {
 	svc := newFakeProjectService()
 	body := `{"name": "Лестница", "description": "описание"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects", strings.NewReader(body))
+	req := authedRequest(http.MethodPost, "/api/v1/projects", body)
 	rec := httptest.NewRecorder()
 	testRouterWithProjects(svc).ServeHTTP(rec, req)
 
@@ -102,7 +133,7 @@ func TestCreateProject(t *testing.T) {
 
 func TestCreateProjectInvalidJSON(t *testing.T) {
 	svc := newFakeProjectService()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects", strings.NewReader("{bad"))
+	req := authedRequest(http.MethodPost, "/api/v1/projects", "{bad")
 	rec := httptest.NewRecorder()
 	testRouterWithProjects(svc).ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -114,7 +145,7 @@ func TestGetProject(t *testing.T) {
 	svc := newFakeProjectService()
 	svc.projects["p-42"] = &project.Project{ID: "p-42", Name: "А", Status: "draft"}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/p-42", nil)
+	req := authedRequest(http.MethodGet, "/api/v1/projects/p-42", "")
 	rec := httptest.NewRecorder()
 	testRouterWithProjects(svc).ServeHTTP(rec, req)
 
@@ -132,7 +163,7 @@ func TestGetProject(t *testing.T) {
 
 func TestGetProjectNotFound(t *testing.T) {
 	svc := newFakeProjectService()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/p-404", nil)
+	req := authedRequest(http.MethodGet, "/api/v1/projects/p-404", "")
 	rec := httptest.NewRecorder()
 	testRouterWithProjects(svc).ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
@@ -144,7 +175,7 @@ func TestListProjects(t *testing.T) {
 	svc := newFakeProjectService()
 	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
+	req := authedRequest(http.MethodGet, "/api/v1/projects", "")
 	rec := httptest.NewRecorder()
 	testRouterWithProjects(svc).ServeHTTP(rec, req)
 
@@ -164,8 +195,8 @@ func TestCalculateProject(t *testing.T) {
 	svc := newFakeProjectService()
 	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/p-1/calculate",
-		strings.NewReader(referenceJSON))
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/calculate",
+		referenceJSON)
 	rec := httptest.NewRecorder()
 	testRouterWithProjects(svc).ServeHTTP(rec, req)
 
@@ -186,8 +217,8 @@ func TestCalculateProject(t *testing.T) {
 
 func TestCalculateProjectNotFound(t *testing.T) {
 	svc := newFakeProjectService()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/p-404/calculate",
-		strings.NewReader(referenceJSON))
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-404/calculate",
+		referenceJSON)
 	rec := httptest.NewRecorder()
 	testRouterWithProjects(svc).ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
@@ -198,8 +229,8 @@ func TestCalculateProjectNotFound(t *testing.T) {
 func TestCalculateProjectInvalidJSON(t *testing.T) {
 	svc := newFakeProjectService()
 	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/p-1/calculate",
-		strings.NewReader("{bad"))
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/calculate",
+		"{bad")
 	rec := httptest.NewRecorder()
 	testRouterWithProjects(svc).ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -214,7 +245,7 @@ func TestExportProject(t *testing.T) {
 		Result: []byte(`{"project_id":"p-1","validation":{"valid":true}}`),
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/p-1/export", nil)
+	req := authedRequest(http.MethodGet, "/api/v1/projects/p-1/export", "")
 	rec := httptest.NewRecorder()
 	testRouterWithProjects(svc).ServeHTTP(rec, req)
 
@@ -233,7 +264,7 @@ func TestExportProject(t *testing.T) {
 func TestExportProjectNoCalculation(t *testing.T) {
 	svc := newFakeProjectService()
 	svc.getErr = errors.New("boom")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/p-1/export", nil)
+	req := authedRequest(http.MethodGet, "/api/v1/projects/p-1/export", "")
 	rec := httptest.NewRecorder()
 	testRouterWithProjects(svc).ServeHTTP(rec, req)
 	if rec.Code != http.StatusInternalServerError {

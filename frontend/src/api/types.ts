@@ -11,6 +11,14 @@ export interface Project {
   updated_at: string
 }
 
+export interface User {
+  id: string
+  email: string
+  name: string
+  role: string
+  tenant_id: string
+}
+
 export interface CreateProjectRequest {
   name: string
   description: string

@@ -5,7 +5,16 @@ import (
 	"net/http"
 
 	"stairplatform/internal/application/stair"
-)
+) // maxBodyBytes — предельный размер тела запроса (защита от DoS,
+// SEC-0003): применяется в decodeJSON.
+var maxBodyBytes int64 = 1 << 20 // 1 MiB
+
+// decodeJSON декодирует тело запроса в dst с ограничением размера
+// (MaxBodyBytes). Возвращает ошибку при невалидном JSON.
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	return json.NewDecoder(r.Body).Decode(dst)
+}
 
 // StairService — прикладной интерфейс расчёта лестницы, ожидаемый
 // транспортным слоем (инверсия зависимостей, DOM-0008).
@@ -21,7 +30,7 @@ type StairService interface {
 func handleCalculate(svc StairService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req calculateRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := decodeJSON(w, r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
 			return
 		}

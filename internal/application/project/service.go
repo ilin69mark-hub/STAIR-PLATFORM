@@ -38,34 +38,34 @@ func NewService(repo Repository, calc *stair.Service, rules RuleSet) *Service {
 	return &Service{repo: repo, calc: calc, rules: rules}
 }
 
-// CreateProject создаёт проект с именем и описанием (BC-001).
-func (s *Service) CreateProject(ctx context.Context, name, description string) (*Project, error) {
+// CreateProject создаёт проект с именем и описанием в tenant (BC-001).
+func (s *Service) CreateProject(ctx context.Context, tenantID, name, description string) (*Project, error) {
 	if name == "" {
 		return nil, fmt.Errorf("project: name is required")
 	}
 	p := &Project{Name: name, Description: description, Status: s.rules.CreateStatus}
-	if err := s.repo.CreateProject(ctx, p); err != nil {
+	if err := s.repo.CreateProject(ctx, tenantID, p); err != nil {
 		return nil, err
 	}
 	return p, nil
 }
 
-// GetProject возвращает проект по ID.
-func (s *Service) GetProject(ctx context.Context, id string) (*Project, error) {
-	return s.repo.GetProject(ctx, id)
+// GetProject возвращает проект по ID внутри tenant.
+func (s *Service) GetProject(ctx context.Context, tenantID, id string) (*Project, error) {
+	return s.repo.GetProject(ctx, tenantID, id)
 }
 
-// ListProjects возвращает все проекты.
-func (s *Service) ListProjects(ctx context.Context) ([]*Project, error) {
-	return s.repo.ListProjects(ctx)
+// ListProjects возвращает проекты tenant'а.
+func (s *Service) ListProjects(ctx context.Context, tenantID string) ([]*Project, error) {
+	return s.repo.ListProjects(ctx, tenantID)
 }
 
-// Calculate сохраняет конфигурацию и результат расчёта проекта.
-// Конфигурация сериализуется из входных параметров (числа в мм);
+// Calculate сохраняет конфигурацию и результат расчёта проекта (внутри
+// tenant). Конфигурация сериализуется из входных параметров (числа в мм);
 // результат — снапшот конвейера (экспортный документ). Расчёт атомарно
 // связывается с конфигурацией (одна транзакция).
-func (s *Service) Calculate(ctx context.Context, projectID string, cfg stair.Config, opts stair.Options) (*Calculation, error) {
-	if _, err := s.repo.GetProject(ctx, projectID); err != nil {
+func (s *Service) Calculate(ctx context.Context, tenantID, projectID string, cfg stair.Config, opts stair.Options) (*Calculation, error) {
+	if _, err := s.repo.GetProject(ctx, tenantID, projectID); err != nil {
 		return nil, fmt.Errorf("project: %w", err)
 	}
 
@@ -76,15 +76,16 @@ func (s *Service) Calculate(ctx context.Context, projectID string, cfg stair.Con
 	}
 	snap := NewSnapshot(projectID, res)
 
-	return s.repo.SaveCalculationWithConfig(ctx, toConfigEntity(projectID, cfg, opts), snap)
+	return s.repo.SaveCalculationWithConfig(ctx, tenantID, toConfigEntity(projectID, cfg, opts), snap)
 }
 
-// GetResult возвращает последний расчёт проекта.
-func (s *Service) GetResult(ctx context.Context, projectID string) (*Calculation, error) {
-	return s.repo.GetLatestCalculation(ctx, projectID)
+// GetResult возвращает последний расчёт проекта внутри tenant.
+func (s *Service) GetResult(ctx context.Context, tenantID, projectID string) (*Calculation, error) {
+	return s.repo.GetLatestCalculation(ctx, tenantID, projectID)
 }
 
-// GetLatestConfig возвращает последнюю сохранённую конфигурацию проекта.
-func (s *Service) GetLatestConfig(ctx context.Context, projectID string) (*StairConfiguration, error) {
-	return s.repo.GetLatestConfiguration(ctx, projectID)
+// GetLatestConfig возвращает последнюю сохранённую конфигурацию проекта
+// внутри tenant.
+func (s *Service) GetLatestConfig(ctx context.Context, tenantID, projectID string) (*StairConfiguration, error) {
+	return s.repo.GetLatestConfiguration(ctx, tenantID, projectID)
 }

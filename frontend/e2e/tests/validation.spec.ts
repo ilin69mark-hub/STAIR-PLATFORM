@@ -1,17 +1,22 @@
 // E2E: валидация и blocking-результат конвейера (TEST-0022, EDR-0003).
 
 import { expect, test } from '@playwright/test'
+import { register, uniqueEmail } from '../helpers/auth'
 
 async function createProject(page: import('@playwright/test').Page, name: string) {
-  await page.goto('/')
   await page.locator('#project-name').fill(name)
   await page.getByRole('button', { name: 'Создать' }).click()
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
 }
 
+async function authAndCreate(page: import('@playwright/test').Page, name: string) {
+  await register(page, uniqueEmail())
+  await createProject(page, name)
+}
+
 test('пустое обязательное поле блокирует кнопку расчёта', async ({ page }) => {
   const name = `E2E-val-${Date.now()}`
-  await createProject(page, name)
+  await authAndCreate(page, name)
 
   await page.locator('#cfg-widthMM').fill('')
   await expect(page.getByText('Укажите значение')).toBeVisible()
@@ -21,7 +26,7 @@ test('пустое обязательное поле блокирует кноп
 
 test('blocking-вход останавливает конвейер без панелей результата', async ({ page }) => {
   const name = `E2E-block-${Date.now()}`
-  await createProject(page, name)
+  await authAndCreate(page, name)
 
   // Шаг ступени вне допустимого диапазона (10 мм) — блокирует конвейер.
   await page.locator('#cfg-stepHeightMM').fill('10')

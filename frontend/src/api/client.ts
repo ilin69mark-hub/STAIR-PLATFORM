@@ -1,13 +1,36 @@
 // API-клиент v1 (FE-0011 API Client): тонкие fetch-обёртки к REST-эндпоинтам
 // Go-бэкенда. Ошибки нормализуются в ApiError { status, code, message }.
+// Сессионная cookie передаётся автоматически (same-origin через vite proxy);
+// на мутирующие запросы добавляется X-CSRF-Token (double-submit, SEC-0003).
 
 import type { ApiErrorBody } from './types'
 import { ApiError } from './types'
 
+const CSRF_COOKIE = 'csrf'
+
+function csrfToken(): string {
+  return document.cookie
+    .split('; ')
+    .find((c) => c.startsWith(`${CSRF_COOKIE}=`))
+    ?.slice(CSRF_COOKIE.length + 1) ?? ''
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(init?.headers as Record<string, string> | undefined),
+  }
+  const method = (init?.method ?? 'GET').toUpperCase()
+  const isMutating = !['GET', 'HEAD', 'OPTIONS'].includes(method)
+  if (isMutating) {
+    const csrf = csrfToken()
+    if (csrf) headers['X-CSRF-Token'] = csrf
+  }
+
   const res = await fetch(url, {
+    credentials: 'include',
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+    headers,
   })
 
   if (res.status === 204) {

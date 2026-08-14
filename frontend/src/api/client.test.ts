@@ -70,6 +70,24 @@ describe('get', () => {
     expect(err.code).toBe('unknown')
     expect(err.message).toBe('HTTP 500')
   })
+
+  it('шлёт credentials include для всех запросов', async () => {
+    const fn = fetchMock()
+    fn.mockResolvedValue(jsonResponse(200, '{}'))
+    await get('/x')
+    const [, init] = fn.mock.calls[0]
+    expect(init.credentials).toBe('include')
+  })
+
+  it('не добавляет X-CSRF-Token на GET', async () => {
+    const fn = fetchMock()
+    fn.mockResolvedValue(jsonResponse(200, '{}'))
+    document.cookie = 'csrf=abc123; path=/'
+    await get('/x')
+    const [, init] = fn.mock.calls[0]
+    const headers = init.headers as Record<string, string>
+    expect(headers['X-CSRF-Token']).toBeUndefined()
+  })
 })
 
 describe('post', () => {
@@ -93,5 +111,15 @@ describe('post', () => {
     const err = (await post('/x', {}).catch((e: unknown) => e)) as ApiError
     expect(err.code).toBe('validation')
     expect(err.message).toBe('Плохой запрос')
+  })
+
+  it('добавляет X-CSRF-Token из cookie на мутирующий запрос', async () => {
+    const fn = fetchMock()
+    fn.mockResolvedValue(jsonResponse(201, '{}'))
+    document.cookie = 'csrf=secret-nonce; path=/'
+    await post('/api/v1/projects', { name: 'n' })
+    const [, init] = fn.mock.calls[0]
+    const headers = init.headers as Record<string, string>
+    expect(headers['X-CSRF-Token']).toBe('secret-nonce')
   })
 })

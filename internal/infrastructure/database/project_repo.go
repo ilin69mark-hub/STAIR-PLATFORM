@@ -36,21 +36,21 @@ func scanProject(row pgx.Row) (*project.Project, error) {
 	return &p, nil
 }
 
-func (r *ProjectRepository) CreateProject(ctx context.Context, p *project.Project) error {
+func (r *ProjectRepository) CreateProject(ctx context.Context, tenantID string, p *project.Project) error {
 	// id генерируется БД (gen_random_uuid); timestamp — now().
 	if err := r.pool.QueryRow(ctx,
-		`INSERT INTO projects (name, description, status) VALUES ($1, $2, $3)
+		`INSERT INTO projects (tenant_id, name, description, status) VALUES ($1, $2, $3, $4)
 		 RETURNING id, created_at, updated_at`,
-		p.Name, p.Description, p.Status,
+		tenantID, p.Name, p.Description, p.Status,
 	).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		return fmt.Errorf("project: create: %w", err)
 	}
 	return nil
 }
 
-func (r *ProjectRepository) GetProject(ctx context.Context, id string) (*project.Project, error) {
+func (r *ProjectRepository) GetProject(ctx context.Context, tenantID, id string) (*project.Project, error) {
 	p, err := scanProject(r.pool.QueryRow(ctx,
-		`SELECT `+projectCols+` FROM projects WHERE id = $1`, id))
+		`SELECT `+projectCols+` FROM projects WHERE id = $1 AND tenant_id = $2`, id, tenantID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, project.ErrNotFound
 	}
@@ -60,8 +60,9 @@ func (r *ProjectRepository) GetProject(ctx context.Context, id string) (*project
 	return p, nil
 }
 
-func (r *ProjectRepository) ListProjects(ctx context.Context) ([]*project.Project, error) {
-	rows, err := r.pool.Query(ctx, `SELECT `+projectCols+` FROM projects ORDER BY created_at DESC`)
+func (r *ProjectRepository) ListProjects(ctx context.Context, tenantID string) ([]*project.Project, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT `+projectCols+` FROM projects WHERE tenant_id = $1 ORDER BY created_at DESC`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("project: list: %w", err)
 	}
@@ -107,10 +108,12 @@ func (r *ProjectRepository) SaveConfiguration(ctx context.Context, c *project.St
 	return nil
 }
 
-func (r *ProjectRepository) GetLatestConfiguration(ctx context.Context, projectID string) (*project.StairConfiguration, error) {
+func (r *ProjectRepository) GetLatestConfiguration(ctx context.Context, tenantID, projectID string) (*project.StairConfiguration, error) {
 	c, err := scanConfig(r.pool.QueryRow(ctx,
 		`SELECT `+configCols+` FROM stair_configurations
-		 WHERE project_id = $1 ORDER BY created_at DESC LIMIT 1`, projectID))
+		 WHERE project_id = $1
+		   AND project_id IN (SELECT id FROM projects WHERE tenant_id = $2 AND id = $1)
+		 ORDER BY created_at DESC LIMIT 1`, projectID, tenantID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, project.ErrNotFound
 	}
@@ -134,8 +137,12 @@ func (r *ProjectRepository) SaveCalculation(ctx context.Context, c *project.Calc
 
 // SaveCalculationWithConfig атомарно сохраняет конфигурацию и расчёт
 // (BE-0006): одна транзакция. Сериализация Snapshot выполняется здесь —
-// encoding/json разрешён в infrastructure (ADR-0006).
-func (r *ProjectRepository) SaveCalculationWithConfig(ctx context.Context, cfg *project.StairConfiguration, snap project.Snapshot) (*project.Calculation, error) {
+// encoding/json разрешён в infrastructure (ADR-0006). Проверяется, что
+// проект принадлежит tenant'у (SEC-0005).
+func (r *ProjectRepository) SaveCalculationWithConfig(ctx context.Context, tenantID string, cfg *project.StairConfiguration, snap project.Snapshot) (*project.Calculation, error) {
+	if _, err := r.GetProject(ctx, tenantID, cfg.ProjectID); err != nil {
+		return nil, err
+	}
 	payload, err := json.Marshal(snap)
 	if err != nil {
 		return nil, fmt.Errorf("project: marshal snapshot: %w", err)
@@ -182,13 +189,15 @@ func (r *ProjectRepository) SaveCalculationWithConfig(ctx context.Context, cfg *
 	return calc, nil
 }
 
-func (r *ProjectRepository) GetLatestCalculation(ctx context.Context, projectID string) (*project.Calculation, error) {
+func (r *ProjectRepository) GetLatestCalculation(ctx context.Context, tenantID, projectID string) (*project.Calculation, error) {
 	var c project.Calculation
 	var raw []byte
 	if err := r.pool.QueryRow(ctx,
-		`SELECT id, project_id, configuration_id, valid, blocking, result, created_at
-		 FROM calculations WHERE project_id = $1
-		 ORDER BY created_at DESC LIMIT 1`, projectID,
+		`SELECT c.id, c.project_id, c.configuration_id, c.valid, c.blocking, c.result, c.created_at
+		 FROM calculations c
+		 WHERE c.project_id = $1
+		   AND c.project_id IN (SELECT id FROM projects WHERE tenant_id = $2 AND id = $1)
+		 ORDER BY c.created_at DESC LIMIT 1`, projectID, tenantID,
 	).Scan(&c.ID, &c.ProjectID, &c.ConfigurationID, &c.Valid, &c.Blocking, &raw, &c.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, project.ErrNotFound

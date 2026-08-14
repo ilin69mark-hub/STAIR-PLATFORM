@@ -13,12 +13,14 @@ import (
 
 // ProjectService — прикладной интерфейс управления проектами (BC-001),
 // ожидаемый транспортным слоем (инверсия зависимостей, DOM-0008).
+// Все методы скоупированы по tenant (SEC-0005): tenantID берётся из
+// аутентифицированного контекста запроса.
 type ProjectService interface {
-	CreateProject(ctx context.Context, name, description string) (*project.Project, error)
-	GetProject(ctx context.Context, id string) (*project.Project, error)
-	ListProjects(ctx context.Context) ([]*project.Project, error)
-	Calculate(ctx context.Context, projectID string, cfg stair.Config, opts stair.Options) (*project.Calculation, error)
-	GetResult(ctx context.Context, projectID string) (*project.Calculation, error)
+	CreateProject(ctx context.Context, tenantID, name, description string) (*project.Project, error)
+	GetProject(ctx context.Context, tenantID, id string) (*project.Project, error)
+	ListProjects(ctx context.Context, tenantID string) ([]*project.Project, error)
+	Calculate(ctx context.Context, tenantID, projectID string, cfg stair.Config, opts stair.Options) (*project.Calculation, error)
+	GetResult(ctx context.Context, tenantID, projectID string) (*project.Calculation, error)
 }
 
 // ---- DTO ----
@@ -52,16 +54,16 @@ type calculationDTO struct {
 
 // ---- handlers ----
 
-// handleCreateProject — POST /api/v1/projects.
+// handleCreateProject — POST /api/v1/projects (auth+CSRF).
 // 201 — создан; 400 — битый JSON; 422 — невалидный вход; 500 — сбой.
 func handleCreateProject(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createProjectRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := decodeJSON(w, r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
 			return
 		}
-		p, err := svc.CreateProject(r.Context(), req.Name, req.Description)
+		p, err := svc.CreateProject(r.Context(), tenantID(r.Context()), req.Name, req.Description)
 		if err != nil {
 			writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
 			return
@@ -74,7 +76,7 @@ func handleCreateProject(svc ProjectService) http.HandlerFunc {
 // 200 — найден; 404 — нет проекта.
 func handleGetProject(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		p, err := svc.GetProject(r.Context(), r.PathValue("id"))
+		p, err := svc.GetProject(r.Context(), tenantID(r.Context()), r.PathValue("id"))
 		if errors.Is(err, project.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "project not found")
 			return
@@ -87,10 +89,10 @@ func handleGetProject(svc ProjectService) http.HandlerFunc {
 	}
 }
 
-// handleListProjects — GET /api/v1/projects.
+// handleListProjects — GET /api/v1/projects (auth).
 func handleListProjects(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		list, err := svc.ListProjects(r.Context())
+		list, err := svc.ListProjects(r.Context(), tenantID(r.Context()))
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
 			return
@@ -103,7 +105,7 @@ func handleListProjects(svc ProjectService) http.HandlerFunc {
 	}
 }
 
-// handleCalculateProject — POST /api/v1/projects/{id}/calculate.
+// handleCalculateProject — POST /api/v1/projects/{id}/calculate (auth+CSRF).
 // 200 — расчёт сохранён (включая blocking-валидацию); 400 — битый JSON;
 // 404 — нет проекта; 422 — невалидный вход; 500 — сбой.
 func handleCalculateProject(svc ProjectService) http.HandlerFunc {
@@ -111,7 +113,7 @@ func handleCalculateProject(svc ProjectService) http.HandlerFunc {
 		projectID := r.PathValue("id")
 
 		var req calculateRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := decodeJSON(w, r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
 			return
 		}
@@ -126,7 +128,7 @@ func handleCalculateProject(svc ProjectService) http.HandlerFunc {
 			return
 		}
 
-		calc, err := svc.Calculate(r.Context(), projectID, cfg, opts)
+		calc, err := svc.Calculate(r.Context(), tenantID(r.Context()), projectID, cfg, opts)
 		if errors.Is(err, project.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "project not found")
 			return
@@ -139,12 +141,12 @@ func handleCalculateProject(svc ProjectService) http.HandlerFunc {
 	}
 }
 
-// handleExportProject — GET /api/v1/projects/{id}/export.
+// handleExportProject — GET /api/v1/projects/{id}/export (auth).
 // Возвращает канонический экспортный документ (снапшот конвейера) как есть.
 // 200 — документ; 404 — нет проекта или расчёта; 500 — сбой.
 func handleExportProject(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		calc, err := svc.GetResult(r.Context(), r.PathValue("id"))
+		calc, err := svc.GetResult(r.Context(), tenantID(r.Context()), r.PathValue("id"))
 		if errors.Is(err, project.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "no calculation for project")
 			return

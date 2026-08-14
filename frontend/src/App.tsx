@@ -4,33 +4,50 @@ import { projectsApi } from './api/projects'
 import type { Project } from './api/types'
 import { ProjectList } from './components/ProjectList'
 import { ProjectDetail } from './components/ProjectDetail'
+import { AuthPage } from './components/AuthPage'
+import { useAuth } from './auth/context'
 import { ApiError } from './api/types'
 
 function App() {
+  const { user, loading, logout } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loadingList, setLoadingList] = useState(false)
 
   const refresh = useCallback(async () => {
-    setLoading(true)
+    setLoadingList(true)
     setError(null)
     try {
       setProjects(await projectsApi.list())
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Не удалось загрузить проекты')
     } finally {
-      setLoading(false)
+      setLoadingList(false)
     }
   }, [])
 
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    if (user) {
+      void refresh()
+    }
+  }, [user, refresh])
 
-  const handleCreated = async (p: Project) => {
-    await refresh()
-    setSelectedId(p.id)
+  if (loading) {
+    return (
+      <div className="page">
+        <p className="muted">Загрузка…</p>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <AuthPage />
+  }
+
+  const handleLogout = async () => {
+    setSelectedId(null)
+    await logout()
   }
 
   if (selectedId) {
@@ -46,15 +63,26 @@ function App() {
   return (
     <div className="page">
       <header className="page__header">
-        <h1 className="page__title">STAIR PLATFORM</h1>
-        <p className="page__subtitle">MVP-09 · Критический workflow</p>
+        <div>
+          <h1 className="page__title">STAIR PLATFORM</h1>
+          <p className="page__subtitle">MVP-11 · Критический workflow</p>
+        </div>
+        <div className="page__actions">
+          <span className="muted">{user.email}</span>
+          <button className="btn btn--ghost" onClick={handleLogout}>
+            Выйти
+          </button>
+        </div>
       </header>
       {error && <div className="alert alert--error">{error}</div>}
       <ProjectList
         projects={projects}
-        loading={loading}
+        loading={loadingList}
         onSelect={setSelectedId}
-        onCreated={handleCreated}
+        onCreated={(p) => {
+          void refresh()
+          setSelectedId(p.id)
+        }}
       />
     </div>
   )

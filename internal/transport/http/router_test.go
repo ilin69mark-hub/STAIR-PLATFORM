@@ -4,14 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"stairplatform/internal/application/stair"
 )
 
 func testRouter() http.Handler {
-	return NewRouter(stair.NewService(), nil)
+	return NewRouter(stair.NewService(), nil, testAuth{}, DefaultConfig())
 }
 
 func TestHealth(t *testing.T) {
@@ -57,8 +56,8 @@ const referenceJSON = `{
 }`
 
 func TestCalculateReference(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/stairs:calculate",
-		strings.NewReader(referenceJSON))
+	req := authedRequest(http.MethodPost, "/api/v1/stairs:calculate",
+		referenceJSON)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -89,8 +88,8 @@ func TestCalculateReference(t *testing.T) {
 }
 
 func TestCalculateInvalidJSON(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/stairs:calculate",
-		strings.NewReader("{not json"))
+	req := authedRequest(http.MethodPost, "/api/v1/stairs:calculate",
+		"{not json")
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -110,8 +109,8 @@ func TestCalculateBlocking(t *testing.T) {
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/stairs:calculate",
-		strings.NewReader(body))
+	req := authedRequest(http.MethodPost, "/api/v1/stairs:calculate",
+		body)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -137,8 +136,8 @@ func TestCalculateInvalidInput(t *testing.T) {
 		"flight": "straight",
 		"step_height_mm": 180
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/stairs:calculate",
-		strings.NewReader(body))
+	req := authedRequest(http.MethodPost, "/api/v1/stairs:calculate",
+		body)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -174,8 +173,8 @@ func TestCalculateCustomRates(t *testing.T) {
 			"tax_percent": 20
 		}
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/stairs:calculate",
-		strings.NewReader(body))
+	req := authedRequest(http.MethodPost, "/api/v1/stairs:calculate",
+		body)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 

@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
+	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/infrastructure/database"
@@ -40,17 +42,34 @@ func main() {
 	}
 	defer pool.Close()
 
+	// Применяем миграции при старте (идемпотентно).
+	if err := database.Migrate(ctx, pool, "migrations", "up"); err != nil {
+		slog.Error("database migrate failed", "error", err)
+		os.Exit(1)
+	}
+
 	stairSvc := stair.NewService()
 	projectSvc := project.NewService(
 		database.NewProjectRepository(pool),
 		stairSvc,
 		project.DefaultRules(),
 	)
+	authSvc := auth.NewService(database.NewAuthRepository(pool), sessionTTL())
+
+	cfg := transporthttp.Config{
+		CookieSecure:    envBool("STAIR_COOKIE_SECURE", false),
+		LoginRateLimit:  envInt("STAIR_LOGIN_RATE_LIMIT", 10),
+		LoginRateWindow: time.Minute,
+		MaxBodyBytes:    1 << 20,
+	}
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           transporthttp.NewRouter(stairSvc, projectSvc),
+		Handler:           transporthttp.NewRouter(stairSvc, projectSvc, authSvc, cfg),
+		ReadTimeout:       15 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	errCh := make(chan error, 1)
@@ -79,4 +98,35 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("api server stopped")
+}
+
+// sessionTTL возвращает время жизни сессии из STAIR_SESSION_TTL
+// (секунды; дефолт 24ч = 86400с).
+func sessionTTL() time.Duration {
+	sec := envInt("STAIR_SESSION_TTL", 86400)
+	return time.Duration(sec) * time.Second
+}
+
+func envBool(key string, def bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return def
+	}
+	return b
+}
+
+func envInt(key string, def int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return def
+	}
+	return n
 }

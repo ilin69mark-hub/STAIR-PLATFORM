@@ -2,16 +2,19 @@
 // Создать проект → Настроить → Рассчитать → Панели результата → Экспорт.
 
 import { expect, test } from '@playwright/test'
+import { register, uniqueEmail } from '../helpers/auth'
 
 function uniqueName(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e4)}`
 }
 
-test('полный критический workflow: создание → расчёт → экспорт', async ({ page }) => {
+test('полный критический workflow: регистрация → создание → расчёт → экспорт', async ({ page }) => {
   const name = uniqueName('E2E')
 
+  // Регистрация нового пользователя (auth обязателен для /api/v1).
+  await register(page, uniqueEmail())
+
   // Создание проекта.
-  await page.goto('/')
   await page.locator('#project-name').fill(name)
   await page.getByRole('button', { name: 'Создать' }).click()
 

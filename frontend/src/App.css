@@ -34,6 +34,59 @@ body {
 
 .page__header {
   margin-bottom: 24px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.page__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 6px;
+}
+
+.auth {
+  display: flex;
+  justify-content: center;
+  padding-top: 24px;
+}
+
+.auth .panel {
+  width: 100%;
+  max-width: 420px;
+}
+
+.auth__tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.auth__tab {
+  flex: 1;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.auth__tab--active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.auth__form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 .page__title {

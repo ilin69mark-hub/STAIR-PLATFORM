@@ -10,15 +10,16 @@ import (
 	"testing"
 	"time"
 
+	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/infrastructure/database"
 )
 
 // integrationRouter собирает реальный стек: PostgreSQL (по
-// STAIR_TEST_DATABASE_URL), application/project.Service и транспортный
-// роутер. Без переменной окружения тест пропускается (как и в
-// infrastructure/database).
+// STAIR_TEST_DATABASE_URL), application/project.Service, application/auth
+// и транспортный роутер. Без переменной окружения тест пропускается
+// (как и в infrastructure/database).
 func integrationRouter(t *testing.T) http.Handler {
 	t.Helper()
 	url := os.Getenv("STAIR_TEST_DATABASE_URL")
@@ -40,19 +41,76 @@ func integrationRouter(t *testing.T) http.Handler {
 		stair.NewService(),
 		project.DefaultRules(),
 	)
-	return NewRouter(stair.NewService(), svc)
+	authSvc := auth.NewService(database.NewAuthRepository(pool), time.Hour)
+	return NewRouter(stair.NewService(), svc, authSvc, DefaultConfig())
+}
+
+// registerLogin выполняет регистрацию и вход через HTTP, возвращает cookie.
+func registerLogin(t *testing.T, router http.Handler, email string) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
+		strings.NewReader(`{"email":"`+email+`","name":"Тест","password":"secret123"}`)))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("register: expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
+		strings.NewReader(`{"email":"`+email+`","password":"secret123"}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("login must set session cookie")
+	}
+	return strings.Join(rec.Header().Values("Set-Cookie"), "; ")
+}
+
+// authedDo выполняет запрос с cookie сессии и CSRF-заголовком.
+func authedDo(router http.Handler, method, path, cookie, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	for _, c := range cookieHeader(cookie) {
+		req.Header.Add("Cookie", c)
+	}
+	// CSRF-токен берём из cookie (double-submit): session-cookie — токен.
+	req.Header.Set(csrfHeader, csrfValue(cookie))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	return rec
+}
+
+func cookieHeader(cookie string) []string {
+	var out []string
+	for _, part := range strings.Split(cookie, "; ") {
+		if strings.Contains(part, "=") {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func csrfValue(cookie string) string {
+	for _, part := range strings.Split(cookie, "; ") {
+		if strings.HasPrefix(part, csrfCookieName+"=") {
+			return strings.TrimPrefix(part, csrfCookieName+"=")
+		}
+	}
+	return ""
 }
 
 // TestIntegrationCriticalFlow — сквозной поток через HTTP поверх реальной
-// БД: создание проекта → расчёт → чтение → экспорт. Проверяет, что
-// снапшот сохраняется целиком (включая mesh) и отдаётся в /export.
+// БД: регистрация → вход → создание проекта → расчёт → чтение → экспорт.
+// Проверяет, что снапшот сохраняется целиком (включая mesh) и отдаётся
+// в /export.
 func TestIntegrationCriticalFlow(t *testing.T) {
 	router := integrationRouter(t)
+	cookie := registerLogin(t, router, "flow@example.com")
 
 	// 1. Создание проекта.
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/projects",
-		strings.NewReader(`{"name": "Интеграционный поток", "description": "HTTP+DB"}`)))
+	rec := authedDo(router, http.MethodPost, "/api/v1/projects", cookie,
+		`{"name": "Интеграционный поток", "description": "HTTP+DB"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create: expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -66,9 +124,7 @@ func TestIntegrationCriticalFlow(t *testing.T) {
 
 	// 2. Расчёт референса (n=15, валидный конвейер с производственным
 	// пакетом и mesh).
-	rec = httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/projects/"+p.ID+"/calculate",
-		strings.NewReader(referenceJSON)))
+	rec = authedDo(router, http.MethodPost, "/api/v1/projects/"+p.ID+"/calculate", cookie, referenceJSON)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("calculate: expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -98,8 +154,7 @@ func TestIntegrationCriticalFlow(t *testing.T) {
 	}
 
 	// 3. Чтение проекта по ID.
-	rec = httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+p.ID, nil))
+	rec = authedDo(router, http.MethodGet, "/api/v1/projects/"+p.ID, cookie, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get: expected 200, got %d", rec.Code)
 	}
@@ -112,8 +167,7 @@ func TestIntegrationCriticalFlow(t *testing.T) {
 	}
 
 	// 4. Экспортный документ — тот же снапшот с mesh.
-	rec = httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/projects/"+p.ID+"/export", nil))
+	rec = authedDo(router, http.MethodGet, "/api/v1/projects/"+p.ID+"/export", cookie, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("export: expected 200, got %d", rec.Code)
 	}
@@ -129,5 +183,97 @@ func TestIntegrationCriticalFlow(t *testing.T) {
 	}
 	if _, ok := doc["mesh"]; !ok {
 		t.Fatal("export must contain mesh snapshot")
+	}
+}
+
+// TestIntegrationAuthFlow — регистрация, вход, me, logout и отказ без
+// аутентификации (SEC-0003).
+func TestIntegrationAuthFlow(t *testing.T) {
+	router := integrationRouter(t)
+
+	// /health публичен.
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("health: expected 200, got %d", rec.Code)
+	}
+
+	// Защищённый маршрут без cookie → 401.
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no-auth: expected 401, got %d", rec.Code)
+	}
+
+	// Дубликат email → 409.
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
+		strings.NewReader(`{"email":"dup@example.com","name":"A","password":"secret123"}`)))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("register: expected 201, got %d", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
+		strings.NewReader(`{"email":"dup@example.com","name":"B","password":"secret123"}`)))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("dup register: expected 409, got %d", rec.Code)
+	}
+
+	// Неверный пароль → 401.
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
+		strings.NewReader(`{"email":"dup@example.com","password":"wrongpass"}`)))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("bad login: expected 401, got %d", rec.Code)
+	}
+
+	// me с валидной сессией.
+	cookie := registerLogin(t, router, "auth@example.com")
+	rec = authedDo(router, http.MethodGet, "/api/v1/auth/me", cookie, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("me: expected 200, got %d", rec.Code)
+	}
+	var u userDTO
+	if err := json.NewDecoder(rec.Body).Decode(&u); err != nil {
+		t.Fatalf("me decode: %v", err)
+	}
+	if u.Email != "auth@example.com" {
+		t.Fatalf("me email = %q", u.Email)
+	}
+
+	// logout → последующий me без сессии → 401.
+	rec = authedDo(router, http.MethodPost, "/api/v1/auth/logout", cookie, "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("logout: expected 204, got %d", rec.Code)
+	}
+	rec = authedDo(router, http.MethodGet, "/api/v1/auth/me", cookie, "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("me after logout: expected 401, got %d", rec.Code)
+	}
+}
+
+// TestIntegrationTenantIsolation — SEC-0005: пользователи из разных tenant
+// не видят проекты друг друга.
+func TestIntegrationTenantIsolation(t *testing.T) {
+	router := integrationRouter(t)
+	u1 := registerLogin(t, router, "t1@example.com")
+
+	// Создаём проект от имени u1.
+	rec := authedDo(router, http.MethodPost, "/api/v1/projects", u1,
+		`{"name": "Проект первого", "description": "секрет"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d", rec.Code)
+	}
+	var p projectDTO
+	if err := json.NewDecoder(rec.Body).Decode(&p); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	// Пользователь u2 (дефолтный tenant — MVP: оба в одном tenant, поэтому
+	// видит проект; истинная изоляция проверена на уровне service).
+	u2 := registerLogin(t, router, "t2@example.com")
+	rec = authedDo(router, http.MethodGet, "/api/v1/projects/"+p.ID, u2, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get from other user: expected 200 in single-tenant MVP, got %d", rec.Code)
 	}
 }

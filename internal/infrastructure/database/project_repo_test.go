@@ -34,6 +34,18 @@ func integrationRepo(t *testing.T) *ProjectRepository {
 	return NewProjectRepository(pool)
 }
 
+// testTenantID возвращает/создаёт дефолтный tenant для интеграционных тестов.
+func testTenantID(t *testing.T, repo *ProjectRepository) string {
+	t.Helper()
+	ctx := context.Background()
+	ar := NewAuthRepository(repo.pool)
+	ten, err := ar.DefaultTenant(ctx)
+	if err != nil {
+		t.Fatalf("DefaultTenant: %v", err)
+	}
+	return ten.ID
+}
+
 // sampleSnapshot возвращает тестовый снапшот с минимальным содержимым.
 func sampleSnapshot(projectID string) project.Snapshot {
 	return project.Snapshot{
@@ -54,16 +66,17 @@ func TestProjectRepositoryCRUD(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	repo := integrationRepo(t)
+	tenant := testTenantID(t, repo)
 
 	p := &project.Project{Name: "Интеграционный", Description: "тест"}
-	if err := repo.CreateProject(ctx, p); err != nil {
+	if err := repo.CreateProject(ctx, tenant, p); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 	if p.ID == "" {
 		t.Fatal("expected assigned UUID")
 	}
 
-	got, err := repo.GetProject(ctx, p.ID)
+	got, err := repo.GetProject(ctx, tenant, p.ID)
 	if err != nil {
 		t.Fatalf("GetProject: %v", err)
 	}
@@ -71,7 +84,7 @@ func TestProjectRepositoryCRUD(t *testing.T) {
 		t.Fatalf("name = %q", got.Name)
 	}
 
-	list, err := repo.ListProjects(ctx)
+	list, err := repo.ListProjects(ctx, tenant)
 	if err != nil {
 		t.Fatalf("ListProjects: %v", err)
 	}
@@ -79,7 +92,7 @@ func TestProjectRepositoryCRUD(t *testing.T) {
 		t.Fatal("expected at least one project")
 	}
 
-	if _, err := repo.GetProject(ctx, "00000000-0000-0000-0000-000000000000"); !errors.Is(err, project.ErrNotFound) {
+	if _, err := repo.GetProject(ctx, tenant, "00000000-0000-0000-0000-000000000000"); !errors.Is(err, project.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
@@ -91,9 +104,10 @@ func TestProjectRepositorySaveCalculationWithConfig(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	repo := integrationRepo(t)
+	tenant := testTenantID(t, repo)
 
 	p := &project.Project{Name: "Расчёт"}
-	if err := repo.CreateProject(ctx, p); err != nil {
+	if err := repo.CreateProject(ctx, tenant, p); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 
@@ -104,7 +118,7 @@ func TestProjectRepositorySaveCalculationWithConfig(t *testing.T) {
 	}
 	snap := sampleSnapshot(p.ID)
 
-	calc, err := repo.SaveCalculationWithConfig(ctx, cfg, snap)
+	calc, err := repo.SaveCalculationWithConfig(ctx, tenant, cfg, snap)
 	if err != nil {
 		t.Fatalf("SaveCalculationWithConfig: %v", err)
 	}
@@ -115,7 +129,7 @@ func TestProjectRepositorySaveCalculationWithConfig(t *testing.T) {
 		t.Fatalf("calculation not linked to config: %s vs %s", calc.ConfigurationID, cfg.ID)
 	}
 
-	latest, err := repo.GetLatestCalculation(ctx, p.ID)
+	latest, err := repo.GetLatestCalculation(ctx, tenant, p.ID)
 	if err != nil {
 		t.Fatalf("GetLatestCalculation: %v", err)
 	}
@@ -126,7 +140,7 @@ func TestProjectRepositorySaveCalculationWithConfig(t *testing.T) {
 		t.Fatalf("result must be stored as JSON object, got %q", string(latest.Result))
 	}
 
-	conf, err := repo.GetLatestConfiguration(ctx, p.ID)
+	conf, err := repo.GetLatestConfiguration(ctx, tenant, p.ID)
 	if err != nil {
 		t.Fatalf("GetLatestConfiguration: %v", err)
 	}
@@ -142,12 +156,13 @@ func TestProjectRepositoryNotFound(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	repo := integrationRepo(t)
+	tenant := testTenantID(t, repo)
 
 	missing := "00000000-0000-0000-0000-000000000000"
-	if _, err := repo.GetLatestConfiguration(ctx, missing); !errors.Is(err, project.ErrNotFound) {
+	if _, err := repo.GetLatestConfiguration(ctx, tenant, missing); !errors.Is(err, project.ErrNotFound) {
 		t.Fatalf("config: expected ErrNotFound, got %v", err)
 	}
-	if _, err := repo.GetLatestCalculation(ctx, missing); !errors.Is(err, project.ErrNotFound) {
+	if _, err := repo.GetLatestCalculation(ctx, tenant, missing); !errors.Is(err, project.ErrNotFound) {
 		t.Fatalf("calc: expected ErrNotFound, got %v", err)
 	}
 }
@@ -159,9 +174,10 @@ func TestProjectRepositoryStandaloneConfigAndCalculation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	repo := integrationRepo(t)
+	tenant := testTenantID(t, repo)
 
 	p := &project.Project{Name: "Самостоятельные сохранения"}
-	if err := repo.CreateProject(ctx, p); err != nil {
+	if err := repo.CreateProject(ctx, tenant, p); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 
@@ -190,7 +206,7 @@ func TestProjectRepositoryStandaloneConfigAndCalculation(t *testing.T) {
 		t.Fatal("expected assigned calculation ID")
 	}
 
-	got, err := repo.GetLatestCalculation(ctx, p.ID)
+	got, err := repo.GetLatestCalculation(ctx, tenant, p.ID)
 	if err != nil {
 		t.Fatalf("GetLatestCalculation: %v", err)
 	}
