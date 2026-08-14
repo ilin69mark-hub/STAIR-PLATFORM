@@ -43,17 +43,17 @@ Distributed Processing
 
 # Phase C — Collaboration
 
-Multi-user Projects
+Multi-user Projects — **CLOSED 2026-08-15**: реализовано end-to-end (C1, EDR-0008) — владение проектами и роли owner/editor/viewer.
 
-Project Sharing
+Project Sharing — **CLOSED 2026-08-15**: реализовано end-to-end (C2) — приглашение участников по email и просмотр «shared with me».
 
-Comments
+Comments — **CLOSED 2026-08-15**: реализовано end-to-end (C3, EDR-0009) — ветки обсуждений на проектах.
 
-Review
+Review — **CLOSED 2026-08-15**: реализовано end-to-end (C4, EDR-0010) — запрос ревью, подпись, запрос изменений.
 
-Approval
+Approval — **CLOSED 2026-08-15**: реализовано end-to-end (C5, EDR-0011) — согласование конфигураций с историей решений.
 
-Versioning
+Versioning — **CLOSED 2026-08-15**: реализовано end-to-end (C6, EDR-0012) — ревизии конфигураций, текущая версия, восстановление.
 
 ---
 
