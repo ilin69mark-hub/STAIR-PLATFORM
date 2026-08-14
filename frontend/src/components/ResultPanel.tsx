@@ -1,5 +1,13 @@
+import { lazy, Suspense } from 'react'
 import type { Pricing, Snapshot } from '../api/types'
 import { fmt } from '../lib/format'
+import { exportCsv } from '../lib/export'
+import { StairProfile } from './schemes/StairProfile'
+import { NestingMap } from './schemes/NestingMap'
+
+const GeometryViewer = lazy(() =>
+  import('./viewer/GeometryViewer').then((m) => ({ default: m.GeometryViewer })),
+)
 
 interface Props {
   snapshot: Snapshot
@@ -29,7 +37,7 @@ export function ResultPanel({ snapshot }: Props) {
           <FlightPanel snapshot={s} />
           <GeometryPanel snapshot={s} />
           <ManufacturingPanel snapshot={s} />
-          <PricingPanel pricing={s.pricing!} />
+          <PricingPanel snapshot={s} pricing={s.pricing!} />
         </>
       )}
     </div>
@@ -105,6 +113,7 @@ function FlightPanel({ snapshot }: { snapshot: Snapshot }) {
           <dd>{fmt.deg(f.Angle)}</dd>
         </div>
       </dl>
+      <StairProfile flight={f} />
     </section>
   )
 }
@@ -138,6 +147,11 @@ function GeometryPanel({ snapshot }: { snapshot: Snapshot }) {
       </dl>
       {snapshot.issue_count > 0 && (
         <p className="alert alert--warn">Геометрических замечаний: {snapshot.issue_count}</p>
+      )}
+      {snapshot.mesh && (
+        <Suspense fallback={<p className="muted">Загрузка 3D…</p>}>
+          <GeometryViewer mesh={snapshot.mesh} />
+        </Suspense>
       )}
     </section>
   )
@@ -226,11 +240,24 @@ function ManufacturingPanel({ snapshot }: { snapshot: Snapshot }) {
           <dd>{fmt.pct(nesting.Utilization)}</dd>
         </div>
       </dl>
+      <NestingMap nesting={nesting} />
+
+      <div className="row row--actions">
+        <button className="btn" onClick={() => exportCsv.bom(snapshot, mfg)}>
+          Экспорт BOM (CSV)
+        </button>
+        <button className="btn" onClick={() => exportCsv.parts(snapshot, mfg)}>
+          Экспорт деталей (CSV)
+        </button>
+        <button className="btn" onClick={() => exportCsv.cutList(snapshot, mfg)}>
+          Экспорт раскроя (CSV)
+        </button>
+      </div>
     </section>
   )
 }
 
-function PricingPanel({ pricing }: { pricing: Pricing }) {
+function PricingPanel({ snapshot, pricing }: { snapshot: Snapshot; pricing: Pricing }) {
   const p = pricing
   const rows: Array<[string, number | undefined]> = [
     ['Материалы', p.Material],
@@ -286,6 +313,12 @@ function PricingPanel({ pricing }: { pricing: Pricing }) {
           </table>
         </>
       )}
+
+      <div className="row row--actions">
+        <button className="btn" onClick={() => exportCsv.pricing(snapshot, pricing)}>
+          Экспорт цен (CSV)
+        </button>
+      </div>
     </section>
   )
 }

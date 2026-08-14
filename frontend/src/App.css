@@ -193,6 +193,33 @@ body {
   color: var(--warn);
 }
 
+.alert--ok {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: var(--ok);
+}
+
+.field__input--invalid {
+  border-color: var(--error);
+}
+
+.field__input--invalid:focus {
+  outline-color: var(--error);
+  border-color: var(--error);
+}
+
+.field__error {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--error);
+}
+
+.rates {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--border);
+}
+
 .muted {
   color: var(--muted);
   font-size: 14px;
@@ -302,4 +329,131 @@ body {
 
 .results {
   margin-top: 8px;
+}
+
+/* ---- SVG-схемы (FE-0017, MFG-0012) ---- */
+
+.scheme {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfcfe;
+  padding: 10px;
+}
+
+.scheme__svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.scheme__fill {
+  fill: #eef2f8;
+  stroke: none;
+}
+
+.scheme__outline {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.scheme__stringer {
+  stroke: #94a3b8;
+  stroke-width: 10;
+  stroke-linecap: round;
+}
+
+.scheme__dimline {
+  stroke: var(--muted);
+  stroke-width: 1;
+  fill: var(--muted);
+}
+
+.scheme__dimtext {
+  fill: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.scheme__label {
+  fill: var(--text);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.scheme__caption {
+  margin: 8px 2px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.nesting-map {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.nesting-sheet {
+  flex: 1 1 320px;
+  max-width: 360px;
+  min-width: 260px;
+}
+
+.nesting-sheet__svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.nesting-sheet__bg {
+  fill: #f1f5f9;
+  stroke: #94a3b8;
+  stroke-width: 1.5;
+}
+
+.nesting-sheet__part {
+  stroke: #fff;
+  stroke-width: 1;
+}
+
+.nesting-sheet__partlabel {
+  fill: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.nesting-sheet__caption {
+  margin: 6px 2px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---- 3D-вьювер (FE-0017) ---- */
+
+.viewer {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.viewer__stage {
+  width: 100%;
+  height: 380px;
+}
+
+.viewer__hint {
+  margin: 0;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  background: #fbfcfe;
+  color: var(--muted);
+  font-size: 12px;
 }

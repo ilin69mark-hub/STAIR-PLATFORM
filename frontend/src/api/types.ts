@@ -16,6 +16,22 @@ export interface CreateProjectRequest {
   description: string
 }
 
+// ---- Ставки цены (PRC) — опциональное переопределение дефолтов ----
+
+export interface Rates {
+  material_per_kg_rub?: {
+    'STEEL-S235'?: number
+    'ALUM-5083'?: number
+    'WOOD-OAK'?: number
+  }
+  machine_per_hour_rub?: number
+  labor_per_hour_rub?: number
+  overhead_percent?: number
+  margin_percent?: number
+  discount_percent?: number
+  tax_percent?: number
+}
+
 // ---- Экспортный документ (снапшот) ----
 
 export interface ValidationIssue {
@@ -55,6 +71,17 @@ export interface Measurement {
   Volume: number
   SurfaceArea: number
   BoundingBox: BBox
+}
+
+export interface MeshVertex {
+  X: number
+  Y: number
+  Z: number
+}
+
+export interface Mesh {
+  Vertices: MeshVertex[]
+  Triangles: Array<[number, number, number]>
 }
 
 export interface Part {
@@ -146,6 +173,7 @@ export interface Snapshot {
   validation: ValidationResult
   flight?: FlightResult
   measurement?: Measurement
+  mesh?: Mesh
   issue_count: number
   manufacturing?: Manufacturing
   pricing?: Pricing

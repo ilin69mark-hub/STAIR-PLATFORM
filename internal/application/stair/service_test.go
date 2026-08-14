@@ -73,6 +73,13 @@ func TestCalculateValidPipeline(t *testing.T) {
 		t.Fatal("package must contain nesting result")
 	}
 
+	if res.Mesh == nil {
+		t.Fatal("preview mesh must be present")
+	}
+	if len(res.Mesh.Vertices) == 0 || len(res.Mesh.Triangles) == 0 {
+		t.Fatal("preview mesh must contain vertices and triangles")
+	}
+
 	if res.Cost == nil {
 		t.Fatal("cost dataset must be present")
 	}

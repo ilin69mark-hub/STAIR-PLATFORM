@@ -7,6 +7,7 @@ import (
 	"stairplatform/internal/engine/geometry"
 	"stairplatform/internal/engine/solver"
 	"stairplatform/internal/engine/validation"
+	kerngeo "stairplatform/internal/geometry"
 )
 
 // Snapshot — канонический экспортный документ расчёта (ввод в /export);
@@ -19,6 +20,7 @@ type Snapshot struct {
 	Validation    validation.Result                       `json:"validation"`
 	Flight        solver.FlightResult                     `json:"flight"`
 	Measurement   geometry.Measurement                    `json:"measurement"`
+	Mesh          *kerngeo.Mesh                           `json:"mesh,omitempty"`
 	IssueCount    int                                     `json:"issue_count"`
 	Manufacturing *manufacturing.ManufacturingPackage     `json:"manufacturing,omitempty"`
 	Pricing       *pricing.PriceBreakdown                 `json:"pricing,omitempty"`
@@ -32,6 +34,7 @@ func NewSnapshot(projectID string, res *stair.Result) Snapshot {
 		Validation:    res.Validation,
 		Flight:        res.Flight,
 		Measurement:   res.Measurement,
+		Mesh:          res.Mesh,
 		IssueCount:    len(res.GeometryIssues),
 		Manufacturing: res.Package,
 		Pricing:       res.Price,

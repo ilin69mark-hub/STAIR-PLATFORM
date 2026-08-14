@@ -2,7 +2,17 @@ import { useEffect, useState } from 'react'
 import type { Calculation, Project } from '../api/types'
 import { ApiError } from '../api/types'
 import { projectsApi } from '../api/projects'
-import { defaultConfig, toRequest, type ConfigForm } from '../lib/config'
+import {
+  defaultConfig,
+  defaultRates,
+  toRequest,
+  toRatesRequest,
+  validateForm,
+  fieldRules,
+  type ConfigForm,
+  type FieldErrors,
+  type RatesForm,
+} from '../lib/config'
 import { ResultPanel } from './ResultPanel'
 
 interface Props {
@@ -11,12 +21,19 @@ interface Props {
   onChanged: () => void
 }
 
-export function ProjectDetail({ projectId, onBack }: Props) {
+export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
   const [project, setProject] = useState<Project | null>(null)
   const [config, setConfig] = useState<ConfigForm>(defaultConfig)
+  const [rates, setRates] = useState<RatesForm>(defaultRates)
   const [calculation, setCalculation] = useState<Calculation | null>(null)
+  const [savedAt, setSavedAt] = useState<Date | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  const errors = validateForm(config)
+  const hasHardErrors = Object.values(errors).some(
+    (e) => e === 'Введите число' || e === 'Укажите значение',
+  )
 
   useEffect(() => {
     projectsApi
@@ -28,11 +45,20 @@ export function ProjectDetail({ projectId, onBack }: Props) {
   const setField = (key: keyof ConfigForm, value: string) =>
     setConfig((c) => ({ ...c, [key]: value }))
 
+  const setRate = (key: keyof RatesForm, value: string) =>
+    setRates((r) => ({ ...r, [key]: value }))
+
   const handleCalculate = async () => {
     setBusy(true)
     setError(null)
     try {
-      setCalculation(await projectsApi.calculate(projectId, toRequest(config)))
+      const body = { ...toRequest(config) }
+      const ratesReq = toRatesRequest(rates)
+      if (ratesReq) body.rates = ratesReq
+      const calc = await projectsApi.calculate(projectId, body)
+      setCalculation(calc)
+      setSavedAt(new Date())
+      onChanged()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Не удалось выполнить расчёт')
     } finally {
@@ -57,19 +83,28 @@ export function ProjectDetail({ projectId, onBack }: Props) {
       </header>
 
       {error && <div className="alert alert--error">{error}</div>}
+      {savedAt && (
+        <div className="alert alert--ok">
+          Расчёт сохранён · {savedAt.toLocaleTimeString('ru-RU')}
+        </div>
+      )}
 
       <div className="projects">
         <section className="panel">
           <h2 className="panel__title">Параметры лестницы</h2>
-          <ConfigForm fields={config} onChange={setField} />
+          <ConfigForm fields={config} errors={errors} onChange={setField} />
+          <RatesFormSection rates={rates} onChange={setRate} />
           <div className="row row--actions">
-            <button className="btn btn--primary" onClick={handleCalculate} disabled={busy}>
+            <button className="btn btn--primary" onClick={handleCalculate} disabled={busy || hasHardErrors}>
               {busy ? 'Расчёт…' : 'Рассчитать'}
             </button>
             <button className="btn" onClick={handleExport} disabled={!calculation}>
               Экспорт JSON
             </button>
           </div>
+          {hasHardErrors && (
+            <p className="muted">Исправьте нечисловые или пустые поля перед расчётом.</p>
+          )}
           {calculation && (
             <p className="muted">
               Расчёт {calculation.valid ? 'успешен' : 'с ошибками'} ·{' '}
@@ -86,10 +121,11 @@ export function ProjectDetail({ projectId, onBack }: Props) {
 
 interface ConfigFormProps {
   fields: ConfigForm
+  errors: FieldErrors
   onChange: (key: keyof ConfigForm, value: string) => void
 }
 
-const configFields: Array<{ key: keyof ConfigForm; label: string; hint?: string }> = [
+const configFields: Array<{ key: keyof ConfigForm; label: string }> = [
   { key: 'widthMM', label: 'Ширина марша, мм' },
   { key: 'heightMM', label: 'Высота подъёма H, мм' },
   { key: 'stepHeightMM', label: 'Целевая высота ступени, мм' },
@@ -97,28 +133,85 @@ const configFields: Array<{ key: keyof ConfigForm; label: string; hint?: string 
   { key: 'stepThicknessMM', label: 'Толщина ступени, мм' },
   { key: 'clearanceMM', label: 'Зазор, мм' },
   { key: 'railingHeightMM', label: 'Высота ограждения, мм' },
-  { key: 'comfortStepMM', label: 'Шаг комфорта S (600–640), мм', hint: 'необязательно' },
+  { key: 'comfortStepMM', label: 'Шаг комфорта S, мм' },
 ]
 
-function ConfigForm({ fields, onChange }: ConfigFormProps) {
+function ConfigForm({ fields, errors, onChange }: ConfigFormProps) {
   return (
     <div className="config-grid">
-      {configFields.map((f) => (
-        <div className="field" key={f.key}>
-          <label className="field__label" htmlFor={`cfg-${f.key}`}>
-            {f.label}
-            {f.hint && <span className="field__hint"> {f.hint}</span>}
-          </label>
-          <input
-            id={`cfg-${f.key}`}
-            className="field__input"
-            type="number"
-            inputMode="decimal"
-            value={fields[f.key]}
-            onChange={(e) => onChange(f.key, e.target.value)}
-          />
-        </div>
-      ))}
+      {configFields.map((f) => {
+        const rule = fieldRules[f.key]
+        const error = errors[f.key]
+        const hint = rule && (rule.hint ?? (rule.min || rule.max ? rangeText(rule) : undefined))
+        return (
+          <div className="field" key={f.key}>
+            <label className="field__label" htmlFor={`cfg-${f.key}`}>
+              {f.label}
+              {hint && <span className="field__hint"> {hint}</span>}
+            </label>
+            <input
+              id={`cfg-${f.key}`}
+              className={`field__input${error ? ' field__input--invalid' : ''}`}
+              type="number"
+              inputMode="decimal"
+              value={fields[f.key]}
+              onChange={(e) => onChange(f.key, e.target.value)}
+            />
+            {error && <p className="field__error">{error}</p>}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function rangeText(rule: { min?: number; max?: number }): string {
+  if (rule.min !== undefined && rule.max !== undefined) return `${rule.min}–${rule.max}`
+  if (rule.min !== undefined) return `≥${rule.min}`
+  if (rule.max !== undefined) return `≤${rule.max}`
+  return ''
+}
+
+interface RatesFormProps {
+  rates: RatesForm
+  onChange: (key: keyof RatesForm, value: string) => void
+}
+
+const rateFields: Array<{ key: keyof RatesForm; label: string; placeholder: string }> = [
+  { key: 'steel', label: 'Сталь STEEL-S235, ₽/кг', placeholder: 'дефолт' },
+  { key: 'alum', label: 'Алюминий ALUM-5083, ₽/кг', placeholder: 'дефолт' },
+  { key: 'wood', label: 'Дуб WOOD-OAK, ₽/кг', placeholder: 'дефолт' },
+  { key: 'machinePerHour', label: 'Станок, ₽/час', placeholder: 'дефолт' },
+  { key: 'laborPerHour', label: 'Труд, ₽/час', placeholder: 'дефолт' },
+  { key: 'overheadPct', label: 'Накладные, %', placeholder: 'дефолт' },
+  { key: 'marginPct', label: 'Маржа, %', placeholder: 'дефолт' },
+  { key: 'discountPct', label: 'Скидка, %', placeholder: 'дефолт' },
+  { key: 'taxPct', label: 'НДС, %', placeholder: 'дефолт' },
+]
+
+function RatesFormSection({ rates, onChange }: RatesFormProps) {
+  return (
+    <div className="rates">
+      <h3 className="panel__sub">Ставки цены (опционально)</h3>
+      <p className="muted">Пустые поля — значения по умолчанию.</p>
+      <div className="config-grid">
+        {rateFields.map((f) => (
+          <div className="field" key={f.key}>
+            <label className="field__label" htmlFor={`rate-${f.key}`}>
+              {f.label}
+            </label>
+            <input
+              id={`rate-${f.key}`}
+              className="field__input"
+              type="number"
+              inputMode="decimal"
+              placeholder={f.placeholder}
+              value={rates[f.key]}
+              onChange={(e) => onChange(f.key, e.target.value)}
+            />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

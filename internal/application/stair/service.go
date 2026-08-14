@@ -48,6 +48,7 @@ type Result struct {
 	Flight         solver.FlightResult
 	Measurement    geometry.Measurement
 	GeometryIssues []kerngeo.ValidationIssue
+	Mesh           *kerngeo.Mesh                // preview mesh для визуализации (ENG-GEO-0008)
 	Package        *dommfg.ManufacturingPackage // полные Parts/BOM/CutList/Nesting
 	Cost           *dommfg.ManufacturingCostDataset
 	Price          *domprc.PriceBreakdown
@@ -122,6 +123,7 @@ func (s *Service) Calculate(cfg Config, opts Options) (*Result, error) {
 		Flight:         flight,
 		Measurement:    gen.Measurement,
 		GeometryIssues: gen.Issues,
+		Mesh:           gen.Mesh,
 		Package:        pkg,
 		Cost:           ds,
 		Price:          price,
