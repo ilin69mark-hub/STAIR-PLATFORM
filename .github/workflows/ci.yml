@@ -35,7 +35,9 @@ jobs:
       - name: Lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          # Пин v2: «latest» в action ставит v1.64.8 (собран с go1.24) и падает
+          # на go1.26.2. v2.12.2 собран с go1.26.2 — совместим с go.mod.
+          version: v2.12.2
 
       - name: Dependencies (govulncheck)
         run: |
