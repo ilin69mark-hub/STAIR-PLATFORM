@@ -52,6 +52,16 @@ func solidPoints(solid *Solid) []Point3 {
 // грани оболочки (ENG-GEO-0013). Требуется согласованная наружная ориентация
 // граней; результат положителен для корректного тела.
 func Volume(solid *Solid) (float64, error) {
+	return NewTessellationCache().volume(solid)
+}
+
+// VolumeCached — вариант Volume, использующий разделяемый кеш триангуляций,
+// чтобы каждая грань триангулировалась один раз за вызов конвейера (EM-06).
+func VolumeCached(solid *Solid, cache *TessellationCache) (float64, error) {
+	return cache.volume(solid)
+}
+
+func (c *TessellationCache) volume(solid *Solid) (float64, error) {
 	shells := solid.Shells()
 	if len(shells) == 0 {
 		return 0, fmt.Errorf("geometry: solid has no shells")
@@ -59,16 +69,18 @@ func Volume(solid *Solid) (float64, error) {
 	var vol float64
 	for _, shell := range shells {
 		for _, face := range shell.Faces() {
-			wire, closed := contourPoints(face.Outer())
-			if !closed {
+			t := c.Face(face.Outer())
+			if !t.Closed {
 				return 0, fmt.Errorf("geometry: open face contour")
 			}
-			tris, err := Triangulate(wire)
-			if err != nil {
-				return 0, err
+			if t.WireErr != nil {
+				return 0, t.WireErr
 			}
-			for _, tr := range tris {
-				vol += tetraVolume(wire[tr[0]], wire[tr[1]], wire[tr[2]])
+			if t.TrisErr != nil {
+				return 0, t.TrisErr
+			}
+			for _, tr := range t.Tris {
+				vol += tetraVolume(t.Points[tr[0]], t.Points[tr[1]], t.Points[tr[2]])
 			}
 		}
 	}
@@ -78,6 +90,16 @@ func Volume(solid *Solid) (float64, error) {
 // SurfaceArea возвращает площадь поверхности тела (мм²) как сумму площадей
 // всех триангулированных граней оболочки (ENG-GEO-0013).
 func SurfaceArea(solid *Solid) (float64, error) {
+	return NewTessellationCache().surfaceArea(solid)
+}
+
+// SurfaceAreaCached — вариант SurfaceArea, использующий разделяемый кеш
+// триангуляций (EM-06).
+func SurfaceAreaCached(solid *Solid, cache *TessellationCache) (float64, error) {
+	return cache.surfaceArea(solid)
+}
+
+func (c *TessellationCache) surfaceArea(solid *Solid) (float64, error) {
 	shells := solid.Shells()
 	if len(shells) == 0 {
 		return 0, fmt.Errorf("geometry: solid has no shells")
@@ -85,16 +107,18 @@ func SurfaceArea(solid *Solid) (float64, error) {
 	var area float64
 	for _, shell := range shells {
 		for _, face := range shell.Faces() {
-			wire, closed := contourPoints(face.Outer())
-			if !closed {
+			t := c.Face(face.Outer())
+			if !t.Closed {
 				return 0, fmt.Errorf("geometry: open face contour")
 			}
-			tris, err := Triangulate(wire)
-			if err != nil {
-				return 0, err
+			if t.WireErr != nil {
+				return 0, t.WireErr
 			}
-			for _, tr := range tris {
-				area += triangleArea(wire[tr[0]], wire[tr[1]], wire[tr[2]])
+			if t.TrisErr != nil {
+				return 0, t.TrisErr
+			}
+			for _, tr := range t.Tris {
+				area += triangleArea(t.Points[tr[0]], t.Points[tr[1]], t.Points[tr[2]])
 			}
 		}
 	}

@@ -54,9 +54,15 @@ func Generate(cfg *engineering.StairConfiguration) (*GenerationResult, error) {
 	}
 	result := &GenerationResult{Model: model}
 
+	// Один кеш триангуляций на весь вызов: валидация (объём), измерения
+	// (объём/площадь) и preview mesh разделяют одну триангуляцию каждой
+	// грани вместо четырёх независимых (EM-06, B2.2). Грани неизменяемы
+	// в пределах вызова — кеш по идентичности *Wire безопасен.
+	tess := kerngeo.NewTessellationCache()
+
 	// валидация всех тел модели.
 	for i, solid := range model.Solids() {
-		for _, issue := range kerngeo.Validate(solid) {
+		for _, issue := range kerngeo.ValidateCached(solid, tess) {
 			issue.Element = fmt.Sprintf("solid:%d/%s", i, issue.Element)
 			result.Issues = append(result.Issues, issue)
 		}
@@ -66,11 +72,11 @@ func Generate(cfg *engineering.StairConfiguration) (*GenerationResult, error) {
 	result.Measurement.SolidCount = kerngeo.SolidCount(model)
 	result.Measurement.BoundingBox = kerngeo.BoundingBox(model)
 	for _, solid := range model.Solids() {
-		vol, err := kerngeo.Volume(solid)
+		vol, err := kerngeo.VolumeCached(solid, tess)
 		if err != nil {
 			return nil, fmt.Errorf("geometry: volume: %w", err)
 		}
-		area, err := kerngeo.SurfaceArea(solid)
+		area, err := kerngeo.SurfaceAreaCached(solid, tess)
 		if err != nil {
 			return nil, fmt.Errorf("geometry: surface area: %w", err)
 		}
@@ -79,7 +85,7 @@ func Generate(cfg *engineering.StairConfiguration) (*GenerationResult, error) {
 	}
 
 	// preview mesh — производная величина.
-	result.Mesh, err = ToPreviewMesh(model)
+	result.Mesh, err = ToPreviewMeshCached(model, tess)
 	if err != nil {
 		return nil, err
 	}

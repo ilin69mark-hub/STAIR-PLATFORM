@@ -30,6 +30,18 @@ type ValidationIssue struct {
 // гранях) и положительный объём. Результат детерминирован: issues
 // отсортированы по Code; тела без ошибок дают пустой список.
 func Validate(solid *Solid) []ValidationIssue {
+	return NewTessellationCache().validate(solid)
+}
+
+// ValidateCached — вариант Validate, использующий разделяемый кеш
+// триангуляций граней (EM-06: проверка положительного объёма не должна
+// триангулировать грани повторно, если они уже триангулированы для объёма,
+// площади и mesh).
+func ValidateCached(solid *Solid, cache *TessellationCache) []ValidationIssue {
+	return cache.validate(solid)
+}
+
+func (c *TessellationCache) validate(solid *Solid) []ValidationIssue {
 	var issues []ValidationIssue
 	if solid == nil {
 		return []ValidationIssue{{
@@ -86,7 +98,7 @@ func Validate(solid *Solid) []ValidationIssue {
 		}
 	}
 
-	if vol, err := Volume(solid); err != nil || vol <= Precision {
+	if vol, err := c.volume(solid); err != nil || vol <= Precision {
 		issues = append(issues, ValidationIssue{
 			Code: "GEO-SOLID-NON-POSITIVE-VOLUME", Severity: SeverityError,
 			Element: "solid", Message: "solid volume must be positive",
