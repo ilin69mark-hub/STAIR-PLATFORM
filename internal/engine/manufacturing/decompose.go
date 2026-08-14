@@ -3,6 +3,9 @@ package manufacturing
 import (
 	"fmt"
 	"math"
+	"runtime"
+
+	"golang.org/x/sync/errgroup"
 
 	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
@@ -33,43 +36,67 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 
 	parts := make([]dommfg.Part, 0, len(solids))
 	seq := make(map[dommfg.PartKind]int)
+
+	// Классификация тел (bbox + тип/габариты) независима для каждого тела
+	// (чтение неизменяемых тел), поэтому выполняется параллельно по
+	// индексу (result-slot, EM-06/B3.1). Нумерация деталей остаётся
+	// последовательной: номер Part зависит от порядка тел (seq).
+	type spec struct {
+		kind                     dommfg.PartKind
+		thickness, length, width float64
+	}
+	specs := make([]spec, len(solids))
+	limit := runtime.GOMAXPROCS(0)
+	if limit > len(solids) {
+		limit = len(solids)
+	}
+	g := new(errgroup.Group)
+	g.SetLimit(limit)
 	for i, solid := range solids {
-		bb := kerngeo.SolidBoundingBox(solid)
-		ext := [3]float64{
-			bb.Max.X - bb.Min.X,
-			bb.Max.Y - bb.Min.Y,
-			bb.Max.Z - bb.Min.Z,
-		}
-		var (
-			kind                     dommfg.PartKind
-			thickness, length, width float64
-		)
-		if solid.Role() == "column" {
-			// EDR-0007: развёртка колонны (толщина косоура, H×2πr).
-			kind, thickness, length, width = columnPart(cfg, ext)
-		} else {
-			kind, thickness, length, width = classify(ext, solid.Role())
-		}
-		seq[kind]++
+		i, solid := i, solid
+		g.Go(func() error {
+			bb := kerngeo.SolidBoundingBox(solid)
+			ext := [3]float64{
+				bb.Max.X - bb.Min.X,
+				bb.Max.Y - bb.Min.Y,
+				bb.Max.Z - bb.Min.Z,
+			}
+			var s spec
+			if solid.Role() == "column" {
+				// EDR-0007: развёртка колонны (толщина косоура, H×2πr).
+				s.kind, s.thickness, s.length, s.width = columnPart(cfg, ext)
+			} else {
+				s.kind, s.thickness, s.length, s.width = classify(ext, solid.Role())
+			}
+			specs[i] = s
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, fmt.Errorf("manufacturing: classify: %w", err)
+	}
+
+	for i, s := range specs {
+		seq[s.kind]++
 
 		mk := func(v float64) (engineering.Length, error) {
 			return engineering.NewLength(v)
 		}
-		thick, err := mk(thickness)
+		thick, err := mk(s.thickness)
 		if err != nil {
 			return nil, fmt.Errorf("manufacturing: part %d: %w", i, err)
 		}
-		lng, err := mk(length)
+		lng, err := mk(s.length)
 		if err != nil {
 			return nil, fmt.Errorf("manufacturing: part %d: %w", i, err)
 		}
-		wid, err := mk(width)
+		wid, err := mk(s.width)
 		if err != nil {
 			return nil, fmt.Errorf("manufacturing: part %d: %w", i, err)
 		}
 		parts = append(parts, dommfg.Part{
-			Number:     partNumber(kind, seq[kind]),
-			Kind:       kind,
+			Number:     partNumber(s.kind, seq[s.kind]),
+			Kind:       s.kind,
 			Thickness:  thick,
 			Length:     lng,
 			Width:      wid,

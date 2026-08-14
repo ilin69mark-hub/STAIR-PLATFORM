@@ -2,6 +2,9 @@ package geometry
 
 import (
 	"fmt"
+	"runtime"
+
+	"golang.org/x/sync/errgroup"
 
 	"stairplatform/internal/domain/engineering"
 	kerngeo "stairplatform/internal/geometry"
@@ -54,40 +57,77 @@ func Generate(cfg *engineering.StairConfiguration) (*GenerationResult, error) {
 	}
 	result := &GenerationResult{Model: model}
 
-	// Один кеш триангуляций на весь вызов: валидация (объём), измерения
-	// (объём/площадь) и preview mesh разделяют одну триангуляцию каждой
-	// грани вместо четырёх независимых (EM-06, B2.2). Грани неизменяемы
-	// в пределах вызова — кеш по идентичности *Wire безопасен.
-	tess := kerngeo.NewTessellationCache()
-
-	// валидация всех тел модели.
-	for i, solid := range model.Solids() {
-		for _, issue := range kerngeo.ValidateCached(solid, tess) {
-			issue.Element = fmt.Sprintf("solid:%d/%s", i, issue.Element)
-			result.Issues = append(result.Issues, issue)
-		}
+	// Каждая грань принадлежит ровно одному телу, поэтому кеш на тело даёт
+	// тот же эффект дедупликации, что и общий кеш на весь вызов (EM-06,
+	// B2.2), но позволяет обрабатывать тела параллельно без разделяемого
+	// состояния. Тела неизменяемы — параллелизм внутри стадии безопасен,
+	// результат собирается в порядке индексов (result-slot, B3.1).
+	solids := model.Solids()
+	caches := make([]*kerngeo.TessellationCache, len(solids))
+	for i := range caches {
+		caches[i] = kerngeo.NewTessellationCache()
 	}
 
-	// измерения модели.
+	type solidOut struct {
+		issues []kerngeo.ValidationIssue
+		vol    float64
+		area   float64
+		verts  []kerngeo.Point3
+		tris   [][3]int
+		err    error
+	}
+	outs := make([]solidOut, len(solids))
+
+	// Ограниченный пул: не больше числа логических ядер (B3.1).
+	limit := runtime.GOMAXPROCS(0)
+	if limit > len(solids) {
+		limit = len(solids)
+	}
+	g := new(errgroup.Group)
+	g.SetLimit(limit)
+	for i, solid := range solids {
+		i, solid := i, solid
+		g.Go(func() error {
+			o := solidOut{}
+			for _, issue := range kerngeo.ValidateCached(solid, caches[i]) {
+				issue.Element = fmt.Sprintf("solid:%d/%s", i, issue.Element)
+				o.issues = append(o.issues, issue)
+			}
+			o.vol, o.err = kerngeo.VolumeCached(solid, caches[i])
+			if o.err == nil {
+				o.area, o.err = kerngeo.SurfaceAreaCached(solid, caches[i])
+			}
+			if o.err == nil {
+				o.verts, o.tris, o.err = meshSolid(solid, caches[i])
+			}
+			outs[i] = o
+			return o.err
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, fmt.Errorf("geometry: solid processing: %w", err)
+	}
+
+	// сбор результатов в порядке индексов — детерминизм.
+	for i := range outs {
+		result.Issues = append(result.Issues, outs[i].issues...)
+		result.Measurement.Volume += outs[i].vol
+		result.Measurement.SurfaceArea += outs[i].area
+	}
 	result.Measurement.SolidCount = kerngeo.SolidCount(model)
 	result.Measurement.BoundingBox = kerngeo.BoundingBox(model)
-	for _, solid := range model.Solids() {
-		vol, err := kerngeo.VolumeCached(solid, tess)
-		if err != nil {
-			return nil, fmt.Errorf("geometry: volume: %w", err)
-		}
-		area, err := kerngeo.SurfaceAreaCached(solid, tess)
-		if err != nil {
-			return nil, fmt.Errorf("geometry: surface area: %w", err)
-		}
-		result.Measurement.Volume += vol
-		result.Measurement.SurfaceArea += area
-	}
 
-	// preview mesh — производная величина.
-	result.Mesh, err = ToPreviewMeshCached(model, tess)
-	if err != nil {
-		return nil, err
+	// preview mesh — производная величина, собранная из слотов в порядке тел.
+	result.Mesh = &kerngeo.Mesh{}
+	base := 0
+	for i := range outs {
+		result.Mesh.Vertices = append(result.Mesh.Vertices, outs[i].verts...)
+		for _, tr := range outs[i].tris {
+			if err := result.Mesh.AddTriangle(base+tr[0], base+tr[1], base+tr[2]); err != nil {
+				return nil, err
+			}
+		}
+		base += len(outs[i].verts)
 	}
 	return result, nil
 }

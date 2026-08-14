@@ -347,3 +347,14 @@ func TestCalculateSpiralOuterRadiusTooSmall(t *testing.T) {
 		t.Fatal("outer radius below stair width must be rejected")
 	}
 }
+
+func BenchmarkCalculatePipeline(b *testing.B) {
+	s := NewService()
+	cfg := referenceConfig()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := s.Calculate(cfg, Options{}); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
