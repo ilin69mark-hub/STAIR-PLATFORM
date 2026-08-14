@@ -6,14 +6,36 @@ import "context"
 // Application зависит от интерфейса; инфраструктура реализует его.
 // Все методы скоупированы по tenant (SEC-0005): tenantID — граница
 // изоляции; межтенантный доступ невозможен даже на уровне SQL.
+//
+// Phase C (EDR-0008): доступ к проекту определяется членством
+// (project_members). GetProject/ListProjects учитывают членство вызывающего;
+// CreateProject фиксирует владельца.
 type Repository interface {
-	// CreateProject создаёт проект в tenant и возвращает его с ID.
-	CreateProject(ctx context.Context, tenantID string, p *Project) error
+	// CreateProject создаёт проект в tenant с владельцем ownerID и
+	// оформляет членство владельца (роль owner) атомарно.
+	CreateProject(ctx context.Context, tenantID, ownerID string, p *Project) error
 	// GetProject возвращает проект по ID внутри tenant;
-	// ErrNotFound — отсутствует или принадлежит другому tenant'у.
-	GetProject(ctx context.Context, tenantID, id string) (*Project, error)
-	// ListProjects возвращает проекты tenant'а в порядке создания.
-	ListProjects(ctx context.Context, tenantID string) ([]*Project, error)
+	// ErrNotFound — отсутствует, принадлежит другому tenant'у или
+	// вызывающий не является членом.
+	GetProject(ctx context.Context, tenantID, userID, id string) (*Project, error)
+	// ListProjects возвращает проекты tenant'а, где вызывающий является
+	// членом (владелец или участник), в порядке создания.
+	ListProjects(ctx context.Context, tenantID, userID string) ([]*Project, error)
+
+	// GetMember возвращает членство пользователя в проекте;
+	// ErrNotFound — не член (или проект вне tenant).
+	GetMember(ctx context.Context, tenantID, projectID, userID string) (*ProjectMember, error)
+	// ListMembers возвращает членов проекта в порядке добавления.
+	ListMembers(ctx context.Context, tenantID, projectID string) ([]*ProjectMember, error)
+	// AddMember добавляет члена с ролью (не владелец — владелец уже
+	// существует). Ошибка — дубликат или роль owner.
+	AddMember(ctx context.Context, tenantID, projectID string, m *ProjectMember) error
+	// UpdateMemberRole изменяет роль члена (owner не понижается в role и
+	// не может быть назначен повторно).
+	UpdateMemberRole(ctx context.Context, tenantID, projectID, userID string, role ProjectRole) error
+	// RemoveMember удаляет члена; владельца удалить нельзя (собственность
+	// проекта остаётся за владельцем; перенос владения — вне скоупа C1).
+	RemoveMember(ctx context.Context, tenantID, projectID, userID string) error
 
 	// SaveConfiguration создаёт новую ревизию конфигурации проекта.
 	SaveConfiguration(ctx context.Context, c *StairConfiguration) error

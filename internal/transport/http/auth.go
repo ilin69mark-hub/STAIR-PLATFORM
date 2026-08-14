@@ -51,6 +51,15 @@ func tenantID(ctx context.Context) string {
 	return ""
 }
 
+// userID возвращает ID аутентифицированного пользователя (инициатора
+// запроса); пустая строка — не аутентифицирован.
+func userID(ctx context.Context) string {
+	if u := authUser(ctx); u != nil {
+		return u.ID
+	}
+	return ""
+}
+
 // ---- DTO ----
 
 type registerRequest struct {

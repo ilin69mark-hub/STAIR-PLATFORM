@@ -1,7 +1,14 @@
-// Проектные API (BC-001): создание, список, детали, расчёт, экспорт.
+// Проектные API (BC-001): создание, список, детали, расчёт, экспорт,
+// управление участниками (Phase C, EDR-0008).
 
-import { get, post } from './client'
-import type { Calculation, CreateProjectRequest, Project } from './types'
+import { del, get, patch, post } from './client'
+import type {
+  Calculation,
+  CreateProjectRequest,
+  MemberRequest,
+  Project,
+  ProjectMember,
+} from './types'
 
 export const projectsApi = {
   list: () => get<Project[]>('/api/v1/projects'),
@@ -14,4 +21,16 @@ export const projectsApi = {
     post<Calculation>(`/api/v1/projects/${id}/calculate`, body),
 
   exportUrl: (id: string) => `/api/v1/projects/${id}/export`,
+
+  // ---- Участники (EDR-0008) ----
+  listMembers: (id: string) => get<ProjectMember[]>(`/api/v1/projects/${id}/members`),
+
+  addMember: (id: string, body: MemberRequest) =>
+    post<{ status: string }>(`/api/v1/projects/${id}/members`, body),
+
+  updateMemberRole: (id: string, userID: string, role: ProjectMember['role']) =>
+    patch<{ status: string }>(`/api/v1/projects/${id}/members/${userID}`, { role }),
+
+  removeMember: (id: string, userID: string) =>
+    del(`/api/v1/projects/${id}/members/${userID}`),
 }

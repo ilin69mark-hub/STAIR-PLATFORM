@@ -9,12 +9,14 @@ import (
 	"time"
 )
 
-// Project — корневая сущность платформы (BC-001).
+// Project — корневая сущность платформы (BC-001), EDR-0008 (Phase C):
+// проект принадлежит владельцу (OwnerID) и доступен членам (project_members).
 type Project struct {
 	ID          string
 	Name        string
 	Description string
 	Status      string
+	OwnerID     string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

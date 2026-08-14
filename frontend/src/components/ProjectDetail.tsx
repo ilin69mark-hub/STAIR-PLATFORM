@@ -15,6 +15,7 @@ import {
   type RatesForm,
 } from '../lib/config'
 import { ResultPanel } from './ResultPanel'
+import { MembersPanel } from './MembersPanel'
 
 interface Props {
   projectId: string
@@ -113,6 +114,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
             </p>
           )}
         </section>
+        <MembersPanel projectId={projectId} />
       </div>
 
       {calculation && <ResultPanel snapshot={calculation.result} />}

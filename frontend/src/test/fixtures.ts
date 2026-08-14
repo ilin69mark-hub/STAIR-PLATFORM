@@ -196,6 +196,7 @@ export function makeProject(overrides: Partial<Project> = {}): Project {
     name: 'Лестница на второй этаж',
     description: '',
     status: 'active',
+    owner_id: 'u-owner',
     created_at: '2026-08-14T10:00:00Z',
     updated_at: '2026-08-14T10:00:00Z',
     ...overrides,

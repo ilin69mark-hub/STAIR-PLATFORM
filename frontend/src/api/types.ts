@@ -7,8 +7,25 @@ export interface Project {
   name: string
   description: string
   status: string
+  owner_id: string
   created_at: string
   updated_at: string
+}
+
+// ---- Совместная работа (Phase C, EDR-0008): участники проекта ----
+
+export type ProjectRole = 'owner' | 'editor' | 'viewer'
+
+export interface ProjectMember {
+  project_id: string
+  user_id: string
+  role: ProjectRole
+  created_at: string
+}
+
+export interface MemberRequest {
+  user_id: string
+  role: ProjectRole
 }
 
 export interface User {

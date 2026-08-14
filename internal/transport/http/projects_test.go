@@ -18,6 +18,7 @@ import (
 // fakeProjectService — тестовая реализация ProjectService.
 type fakeProjectService struct {
 	projects     map[string]*project.Project
+	members      []*project.ProjectMember
 	calc         *project.Calculation
 	createErr    error
 	calculateErr error
@@ -28,17 +29,17 @@ func newFakeProjectService() *fakeProjectService {
 	return &fakeProjectService{projects: map[string]*project.Project{}}
 }
 
-func (f *fakeProjectService) CreateProject(ctx context.Context, tenantID, name, description string) (*project.Project, error) {
+func (f *fakeProjectService) CreateProject(ctx context.Context, tenantID, ownerID, name, description string) (*project.Project, error) {
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
 	p := &project.Project{ID: "p-1", Name: name, Description: description,
-		Status: "draft", CreatedAt: time.Now(), UpdatedAt: time.Now()}
+		Status: "draft", OwnerID: ownerID, CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	f.projects[p.ID] = p
 	return p, nil
 }
 
-func (f *fakeProjectService) GetProject(ctx context.Context, tenantID, id string) (*project.Project, error) {
+func (f *fakeProjectService) GetProject(ctx context.Context, tenantID, userID, id string) (*project.Project, error) {
 	p, ok := f.projects[id]
 	if !ok {
 		return nil, project.ErrNotFound
@@ -46,7 +47,7 @@ func (f *fakeProjectService) GetProject(ctx context.Context, tenantID, id string
 	return p, nil
 }
 
-func (f *fakeProjectService) ListProjects(ctx context.Context, tenantID string) ([]*project.Project, error) {
+func (f *fakeProjectService) ListProjects(ctx context.Context, tenantID, userID string) ([]*project.Project, error) {
 	out := make([]*project.Project, 0, len(f.projects))
 	for _, p := range f.projects {
 		out = append(out, p)
@@ -54,7 +55,26 @@ func (f *fakeProjectService) ListProjects(ctx context.Context, tenantID string) 
 	return out, nil
 }
 
-func (f *fakeProjectService) Calculate(ctx context.Context, tenantID, projectID string, cfg stair.Config, opts stair.Options) (*project.Calculation, error) {
+func (f *fakeProjectService) ListMembers(ctx context.Context, tenantID, userID, projectID string) ([]*project.ProjectMember, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, project.ErrNotFound
+	}
+	return f.members, nil
+}
+
+func (f *fakeProjectService) AddMember(ctx context.Context, tenantID, actorID, projectID, userID string, role project.ProjectRole) error {
+	return nil
+}
+
+func (f *fakeProjectService) UpdateMemberRole(ctx context.Context, tenantID, actorID, projectID, userID string, role project.ProjectRole) error {
+	return nil
+}
+
+func (f *fakeProjectService) RemoveMember(ctx context.Context, tenantID, actorID, projectID, userID string) error {
+	return nil
+}
+
+func (f *fakeProjectService) Calculate(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options) (*project.Calculation, error) {
 	if _, ok := f.projects[projectID]; !ok {
 		return nil, project.ErrNotFound
 	}
@@ -68,7 +88,7 @@ func (f *fakeProjectService) Calculate(ctx context.Context, tenantID, projectID 
 	}, nil
 }
 
-func (f *fakeProjectService) GetResult(ctx context.Context, tenantID, projectID string) (*project.Calculation, error) {
+func (f *fakeProjectService) GetResult(ctx context.Context, tenantID, userID, projectID string) (*project.Calculation, error) {
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -269,5 +289,96 @@ func TestExportProjectNoCalculation(t *testing.T) {
 	testRouterWithProjects(svc).ServeHTTP(rec, req)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", rec.Code)
+	}
+}
+
+// TestListMembers — GET /members возвращает роли участников.
+func TestListMembers(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+	svc.members = []*project.ProjectMember{
+		{ProjectID: "p-1", UserID: "u-1", Role: project.RoleOwner, CreatedAt: time.Now()},
+		{ProjectID: "p-1", UserID: "u-2", Role: project.RoleViewer, CreatedAt: time.Now()},
+	}
+
+	req := authedRequest(http.MethodGet, "/api/v1/projects/p-1/members", "")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var list []memberDTO
+	if err := json.NewDecoder(rec.Body).Decode(&list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(list) != 2 || list[0].Role != "owner" || list[1].Role != "viewer" {
+		t.Fatalf("unexpected members: %+v", list)
+	}
+}
+
+// TestListMembersForbidden — не-член проекта получает 404.
+func TestListMembersForbidden(t *testing.T) {
+	svc := newFakeProjectService()
+	req := authedRequest(http.MethodGet, "/api/v1/projects/p-404/members", "")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+// TestAddMemberValid — owner добавляет участника (201).
+func TestAddMemberValid(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+
+	body := `{"user_id": "u-2", "role": "editor"}`
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/members", body)
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestAddMemberInvalidRole — 422 при неизвестной роли.
+func TestAddMemberInvalidRole(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+
+	body := `{"user_id": "u-2", "role": "admin"}`
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/members", body)
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", rec.Code)
+	}
+}
+
+// TestUpdateMemberRoleValid — 200 при смене роли.
+func TestUpdateMemberRoleValid(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+
+	body := `{"role": "viewer"}`
+	req := authedRequest(http.MethodPatch, "/api/v1/projects/p-1/members/u-2", body)
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestRemoveMemberNoContent — 204 при удалении участника.
+func TestRemoveMemberNoContent(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+
+	req := authedRequest(http.MethodDelete, "/api/v1/projects/p-1/members/u-2", "")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

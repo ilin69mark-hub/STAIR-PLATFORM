@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -11,7 +12,8 @@ import (
 
 // fakeRepo — тестовая реализация Repository в памяти.
 type fakeRepo struct {
-	projects     map[string]*Project // ключ: tenantID + "/" + id
+	projects     map[string]*Project                  // ключ: tenantID + "/" + id
+	members      map[string]map[string]*ProjectMember // ключ: projectID → userID → member
 	configs      map[string][]*StairConfiguration
 	calculations map[string][]*Calculation
 	next         int
@@ -21,6 +23,7 @@ type fakeRepo struct {
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{
 		projects:     map[string]*Project{},
+		members:      map[string]map[string]*ProjectMember{},
 		configs:      map[string][]*StairConfiguration{},
 		calculations: map[string][]*Calculation{},
 	}
@@ -28,35 +31,114 @@ func newFakeRepo() *fakeRepo {
 
 const testTenant = "t-1"
 
+// testOwner — фиксированный ID владельца в тестах.
+const testOwner = "u-owner"
+
 func key(tenantID, id string) string { return tenantID + "/" + id }
 
-func (f *fakeRepo) CreateProject(ctx context.Context, tenantID string, p *Project) error {
+func (f *fakeRepo) memberLookup(tenantID, projectID, userID string) (*ProjectMember, bool) {
+	if _, ok := f.projects[key(tenantID, projectID)]; !ok {
+		return nil, false
+	}
+	ms, ok := f.members[projectID]
+	if !ok {
+		return nil, false
+	}
+	m, ok := ms[userID]
+	return m, ok
+}
+
+func (f *fakeRepo) CreateProject(ctx context.Context, tenantID, ownerID string, p *Project) error {
 	if f.err != nil {
 		return f.err
 	}
 	f.next++
 	p.ID = itoa(f.next)
+	p.OwnerID = ownerID
 	f.projects[key(tenantID, p.ID)] = p
+	if f.members[p.ID] == nil {
+		f.members[p.ID] = map[string]*ProjectMember{}
+	}
+	f.members[p.ID][ownerID] = &ProjectMember{ProjectID: p.ID, UserID: ownerID, Role: RoleOwner}
 	return nil
 }
 
-func (f *fakeRepo) GetProject(ctx context.Context, tenantID, id string) (*Project, error) {
+func (f *fakeRepo) GetProject(ctx context.Context, tenantID, userID, id string) (*Project, error) {
 	p, ok := f.projects[key(tenantID, id)]
 	if !ok {
+		return nil, ErrNotFound
+	}
+	if _, ok := f.memberLookup(tenantID, id, userID); !ok {
 		return nil, ErrNotFound
 	}
 	return p, nil
 }
 
-func (f *fakeRepo) ListProjects(ctx context.Context, tenantID string) ([]*Project, error) {
+func (f *fakeRepo) ListProjects(ctx context.Context, tenantID, userID string) ([]*Project, error) {
 	var out []*Project
 	prefix := tenantID + "/"
 	for k, p := range f.projects {
 		if strings.HasPrefix(k, prefix) {
-			out = append(out, p)
+			if _, ok := f.memberLookup(tenantID, p.ID, userID); ok {
+				out = append(out, p)
+			}
 		}
 	}
 	return out, nil
+}
+
+func (f *fakeRepo) GetMember(ctx context.Context, tenantID, projectID, userID string) (*ProjectMember, error) {
+	m, ok := f.memberLookup(tenantID, projectID, userID)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return m, nil
+}
+
+func (f *fakeRepo) ListMembers(ctx context.Context, tenantID, projectID string) ([]*ProjectMember, error) {
+	if _, ok := f.projects[key(tenantID, projectID)]; !ok {
+		return nil, ErrNotFound
+	}
+	var out []*ProjectMember
+	for _, m := range f.members[projectID] {
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) AddMember(ctx context.Context, tenantID, projectID string, m *ProjectMember) error {
+	if _, ok := f.projects[key(tenantID, projectID)]; !ok {
+		return ErrNotFound
+	}
+	if f.members[projectID] == nil {
+		f.members[projectID] = map[string]*ProjectMember{}
+	}
+	f.members[projectID][m.UserID] = m
+	return nil
+}
+
+func (f *fakeRepo) UpdateMemberRole(ctx context.Context, tenantID, projectID, userID string, role ProjectRole) error {
+	m, ok := f.memberLookup(tenantID, projectID, userID)
+	if !ok {
+		return ErrNotFound
+	}
+	if m.Role == RoleOwner {
+		return fmt.Errorf("%v", ErrNotFound)
+	}
+	m.Role = role
+	return nil
+}
+
+func (f *fakeRepo) RemoveMember(ctx context.Context, tenantID, projectID, userID string) error {
+	m, ok := f.memberLookup(tenantID, projectID, userID)
+	if !ok {
+		return ErrNotFound
+	}
+	if m.Role == RoleOwner {
+		return fmt.Errorf("%v", ErrNotFound)
+	}
+	delete(f.members[projectID], userID)
+	return nil
 }
 
 func (f *fakeRepo) SaveConfiguration(ctx context.Context, c *StairConfiguration) error {
@@ -136,7 +218,7 @@ func TestCreateProject(t *testing.T) {
 	repo := newFakeRepo()
 	svc := NewService(repo, stair.NewService(), DefaultRules())
 
-	p, err := svc.CreateProject(context.Background(), testTenant, "Лестница на 2 этаж", "Заказ 1")
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Лестница на 2 этаж", "Заказ 1")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
@@ -146,8 +228,11 @@ func TestCreateProject(t *testing.T) {
 	if p.Status != "draft" {
 		t.Fatalf("expected status draft, got %q", p.Status)
 	}
+	if p.OwnerID != testOwner {
+		t.Fatalf("expected owner %q, got %q", testOwner, p.OwnerID)
+	}
 
-	got, err := svc.GetProject(context.Background(), testTenant, p.ID)
+	got, err := svc.GetProject(context.Background(), testTenant, testOwner, p.ID)
 	if err != nil {
 		t.Fatalf("GetProject: %v", err)
 	}
@@ -158,14 +243,14 @@ func TestCreateProject(t *testing.T) {
 
 func TestCreateProjectRequiresName(t *testing.T) {
 	svc := NewService(newFakeRepo(), stair.NewService(), DefaultRules())
-	if _, err := svc.CreateProject(context.Background(), testTenant, "", ""); err == nil {
+	if _, err := svc.CreateProject(context.Background(), testTenant, testOwner, "", ""); err == nil {
 		t.Fatal("expected error for empty name")
 	}
 }
 
 func TestGetProjectNotFound(t *testing.T) {
 	svc := NewService(newFakeRepo(), stair.NewService(), DefaultRules())
-	if _, err := svc.GetProject(context.Background(), testTenant, "missing"); err != ErrNotFound {
+	if _, err := svc.GetProject(context.Background(), testTenant, testOwner, "missing"); err != ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
@@ -174,12 +259,12 @@ func TestCalculateSavesConfigAndResult(t *testing.T) {
 	repo := newFakeRepo()
 	svc := NewService(repo, stair.NewService(), DefaultRules())
 
-	p, err := svc.CreateProject(context.Background(), testTenant, "Тест", "")
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Тест", "")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 
-	calc, err := svc.Calculate(context.Background(), testTenant, p.ID, testConfig(), stair.Options{})
+	calc, err := svc.Calculate(context.Background(), testTenant, testOwner, p.ID, testConfig(), stair.Options{})
 	if err != nil {
 		t.Fatalf("Calculate: %v", err)
 	}
@@ -193,7 +278,7 @@ func TestCalculateSavesConfigAndResult(t *testing.T) {
 		t.Fatal("expected result snapshot")
 	}
 
-	cfg, err := svc.GetLatestConfig(context.Background(), testTenant, p.ID)
+	cfg, err := svc.GetLatestConfig(context.Background(), testTenant, testOwner, p.ID)
 	if err != nil {
 		t.Fatalf("GetLatestConfig: %v", err)
 	}
@@ -201,7 +286,7 @@ func TestCalculateSavesConfigAndResult(t *testing.T) {
 		t.Fatalf("config mismatch: %+v", cfg)
 	}
 
-	got, err := svc.GetResult(context.Background(), testTenant, p.ID)
+	got, err := svc.GetResult(context.Background(), testTenant, testOwner, p.ID)
 	if err != nil {
 		t.Fatalf("GetResult: %v", err)
 	}
@@ -213,7 +298,7 @@ func TestCalculateSavesConfigAndResult(t *testing.T) {
 func TestCalculateProjectNotFound(t *testing.T) {
 	repo := newFakeRepo()
 	svc := NewService(repo, stair.NewService(), DefaultRules())
-	if _, err := svc.Calculate(context.Background(), testTenant, "missing", testConfig(), stair.Options{}); err == nil {
+	if _, err := svc.Calculate(context.Background(), testTenant, testOwner, "missing", testConfig(), stair.Options{}); err == nil {
 		t.Fatal("expected error for unknown project")
 	}
 }
@@ -221,14 +306,14 @@ func TestCalculateProjectNotFound(t *testing.T) {
 func TestCalculateBlockingValidation(t *testing.T) {
 	repo := newFakeRepo()
 	svc := NewService(repo, stair.NewService(), DefaultRules())
-	p, err := svc.CreateProject(context.Background(), testTenant, "Тест", "")
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Тест", "")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 
 	cfg := testConfig()
 	cfg.StepHeight = engineering.Length(60) // вне допустимого диапазона
-	calc, err := svc.Calculate(context.Background(), testTenant, p.ID, cfg, stair.Options{})
+	calc, err := svc.Calculate(context.Background(), testTenant, testOwner, p.ID, cfg, stair.Options{})
 	if err != nil {
 		t.Fatalf("Calculate: %v", err)
 	}
@@ -242,21 +327,143 @@ func TestTenantIsolation(t *testing.T) {
 	repo := newFakeRepo()
 	svc := NewService(repo, stair.NewService(), DefaultRules())
 
-	p, err := svc.CreateProject(context.Background(), "t-a", "Секрет", "")
+	p, err := svc.CreateProject(context.Background(), "t-a", testOwner, "Секрет", "")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	if _, err := svc.GetProject(context.Background(), "t-b", p.ID); err != ErrNotFound {
+	if _, err := svc.GetProject(context.Background(), "t-b", testOwner, p.ID); err != ErrNotFound {
 		t.Fatalf("expected ErrNotFound for other tenant, got %v", err)
 	}
-	list, err := svc.ListProjects(context.Background(), "t-b")
+	list, err := svc.ListProjects(context.Background(), "t-b", testOwner)
 	if err != nil {
 		t.Fatalf("ListProjects: %v", err)
 	}
 	if len(list) != 0 {
 		t.Fatalf("tenant B must not see tenant A projects, got %d", len(list))
 	}
-	if _, err := svc.Calculate(context.Background(), "t-b", p.ID, testConfig(), stair.Options{}); err == nil {
+	if _, err := svc.Calculate(context.Background(), "t-b", testOwner, p.ID, testConfig(), stair.Options{}); err == nil {
 		t.Fatal("cross-tenant calculate must fail")
+	}
+}
+
+// TestAddMemberOwnerOnly — изменение состава участников доступно только owner.
+func TestAddMemberOwnerOnly(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Тест", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if err := svc.AddMember(context.Background(), testTenant, testOwner, p.ID, "u-editor", RoleEditor); err != nil {
+		t.Fatalf("owner AddMember: %v", err)
+	}
+	// Редактор не может добавлять членов.
+	if err := svc.AddMember(context.Background(), testTenant, "u-editor", p.ID, "u-viewer", RoleViewer); err != ErrForbidden {
+		t.Fatalf("expected ErrForbidden for editor, got %v", err)
+	}
+	// Не-член получает ErrNotFound.
+	if err := svc.AddMember(context.Background(), testTenant, "u-stranger", p.ID, "u-x", RoleViewer); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound for non-member, got %v", err)
+	}
+}
+
+// TestAddMemberUnknownProject — добавление в несуществующий проект.
+func TestAddMemberUnknownProject(t *testing.T) {
+	svc := NewService(newFakeRepo(), stair.NewService(), DefaultRules())
+	if err := svc.AddMember(context.Background(), testTenant, testOwner, "missing", "u-x", RoleViewer); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+// TestMemberRoleLifecycle — owner добавляет/viewer'а, повышает до editor,
+// затем удаляет; после удаления доступ к проекту исчезает.
+func TestMemberRoleLifecycle(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Тест", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	if err := svc.AddMember(context.Background(), testTenant, testOwner, p.ID, "u-viewer", RoleViewer); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	members, err := svc.ListMembers(context.Background(), testTenant, testOwner, p.ID)
+	if err != nil {
+		t.Fatalf("ListMembers: %v", err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("expected 2 members (owner+viewer), got %d", len(members))
+	}
+
+	// Viewer видит проект, но не может рассчитать (нет права на изменение).
+	if _, err := svc.GetProject(context.Background(), testTenant, "u-viewer", p.ID); err != nil {
+		t.Fatalf("viewer must see project: %v", err)
+	}
+	if _, err := svc.Calculate(context.Background(), testTenant, "u-viewer", p.ID, testConfig(), stair.Options{}); err != ErrForbidden {
+		t.Fatalf("expected ErrForbidden for viewer, got %v", err)
+	}
+
+	// Повышаем до editor — теперь можно рассчитывать.
+	if err := svc.UpdateMemberRole(context.Background(), testTenant, testOwner, p.ID, "u-viewer", RoleEditor); err != nil {
+		t.Fatalf("UpdateMemberRole: %v", err)
+	}
+	if _, err := svc.Calculate(context.Background(), testTenant, "u-viewer", p.ID, testConfig(), stair.Options{}); err != nil {
+		t.Fatalf("editor calculate: %v", err)
+	}
+
+	// Удаляем участника — доступ пропадает.
+	if err := svc.RemoveMember(context.Background(), testTenant, testOwner, p.ID, "u-viewer"); err != nil {
+		t.Fatalf("RemoveMember: %v", err)
+	}
+	if _, err := svc.GetProject(context.Background(), testTenant, "u-viewer", p.ID); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound after removal, got %v", err)
+	}
+}
+
+// TestRemoveMemberRequiresOwner — изменение ролей/удаление доступно только owner.
+func TestUpdateMemberRoleOwnerOnly(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Тест", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if err := svc.AddMember(context.Background(), testTenant, testOwner, p.ID, "u-editor", RoleEditor); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	if err := svc.UpdateMemberRole(context.Background(), testTenant, "u-editor", p.ID, "u-x", RoleViewer); err != ErrForbidden {
+		t.Fatalf("expected ErrForbidden, got %v", err)
+	}
+	if err := svc.RemoveMember(context.Background(), testTenant, "u-editor", p.ID, "u-x"); err != ErrForbidden {
+		t.Fatalf("expected ErrForbidden, got %v", err)
+	}
+}
+
+// TestParseProjectRole — разбор допустимых и недопустимых ролей.
+func TestParseProjectRole(t *testing.T) {
+	for _, ok := range []struct {
+		in    string
+		valid bool
+	}{
+		{"owner", true}, {"editor", true}, {"viewer", true},
+		{"admin", false}, {"", false}, {"OWNER", false},
+	} {
+		_, err := ParseProjectRole(ok.in)
+		if (err == nil) != ok.valid {
+			t.Fatalf("role %q: valid=%v, err=%v", ok.in, ok.valid, err)
+		}
+	}
+	if !RoleOwner.CanEdit() || !RoleEditor.CanEdit() {
+		t.Fatal("owner/editor must CanEdit")
+	}
+	if RoleViewer.CanEdit() {
+		t.Fatal("viewer must not CanEdit")
+	}
+	if !RoleOwner.CanManage() {
+		t.Fatal("owner must CanManage")
+	}
+	if RoleEditor.CanManage() || RoleViewer.CanManage() {
+		t.Fatal("only owner CanManage")
 	}
 }

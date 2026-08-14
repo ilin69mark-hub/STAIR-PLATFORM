@@ -3,10 +3,12 @@ package database
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
 
+	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/domain/manufacturing"
 	"stairplatform/internal/domain/pricing"
@@ -59,6 +61,21 @@ func sampleSnapshot(projectID string) project.Snapshot {
 	}
 }
 
+// testOwnerID — ID владельца в интеграционных тестах (tenant test).
+func testOwnerID(t *testing.T, repo *ProjectRepository, tenantID string) string {
+	t.Helper()
+	ctx := context.Background()
+	u := &auth.User{Name: "Owner", Email: fmt.Sprintf("owner-%d@test.dev", time.Now().UnixNano()%100000)}
+	u.TenantID = tenantID
+	u.Role = auth.RoleUser
+	u.Status = auth.StatusActive
+	ar := NewAuthRepository(repo.pool)
+	if err := ar.CreateUser(ctx, u); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	return u.ID
+}
+
 func TestProjectRepositoryCRUD(t *testing.T) {
 	if os.Getenv("STAIR_TEST_DATABASE_URL") == "" {
 		t.Skip("STAIR_TEST_DATABASE_URL not set; skipping database integration test")
@@ -67,16 +84,20 @@ func TestProjectRepositoryCRUD(t *testing.T) {
 	defer cancel()
 	repo := integrationRepo(t)
 	tenant := testTenantID(t, repo)
+	owner := testOwnerID(t, repo, tenant)
 
 	p := &project.Project{Name: "Интеграционный", Description: "тест"}
-	if err := repo.CreateProject(ctx, tenant, p); err != nil {
+	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 	if p.ID == "" {
 		t.Fatal("expected assigned UUID")
 	}
+	if p.OwnerID != owner {
+		t.Fatalf("owner = %q, want %q", p.OwnerID, owner)
+	}
 
-	got, err := repo.GetProject(ctx, tenant, p.ID)
+	got, err := repo.GetProject(ctx, tenant, owner, p.ID)
 	if err != nil {
 		t.Fatalf("GetProject: %v", err)
 	}
@@ -84,7 +105,7 @@ func TestProjectRepositoryCRUD(t *testing.T) {
 		t.Fatalf("name = %q", got.Name)
 	}
 
-	list, err := repo.ListProjects(ctx, tenant)
+	list, err := repo.ListProjects(ctx, tenant, owner)
 	if err != nil {
 		t.Fatalf("ListProjects: %v", err)
 	}
@@ -92,7 +113,7 @@ func TestProjectRepositoryCRUD(t *testing.T) {
 		t.Fatal("expected at least one project")
 	}
 
-	if _, err := repo.GetProject(ctx, tenant, "00000000-0000-0000-0000-000000000000"); !errors.Is(err, project.ErrNotFound) {
+	if _, err := repo.GetProject(ctx, tenant, owner, "00000000-0000-0000-0000-000000000000"); !errors.Is(err, project.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
@@ -105,9 +126,10 @@ func TestProjectRepositorySaveCalculationWithConfig(t *testing.T) {
 	defer cancel()
 	repo := integrationRepo(t)
 	tenant := testTenantID(t, repo)
+	owner := testOwnerID(t, repo, tenant)
 
 	p := &project.Project{Name: "Расчёт"}
-	if err := repo.CreateProject(ctx, tenant, p); err != nil {
+	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 
@@ -167,6 +189,93 @@ func TestProjectRepositoryNotFound(t *testing.T) {
 	}
 }
 
+// TestProjectRepositoryMembers — CRUD участников (EDR-0008) и защита owner:
+// единственный владелец на проект, нельзя менять/удалять роль владельца.
+func TestProjectRepositoryMembers(t *testing.T) {
+	if os.Getenv("STAIR_TEST_DATABASE_URL") == "" {
+		t.Skip("STAIR_TEST_DATABASE_URL not set; skipping database integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	repo := integrationRepo(t)
+	ar := NewAuthRepository(repo.pool)
+	tenant := testTenantID(t, repo)
+	owner := testOwnerID(t, repo, tenant)
+
+	// Второй пользователь того же tenant.
+	u2 := &auth.User{Name: "Editor", Email: fmt.Sprintf("ed-%d@test.dev", time.Now().UnixNano()%100000),
+		TenantID: tenant, Role: auth.RoleUser, Status: auth.StatusActive}
+	if err := ar.CreateUser(ctx, u2); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	p := &project.Project{Name: "Совместный"}
+	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	// owner автоматически в составе.
+	members, err := repo.ListMembers(ctx, tenant, p.ID)
+	if err != nil {
+		t.Fatalf("ListMembers: %v", err)
+	}
+	if len(members) != 1 || members[0].Role != project.RoleOwner {
+		t.Fatalf("expected single owner member, got %+v", members)
+	}
+
+	// Добавить участника.
+	if err := repo.AddMember(ctx, tenant, p.ID, &project.ProjectMember{ProjectID: p.ID, UserID: u2.ID, Role: project.RoleEditor}); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	m, err := repo.GetMember(ctx, tenant, p.ID, u2.ID)
+	if err != nil {
+		t.Fatalf("GetMember: %v", err)
+	}
+	if m.Role != project.RoleEditor {
+		t.Fatalf("role = %q", m.Role)
+	}
+
+	// Обновить роль.
+	if err := repo.UpdateMemberRole(ctx, tenant, p.ID, u2.ID, project.RoleViewer); err != nil {
+		t.Fatalf("UpdateMemberRole: %v", err)
+	}
+	m, _ = repo.GetMember(ctx, tenant, p.ID, u2.ID)
+	if m.Role != project.RoleViewer {
+		t.Fatalf("role after update = %q", m.Role)
+	}
+
+	// Удалить участника.
+	if err := repo.RemoveMember(ctx, tenant, p.ID, u2.ID); err != nil {
+		t.Fatalf("RemoveMember: %v", err)
+	}
+	if _, err := repo.GetMember(ctx, tenant, p.ID, u2.ID); !errors.Is(err, project.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound after removal, got %v", err)
+	}
+}
+
+// TestProjectRepositoryCannotTouchOwner — защита владельца от изменения/удаления.
+func TestProjectRepositoryCannotTouchOwner(t *testing.T) {
+	if os.Getenv("STAIR_TEST_DATABASE_URL") == "" {
+		t.Skip("STAIR_TEST_DATABASE_URL not set; skipping database integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	repo := integrationRepo(t)
+	tenant := testTenantID(t, repo)
+	owner := testOwnerID(t, repo, tenant)
+
+	p := &project.Project{Name: "С защитой владельца"}
+	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if err := repo.UpdateMemberRole(ctx, tenant, p.ID, owner, project.RoleViewer); err == nil {
+		t.Fatal("expected error changing owner role")
+	}
+	if err := repo.RemoveMember(ctx, tenant, p.ID, owner); err == nil {
+		t.Fatal("expected error removing owner")
+	}
+}
+
 func TestProjectRepositoryStandaloneConfigAndCalculation(t *testing.T) {
 	if os.Getenv("STAIR_TEST_DATABASE_URL") == "" {
 		t.Skip("STAIR_TEST_DATABASE_URL not set; skipping database integration test")
@@ -175,9 +284,10 @@ func TestProjectRepositoryStandaloneConfigAndCalculation(t *testing.T) {
 	defer cancel()
 	repo := integrationRepo(t)
 	tenant := testTenantID(t, repo)
+	owner := testOwnerID(t, repo, tenant)
 
 	p := &project.Project{Name: "Самостоятельные сохранения"}
-	if err := repo.CreateProject(ctx, tenant, p); err != nil {
+	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 

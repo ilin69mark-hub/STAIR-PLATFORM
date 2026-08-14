@@ -510,3 +510,69 @@ body {
   color: var(--muted);
   font-size: 12px;
 }
+
+/* ---- Участники проекта (EDR-0008) ---- */
+
+.btn--danger {
+  background: #fff;
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: var(--error);
+  color: #fff;
+}
+
+.btn--sm {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+.member-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.member {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.member__id {
+  flex: 1;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member__role {
+  min-width: 130px;
+}
+
+.member__role--static {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.member-add {
+  display: flex;
+  gap: 8px;
+}
+
+.member-add .field__input {
+  flex: 1;
+}
+
+.member-add__role {
+  max-width: 170px;
+}
