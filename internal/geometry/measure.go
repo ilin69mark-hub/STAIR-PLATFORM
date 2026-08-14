@@ -26,6 +26,26 @@ func BoundingBox(model *Compound) BBox {
 	return bbox
 }
 
+// SolidBoundingBox возвращает BBox одного тела — минимальный охват всех его
+// вершин (ENG-GEO-0013). Избегает создания промежуточного Compound.
+func SolidBoundingBox(solid *Solid) BBox {
+	if solid == nil {
+		return BBox{}
+	}
+	bbox := BBox{}
+	first := true
+	for _, v := range solidPoints(solid) {
+		if first {
+			bbox = NewBBox(v)
+			first = false
+			continue
+		}
+		b := NewBBox(v)
+		bbox = bbox.Union(b)
+	}
+	return bbox
+}
+
 // SolidCount возвращает число твёрдых тел в модели.
 func SolidCount(model *Compound) int {
 	if model == nil {

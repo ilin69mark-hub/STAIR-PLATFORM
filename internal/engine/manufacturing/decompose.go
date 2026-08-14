@@ -34,7 +34,7 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 	parts := make([]dommfg.Part, 0, len(solids))
 	seq := make(map[dommfg.PartKind]int)
 	for i, solid := range solids {
-		bb := kerngeo.BoundingBox(kerngeo.NewCompound(solid))
+		bb := kerngeo.SolidBoundingBox(solid)
 		ext := [3]float64{
 			bb.Max.X - bb.Min.X,
 			bb.Max.Y - bb.Min.Y,

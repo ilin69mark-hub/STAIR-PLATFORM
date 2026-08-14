@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"sync"
 
 	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
@@ -15,18 +16,27 @@ const DefaultKerf = 3.0
 // DefaultStockSheetRegistry возвращает встроенный детерминированный каталог
 // стандартных листов (MFG-0012) для MVP-05: листы для материалов каталога
 // DefaultMaterialRegistry. Крупные листы — для косоуров, стандартные —
-// для проступей/подступенков.
+// для проступей/подступенков. Возвращается разделяемый неизменяемый экземпляр;
+// вызывающий не должен его изменять.
 func DefaultStockSheetRegistry() *dommfg.StockSheetRegistry {
-	reg, err := dommfg.NewStockSheetRegistry(
-		&dommfg.StockSheet{MaterialCode: "STEEL-S235", Length: sheetLength(6000), Width: sheetLength(3000)},
-		&dommfg.StockSheet{MaterialCode: "STEEL-S235", Length: sheetLength(2500), Width: sheetLength(1250)},
-		&dommfg.StockSheet{MaterialCode: "ALUM-5083", Length: sheetLength(3000), Width: sheetLength(1500)},
-		&dommfg.StockSheet{MaterialCode: "WOOD-OAK", Length: sheetLength(2500), Width: sheetLength(600)},
-	)
-	if err != nil {
-		panic(fmt.Sprintf("manufacturing: default stock sheet registry: %v", err))
-	}
-	return reg
+	defaultStockSheetRegistry.once.Do(func() {
+		reg, err := dommfg.NewStockSheetRegistry(
+			&dommfg.StockSheet{MaterialCode: "STEEL-S235", Length: sheetLength(6000), Width: sheetLength(3000)},
+			&dommfg.StockSheet{MaterialCode: "STEEL-S235", Length: sheetLength(2500), Width: sheetLength(1250)},
+			&dommfg.StockSheet{MaterialCode: "ALUM-5083", Length: sheetLength(3000), Width: sheetLength(1500)},
+			&dommfg.StockSheet{MaterialCode: "WOOD-OAK", Length: sheetLength(2500), Width: sheetLength(600)},
+		)
+		if err != nil {
+			panic(fmt.Sprintf("manufacturing: default stock sheet registry: %v", err))
+		}
+		defaultStockSheetRegistry.reg = reg
+	})
+	return defaultStockSheetRegistry.reg
+}
+
+var defaultStockSheetRegistry struct {
+	once sync.Once
+	reg  *dommfg.StockSheetRegistry
 }
 
 func sheetLength(mm float64) engineering.Length {
