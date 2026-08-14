@@ -33,6 +33,23 @@ describe('validateForm', () => {
       'Не более 640',
     )
   })
+
+  it('L-поля не валидируются для прямого марша', () => {
+    expect(validateForm({ ...defaultConfig, landingWidthMM: '', lowerStepCountMM: '' })).toEqual({})
+  })
+
+  it('L-поля обязательны для l_shape', () => {
+    const cfg = { ...defaultConfig, flight: 'l_shape' as const }
+    expect(validateForm({ ...cfg, landingWidthMM: '' }).landingWidthMM).toBe('Укажите значение')
+    expect(validateForm({ ...cfg, lowerStepCountMM: '' }).lowerStepCountMM).toBe('Укажите значение')
+  })
+
+  it('Wp в диапазоне формы допускается, даже если меньше ширины марша', () => {
+    // Проверка Wp ≥ W выполняется на сервере (EDR-0005 §7); форма лишь
+    // удерживает Wp в диапазоне 600–3000.
+    const cfg = { ...defaultConfig, flight: 'l_shape' as const, landingWidthMM: '700' }
+    expect(validateForm(cfg).landingWidthMM).toBeUndefined()
+  })
 })
 
 describe('toRequest', () => {
@@ -47,6 +64,16 @@ describe('toRequest', () => {
   it('включает comfort_step_mm при заполнении', () => {
     const r = toRequest({ ...defaultConfig, comfortStepMM: '620' })
     expect(r.comfort_step_mm).toBe(620)
+  })
+
+  it('L-параметры отправляются только для l_shape', () => {
+    const lr = toRequest({ ...defaultConfig, flight: 'l_shape' as const })
+    expect(lr.landing_width_mm).toBe(1000)
+    expect(lr.lower_step_count).toBe(6)
+
+    const sr = toRequest(defaultConfig)
+    expect(sr.landing_width_mm).toBeUndefined()
+    expect(sr.lower_step_count).toBeUndefined()
   })
 })
 

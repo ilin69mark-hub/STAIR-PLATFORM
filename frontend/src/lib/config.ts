@@ -5,6 +5,7 @@ import type { Rates } from '../api/types'
 
 export const flightOptions = [
   { value: 'straight', label: 'Прямой марш' },
+  { value: 'l_shape', label: 'L-образная (с площадкой)' },
 ] as const
 
 export type Flight = (typeof flightOptions)[number]['value']
@@ -19,6 +20,8 @@ export interface ConfigForm {
   clearanceMM: string
   railingHeightMM: string
   comfortStepMM: string
+  landingWidthMM: string
+  lowerStepCountMM: string
 }
 
 export const defaultConfig: ConfigForm = {
@@ -31,6 +34,8 @@ export const defaultConfig: ConfigForm = {
   clearanceMM: '80',
   railingHeightMM: '900',
   comfortStepMM: '',
+  landingWidthMM: '1000',
+  lowerStepCountMM: '6',
 }
 
 // ---- Ставки цены (PRC) ----
@@ -106,6 +111,8 @@ export const fieldRules: Record<keyof ConfigForm, FieldRule> = {
   clearanceMM: { min: 0, max: 5000, hint: '≥2000, иначе предупреждение' },
   railingHeightMM: { min: 900, max: 2000 },
   comfortStepMM: { min: 600, max: 640, hint: 'шаг комфорта 600–640' },
+  landingWidthMM: { min: 600, max: 3000, hint: 'Wp ≥ ширины марша' },
+  lowerStepCountMM: { min: 1, max: 100 },
 }
 
 export type FieldErrors = Partial<Record<keyof ConfigForm, string>>
@@ -116,6 +123,10 @@ export function validateForm(f: ConfigForm): FieldErrors {
     [keyof ConfigForm, FieldRule]
   >) {
     if (rule.min === undefined && rule.max === undefined) continue
+    // Поля L-марша значимы только для l_shape.
+    if (key === 'landingWidthMM' || key === 'lowerStepCountMM') {
+      if (f.flight !== 'l_shape') continue
+    }
     const optional = key === 'comfortStepMM'
     const raw = f[key]
     if (raw.trim() === '') {
@@ -150,6 +161,11 @@ export function toRequest(f: ConfigForm): Record<string, unknown> {
   }
   if (f.comfortStepMM.trim() !== '') {
     req.comfort_step_mm = Number(f.comfortStepMM)
+  }
+  // Параметры L-марша передаются только для l_shape (EDR-0005).
+  if (f.flight === 'l_shape') {
+    req.landing_width_mm = Number(f.landingWidthMM)
+    req.lower_step_count = Number(f.lowerStepCountMM)
   }
   return req
 }

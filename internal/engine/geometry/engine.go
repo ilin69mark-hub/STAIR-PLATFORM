@@ -25,16 +25,26 @@ type GenerationResult struct {
 	Measurement Measurement
 }
 
-// Generate строит параметрическую B-Rep модель прямого марша, валидирует
-// её (ENG-GEO-0018), измеряет (ENG-GEO-0013) и строит preview mesh
-// (ENG-GEO-0008) — фасад Geometry Engine (ENG-0003). Предусловие:
-// конфигурация с положительными решёнными параметрами (после Solver,
-// ENG-0001); невыполнение возвращает ошибку. Валидация не блокирует
-// результат: отчёт issues собирается в результат (валидная модель из
-// корректных параметров не содержит ошибок уровня SeverityError).
-// Результат детерминирован при детерминированной конфигурации.
+// Generate строит параметрическую B-Rep модель марша (прямого или
+// L-образного согласно cfg.Flight), валидирует её (ENG-GEO-0018), измеряет
+// (ENG-GEO-0013) и строит preview mesh (ENG-GEO-0008) — фасад Geometry
+// Engine (ENG-0003). Предусловие: конфигурация с положительными решёнными
+// параметрами (после Solver, ENG-0001); невыполнение возвращает ошибку.
+// Валидация не блокирует результат: отчёт issues собирается в результат
+// (валидная модель из корректных параметров не содержит ошибок уровня
+// SeverityError). Результат детерминирован при детерминированной конфигурации.
 func Generate(cfg *engineering.StairConfiguration) (*GenerationResult, error) {
-	model, err := BuildStraightFlight(cfg)
+	if cfg == nil {
+		return nil, fmt.Errorf("geometry: configuration is required")
+	}
+	var model *kerngeo.Compound
+	var err error
+	switch cfg.Flight {
+	case engineering.FlightLShape:
+		model, err = BuildLShapeFlight(cfg)
+	default:
+		model, err = BuildStraightFlight(cfg)
+	}
 	if err != nil {
 		return nil, err
 	}

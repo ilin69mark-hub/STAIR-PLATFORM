@@ -30,6 +30,9 @@ type Config struct {
 	StepThickness     engineering.Length // мм
 	Clearance         engineering.Length // мм
 	RailingHeight     engineering.Length // мм
+	// LandingWidth и LowerStepCount — специфичны для L-марша (EDR-0005).
+	LandingWidth   engineering.Length // мм — ширина площадки Wp
+	LowerStepCount int                // n1 — число ступеней нижнего марша
 }
 
 // Options — опциональные настройки расчёта; нулевое значение даёт дефолты.
@@ -45,7 +48,8 @@ type Options struct {
 // Result — сквозной результат расчёта проекта (все этапы конвейера).
 type Result struct {
 	Validation     validation.Result
-	Flight         solver.FlightResult
+	Flight         solver.FlightResult  // прямой марш
+	LShape         *solver.LShapeResult // L-образный марш (Flight == LShape)
 	Measurement    geometry.Measurement
 	GeometryIssues []kerngeo.ValidationIssue
 	Mesh           *kerngeo.Mesh                // preview mesh для визуализации (ENG-GEO-0008)
@@ -81,12 +85,29 @@ func (s *Service) Calculate(cfg Config, opts Options) (*Result, error) {
 	if comfort == 0 {
 		comfort = solver.DefaultComfortStep
 	}
-	flight, vr, err := solver.SolveChecked(c, s.constraints, comfort)
-	if err != nil {
-		return nil, err
-	}
-	if vr.Blocking {
-		return &Result{Validation: vr}, nil
+
+	res := &Result{}
+	switch cfg.Flight {
+	case engineering.FlightLShape:
+		lres, vr, err := solver.SolveCheckedLShape(c, s.constraints, comfort)
+		if err != nil {
+			return nil, err
+		}
+		if vr.Blocking {
+			return &Result{Validation: vr}, nil
+		}
+		res.Validation = vr
+		res.LShape = &lres
+	default:
+		flight, vr, err := solver.SolveChecked(c, s.constraints, comfort)
+		if err != nil {
+			return nil, err
+		}
+		if vr.Blocking {
+			return &Result{Validation: vr}, nil
+		}
+		res.Validation = vr
+		res.Flight = flight
 	}
 
 	gen, err := geometry.Generate(c)
@@ -118,16 +139,13 @@ func (s *Service) Calculate(cfg Config, opts Options) (*Result, error) {
 		return nil, fmt.Errorf("stair: pricing: %w", err)
 	}
 
-	return &Result{
-		Validation:     vr,
-		Flight:         flight,
-		Measurement:    gen.Measurement,
-		GeometryIssues: gen.Issues,
-		Mesh:           gen.Mesh,
-		Package:        pkg,
-		Cost:           ds,
-		Price:          price,
-	}, nil
+	res.Measurement = gen.Measurement
+	res.GeometryIssues = gen.Issues
+	res.Mesh = gen.Mesh
+	res.Package = pkg
+	res.Cost = ds
+	res.Price = price
+	return res, nil
 }
 
 // buildConfiguration собирает и валидирует параметрическую конфигурацию
@@ -142,5 +160,7 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 	c.StepThickness = cfg.StepThickness
 	c.Clearance = cfg.Clearance
 	c.RailingHeight = cfg.RailingHeight
+	c.LandingWidth = cfg.LandingWidth
+	c.LowerStepCount = cfg.LowerStepCount
 	return c, nil
 }

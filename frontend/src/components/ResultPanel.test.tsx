@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { ResultPanel } from './ResultPanel'
-import { makeSnapshot } from '../test/fixtures'
+import { lshapeFixture, makeSnapshot } from '../test/fixtures'
 
 describe('ResultPanel', () => {
   it('рендерит все панели для валидного снапшота', () => {
@@ -15,6 +15,20 @@ describe('ResultPanel', () => {
     expect(screen.getByText('Стоимость (RUB)')).toBeInTheDocument()
     expect(screen.getByText('Итоговая цена')).toBeInTheDocument()
     expect(screen.getByText('15')).toBeInTheDocument()
+  })
+
+  it('рендерит панель L-образного марша, когда есть lshape', () => {
+    render(
+      <ResultPanel
+        snapshot={makeSnapshot({ flight: undefined, lshape: lshapeFixture })}
+      />,
+    )
+
+    expect(screen.getByText('L-образный марш (Solver)')).toBeInTheDocument()
+    expect(screen.getByText('6 / 9')).toBeInTheDocument()
+    expect(screen.getByText('1 080 мм')).toBeInTheDocument()
+    expect(screen.getByText('1 000 мм')).toBeInTheDocument()
+    expect(screen.queryByText('Марш (Solver)')).not.toBeInTheDocument()
   })
 
   it('без issues показывает «Нарушений не обнаружено»', () => {

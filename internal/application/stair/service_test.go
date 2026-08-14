@@ -166,3 +166,63 @@ func TestCalculateComfortStepBoundary(t *testing.T) {
 		t.Fatalf("expected blocking for b=240, got %+v", res.Validation)
 	}
 }
+
+// referenceLShapeConfig — эталонная L-образная конфигурация (H=2700,
+// n=15, n1=6, h=180, b=270, W=900, Wp=1000). Ответвление n1=6 даёт
+// нижний марш 1620×1080 и верхний 2430×1620.
+func referenceLShapeConfig() Config {
+	cfg := referenceConfig()
+	cfg.Flight = engineering.FlightLShape
+	cfg.LandingWidth = mustLengthHelper(1000)
+	cfg.LowerStepCount = 6
+	return cfg
+}
+
+func TestCalculateLShapePipeline(t *testing.T) {
+	s := NewService()
+	res, err := s.Calculate(referenceLShapeConfig(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Validation.Valid || res.Validation.Blocking {
+		t.Fatalf("expected valid configuration, got %+v", res.Validation)
+	}
+	if res.LShape == nil {
+		t.Fatal("l_shape flight must populate LShape result")
+	}
+	if res.LShape.StepCount != 15 || res.LShape.LowerStepCount != 6 || res.LShape.UpperStepCount != 9 {
+		t.Fatalf("split = %d/%d/%d, want 15/6/9",
+			res.LShape.StepCount, res.LShape.LowerStepCount, res.LShape.UpperStepCount)
+	}
+	if res.LShape.LowerHeight.Millimeters() != 1080 || res.LShape.UpperHeight.Millimeters() != 1620 {
+		t.Fatalf("flight heights = %v/%v, want 1080/1620",
+			res.LShape.LowerHeight.Millimeters(), res.LShape.UpperHeight.Millimeters())
+	}
+	// прямой марш должен оставаться нулевым.
+	if res.Flight.StepCount != 0 {
+		t.Fatalf("straight flight must be empty for l_shape, got %+v", res.Flight)
+	}
+	// полный конвейер: 35 деталей, 4 косоура, 16 проступей, 15 подступенков.
+	if res.Package == nil || len(res.Package.Parts) != 35 {
+		t.Fatalf("parts = %d, want 35", len(res.Package.Parts))
+	}
+	if res.Mesh == nil || len(res.Mesh.Vertices) == 0 {
+		t.Fatal("l_shape pipeline must produce preview mesh")
+	}
+	if res.Measurement.Volume != 308700000 {
+		t.Fatalf("volume = %v, want 308700000", res.Measurement.Volume)
+	}
+	if res.Price == nil || res.Price.FinalPrice.Minor() <= 0 {
+		t.Fatal("l_shape pipeline must produce price")
+	}
+}
+
+func TestCalculateLShapeLandingTooNarrow(t *testing.T) {
+	s := NewService()
+	// Wp=500 < W=900 → ошибка (EDR-0005 §7): невозможно выполнить расчёт.
+	cfg := referenceLShapeConfig()
+	cfg.LandingWidth = mustLengthHelper(500)
+	if _, err := s.Calculate(cfg, Options{}); err == nil {
+		t.Fatal("landing width below stair width must be rejected")
+	}
+}

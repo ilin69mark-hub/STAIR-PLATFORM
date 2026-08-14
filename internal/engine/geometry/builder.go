@@ -6,6 +6,7 @@ package geometry
 
 import (
 	"fmt"
+	"math"
 
 	"stairplatform/internal/domain/engineering"
 	kerngeo "stairplatform/internal/geometry"
@@ -43,7 +44,7 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 		if err != nil {
 			return nil, fmt.Errorf("geometry: stringer: %w", err)
 		}
-		solids = append(solids, solid)
+		solids = append(solids, solid.WithRole("stringer"))
 	}
 
 	if st <= kerngeo.Precision {
@@ -64,7 +65,7 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 		if err != nil {
 			return nil, fmt.Errorf("geometry: tread %d: %w", k, err)
 		}
-		solids = append(solids, solid)
+		solids = append(solids, solid.WithRole("tread"))
 	}
 
 	// подступенки: вертикальные боксы между косоурами, толщина по X.
@@ -81,13 +82,122 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 		if err != nil {
 			return nil, fmt.Errorf("geometry: riser %d: %w", k, err)
 		}
-		solids = append(solids, solid)
+		solids = append(solids, solid.WithRole("riser"))
 	}
 
 	return kerngeo.NewCompound(solids...), nil
 }
 
-// validateFlight проверяет входные параметры перед построением модели.
+// BuildLShapeFlight строит параметрическую B-Rep модель L-образной
+// лестницы (EDR-0005, ENG-GEO-0007): нижний прямой марш (n1 ступеней),
+// горизонтальная площадка на высоте H1 и верхний прямой марш (n2
+// ступеней), повёрнутый на 90° по горизонтали. Координаты: X — направление
+// подъёма нижнего марша, Y — его ширина, Z — высота (ADR-0008); верхний
+// марш идёт вдоль +Y. Геометрия всегда вычисляется заново из параметров
+// (BC-002). Роли тел проставляются для корректной декомпозиции.
+func BuildLShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, error) {
+	if err := validateFlight(cfg); err != nil {
+		return nil, err
+	}
+	if cfg.Flight != engineering.FlightLShape {
+		return nil, fmt.Errorf("geometry: configuration flight must be l_shape")
+	}
+	w := cfg.Width.Millimeters()
+	b := cfg.TreadDepth.Millimeters()
+	h := cfg.StepHeight.Millimeters()
+	st := cfg.StepThickness.Millimeters()
+	n1 := cfg.LowerStepCount
+	n2 := cfg.StepCount - n1
+	wp := cfg.LandingWidth.Millimeters()
+	// EDR-0005 §4.5: H1 = n1·h — уровень площадки.
+	h1 := float64(n1) * h
+
+	// нижний марш в локальных координатах (без поворота).
+	lower := &engineering.StairConfiguration{
+		Width:             cfg.Width,
+		Height:            engineering.Length(h1),
+		Length:            cfg.Length,
+		Angle:             cfg.Angle,
+		Flight:            engineering.FlightStraight,
+		StepCount:         n1,
+		StepHeight:        cfg.StepHeight,
+		StepWidth:         cfg.StepWidth,
+		TreadDepth:        cfg.TreadDepth,
+		Clearance:         cfg.Clearance,
+		RailingHeight:     cfg.RailingHeight,
+		StringerLength:    engineering.Length(float64(n1) * cfg.TreadDepth.Millimeters()),
+		StringerThickness: cfg.StringerThickness,
+		StepThickness:     cfg.StepThickness,
+	}
+	lowerModel, err := BuildStraightFlight(lower)
+	if err != nil {
+		return nil, fmt.Errorf("geometry: lower flight: %w", err)
+	}
+
+	// верхний марш: строится как прямой в локальных координатах, затем
+	// поворот на 90° вокруг Z (направление подъёма → вдоль +Y) и перенос
+	// так, чтобы марш начинался с края площадки на высоте H1.
+	upper := &engineering.StairConfiguration{
+		Width:             cfg.Width,
+		Height:            engineering.Length(float64(n2) * h),
+		Length:            cfg.Length,
+		Angle:             cfg.Angle,
+		Flight:            engineering.FlightStraight,
+		StepCount:         n2,
+		StepHeight:        cfg.StepHeight,
+		StepWidth:         cfg.StepWidth,
+		TreadDepth:        cfg.TreadDepth,
+		Clearance:         cfg.Clearance,
+		RailingHeight:     cfg.RailingHeight,
+		StringerLength:    engineering.Length(float64(n2) * cfg.TreadDepth.Millimeters()),
+		StringerThickness: cfg.StringerThickness,
+		StepThickness:     cfg.StepThickness,
+	}
+	upperModel, err := BuildStraightFlight(upper)
+	if err != nil {
+		return nil, fmt.Errorf("geometry: upper flight: %w", err)
+	}
+	// Площадка: план [L1, L1+W]×[0, Wp], верх на уровне H1 (EDR-0005 §4.8).
+	// Верхний марш (в локальных координатах: подъём вдоль +X, ширина вдоль
+	// +Y) поворачивается на +90° вокруг Z: подъём → вдоль +Y, ширина →
+	// вдоль -X, затем переносится так, чтобы марш занимал
+	// [L1, L1+W]×[Wp, Wp+L2] на высоте H1.
+	l1 := float64(n1) * b
+	upperTransform := kerngeo.Translate(l1+w, wp, h1).Mul(kerngeo.RotateZ(math.Pi / 2))
+
+	// площадка: горизонтальная плита толщиной st на высоте H1, план
+	// [L1, L1+W]×[0, Wp] (EDR-0005 §4.8), роль "landing".
+	landing, err := buildLanding(w, wp, l1, h1, st)
+	if err != nil {
+		return nil, err
+	}
+
+	solids := append([]*kerngeo.Solid{}, lowerModel.Solids()...)
+	solids = append(solids, landing)
+	for _, s := range upperModel.Solids() {
+		solids = append(solids, kerngeo.TransformSolid(s, upperTransform))
+	}
+	return kerngeo.NewCompound(solids...), nil
+}
+
+// buildLanding строит твёрдое тело горизонтальной прямоугольной плиты
+// площадки толщиной st с верхней гранью на уровне h1 (EDR-0005 §4.8):
+// план [x0, x0+w] × [0, Wp] — ширина марша W вдоль +X, ширина площадки
+// Wp вдоль +Y.
+func buildLanding(w, wp, x0, h1, st float64) (*kerngeo.Solid, error) {
+	p := []kerngeo.Point3{
+		kerngeo.NewPoint3(x0, 0, h1-st),
+		kerngeo.NewPoint3(x0+w, 0, h1-st),
+		kerngeo.NewPoint3(x0+w, wp, h1-st),
+		kerngeo.NewPoint3(x0, wp, h1-st),
+	}
+	solid, err := kerngeo.Extrude(p, kerngeo.NewVector3(0, 0, 1), st)
+	if err != nil {
+		return nil, fmt.Errorf("geometry: landing: %w", err)
+	}
+	return solid.WithRole("landing"), nil
+}
+
 func validateFlight(cfg *engineering.StairConfiguration) error {
 	if cfg == nil {
 		return fmt.Errorf("geometry: configuration is required")

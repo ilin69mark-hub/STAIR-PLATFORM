@@ -10,10 +10,12 @@ import (
 
 // decompose превращает модель в производственные детали: каждое твёрдое
 // тело становится Part (MFG-0002 Part Decomposition). Тип детали
-// определяется «тонкой» осью ограничивающего параллелепипеда (косоур
-// тонок по Y, проступь по Z, подступенок по X) — признак выводится из
-// геометрии и не зависит от порядка тел. SolidIndex трассирует деталь
-// к телу модели (BC-007).
+// определяется семантической меткой тела (Role, проставляется Geometry
+// Engine) или, при её отсутствии, «тонкой» осью ограничивающего
+// параллелепипеда (косоур тонок по Y, проступь по Z, подступенок по X).
+// Семантическая метка обязательна для повёрнутых маршей (L-образная
+// лестница), где ориентация тел зависит от марша. SolidIndex трассирует
+// деталь к телу модели (BC-007).
 func decompose(model *kerngeo.Compound) ([]dommfg.Part, error) {
 	if model == nil {
 		return nil, fmt.Errorf("manufacturing: model is required")
@@ -32,7 +34,7 @@ func decompose(model *kerngeo.Compound) ([]dommfg.Part, error) {
 			bb.Max.Y - bb.Min.Y,
 			bb.Max.Z - bb.Min.Z,
 		}
-		kind, thickness, length, width := classify(ext)
+		kind, thickness, length, width := classify(ext, solid.Role())
 		seq[kind]++
 
 		mk := func(v float64) (engineering.Length, error) {
@@ -62,9 +64,28 @@ func decompose(model *kerngeo.Compound) ([]dommfg.Part, error) {
 	return parts, nil
 }
 
-// classify определяет тип детали по габаритам bbox (X, Y, Z) и возвращает
-// тип, толщину (тонкий размер) и габариты в плоскости (Length ≥ Width).
-func classify(dims [3]float64) (dommfg.PartKind, float64, float64, float64) {
+// roleKind сопоставляет семантическую метку тела типу детали.
+// Площадка (landing) — горизонтальная плита, обрабатывается как проступь
+// (PartTread), но получает уникальный номер (TRD).
+func roleKind(role string) (dommfg.PartKind, bool) {
+	switch role {
+	case "stringer":
+		return dommfg.PartStringer, true
+	case "tread", "landing":
+		return dommfg.PartTread, true
+	case "riser":
+		return dommfg.PartRiser, true
+	default:
+		return "", false
+	}
+}
+
+// classify определяет тип детали по семантической метке (если задана) или
+// по габаритам bbox (X, Y, Z) и возвращает тип, толщину (тонкий размер) и
+// габариты в плоскости (Length ≥ Width).
+func classify(dims [3]float64, role string) (dommfg.PartKind, float64, float64, float64) {
+	// «тонкая» ось вычисляется всегда — толщина (тонкий размер) одинакова
+	// вне зависимости от типа.
 	thin := dims[0]
 	axis := 0
 	if dims[1] < thin {
@@ -75,23 +96,30 @@ func classify(dims [3]float64) (dommfg.PartKind, float64, float64, float64) {
 		thin = dims[2]
 		axis = 2
 	}
-	var kind dommfg.PartKind
 	var a, b float64
 	switch axis {
 	case 0:
-		kind = dommfg.PartRiser // тонок по X (глубина)
 		a, b = dims[1], dims[2]
 	case 1:
-		kind = dommfg.PartStringer // тонок по Y (ширина марша)
 		a, b = dims[0], dims[2]
 	default:
-		kind = dommfg.PartTread // тонок по Z (вертикаль)
 		a, b = dims[0], dims[1]
 	}
 	if a < b {
-		return kind, thin, b, a
+		a, b = b, a
 	}
-	return kind, thin, a, b
+	kind, ok := roleKind(role)
+	if ok {
+		return kind, thin, a, b
+	}
+	switch axis {
+	case 0:
+		return dommfg.PartRiser, thin, a, b
+	case 1:
+		return dommfg.PartStringer, thin, a, b
+	default:
+		return dommfg.PartTread, thin, a, b
+	}
 }
 
 // partNumber формирует детерминированный уникальный номер детали:

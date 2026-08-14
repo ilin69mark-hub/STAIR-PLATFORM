@@ -34,7 +34,7 @@ export function ResultPanel({ snapshot }: Props) {
 
       {!stopped && (
         <>
-          <FlightPanel snapshot={s} />
+          {s.lshape ? <LShapePanel snapshot={s} /> : <FlightPanel snapshot={s} />}
           <GeometryPanel snapshot={s} />
           <ManufacturingPanel snapshot={s} />
           <PricingPanel snapshot={s} pricing={s.pricing!} />
@@ -114,6 +114,65 @@ function FlightPanel({ snapshot }: { snapshot: Snapshot }) {
         </div>
       </dl>
       <StairProfile flight={f} />
+    </section>
+  )
+}
+
+// LShapePanel — результат Solver L-образной лестницы (EDR-0005):
+// два марша, площадка между ними на высоте H1.
+function LShapePanel({ snapshot }: { snapshot: Snapshot }) {
+  const l = snapshot.lshape!
+  return (
+    <section className="panel">
+      <h2 className="panel__title">L-образный марш (Solver)</h2>
+      <dl className="kv">
+        <div>
+          <dt>Ступеней всего</dt>
+          <dd>{l.StepCount}</dd>
+        </div>
+        <div>
+          <dt>Нижний / верхний марш</dt>
+          <dd>
+            {l.LowerStepCount} / {l.UpperStepCount}
+          </dd>
+        </div>
+        <div>
+          <dt>Высота ступени</dt>
+          <dd>{fmt.mm(l.StepHeight)}</dd>
+        </div>
+        <div>
+          <dt>Глубина проступи</dt>
+          <dd>{fmt.mm(l.TreadDepth)}</dd>
+        </div>
+        <div>
+          <dt>Угол наклона</dt>
+          <dd>{fmt.deg(l.Angle)}</dd>
+        </div>
+        <div>
+          <dt>Площадка на высоте H1</dt>
+          <dd>{fmt.mm(l.LowerHeight)}</dd>
+        </div>
+        <div>
+          <dt>Ширина площадки Wp</dt>
+          <dd>{fmt.mm(l.LandingWidth)}</dd>
+        </div>
+        <div>
+          <dt>Нижний марш (L1 × R1)</dt>
+          <dd>
+            {fmt.mm(l.LowerRun)} × {fmt.mm(l.LowerStringer)}
+          </dd>
+        </div>
+        <div>
+          <dt>Верхний марш (L2 × R2)</dt>
+          <dd>
+            {fmt.mm(l.UpperRun)} × {fmt.mm(l.UpperStringer)}
+          </dd>
+        </div>
+        <div>
+          <dt>Общая высота H</dt>
+          <dd>{fmt.mm(l.UpperHeight)}</dd>
+        </div>
+      </dl>
     </section>
   )
 }

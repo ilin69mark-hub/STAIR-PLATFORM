@@ -20,7 +20,8 @@ type Project struct {
 }
 
 // StairConfiguration — сохранённая конфигурация лестницы проекта
-// (BC-002). Параметры в мм; ComfortStep в мм.
+// (BC-002). Параметры в мм; ComfortStep в мм. LandingWidthMM и
+// LowerStepCount специфичны для L-марша (EDR-0005).
 type StairConfiguration struct {
 	ID                  string
 	ProjectID           string
@@ -33,6 +34,8 @@ type StairConfiguration struct {
 	ClearanceMM         float64
 	RailingHeightMM     float64
 	ComfortStepMM       float64
+	LandingWidthMM      float64
+	LowerStepCount      int
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }

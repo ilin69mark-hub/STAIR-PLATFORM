@@ -5,6 +5,7 @@ import { projectsApi } from '../api/projects'
 import {
   defaultConfig,
   defaultRates,
+  flightOptions,
   toRequest,
   toRatesRequest,
   validateForm,
@@ -136,10 +137,38 @@ const configFields: Array<{ key: keyof ConfigForm; label: string }> = [
   { key: 'comfortStepMM', label: 'Шаг комфорта S, мм' },
 ]
 
+// Поля, специфичные для L-образной лестницы (EDR-0005).
+const lshapeFields: Array<{ key: keyof ConfigForm; label: string }> = [
+  { key: 'landingWidthMM', label: 'Ширина площадки Wp, мм' },
+  { key: 'lowerStepCountMM', label: 'Ступеней нижнего марша (n1)' },
+]
+
 function ConfigForm({ fields, errors, onChange }: ConfigFormProps) {
+  const isLShape = fields.flight === 'l_shape'
+  const visible =
+    isLShape
+      ? [...configFields, ...lshapeFields]
+      : configFields.filter((f) => !lshapeFields.some((lf) => lf.key === f.key))
   return (
     <div className="config-grid">
-      {configFields.map((f) => {
+      <div className="field">
+        <label className="field__label" htmlFor="cfg-flight">
+          Тип марша
+        </label>
+        <select
+          id="cfg-flight"
+          className="field__input"
+          value={fields.flight}
+          onChange={(e) => onChange('flight', e.target.value)}
+        >
+          {flightOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      {visible.map((f) => {
         const rule = fieldRules[f.key]
         const error = errors[f.key]
         const hint = rule && (rule.hint ?? (rule.min || rule.max ? rangeText(rule) : undefined))

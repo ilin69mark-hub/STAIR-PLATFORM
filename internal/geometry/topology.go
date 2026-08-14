@@ -81,12 +81,26 @@ func NewShell(faces ...*Face) *Shell { return &Shell{faces: faces} }
 func (s *Shell) Faces() []*Face { return s.faces }
 
 // Solid — замкнутое твёрдое тело, состоящее из оболочек.
+// Role — опциональная семантическая метка тела (например, роль детали),
+// не является частью топологии и не влияет на геометрию.
 type Solid struct {
 	shells []*Shell
+	role   string
 }
 
 // NewSolid создаёт твёрдое тело из оболочек.
 func NewSolid(shells ...*Shell) *Solid { return &Solid{shells: shells} }
+
+// NewSolidRole создаёт твёрдое тело из оболочек с семантической меткой.
+func NewSolidRole(role string, shells ...*Shell) *Solid {
+	return &Solid{shells: shells, role: role}
+}
+
+// WithRole возвращает копию тела с заданной меткой (тело неизменяемо).
+func (s *Solid) WithRole(role string) *Solid { return &Solid{shells: s.shells, role: role} }
+
+// Role возвращает семантическую метку тела (пустая строка — не задана).
+func (s *Solid) Role() string { return s.role }
 
 // Shells возвращает оболочки твёрдого тела.
 func (s *Solid) Shells() []*Shell { return s.shells }
@@ -98,6 +112,42 @@ type Compound struct {
 
 // NewCompound создаёт композит из твёрдых тел.
 func NewCompound(solids ...*Solid) *Compound { return &Compound{solids: solids} }
+
+// TransformSolid возвращает новое твёрдое тело, полученное применением
+// преобразования t ко всем вершинам тела (ENG-GEO-0101). Топология и
+// семантическая метка роли сохраняются. Результат детерминирован.
+func TransformSolid(s *Solid, t Transform) *Solid {
+	if s == nil {
+		return nil
+	}
+	shells := make([]*Shell, len(s.shells))
+	for i, sh := range s.shells {
+		faces := make([]*Face, len(sh.faces))
+		for j, f := range sh.faces {
+			outer := transformWire(f.outer, t)
+			inner := make([]*Wire, len(f.inner))
+			for k, w := range f.inner {
+				inner[k] = transformWire(w, t)
+			}
+			faces[j] = NewFace(outer, inner...)
+		}
+		shells[i] = NewShell(faces...)
+	}
+	return &Solid{shells: shells, role: s.role}
+}
+
+// transformWire возвращает провод с преобразованными вершинами.
+func transformWire(w *Wire, t Transform) *Wire {
+	edges := make([]*Edge, len(w.edges))
+	for i, e := range w.edges {
+		v1, v2 := e.Endpoints()
+		edges[i] = NewEdge(
+			NewVertex(t.Apply(v1.Point())),
+			NewVertex(t.Apply(v2.Point())),
+		)
+	}
+	return NewWire(edges...)
+}
 
 // Solids возвращает твёрдые тела композита.
 func (c *Compound) Solids() []*Solid { return c.solids }

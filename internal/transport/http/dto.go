@@ -6,6 +6,7 @@ import (
 	dommfg "stairplatform/internal/domain/manufacturing"
 	domprc "stairplatform/internal/domain/pricing"
 	engprc "stairplatform/internal/engine/pricing"
+	"stairplatform/internal/engine/solver"
 )
 
 // All DTOs use mm / degrees / mm³ / mm² / mm и руб (старшие единицы валюты)
@@ -22,6 +23,8 @@ type calculateRequest struct {
 	ClearanceMM         float64   `json:"clearance_mm"`
 	RailingHeightMM     float64   `json:"railing_height_mm"`
 	ComfortStepMM       float64   `json:"comfort_step_mm,omitempty"`
+	LandingWidthMM      float64   `json:"landing_width_mm,omitempty"`
+	LowerStepCount      int       `json:"lower_step_count,omitempty"`
 	Rates               *ratesDTO `json:"rates,omitempty"`
 }
 
@@ -69,6 +72,23 @@ type flightDTO struct {
 	RunMm        float64 `json:"run_mm"`
 	StringerMm   float64 `json:"stringer_mm"`
 	AngleDeg     float64 `json:"angle_deg"`
+}
+
+// lshapeDTO — результат Solver для L-образной лестницы (EDR-0005).
+type lshapeDTO struct {
+	StepCount       int     `json:"step_count"`
+	LowerStepCount  int     `json:"lower_step_count"`
+	UpperStepCount  int     `json:"upper_step_count"`
+	StepHeightMm    float64 `json:"step_height_mm"`
+	TreadDepthMm    float64 `json:"tread_depth_mm"`
+	AngleDeg        float64 `json:"angle_deg"`
+	LowerHeightMm   float64 `json:"lower_height_mm"`
+	UpperHeightMm   float64 `json:"upper_height_mm"`
+	LowerRunMm      float64 `json:"lower_run_mm"`
+	UpperRunMm      float64 `json:"upper_run_mm"`
+	LowerStringerMm float64 `json:"lower_stringer_mm"`
+	UpperStringerMm float64 `json:"upper_stringer_mm"`
+	LandingWidthMm  float64 `json:"landing_width_mm"`
 }
 
 // geometryIssueDTO — запись валидации геометрии (ENG-GEO-0018).
@@ -196,6 +216,7 @@ type pricingDTO struct {
 type calculateResponse struct {
 	Validation    validationDTO    `json:"validation"`
 	Flight        flightDTO        `json:"flight"`
+	LShape        *lshapeDTO       `json:"lshape,omitempty"`
 	Geometry      geometryDTO      `json:"geometry"`
 	Manufacturing manufacturingDTO `json:"manufacturing"`
 	Pricing       pricingDTO       `json:"pricing"`
@@ -220,6 +241,20 @@ func toFlight(r stair.Result) flightDTO {
 		StepCount: r.Flight.StepCount, StepHeightMm: r.Flight.StepHeight.Millimeters(),
 		TreadDepthMm: r.Flight.TreadDepth.Millimeters(), RunMm: r.Flight.Run.Millimeters(),
 		StringerMm: r.Flight.Stringer.Millimeters(), AngleDeg: r.Flight.Angle.Degrees(),
+	}
+}
+
+func toLShape(l *solver.LShapeResult) *lshapeDTO {
+	if l == nil {
+		return nil
+	}
+	return &lshapeDTO{
+		StepCount: l.StepCount, LowerStepCount: l.LowerStepCount, UpperStepCount: l.UpperStepCount,
+		StepHeightMm: l.StepHeight.Millimeters(), TreadDepthMm: l.TreadDepth.Millimeters(),
+		AngleDeg: l.Angle.Degrees(), LowerHeightMm: l.LowerHeight.Millimeters(),
+		UpperHeightMm: l.UpperHeight.Millimeters(), LowerRunMm: l.LowerRun.Millimeters(),
+		UpperRunMm: l.UpperRun.Millimeters(), LowerStringerMm: l.LowerStringer.Millimeters(),
+		UpperStringerMm: l.UpperStringer.Millimeters(), LandingWidthMm: l.LandingWidth.Millimeters(),
 	}
 }
 
@@ -320,6 +355,8 @@ func toConfig(req calculateRequest) (stair.Config, error) {
 		StepThickness:     engineering.Length(req.StepThicknessMM),
 		Clearance:         engineering.Length(req.ClearanceMM),
 		RailingHeight:     engineering.Length(req.RailingHeightMM),
+		LandingWidth:      engineering.Length(req.LandingWidthMM),
+		LowerStepCount:    req.LowerStepCount,
 	}
 	return cfg, nil
 }
