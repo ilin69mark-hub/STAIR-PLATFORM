@@ -115,6 +115,7 @@ export function validateForm(f: ConfigForm): FieldErrors {
   for (const [key, rule] of Object.entries(fieldRules) as Array<
     [keyof ConfigForm, FieldRule]
   >) {
+    if (rule.min === undefined && rule.max === undefined) continue
     const optional = key === 'comfortStepMM'
     const raw = f[key]
     if (raw.trim() === '') {

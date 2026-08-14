@@ -10,7 +10,12 @@ function cell(v: string | number): string {
   return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
-function csv(headers: string[], rows: Array<Array<string | number>>): string {
+// buildCsv собирает CSV-текст (значения разделены ';', экранирование +
+// BOM для корректного UTF-8 в Excel). Экспортируется для тестирования.
+export function buildCsv(
+  headers: string[],
+  rows: Array<Array<string | number>>,
+): string {
   const lines = [headers.map(cell).join(';'), ...rows.map((r) => r.map(cell).join(';'))]
   return `\uFEFF${lines.join('\n')}\n`
 }
@@ -36,7 +41,7 @@ export const exportCsv = {
     if (!mfg) return
     download(
       `stair-${slug(snapshot.project_id)}-bom.csv`,
-      csv(
+      buildCsv(
         ['№', 'Деталь', 'Описание', 'Материал', 'Толщина, мм', 'Кол-во', 'Длина, мм', 'Ширина, мм'],
         mfg.BOM.map((l) => [
           l.Number,
@@ -56,7 +61,7 @@ export const exportCsv = {
     if (!mfg) return
     download(
       `stair-${slug(snapshot.project_id)}-parts.csv`,
-      csv(
+      buildCsv(
         ['№', 'Тип', 'Материал', 'Толщина, мм', 'Длина, мм', 'Ширина, мм'],
         mfg.Parts.map((p) => [
           p.Number,
@@ -88,7 +93,7 @@ export const exportCsv = {
     }
     download(
       `stair-${slug(snapshot.project_id)}-cutlist.csv`,
-      csv(
+      buildCsv(
         ['Деталь', 'Лист (материал)', 'Толщина, мм', 'Длина, мм', 'Ширина, мм', 'X, мм', 'Y, мм'],
         rows,
       ),
@@ -118,7 +123,7 @@ export const exportCsv = {
     }
     download(
       `stair-${slug(snapshot.project_id)}-pricing.csv`,
-      csv(['Статья', `Сумма, ${pricing.Currency?.Code ?? 'RUB'}`], rows),
+      buildCsv(['Статья', `Сумма, ${pricing.Currency?.Code ?? 'RUB'}`], rows),
     )
   },
 }

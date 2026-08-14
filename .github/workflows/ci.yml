@@ -52,3 +52,66 @@ jobs:
         with:
           name: coverage
           path: coverage.out
+
+  # MVP-10: юнит-тесты, линт и сборка фронтенда.
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+  # MVP-10: интеграционные тесты HTTP + PostgreSQL (реальный стек).
+  integration:
+    name: Integration (HTTP+DB)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: stair
+          POSTGRES_PASSWORD: stair
+          POSTGRES_DB: stair_platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U stair"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Integration Tests
+        run: go test ./...
+        env:
+          STAIR_TEST_DATABASE_URL: postgres://stair:stair@localhost:5432/stair_platform_test?sslmode=disable
