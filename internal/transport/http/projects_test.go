@@ -21,6 +21,8 @@ type fakeProjectService struct {
 	members      []*project.ProjectMember
 	comments     []*project.Comment
 	reviews      []*project.ProjectReview
+	approvals    []*project.ConfigurationApproval
+	configs      []*project.StairConfiguration
 	calc         *project.Calculation
 	createErr    error
 	calculateErr error
@@ -141,6 +143,37 @@ func (f *fakeProjectService) ListReviews(ctx context.Context, tenantID, userID, 
 	return f.reviews, nil
 }
 
+func (f *fakeProjectService) ApproveConfiguration(ctx context.Context, tenantID, userID, projectID, configurationID, comment string) (*project.ConfigurationApproval, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, project.ErrNotFound
+	}
+	if f.reviewErr != nil {
+		return nil, f.reviewErr
+	}
+	a := &project.ConfigurationApproval{ID: "a-1", ProjectID: projectID, ConfigurationID: configurationID,
+		ApprovedByID: userID, Comment: comment, CreatedAt: time.Now()}
+	a2 := *a
+	f.approvals = append(f.approvals, &a2)
+	return &a2, nil
+}
+
+func (f *fakeProjectService) GetConfigurationApproval(ctx context.Context, tenantID, userID, projectID, configurationID string) (*project.ConfigurationApproval, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, project.ErrNotFound
+	}
+	if len(f.approvals) == 0 {
+		return nil, project.ErrNotFound
+	}
+	return f.approvals[len(f.approvals)-1], nil
+}
+
+func (f *fakeProjectService) ListApprovals(ctx context.Context, tenantID, userID, projectID string) ([]*project.ConfigurationApproval, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, project.ErrNotFound
+	}
+	return f.approvals, nil
+}
+
 func (f *fakeProjectService) Calculate(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options) (*project.Calculation, error) {
 	if _, ok := f.projects[projectID]; !ok {
 		return nil, project.ErrNotFound
@@ -163,6 +196,43 @@ func (f *fakeProjectService) GetResult(ctx context.Context, tenantID, userID, pr
 		return nil, project.ErrNotFound
 	}
 	return f.calc, nil
+}
+
+func (f *fakeProjectService) ListConfigurations(ctx context.Context, tenantID, userID, projectID string) ([]*project.StairConfiguration, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, project.ErrNotFound
+	}
+	if f.reviewErr != nil {
+		return nil, f.reviewErr
+	}
+	return f.configs, nil
+}
+
+func (f *fakeProjectService) GetConfiguration(ctx context.Context, tenantID, userID, projectID, configurationID string) (*project.StairConfiguration, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, project.ErrNotFound
+	}
+	for _, c := range f.configs {
+		if c.ID == configurationID {
+			return c, nil
+		}
+	}
+	return nil, project.ErrNotFound
+}
+
+func (f *fakeProjectService) RestoreConfiguration(ctx context.Context, tenantID, userID, projectID, configurationID string) (*project.StairConfiguration, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, project.ErrNotFound
+	}
+	if f.reviewErr != nil {
+		return nil, f.reviewErr
+	}
+	for _, c := range f.configs {
+		if c.ID == configurationID {
+			return c, nil
+		}
+	}
+	return nil, project.ErrNotFound
 }
 
 // testAuth — фиктивный AuthService для тестов: любой токен валиден,
@@ -645,5 +715,216 @@ func TestListReviewsNotFound(t *testing.T) {
 	testRouterWithProjects(svc).ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+// TestApproveConfiguration — POST /configurations/{id}/approve (201).
+func TestApproveConfiguration(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "approved"}
+
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/configurations/cfg-9/approve", `{"comment": "итоговая"}`)
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var a approvalDTO
+	if err := json.NewDecoder(rec.Body).Decode(&a); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if a.ConfigurationID != "cfg-9" || a.Comment != "итоговая" || a.ApprovedByID != "u-1" {
+		t.Fatalf("unexpected approval: %+v", a)
+	}
+}
+
+// TestApproveConfigurationConflict — повторное утверждение → 422.
+func TestApproveConfigurationConflict(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "approved"}
+	svc.reviewErr = project.ErrConflict
+
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/configurations/cfg-9/approve", `{}`)
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", rec.Code)
+	}
+}
+
+// TestApproveConfigurationNotFound — 404 для несуществующего проекта.
+func TestApproveConfigurationNotFound(t *testing.T) {
+	svc := newFakeProjectService()
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-404/configurations/cfg-9/approve", `{}`)
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+// TestGetConfigurationApproval — GET /configurations/{id}/approval (200).
+func TestGetConfigurationApproval(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "approved"}
+	svc.approvals = []*project.ConfigurationApproval{
+		{ID: "a-1", ProjectID: "p-1", ConfigurationID: "cfg-9", ApprovedByID: "u-1",
+			Comment: "итоговая", CreatedAt: time.Now()},
+	}
+
+	req := authedRequest(http.MethodGet, "/api/v1/projects/p-1/configurations/cfg-9/approval", "")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var a approvalDTO
+	if err := json.NewDecoder(rec.Body).Decode(&a); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if a.ConfigurationID != "cfg-9" || a.ApprovedByID != "u-1" {
+		t.Fatalf("unexpected approval: %+v", a)
+	}
+}
+
+// TestListApprovals — GET /approvals возвращает историю.
+func TestListApprovals(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "approved"}
+	svc.approvals = []*project.ConfigurationApproval{
+		{ID: "a-1", ProjectID: "p-1", ConfigurationID: "cfg-8", ApprovedByID: "u-2", CreatedAt: time.Now()},
+		{ID: "a-2", ProjectID: "p-1", ConfigurationID: "cfg-9", ApprovedByID: "u-1", CreatedAt: time.Now()},
+	}
+
+	req := authedRequest(http.MethodGet, "/api/v1/projects/p-1/approvals", "")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var list []approvalDTO
+	if err := json.NewDecoder(rec.Body).Decode(&list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(list) != 2 || list[0].ConfigurationID != "cfg-8" || list[1].ConfigurationID != "cfg-9" {
+		t.Fatalf("unexpected list: %+v", list)
+	}
+}
+
+// TestListApprovalsNotFound — 404 для несуществующего проекта.
+func TestListApprovalsNotFound(t *testing.T) {
+	svc := newFakeProjectService()
+	req := authedRequest(http.MethodGet, "/api/v1/projects/p-404/approvals", "")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+// TestListConfigurations — GET /configurations возвращает историю ревизий.
+func TestListConfigurations(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+	svc.configs = []*project.StairConfiguration{
+		{ID: "cfg-1", ProjectID: "p-1", Revision: 1, WidthMM: 1000, HeightMM: 2600, Flight: "straight", CreatedAt: time.Now()},
+		{ID: "cfg-2", ProjectID: "p-1", Revision: 2, WidthMM: 1100, HeightMM: 2600, Flight: "straight", CreatedAt: time.Now()},
+	}
+
+	req := authedRequest(http.MethodGet, "/api/v1/projects/p-1/configurations", "")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var list []configurationDTO
+	if err := json.NewDecoder(rec.Body).Decode(&list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(list) != 2 || list[0].Revision != 1 || list[1].Revision != 2 {
+		t.Fatalf("unexpected list: %+v", list)
+	}
+}
+
+// TestGetConfiguration — GET /configurations/{configID} возвращает ревизию.
+func TestGetConfiguration(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+	svc.configs = []*project.StairConfiguration{
+		{ID: "cfg-2", ProjectID: "p-1", Revision: 2, WidthMM: 1100, HeightMM: 2600, Flight: "straight", CreatedAt: time.Now()},
+	}
+
+	req := authedRequest(http.MethodGet, "/api/v1/projects/p-1/configurations/cfg-2", "")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var c configurationDTO
+	if err := json.NewDecoder(rec.Body).Decode(&c); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if c.ID != "cfg-2" || c.Revision != 2 || c.Flight != "straight" {
+		t.Fatalf("unexpected config: %+v", c)
+	}
+}
+
+// TestRestoreConfiguration — POST /configurations/{configID}/restore (200).
+func TestRestoreConfiguration(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+	svc.configs = []*project.StairConfiguration{
+		{ID: "cfg-1", ProjectID: "p-1", Revision: 1, WidthMM: 1000, HeightMM: 2600, Flight: "straight", CreatedAt: time.Now()},
+	}
+
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/configurations/cfg-1/restore", "")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var c configurationDTO
+	if err := json.NewDecoder(rec.Body).Decode(&c); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if c.ID != "cfg-1" || c.Revision != 1 {
+		t.Fatalf("unexpected config: %+v", c)
+	}
+}
+
+// TestRestoreConfigurationForbidden — viewer не может восстановить ревизию → 403.
+func TestRestoreConfigurationForbidden(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+	svc.reviewErr = project.ErrForbidden
+
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/configurations/cfg-1/restore", "")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
+	}
+}
+
+// TestConfigurationNotFound — 404 для несуществующего проекта/ревизии.
+func TestConfigurationNotFound(t *testing.T) {
+	svc := newFakeProjectService()
+	for _, path := range []string{
+		"/api/v1/projects/p-404/configurations",
+		"/api/v1/projects/p-404/configurations/cfg-1",
+		"/api/v1/projects/p-404/configurations/cfg-1/restore",
+	} {
+		req := authedRequest(http.MethodGet, path, "")
+		rec := httptest.NewRecorder()
+		testRouterWithProjects(svc).ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: expected 404, got %d", path, rec.Code)
+		}
 	}
 }

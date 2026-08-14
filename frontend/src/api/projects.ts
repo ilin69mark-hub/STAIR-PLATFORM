@@ -3,8 +3,11 @@
 
 import { del, get, patch, post } from './client'
 import type {
+  ApprovalRequest,
   Calculation,
   CommentRequest,
+  Configuration,
+  ConfigurationApproval,
   CreateProjectRequest,
   MemberRequest,
   Project,
@@ -58,4 +61,25 @@ export const projectsApi = {
     post<ProjectReview>(`/api/v1/projects/${id}/reviews/${reviewID}/changes`, body),
 
   listReviews: (id: string) => get<ProjectReview[]>(`/api/v1/projects/${id}/reviews`),
+
+  // ---- Утверждение конфигурации (EDR-0011) ----
+  approveConfiguration: (id: string, configurationID: string, body: ApprovalRequest) =>
+    post<ConfigurationApproval>(
+      `/api/v1/projects/${id}/configurations/${configurationID}/approve`,
+      body,
+    ),
+
+  getConfigurationApproval: (id: string, configurationID: string) =>
+    get<ConfigurationApproval>(`/api/v1/projects/${id}/configurations/${configurationID}/approval`),
+
+  listApprovals: (id: string) => get<ConfigurationApproval[]>(`/api/v1/projects/${id}/approvals`),
+
+  // ---- Версионирование конфигурации (EDR-0012) ----
+  listConfigurations: (id: string) => get<Configuration[]>(`/api/v1/projects/${id}/configurations`),
+
+  getConfiguration: (id: string, configurationID: string) =>
+    get<Configuration>(`/api/v1/projects/${id}/configurations/${configurationID}`),
+
+  restoreConfiguration: (id: string, configurationID: string) =>
+    post<Configuration>(`/api/v1/projects/${id}/configurations/${configurationID}/restore`, {}),
 }

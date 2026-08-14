@@ -12,22 +12,26 @@ import (
 // Project — корневая сущность платформы (BC-001), EDR-0008 (Phase C):
 // проект принадлежит владельцу (OwnerID) и доступен членам (project_members).
 type Project struct {
-	ID          string
-	Name        string
-	Description string
-	Status      string
-	OwnerID     string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID                     string
+	Name                   string
+	Description            string
+	Status                 string
+	OwnerID                string
+	CurrentConfigurationID string // текущая ревизия конфигурации (EDR-0012)
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 // StairConfiguration — сохранённая конфигурация лестницы проекта
 // (BC-002). Параметры в мм; ComfortStep в мм. LandingWidthMM и
 // LowerStepCount специфичны для L-марша (EDR-0005) и П-марша (EDR-0006);
-// OuterRadiusMM — для спирального марша (EDR-0007).
+// OuterRadiusMM — для спирального марша (EDR-0007). Revision — монотонный
+// номер ревизии внутри проекта (EDR-0012): каждая сохранённая конфигурация
+// иммутабельна и является отдельной версией (DB-0006).
 type StairConfiguration struct {
 	ID                  string
 	ProjectID           string
+	Revision            int
 	WidthMM             float64
 	HeightMM            float64
 	Flight              string
@@ -99,3 +103,16 @@ const (
 	ReviewApproved       = "approved"
 	ReviewChangesRequest = "changes_requested"
 )
+
+// ConfigurationApproval — утверждение итоговой конфигурации (EDR-0011,
+// Phase C C5): владелец проекта явно утверждает ревизию конфигурации.
+// Одна ревизия утверждается не более одного раза (UNIQUE). Аудит
+// утверждений скоуплен по tenant через проект.
+type ConfigurationApproval struct {
+	ID              string
+	ProjectID       string
+	ConfigurationID string
+	ApprovedByID    string
+	Comment         string
+	CreatedAt       time.Time
+}

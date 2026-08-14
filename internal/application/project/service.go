@@ -244,8 +244,8 @@ func (s *Service) GetResult(ctx context.Context, tenantID, userID, projectID str
 	return s.repo.GetLatestCalculation(ctx, tenantID, projectID)
 }
 
-// GetLatestConfig возвращает последнюю сохранённую конфигурацию проекта
-// внутри tenant. Требуется членство.
+// GetLatestConfig возвращает текущую (или последнюю) сохранённую
+// конфигурацию проекта внутри tenant. Требуется членство.
 func (s *Service) GetLatestConfig(ctx context.Context, tenantID, userID, projectID string) (*StairConfiguration, error) {
 	if _, ok, err := s.member(ctx, tenantID, userID, projectID); err != nil {
 		return nil, err
@@ -253,6 +253,52 @@ func (s *Service) GetLatestConfig(ctx context.Context, tenantID, userID, project
 		return nil, ErrNotFound
 	}
 	return s.repo.GetLatestConfiguration(ctx, tenantID, projectID)
+}
+
+// ListConfigurations возвращает историю ревизий конфигурации проекта
+// (EDR-0012, Versioning) по возрастанию номера ревизии. Требуется членство.
+func (s *Service) ListConfigurations(ctx context.Context, tenantID, userID, projectID string) ([]*StairConfiguration, error) {
+	if _, ok, err := s.member(ctx, tenantID, userID, projectID); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, ErrNotFound
+	}
+	return s.repo.ListConfigurations(ctx, tenantID, projectID)
+}
+
+// GetConfiguration возвращает ревизию конфигурации по ID (EDR-0012).
+// Требуется членство; чужая/несуществующая ревизия — ErrNotFound.
+func (s *Service) GetConfiguration(ctx context.Context, tenantID, userID, projectID, configurationID string) (*StairConfiguration, error) {
+	if _, ok, err := s.member(ctx, tenantID, userID, projectID); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, ErrNotFound
+	}
+	return s.repo.GetConfigurationByID(ctx, tenantID, projectID, configurationID)
+}
+
+// RestoreConfiguration делает ревизию конфигурации текущей (EDR-0012,
+// DB-0006 Recovery): прежняя версия снова становится рабочей. Требуется
+// роль owner или editor (CanEdit); не-член — ErrNotFound.
+func (s *Service) RestoreConfiguration(ctx context.Context, tenantID, userID, projectID, configurationID string) (*StairConfiguration, error) {
+	me, ok, err := s.member(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if !me.Role.CanEdit() {
+		return nil, ErrForbidden
+	}
+	cfg, err := s.repo.GetConfigurationByID(ctx, tenantID, projectID, configurationID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.repo.RestoreConfiguration(ctx, tenantID, projectID, configurationID); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 // RequestReview запрашивает ревью проекта (EDR-0010): переводит проект
@@ -311,4 +357,44 @@ func (s *Service) ListReviews(ctx context.Context, tenantID, userID, projectID s
 		return nil, ErrNotFound
 	}
 	return s.repo.ListReviews(ctx, tenantID, projectID)
+}
+
+// ApproveConfiguration утверждает ревизию конфигурации (EDR-0011).
+// Требуется роль owner; утверждаемая конфигурация должна принадлежать
+// проекту внутри tenant (проверка в Repository). Не-член — ErrNotFound;
+// editor/viewer — ErrForbidden.
+func (s *Service) ApproveConfiguration(ctx context.Context, tenantID, userID, projectID, configurationID, comment string) (*ConfigurationApproval, error) {
+	me, ok, err := s.member(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if !me.Role.CanManage() {
+		return nil, ErrForbidden
+	}
+	return s.repo.ApproveConfiguration(ctx, tenantID, projectID, configurationID, userID, comment)
+}
+
+// GetConfigurationApproval возвращает утверждение ревизии (EDR-0011).
+// Требуется членство. ErrNotFound — ревизия вне tenant или не утверждена.
+func (s *Service) GetConfigurationApproval(ctx context.Context, tenantID, userID, projectID, configurationID string) (*ConfigurationApproval, error) {
+	if _, ok, err := s.member(ctx, tenantID, userID, projectID); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, ErrNotFound
+	}
+	return s.repo.GetConfigurationApproval(ctx, tenantID, projectID, configurationID)
+}
+
+// ListApprovals возвращает историю утверждений проекта (EDR-0011).
+// Требуется членство.
+func (s *Service) ListApprovals(ctx context.Context, tenantID, userID, projectID string) ([]*ConfigurationApproval, error) {
+	if _, ok, err := s.member(ctx, tenantID, userID, projectID); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, ErrNotFound
+	}
+	return s.repo.ListApprovals(ctx, tenantID, projectID)
 }

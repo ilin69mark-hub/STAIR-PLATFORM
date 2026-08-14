@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"stairplatform/internal/application/project"
@@ -114,8 +115,6 @@ func (r *ProjectRepository) ListProjects(ctx context.Context, tenantID, userID s
 }
 
 // ---- members (EDR-0008) ----
-
-const memberCols = `project_id, user_id, role, created_at`
 
 func scanMember(row pgx.Row) (*project.ProjectMember, error) {
 	var m project.ProjectMember
@@ -229,13 +228,13 @@ func (r *ProjectRepository) RemoveMember(ctx context.Context, tenantID, projectI
 	return nil
 }
 
-const configCols = `id, project_id, width_mm, height_mm, flight, step_height_mm,
+const configCols = `id, project_id, revision, width_mm, height_mm, flight, step_height_mm,
 	stringer_thickness_mm, step_thickness_mm, clearance_mm, railing_height_mm,
 	comfort_step_mm, landing_width_mm, lower_step_count, outer_radius_mm, created_at, updated_at`
 
 func scanConfig(row pgx.Row) (*project.StairConfiguration, error) {
 	var c project.StairConfiguration
-	if err := row.Scan(&c.ID, &c.ProjectID, &c.WidthMM, &c.HeightMM, &c.Flight,
+	if err := row.Scan(&c.ID, &c.ProjectID, &c.Revision, &c.WidthMM, &c.HeightMM, &c.Flight,
 		&c.StepHeightMM, &c.StringerThicknessMM, &c.StepThicknessMM, &c.ClearanceMM,
 		&c.RailingHeightMM, &c.ComfortStepMM, &c.LandingWidthMM, &c.LowerStepCount,
 		&c.OuterRadiusMM, &c.CreatedAt, &c.UpdatedAt); err != nil {
@@ -248,13 +247,14 @@ func (r *ProjectRepository) SaveConfiguration(ctx context.Context, c *project.St
 	if err := r.pool.QueryRow(ctx,
 		`INSERT INTO stair_configurations (project_id, width_mm, height_mm, flight,
 			step_height_mm, stringer_thickness_mm, step_thickness_mm, clearance_mm,
-			railing_height_mm, comfort_step_mm, landing_width_mm, lower_step_count, outer_radius_mm)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-		 RETURNING id, created_at, updated_at`,
+			railing_height_mm, comfort_step_mm, landing_width_mm, lower_step_count, outer_radius_mm, revision)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+		   (SELECT COALESCE(MAX(s.revision),0)+1 FROM stair_configurations s WHERE s.project_id = $1))
+		 RETURNING id, created_at, updated_at, revision`,
 		c.ProjectID, c.WidthMM, c.HeightMM, c.Flight, c.StepHeightMM,
 		c.StringerThicknessMM, c.StepThicknessMM, c.ClearanceMM, c.RailingHeightMM,
 		c.ComfortStepMM, c.LandingWidthMM, c.LowerStepCount, c.OuterRadiusMM,
-	).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt); err != nil {
+	).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt, &c.Revision); err != nil {
 		return fmt.Errorf("project: save config: %w", err)
 	}
 	return nil
@@ -263,9 +263,65 @@ func (r *ProjectRepository) SaveConfiguration(ctx context.Context, c *project.St
 func (r *ProjectRepository) GetLatestConfiguration(ctx context.Context, tenantID, projectID string) (*project.StairConfiguration, error) {
 	c, err := scanConfig(r.pool.QueryRow(ctx,
 		`SELECT `+configCols+` FROM stair_configurations
-		 WHERE project_id = $1
-		   AND project_id IN (SELECT id FROM projects WHERE tenant_id = $2 AND id = $1)
-		 ORDER BY created_at DESC LIMIT 1`, projectID, tenantID))
+		 WHERE id = (SELECT current_configuration_id FROM projects
+		              WHERE id = $1 AND tenant_id = $2)
+		   AND project_id = $1`, projectID, tenantID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Текущая ревизия не задана — возвращаем последнюю сохранённую.
+		c, err = scanConfig(r.pool.QueryRow(ctx,
+			`SELECT `+configCols+` FROM stair_configurations
+			 WHERE project_id = $1
+			   AND project_id IN (SELECT id FROM projects WHERE tenant_id = $2 AND id = $1)
+			 ORDER BY created_at DESC LIMIT 1`, projectID, tenantID))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, project.ErrNotFound
+		}
+		if err != nil {
+			return nil, fmt.Errorf("project: get latest config: %w", err)
+		}
+		return c, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("project: get current config: %w", err)
+	}
+	return c, nil
+}
+
+// ListConfigurations возвращает историю ревизий конфигурации проекта
+// (EDR-0012) по возрастанию номера ревизии. Проект вне tenant — ErrNotFound.
+func (r *ProjectRepository) ListConfigurations(ctx context.Context, tenantID, projectID string) ([]*project.StairConfiguration, error) {
+	var exists string
+	if err := r.pool.QueryRow(ctx,
+		`SELECT id FROM projects WHERE id = $1 AND tenant_id = $2`, projectID, tenantID).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
+		return nil, project.ErrNotFound
+	} else if err != nil {
+		return nil, fmt.Errorf("project: check project: %w", err)
+	}
+	rows, err := r.pool.Query(ctx,
+		`SELECT `+configCols+` FROM stair_configurations
+		 WHERE project_id = $1 ORDER BY revision ASC`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("project: list configs: %w", err)
+	}
+	defer rows.Close()
+	var out []*project.StairConfiguration
+	for rows.Next() {
+		c, err := scanConfig(rows)
+		if err != nil {
+			return nil, fmt.Errorf("project: list configs: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// GetConfigurationByID возвращает ревизию конфигурации по ID (EDR-0012).
+func (r *ProjectRepository) GetConfigurationByID(ctx context.Context, tenantID, projectID, configurationID string) (*project.StairConfiguration, error) {
+	c, err := scanConfig(r.pool.QueryRow(ctx,
+		`SELECT `+configCols+` FROM stair_configurations
+		 WHERE id = $1 AND project_id = $2
+		   AND project_id IN (SELECT id FROM projects WHERE tenant_id = $3 AND id = $2)`,
+		configurationID, projectID, tenantID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, project.ErrNotFound
 	}
@@ -273,6 +329,28 @@ func (r *ProjectRepository) GetLatestConfiguration(ctx context.Context, tenantID
 		return nil, fmt.Errorf("project: get config: %w", err)
 	}
 	return c, nil
+}
+
+// RestoreConfiguration делает ревизию конфигурации текущей (EDR-0012).
+func (r *ProjectRepository) RestoreConfiguration(ctx context.Context, tenantID, projectID, configurationID string) error {
+	// Проверяем, что ревизия принадлежит проекту внутри tenant.
+	var ok bool
+	if err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM stair_configurations
+		   WHERE id = $1 AND project_id = $2
+		     AND project_id IN (SELECT id FROM projects WHERE tenant_id = $3 AND id = $2))`,
+		configurationID, projectID, tenantID).Scan(&ok); err != nil {
+		return fmt.Errorf("project: check config: %w", err)
+	}
+	if !ok {
+		return project.ErrNotFound
+	}
+	if _, err := r.pool.Exec(ctx,
+		`UPDATE projects SET current_configuration_id = $1 WHERE id = $2 AND tenant_id = $3`,
+		configurationID, projectID, tenantID); err != nil {
+		return fmt.Errorf("project: restore config: %w", err)
+	}
+	return nil
 }
 
 func (r *ProjectRepository) SaveCalculation(ctx context.Context, c *project.Calculation) error {
@@ -319,14 +397,22 @@ func (r *ProjectRepository) SaveCalculationWithConfig(ctx context.Context, tenan
 	if err := tx.QueryRow(ctx,
 		`INSERT INTO stair_configurations (project_id, width_mm, height_mm, flight,
 			step_height_mm, stringer_thickness_mm, step_thickness_mm, clearance_mm,
-			railing_height_mm, comfort_step_mm, landing_width_mm, lower_step_count, outer_radius_mm)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-		 RETURNING id, created_at, updated_at`,
+			railing_height_mm, comfort_step_mm, landing_width_mm, lower_step_count, outer_radius_mm, revision)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+		   (SELECT COALESCE(MAX(s.revision),0)+1 FROM stair_configurations s WHERE s.project_id = $1))
+		 RETURNING id, created_at, updated_at, revision`,
 		cfg.ProjectID, cfg.WidthMM, cfg.HeightMM, cfg.Flight, cfg.StepHeightMM,
 		cfg.StringerThicknessMM, cfg.StepThicknessMM, cfg.ClearanceMM, cfg.RailingHeightMM,
 		cfg.ComfortStepMM, cfg.LandingWidthMM, cfg.LowerStepCount, cfg.OuterRadiusMM,
-	).Scan(&cfg.ID, &cfg.CreatedAt, &cfg.UpdatedAt); err != nil {
+	).Scan(&cfg.ID, &cfg.CreatedAt, &cfg.UpdatedAt, &cfg.Revision); err != nil {
 		return nil, fmt.Errorf("project: save config: %w", err)
+	}
+
+	// Новая конфигурация становится текущей ревизией проекта (EDR-0012).
+	if _, err := tx.Exec(ctx,
+		`UPDATE projects SET current_configuration_id = $1 WHERE id = $2 AND tenant_id = $3`,
+		cfg.ID, cfg.ProjectID, tenantID); err != nil {
+		return nil, fmt.Errorf("project: set current config: %w", err)
 	}
 
 	if err := tx.QueryRow(ctx,
@@ -424,6 +510,21 @@ func (r *ProjectRepository) DeleteComment(ctx context.Context, tenantID, project
 
 const reviewCols = `id, project_id, requester_id, reviewer_id, decision, comment, created_at, decided_at`
 
+// scanReview считывает строку ревью. reviewer_id может быть NULL (запрос
+// ещё не решён) — в этом случае в сущность попадает пустая строка.
+func scanReview(row pgx.Row) (*project.ProjectReview, error) {
+	var rv project.ProjectReview
+	var reviewer *string
+	if err := row.Scan(&rv.ID, &rv.ProjectID, &rv.RequesterID, &reviewer,
+		&rv.Decision, &rv.Comment, &rv.CreatedAt, &rv.DecidedAt); err != nil {
+		return nil, err
+	}
+	if reviewer != nil {
+		rv.ReviewerID = *reviewer
+	}
+	return &rv, nil
+}
+
 // RequestReview создаёт запрос ревью (EDR-0010): в одной транзакции
 // переводит проект draft|changes_requested → in_review и добавляет строку
 // ревью (decision=requested). Недопустимый статус → ErrConflict; проект вне
@@ -447,14 +548,12 @@ func (r *ProjectRepository) RequestReview(ctx context.Context, tenantID, project
 		return nil, fmt.Errorf("project: review from status %s: %w", cur, project.ErrConflict)
 	}
 
-	var rv project.ProjectReview
-	if err := tx.QueryRow(ctx,
+	rv, err := scanReview(tx.QueryRow(ctx,
 		`INSERT INTO project_reviews (project_id, requester_id, decision, comment)
 		 VALUES ($1, $2, 'requested', $3)
 		 RETURNING `+reviewCols,
-		projectID, requesterID, comment).Scan(
-		&rv.ID, &rv.ProjectID, &rv.RequesterID, &rv.ReviewerID,
-		&rv.Decision, &rv.Comment, &rv.CreatedAt, &rv.DecidedAt); err != nil {
+		projectID, requesterID, comment))
+	if err != nil {
 		return nil, fmt.Errorf("project: insert review: %w", err)
 	}
 
@@ -467,7 +566,7 @@ func (r *ProjectRepository) RequestReview(ctx context.Context, tenantID, project
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("project: commit: %w", err)
 	}
-	return &rv, nil
+	return rv, nil
 }
 
 // DecideReview завершает ревью (EDR-0010): в одной транзакции переводит
@@ -486,15 +585,13 @@ func (r *ProjectRepository) DecideReview(ctx context.Context, tenantID, projectI
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var rv project.ProjectReview
-	if err := tx.QueryRow(ctx,
+	rv, err := scanReview(tx.QueryRow(ctx,
 		`SELECT `+reviewCols+` FROM project_reviews rv
 		 WHERE rv.id = $1 AND rv.project_id = $2
 		   AND rv.decision = 'requested' AND rv.decided_at IS NULL
 		 FOR UPDATE`,
-		reviewID, projectID).Scan(
-		&rv.ID, &rv.ProjectID, &rv.RequesterID, &rv.ReviewerID,
-		&rv.Decision, &rv.Comment, &rv.CreatedAt, &rv.DecidedAt); errors.Is(err, pgx.ErrNoRows) {
+		reviewID, projectID))
+	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("project: review not pending: %w", project.ErrNotFound)
 	} else if err != nil {
 		return nil, fmt.Errorf("project: decide review lock: %w", err)
@@ -506,9 +603,9 @@ func (r *ProjectRepository) DecideReview(ctx context.Context, tenantID, projectI
 
 	if _, err := tx.Exec(ctx,
 		`UPDATE project_reviews
-		 SET reviewer_id = $3, decided_at = now(), comment = $4
+		 SET reviewer_id = $3, decided_at = now(), decision = $5, comment = $4
 		 WHERE id = $1 AND project_id = $2`,
-		reviewID, projectID, reviewerID, comment); err != nil {
+		reviewID, projectID, reviewerID, comment, decision); err != nil {
 		return nil, fmt.Errorf("project: decide review: %w", err)
 	}
 	rv.ReviewerID = reviewerID
@@ -537,7 +634,7 @@ func (r *ProjectRepository) DecideReview(ctx context.Context, tenantID, projectI
 		return nil, fmt.Errorf("project: commit: %w", err)
 	}
 	rv.Decision = decision
-	return &rv, nil
+	return rv, nil
 }
 
 func (r *ProjectRepository) ListReviews(ctx context.Context, tenantID, projectID string) ([]*project.ProjectReview, error) {
@@ -553,15 +650,92 @@ func (r *ProjectRepository) ListReviews(ctx context.Context, tenantID, projectID
 
 	out := []*project.ProjectReview{}
 	for rows.Next() {
-		var rv project.ProjectReview
-		if err := rows.Scan(&rv.ID, &rv.ProjectID, &rv.RequesterID, &rv.ReviewerID,
-			&rv.Decision, &rv.Comment, &rv.CreatedAt, &rv.DecidedAt); err != nil {
+		rv, err := scanReview(rows)
+		if err != nil {
 			return nil, fmt.Errorf("project: scan review: %w", err)
 		}
-		out = append(out, &rv)
+		out = append(out, rv)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("project: list reviews: %w", err)
+	}
+	return out, nil
+}
+
+// ---- configuration approval (EDR-0011) ----
+
+const approvalCols = `id, project_id, configuration_id, approved_by, comment, created_at`
+
+// isUniqueViolation — признак нарушения UNIQUE-констрейнта PostgreSQL.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505" // unique_violation
+}
+
+func (r *ProjectRepository) ApproveConfiguration(ctx context.Context, tenantID, projectID, configurationID, approvedByID, comment string) (*project.ConfigurationApproval, error) {
+	// Конфигурация должна принадлежать проекту внутри tenant (SEC-0005).
+	var cfgProject string
+	if err := r.pool.QueryRow(ctx,
+		`SELECT project_id FROM stair_configurations sc
+		 WHERE sc.id = $1 AND sc.project_id = $2
+		   AND sc.project_id IN (SELECT id FROM projects WHERE tenant_id = $3)`,
+		configurationID, projectID, tenantID).Scan(&cfgProject); errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("project: approval config not found: %w", project.ErrNotFound)
+	} else if err != nil {
+		return nil, fmt.Errorf("project: approval config check: %w", err)
+	}
+
+	var a project.ConfigurationApproval
+	if err := r.pool.QueryRow(ctx,
+		`INSERT INTO configuration_approvals (project_id, configuration_id, approved_by, comment)
+		 VALUES ($1, $2, $3, $4)
+		 RETURNING `+approvalCols,
+		projectID, configurationID, approvedByID, comment).Scan(
+		&a.ID, &a.ProjectID, &a.ConfigurationID, &a.ApprovedByID, &a.Comment, &a.CreatedAt); err != nil {
+		if isUniqueViolation(err) {
+			return nil, fmt.Errorf("project: configuration already approved: %w", project.ErrConflict)
+		}
+		return nil, fmt.Errorf("project: approve configuration: %w", err)
+	}
+	return &a, nil
+}
+
+func (r *ProjectRepository) GetConfigurationApproval(ctx context.Context, tenantID, projectID, configurationID string) (*project.ConfigurationApproval, error) {
+	var a project.ConfigurationApproval
+	if err := r.pool.QueryRow(ctx,
+		`SELECT `+approvalCols+` FROM configuration_approvals ca
+		 WHERE ca.configuration_id = $1 AND ca.project_id = $2
+		   AND ca.project_id IN (SELECT id FROM projects WHERE tenant_id = $3)`,
+		configurationID, projectID, tenantID).Scan(
+		&a.ID, &a.ProjectID, &a.ConfigurationID, &a.ApprovedByID, &a.Comment, &a.CreatedAt); errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("project: approval not found: %w", project.ErrNotFound)
+	} else if err != nil {
+		return nil, fmt.Errorf("project: get approval: %w", err)
+	}
+	return &a, nil
+}
+
+func (r *ProjectRepository) ListApprovals(ctx context.Context, tenantID, projectID string) ([]*project.ConfigurationApproval, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT `+approvalCols+` FROM configuration_approvals ca
+		 WHERE ca.project_id = $1
+		   AND ca.project_id IN (SELECT id FROM projects WHERE tenant_id = $2 AND id = $1)
+		 ORDER BY ca.created_at`, projectID, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("project: list approvals: %w", err)
+	}
+	defer rows.Close()
+
+	out := []*project.ConfigurationApproval{}
+	for rows.Next() {
+		var a project.ConfigurationApproval
+		if err := rows.Scan(&a.ID, &a.ProjectID, &a.ConfigurationID, &a.ApprovedByID, &a.Comment, &a.CreatedAt); err != nil {
+			return nil, fmt.Errorf("project: scan approval: %w", err)
+		}
+		out = append(out, &a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("project: list approvals: %w", err)
 	}
 	return out, nil
 }

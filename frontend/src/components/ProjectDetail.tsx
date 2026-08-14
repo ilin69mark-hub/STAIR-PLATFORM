@@ -18,6 +18,8 @@ import { ResultPanel } from './ResultPanel'
 import { MembersPanel } from './MembersPanel'
 import { CommentsPanel } from './CommentsPanel'
 import { ReviewPanel } from './ReviewPanel'
+import { ApprovalsPanel } from './ApprovalsPanel'
+import { VersionsPanel } from './VersionsPanel'
 import type { ProjectStatus } from '../api/types'
 
 interface Props {
@@ -127,6 +129,8 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
           status={(project?.status ?? 'draft') as ProjectStatus}
           onStatusChange={handleStatusChange}
         />
+        <ApprovalsPanel projectId={projectId} configurationId={calculation?.configuration_id} />
+        <VersionsPanel projectId={projectId} />
         <CommentsPanel projectId={projectId} />
       </div>
 

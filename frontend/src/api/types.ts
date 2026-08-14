@@ -8,6 +8,7 @@ export interface Project {
   description: string
   status: string
   owner_id: string
+  current_configuration_id?: string
   created_at: string
   updated_at: string
 }
@@ -66,6 +67,43 @@ export interface ProjectReview {
 
 export interface ReviewRequest {
   comment?: string
+}
+
+// ---- Утверждение конфигурации (EDR-0011): фиксация ревизии ----
+
+export interface ConfigurationApproval {
+  id: string
+  project_id: string
+  configuration_id: string
+  approved_by: string
+  comment: string
+  created_at: string
+}
+
+export interface ApprovalRequest {
+  comment?: string
+}
+
+// ---- Версионирование конфигурации (EDR-0012): иммутабельные ревизии ----
+
+export interface Configuration {
+  id: string
+  project_id: string
+  revision: number
+  width_mm: number
+  height_mm: number
+  flight: string
+  step_height_mm: number
+  stringer_thickness_mm: number
+  step_thickness_mm: number
+  clearance_mm: number
+  railing_height_mm: number
+  comfort_step_mm: number
+  landing_width_mm: number
+  lower_step_count: number
+  outer_radius_mm: number
+  current: boolean
+  created_at: string
 }
 
 export interface User {

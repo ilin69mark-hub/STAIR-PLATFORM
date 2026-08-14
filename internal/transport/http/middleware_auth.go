@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"sync"
 	"time"
-
-	"stairplatform/internal/application/auth"
 )
 
 // cookieSecure — Secure-флаг cookie. По умолчанию off (локальная разработка
@@ -52,24 +50,6 @@ func requireAuth(svc AuthService) func(http.Handler) http.Handler {
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(withAuthUser(r.Context(), u)))
-		})
-	}
-}
-
-// requireRole — обязательная роль (SEC-0004). 403 — роль недостаточна.
-func requireRole(roles ...auth.Role) func(http.Handler) http.Handler {
-	allowed := make(map[auth.Role]bool, len(roles))
-	for _, r := range roles {
-		allowed[r] = true
-	}
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			u := authUser(r.Context())
-			if u == nil || !allowed[u.Role] {
-				writeError(w, http.StatusForbidden, "forbidden", "insufficient role")
-				return
-			}
-			next.ServeHTTP(w, r)
 		})
 	}
 }

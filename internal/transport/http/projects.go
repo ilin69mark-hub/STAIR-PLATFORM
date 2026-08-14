@@ -32,8 +32,14 @@ type ProjectService interface {
 	SignOffReview(ctx context.Context, tenantID, userID, projectID, reviewID, comment string) (*project.ProjectReview, error)
 	RequestChanges(ctx context.Context, tenantID, userID, projectID, reviewID, comment string) (*project.ProjectReview, error)
 	ListReviews(ctx context.Context, tenantID, userID, projectID string) ([]*project.ProjectReview, error)
+	ApproveConfiguration(ctx context.Context, tenantID, userID, projectID, configurationID, comment string) (*project.ConfigurationApproval, error)
+	GetConfigurationApproval(ctx context.Context, tenantID, userID, projectID, configurationID string) (*project.ConfigurationApproval, error)
+	ListApprovals(ctx context.Context, tenantID, userID, projectID string) ([]*project.ConfigurationApproval, error)
 	Calculate(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options) (*project.Calculation, error)
 	GetResult(ctx context.Context, tenantID, userID, projectID string) (*project.Calculation, error)
+	ListConfigurations(ctx context.Context, tenantID, userID, projectID string) ([]*project.StairConfiguration, error)
+	GetConfiguration(ctx context.Context, tenantID, userID, projectID, configurationID string) (*project.StairConfiguration, error)
+	RestoreConfiguration(ctx context.Context, tenantID, userID, projectID, configurationID string) (*project.StairConfiguration, error)
 }
 
 // ---- DTO ----
@@ -46,13 +52,14 @@ type createProjectRequest struct {
 
 // projectDTO — представление проекта (BC-001, EDR-0008 включает владельца).
 type projectDTO struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Status      string    `json:"status"`
-	OwnerID     string    `json:"owner_id"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID                     string    `json:"id"`
+	Name                   string    `json:"name"`
+	Description            string    `json:"description"`
+	Status                 string    `json:"status"`
+	OwnerID                string    `json:"owner_id"`
+	CurrentConfigurationID string    `json:"current_configuration_id,omitempty"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
 }
 
 // memberDTO — участник проекта (EDR-0008).
@@ -100,6 +107,39 @@ type reviewDTO struct {
 // комментарий).
 type reviewCommentRequest struct {
 	Comment string `json:"comment"`
+}
+
+// approvalDTO — утверждение конфигурации (EDR-0011).
+type approvalDTO struct {
+	ID              string    `json:"id"`
+	ProjectID       string    `json:"project_id"`
+	ConfigurationID string    `json:"configuration_id"`
+	ApprovedByID    string    `json:"approved_by"`
+	Comment         string    `json:"comment"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+// configurationDTO — ревизия конфигурации (EDR-0012): иммутабельная версия
+// конфигурации проекта с монотонным номером Revision.
+// Current — признак текущей (активной) ревизии проекта.
+type configurationDTO struct {
+	ID                  string    `json:"id"`
+	ProjectID           string    `json:"project_id"`
+	Revision            int       `json:"revision"`
+	WidthMM             float64   `json:"width_mm"`
+	HeightMM            float64   `json:"height_mm"`
+	Flight              string    `json:"flight"`
+	StepHeightMM        float64   `json:"step_height_mm"`
+	StringerThicknessMM float64   `json:"stringer_thickness_mm"`
+	StepThicknessMM     float64   `json:"step_thickness_mm"`
+	ClearanceMM         float64   `json:"clearance_mm"`
+	RailingHeightMM     float64   `json:"railing_height_mm"`
+	ComfortStepMM       float64   `json:"comfort_step_mm"`
+	LandingWidthMM      float64   `json:"landing_width_mm"`
+	LowerStepCount      int       `json:"lower_step_count"`
+	OuterRadiusMM       float64   `json:"outer_radius_mm"`
+	Current             bool      `json:"current"`
+	CreatedAt           time.Time `json:"created_at"`
 }
 
 // calculationDTO — сохранённый расчёт проекта: метаданные + снапшот.
@@ -453,6 +493,147 @@ func writeReviewDecision(w http.ResponseWriter, rv *project.ProjectReview, err e
 	}
 }
 
+// handleApproveConfiguration — POST /api/v1/projects/{id}/configurations/{configID}/approve
+// (auth+CSRF, owner). 201 — утверждено; 400 — битый JSON; 403 — нет прав;
+// 404 — нет проекта/конфигурации; 422 — уже утверждено.
+func handleApproveConfiguration(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req reviewCommentRequest
+		if err := decodeJSON(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			return
+		}
+		a, err := svc.ApproveConfiguration(r.Context(), tenantID(r.Context()), userID(r.Context()),
+			r.PathValue("id"), r.PathValue("configID"), req.Comment)
+		switch {
+		case errors.Is(err, project.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "project or configuration not found")
+		case errors.Is(err, project.ErrForbidden):
+			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+		case errors.Is(err, project.ErrConflict):
+			writeError(w, http.StatusUnprocessableEntity, "already_approved", err.Error())
+		case err != nil:
+			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+		default:
+			writeJSON(w, http.StatusCreated, toApprovalDTO(a))
+		}
+	}
+}
+
+// handleGetConfigurationApproval — GET /api/v1/projects/{id}/configurations/{configID}/approval
+// (auth). 200 — утверждение; 403 — нет прав; 404 — не найдена/не утверждена.
+func handleGetConfigurationApproval(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		a, err := svc.GetConfigurationApproval(r.Context(), tenantID(r.Context()), userID(r.Context()),
+			r.PathValue("id"), r.PathValue("configID"))
+		switch {
+		case errors.Is(err, project.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "configuration not approved")
+		case errors.Is(err, project.ErrForbidden):
+			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+		case err != nil:
+			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+		default:
+			writeJSON(w, http.StatusOK, toApprovalDTO(a))
+		}
+	}
+}
+
+// handleListApprovals — GET /api/v1/projects/{id}/approvals (auth).
+// 200 — история утверждений; 403 — нет прав; 404 — нет проекта.
+func handleListApprovals(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		approvals, err := svc.ListApprovals(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
+		switch {
+		case errors.Is(err, project.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "project not found")
+		case errors.Is(err, project.ErrForbidden):
+			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+		case err != nil:
+			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+		default:
+			out := make([]approvalDTO, 0, len(approvals))
+			for _, a := range approvals {
+				out = append(out, toApprovalDTO(a))
+			}
+			writeJSON(w, http.StatusOK, out)
+		}
+	}
+}
+
+// handleListConfigurations — GET /api/v1/projects/{id}/configurations (auth).
+// 200 — история ревизий по возрастанию номера; 403; 404.
+func handleListConfigurations(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		projectID := r.PathValue("id")
+		configs, err := svc.ListConfigurations(r.Context(), tenantID(r.Context()), userID(r.Context()), projectID)
+		switch {
+		case errors.Is(err, project.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "project not found")
+		case errors.Is(err, project.ErrForbidden):
+			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+		case err != nil:
+			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+		default:
+			current := currentConfigID(r, svc, projectID)
+			out := make([]configurationDTO, 0, len(configs))
+			for _, c := range configs {
+				out = append(out, toConfigurationDTO(c, current))
+			}
+			writeJSON(w, http.StatusOK, out)
+		}
+	}
+}
+
+// handleGetConfiguration — GET /api/v1/projects/{id}/configurations/{configID}
+// (auth). 200 — ревизия; 403; 404.
+func handleGetConfiguration(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		projectID := r.PathValue("id")
+		c, err := svc.GetConfiguration(r.Context(), tenantID(r.Context()), userID(r.Context()),
+			projectID, r.PathValue("configID"))
+		switch {
+		case errors.Is(err, project.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "configuration not found")
+		case errors.Is(err, project.ErrForbidden):
+			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+		case err != nil:
+			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+		default:
+			writeJSON(w, http.StatusOK, toConfigurationDTO(c, currentConfigID(r, svc, projectID)))
+		}
+	}
+}
+
+// handleRestoreConfiguration — POST /api/v1/projects/{id}/configurations/{configID}/restore
+// (auth+CSRF). 200 — восстановленная ревизия; 403; 404.
+func handleRestoreConfiguration(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		projectID := r.PathValue("id")
+		c, err := svc.RestoreConfiguration(r.Context(), tenantID(r.Context()), userID(r.Context()),
+			projectID, r.PathValue("configID"))
+		switch {
+		case errors.Is(err, project.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "configuration not found")
+		case errors.Is(err, project.ErrForbidden):
+			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+		case err != nil:
+			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+		default:
+			writeJSON(w, http.StatusOK, toConfigurationDTO(c, c.ID))
+		}
+	}
+}
+
+// currentConfigID возвращает ID текущей ревизии проекта (EDR-0012) или "".
+func currentConfigID(r *http.Request, svc ProjectService, projectID string) string {
+	p, err := svc.GetProject(r.Context(), tenantID(r.Context()), userID(r.Context()), projectID)
+	if err != nil {
+		return ""
+	}
+	return p.CurrentConfigurationID
+}
+
 // handleCalculateProject — POST /api/v1/projects/{id}/calculate (auth+CSRF).
 // 200 — расчёт сохранён (включая blocking-валидацию); 400 — битый JSON;
 // 404 — нет проекта; 422 — невалидный вход; 500 — сбой.
@@ -523,7 +704,8 @@ func handleExportProject(svc ProjectService) http.HandlerFunc {
 func toProjectDTO(p *project.Project) projectDTO {
 	return projectDTO{
 		ID: p.ID, Name: p.Name, Description: p.Description, Status: p.Status,
-		OwnerID: p.OwnerID, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+		OwnerID: p.OwnerID, CurrentConfigurationID: p.CurrentConfigurationID,
+		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
 }
 
@@ -544,6 +726,37 @@ func toReviewDTO(rv *project.ProjectReview) reviewDTO {
 		ID: rv.ID, ProjectID: rv.ProjectID, RequesterID: rv.RequesterID,
 		ReviewerID: rv.ReviewerID, Decision: rv.Decision, Comment: rv.Comment,
 		CreatedAt: rv.CreatedAt, DecidedAt: rv.DecidedAt,
+	}
+}
+
+func toApprovalDTO(a *project.ConfigurationApproval) approvalDTO {
+	return approvalDTO{
+		ID: a.ID, ProjectID: a.ProjectID, ConfigurationID: a.ConfigurationID,
+		ApprovedByID: a.ApprovedByID, Comment: a.Comment, CreatedAt: a.CreatedAt,
+	}
+}
+
+// configurationDTOWithCurrent — DTO-конвертер ревизии с признаком текущей
+// (EDR-0012): current=true, если конфигурация — active revision проекта.
+func toConfigurationDTO(c *project.StairConfiguration, current string) configurationDTO {
+	return configurationDTO{
+		ID:                  c.ID,
+		ProjectID:           c.ProjectID,
+		Revision:            c.Revision,
+		WidthMM:             c.WidthMM,
+		HeightMM:            c.HeightMM,
+		Flight:              c.Flight,
+		StepHeightMM:        c.StepHeightMM,
+		StringerThicknessMM: c.StringerThicknessMM,
+		StepThicknessMM:     c.StepThicknessMM,
+		ClearanceMM:         c.ClearanceMM,
+		RailingHeightMM:     c.RailingHeightMM,
+		ComfortStepMM:       c.ComfortStepMM,
+		LandingWidthMM:      c.LandingWidthMM,
+		LowerStepCount:      c.LowerStepCount,
+		OuterRadiusMM:       c.OuterRadiusMM,
+		Current:             c.ID == current,
+		CreatedAt:           c.CreatedAt,
 	}
 }
 

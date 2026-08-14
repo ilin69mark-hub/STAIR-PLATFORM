@@ -67,11 +67,33 @@ type Repository interface {
 	// created_at (EDR-0010).
 	ListReviews(ctx context.Context, tenantID, projectID string) ([]*ProjectReview, error)
 
+	// ApproveConfiguration утверждает ревизию конфигурации (EDR-0011):
+	// владелец проекта. Одна ревизия утверждается один раз; повторное
+	// утверждение — ErrConflict; конфигурация вне tenant — ErrNotFound.
+	ApproveConfiguration(ctx context.Context, tenantID, projectID, configurationID, approvedByID, comment string) (*ConfigurationApproval, error)
+	// GetConfigurationApproval возвращает утверждение ревизии;
+	// ErrNotFound — ревизии нет или не утверждена.
+	GetConfigurationApproval(ctx context.Context, tenantID, projectID, configurationID string) (*ConfigurationApproval, error)
+	// ListApprovals возвращает утверждения проекта по возрастанию времени.
+	ListApprovals(ctx context.Context, tenantID, projectID string) ([]*ConfigurationApproval, error)
+
 	// SaveConfiguration создаёт новую ревизию конфигурации проекта.
 	SaveConfiguration(ctx context.Context, c *StairConfiguration) error
-	// GetLatestConfiguration возвращает последнюю ревизию конфигурации
-	// проекта внутри tenant.
+	// GetLatestConfiguration возвращает текущую ревизию конфигурации
+	// проекта (current_configuration_id) либо последнюю, если текущая не
+	// задана; внутри tenant.
 	GetLatestConfiguration(ctx context.Context, tenantID, projectID string) (*StairConfiguration, error)
+	// ListConfigurations возвращает историю ревизий конфигурации проекта
+	// по возрастанию номера ревизии (EDR-0012, Versioning). Каждая
+	// сохранённая конфигурация иммутабельна.
+	ListConfigurations(ctx context.Context, tenantID, projectID string) ([]*StairConfiguration, error)
+	// GetConfigurationByID возвращает ревизию конфигурации по ID внутри
+	// tenant; ErrNotFound — ревизии нет или вне tenant.
+	GetConfigurationByID(ctx context.Context, tenantID, projectID, configurationID string) (*StairConfiguration, error)
+	// RestoreConfiguration делает ревизию текущей (EDR-0012): проект
+	// ссылается на восстановленную ревизию. ErrNotFound — ревизия вне
+	// tenant или не существует.
+	RestoreConfiguration(ctx context.Context, tenantID, projectID, configurationID string) error
 
 	// SaveCalculationWithConfig атомарно сохраняет конфигурацию и расчёт
 	// (BE-0006 Transaction Management): одна транзакция — один расчёт.

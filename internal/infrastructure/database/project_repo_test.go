@@ -86,7 +86,7 @@ func TestProjectRepositoryCRUD(t *testing.T) {
 	tenant := testTenantID(t, repo)
 	owner := testOwnerID(t, repo, tenant)
 
-	p := &project.Project{Name: "Интеграционный", Description: "тест"}
+	p := &project.Project{Name: "Интеграционный", Description: "тест", Status: project.StatusDraft}
 	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestProjectRepositorySaveCalculationWithConfig(t *testing.T) {
 	tenant := testTenantID(t, repo)
 	owner := testOwnerID(t, repo, tenant)
 
-	p := &project.Project{Name: "Расчёт"}
+	p := &project.Project{Name: "Расчёт", Status: project.StatusDraft}
 	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestProjectRepositoryMembers(t *testing.T) {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	p := &project.Project{Name: "Совместный"}
+	p := &project.Project{Name: "Совместный", Status: project.StatusDraft}
 	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestProjectRepositoryCannotTouchOwner(t *testing.T) {
 	tenant := testTenantID(t, repo)
 	owner := testOwnerID(t, repo, tenant)
 
-	p := &project.Project{Name: "С защитой владельца"}
+	p := &project.Project{Name: "С защитой владельца", Status: project.StatusDraft}
 	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
@@ -295,7 +295,7 @@ func TestProjectRepositoryAddMemberByEmail(t *testing.T) {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	p := &project.Project{Name: "Приглашение по email"}
+	p := &project.Project{Name: "Приглашение по email", Status: project.StatusDraft}
 	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestProjectRepositoryComments(t *testing.T) {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	p := &project.Project{Name: "С комментариями"}
+	p := &project.Project{Name: "С комментариями", Status: project.StatusDraft}
 	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
@@ -392,7 +392,7 @@ func TestProjectRepositoryStandaloneConfigAndCalculation(t *testing.T) {
 	tenant := testTenantID(t, repo)
 	owner := testOwnerID(t, repo, tenant)
 
-	p := &project.Project{Name: "Самостоятельные сохранения"}
+	p := &project.Project{Name: "Самостоятельные сохранения", Status: project.StatusDraft}
 	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
@@ -451,7 +451,7 @@ func TestProjectRepositoryReviews(t *testing.T) {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	p := &project.Project{Name: "С ревью"}
+	p := &project.Project{Name: "С ревью", Status: project.StatusDraft}
 	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
@@ -511,11 +511,101 @@ func TestProjectRepositoryReviews(t *testing.T) {
 	}
 
 	// Чужой tenant не видит.
-	foreign := &project.Project{Name: "Чужой"}
+	foreign := &project.Project{Name: "Чужой", Status: project.StatusDraft}
 	if err := repo.CreateProject(ctx, tenant, owner, foreign); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 	if _, err := repo.RequestReview(ctx, "00000000-0000-0000-0000-000000000000", foreign.ID, owner, "x"); !errors.Is(err, project.ErrNotFound) {
 		t.Fatalf("foreign tenant request: want ErrNotFound, got %v", err)
+	}
+}
+
+// testConfigAt возвращает конфигурацию проекта с заданной шириной.
+func testConfigAt(projectID string, width float64) *project.StairConfiguration {
+	return &project.StairConfiguration{
+		ProjectID: projectID, WidthMM: width, HeightMM: 2700, Flight: "straight",
+		StepHeightMM: 180, StringerThicknessMM: 50, StepThicknessMM: 40,
+		ClearanceMM: 80, RailingHeightMM: 900, ComfortStepMM: 620,
+	}
+}
+
+// TestProjectRepositoryVersioning (EDR-0012): ревизии монотонны и
+// иммутабельны; текущая ревизия управляется расчётом и restore.
+func TestProjectRepositoryVersioning(t *testing.T) {
+	if os.Getenv("STAIR_TEST_DATABASE_URL") == "" {
+		t.Skip("STAIR_TEST_DATABASE_URL not set; skipping database integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	repo := integrationRepo(t)
+	tenant := testTenantID(t, repo)
+	owner := testOwnerID(t, repo, tenant)
+
+	p := &project.Project{Name: "Версии", Status: project.StatusDraft}
+	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	calc1, err := repo.SaveCalculationWithConfig(ctx, tenant, testConfigAt(p.ID, 900), sampleSnapshot(p.ID))
+	if err != nil {
+		t.Fatalf("save #1: %v", err)
+	}
+	calc2, err := repo.SaveCalculationWithConfig(ctx, tenant, testConfigAt(p.ID, 1000), sampleSnapshot(p.ID))
+	if err != nil {
+		t.Fatalf("save #2: %v", err)
+	}
+	if calc1.ConfigurationID == calc2.ConfigurationID {
+		t.Fatal("expected distinct revisions")
+	}
+
+	list, err := repo.ListConfigurations(ctx, tenant, p.ID)
+	if err != nil {
+		t.Fatalf("ListConfigurations: %v", err)
+	}
+	if len(list) != 2 || list[0].Revision != 1 || list[1].Revision != 2 {
+		t.Fatalf("revisions = %+v", list)
+	}
+	if list[0].ID != calc1.ConfigurationID || list[1].ID != calc2.ConfigurationID {
+		t.Fatalf("revision order: %+v", list)
+	}
+
+	got, err := repo.GetConfigurationByID(ctx, tenant, p.ID, calc1.ConfigurationID)
+	if err != nil {
+		t.Fatalf("GetConfigurationByID: %v", err)
+	}
+	if got.Revision != 1 || got.WidthMM != 900 {
+		t.Fatalf("config = %+v", got)
+	}
+
+	// Текущая — последняя.
+	cur, err := repo.GetLatestConfiguration(ctx, tenant, p.ID)
+	if err != nil {
+		t.Fatalf("GetLatestConfiguration: %v", err)
+	}
+	if cur.ID != calc2.ConfigurationID {
+		t.Fatalf("current = %s, want %s", cur.ID, calc2.ConfigurationID)
+	}
+
+	// Restore rev1 → становится текущей.
+	if err := repo.RestoreConfiguration(ctx, tenant, p.ID, calc1.ConfigurationID); err != nil {
+		t.Fatalf("RestoreConfiguration: %v", err)
+	}
+	cur, err = repo.GetLatestConfiguration(ctx, tenant, p.ID)
+	if err != nil {
+		t.Fatalf("GetLatestConfiguration after restore: %v", err)
+	}
+	if cur.ID != calc1.ConfigurationID {
+		t.Fatalf("current after restore = %s, want %s", cur.ID, calc1.ConfigurationID)
+	}
+
+	// Чужой tenant не видит ревизии.
+	if _, err := repo.ListConfigurations(ctx, "00000000-0000-0000-0000-000000000000", p.ID); !errors.Is(err, project.ErrNotFound) {
+		t.Fatalf("foreign list: want ErrNotFound, got %v", err)
+	}
+	if err := repo.RestoreConfiguration(ctx, "00000000-0000-0000-0000-000000000000", p.ID, calc1.ConfigurationID); !errors.Is(err, project.ErrNotFound) {
+		t.Fatalf("foreign restore: want ErrNotFound, got %v", err)
+	}
+	if _, err := repo.GetConfigurationByID(ctx, "00000000-0000-0000-0000-000000000000", p.ID, calc1.ConfigurationID); !errors.Is(err, project.ErrNotFound) {
+		t.Fatalf("foreign get: want ErrNotFound, got %v", err)
 	}
 }

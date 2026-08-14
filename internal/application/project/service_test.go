@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -19,8 +20,9 @@ type fakeRepo struct {
 	usersByEmail map[string]string                    // email → userID (в tenant, C2)
 	configs      map[string][]*StairConfiguration
 	calculations map[string][]*Calculation
-	comments     map[string][]*Comment       // ключ: projectID → []*Comment
-	reviews      map[string][]*ProjectReview // ключ: projectID → []*ProjectReview
+	comments     map[string][]*Comment               // ключ: projectID → []*Comment
+	reviews      map[string][]*ProjectReview         // ключ: projectID → []*ProjectReview
+	approvals    map[string][]*ConfigurationApproval // ключ: projectID → []*ConfigurationApproval
 	next         int
 	err          error
 }
@@ -34,6 +36,7 @@ func newFakeRepo() *fakeRepo {
 		calculations: map[string][]*Calculation{},
 		comments:     map[string][]*Comment{},
 		reviews:      map[string][]*ProjectReview{},
+		approvals:    map[string][]*ConfigurationApproval{},
 	}
 }
 
@@ -158,11 +161,36 @@ func (f *fakeRepo) RemoveMember(ctx context.Context, tenantID, projectID, userID
 }
 
 func (f *fakeRepo) SaveConfiguration(ctx context.Context, c *StairConfiguration) error {
+	if c.ID == "" {
+		f.next++
+		c.ID = itoa(f.next)
+	}
+	if c.Revision == 0 {
+		maxRev := 0
+		for _, existing := range f.configs[c.ProjectID] {
+			if existing.Revision > maxRev {
+				maxRev = existing.Revision
+			}
+		}
+		c.Revision = maxRev + 1
+	}
 	f.configs[c.ProjectID] = append(f.configs[c.ProjectID], c)
 	return nil
 }
 
 func (f *fakeRepo) GetLatestConfiguration(ctx context.Context, tenantID, projectID string) (*StairConfiguration, error) {
+	p, ok := f.projects[key(tenantID, projectID)]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	// Текущая ревизия имеет приоритет (EDR-0012); иначе — последняя.
+	if p.CurrentConfigurationID != "" {
+		for _, c := range f.configs[projectID] {
+			if c.ID == p.CurrentConfigurationID {
+				return c, nil
+			}
+		}
+	}
 	cfgs := f.configs[projectID]
 	if len(cfgs) == 0 {
 		return nil, ErrNotFound
@@ -183,6 +211,10 @@ func (f *fakeRepo) SaveCalculationWithConfig(ctx context.Context, tenantID strin
 	calc.ConfigurationID = cfg.ID
 	if err := f.SaveCalculation(ctx, calc); err != nil {
 		return nil, err
+	}
+	// Новая конфигурация становится текущей ревизией (EDR-0012).
+	if p, ok := f.projects[key(tenantID, cfg.ProjectID)]; ok {
+		p.CurrentConfigurationID = cfg.ID
 	}
 	return calc, nil
 }
@@ -302,6 +334,87 @@ func (f *fakeRepo) ListReviews(ctx context.Context, tenantID, projectID string) 
 		return nil, ErrNotFound
 	}
 	return f.reviews[projectID], nil
+}
+
+func (f *fakeRepo) ApproveConfiguration(ctx context.Context, tenantID, projectID, configurationID, approvedByID, comment string) (*ConfigurationApproval, error) {
+	if _, ok := f.projects[key(tenantID, projectID)]; !ok {
+		return nil, ErrNotFound
+	}
+	exists := false
+	for _, c := range f.configs[projectID] {
+		if c.ID == configurationID {
+			exists = true
+			break
+		}
+	}
+	if !exists {
+		return nil, ErrNotFound
+	}
+	for _, a := range f.approvals[projectID] {
+		if a.ConfigurationID == configurationID {
+			return nil, ErrConflict
+		}
+	}
+	f.next++
+	a := &ConfigurationApproval{ID: itoa(f.next), ProjectID: projectID, ConfigurationID: configurationID,
+		ApprovedByID: approvedByID, Comment: comment, CreatedAt: time.Now()}
+	f.approvals[projectID] = append(f.approvals[projectID], a)
+	return a, nil
+}
+
+func (f *fakeRepo) GetConfigurationApproval(ctx context.Context, tenantID, projectID, configurationID string) (*ConfigurationApproval, error) {
+	if _, ok := f.projects[key(tenantID, projectID)]; !ok {
+		return nil, ErrNotFound
+	}
+	for _, a := range f.approvals[projectID] {
+		if a.ConfigurationID == configurationID {
+			return a, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (f *fakeRepo) ListApprovals(ctx context.Context, tenantID, projectID string) ([]*ConfigurationApproval, error) {
+	if _, ok := f.projects[key(tenantID, projectID)]; !ok {
+		return nil, ErrNotFound
+	}
+	return f.approvals[projectID], nil
+}
+
+func (f *fakeRepo) ListConfigurations(ctx context.Context, tenantID, projectID string) ([]*StairConfiguration, error) {
+	if _, ok := f.projects[key(tenantID, projectID)]; !ok {
+		return nil, ErrNotFound
+	}
+	// Ревизии отсортированы по возрастанию номера.
+	out := make([]*StairConfiguration, 0, len(f.configs[projectID]))
+	for _, c := range f.configs[projectID] {
+		if c.ProjectID == projectID {
+			out = append(out, c)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Revision < out[j].Revision })
+	return out, nil
+}
+
+func (f *fakeRepo) GetConfigurationByID(ctx context.Context, tenantID, projectID, configurationID string) (*StairConfiguration, error) {
+	if _, ok := f.projects[key(tenantID, projectID)]; !ok {
+		return nil, ErrNotFound
+	}
+	for _, c := range f.configs[projectID] {
+		if c.ID == configurationID {
+			return c, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (f *fakeRepo) RestoreConfiguration(ctx context.Context, tenantID, projectID, configurationID string) error {
+	if _, ok := f.projects[key(tenantID, projectID)]; !ok {
+		return nil
+	}
+	p := f.projects[key(tenantID, projectID)]
+	p.CurrentConfigurationID = configurationID
+	return nil
 }
 
 func itoa(n int) string {
@@ -877,6 +990,195 @@ func TestReviewNonMember(t *testing.T) {
 		t.Fatalf("stranger request: want ErrNotFound, got %v", err)
 	}
 	if _, err := svc.ListReviews(context.Background(), testTenant, "u-stranger", p.ID); err != ErrNotFound {
+		t.Fatalf("stranger list: want ErrNotFound, got %v", err)
+	}
+}
+
+// TestConfigurationApproval (EDR-0011): owner утверждает ревизию
+// конфигурации; видна по конфигурации и в истории.
+func TestConfigurationApproval(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Утверждение", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	cfg := testConfig()
+	calc, err := svc.Calculate(context.Background(), testTenant, testOwner, p.ID, cfg, stair.Options{})
+	if err != nil {
+		t.Fatalf("Calculate: %v", err)
+	}
+	if calc.ConfigurationID == "" {
+		t.Fatal("expected configuration id")
+	}
+
+	a, err := svc.ApproveConfiguration(context.Background(), testTenant, testOwner, p.ID, calc.ConfigurationID, "итоговая")
+	if err != nil {
+		t.Fatalf("ApproveConfiguration: %v", err)
+	}
+	if a.ConfigurationID != calc.ConfigurationID || a.ApprovedByID != testOwner || a.Comment != "итоговая" {
+		t.Fatalf("approval = %+v", a)
+	}
+
+	got, err := svc.GetConfigurationApproval(context.Background(), testTenant, testOwner, p.ID, calc.ConfigurationID)
+	if err != nil {
+		t.Fatalf("GetConfigurationApproval: %v", err)
+	}
+	if got.ID != a.ID {
+		t.Fatalf("approval = %+v, want %+v", got, a)
+	}
+
+	list, err := svc.ListApprovals(context.Background(), testTenant, testOwner, p.ID)
+	if err != nil {
+		t.Fatalf("ListApprovals: %v", err)
+	}
+	if len(list) != 1 || list[0].ConfigurationID != calc.ConfigurationID {
+		t.Fatalf("approvals = %+v", list)
+	}
+}
+
+// TestApprovalPermissions (EDR-0011): повторное утверждение ревизии —
+// ErrConflict; editor — ErrForbidden; не-член — ErrNotFound.
+func TestApprovalPermissions(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Права утверждения", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if err := svc.AddMemberByEmail(context.Background(), testTenant, testOwner, p.ID, "editor@test.dev", RoleEditor); err != nil {
+		t.Fatalf("AddMemberByEmail: %v", err)
+	}
+
+	calc, err := svc.Calculate(context.Background(), testTenant, testOwner, p.ID, testConfig(), stair.Options{})
+	if err != nil {
+		t.Fatalf("Calculate: %v", err)
+	}
+
+	// Editor не может утверждать.
+	if _, err := svc.ApproveConfiguration(context.Background(), testTenant, "u-editor", p.ID, calc.ConfigurationID, ""); err != ErrForbidden {
+		t.Fatalf("editor approve: want ErrForbidden, got %v", err)
+	}
+	// Не-член — ErrNotFound.
+	if _, err := svc.ApproveConfiguration(context.Background(), testTenant, "u-stranger", p.ID, calc.ConfigurationID, ""); err != ErrNotFound {
+		t.Fatalf("stranger approve: want ErrNotFound, got %v", err)
+	}
+	// Owner утверждает единожды.
+	if _, err := svc.ApproveConfiguration(context.Background(), testTenant, testOwner, p.ID, calc.ConfigurationID, "ок"); err != nil {
+		t.Fatalf("owner approve: %v", err)
+	}
+	// Повторное утверждение той же ревизии — ErrConflict.
+	if _, err := svc.ApproveConfiguration(context.Background(), testTenant, testOwner, p.ID, calc.ConfigurationID, "ещё раз"); err != ErrConflict {
+		t.Fatalf("repeat approve: want ErrConflict, got %v", err)
+	}
+	// Несуществующая конфигурация — ErrNotFound.
+	if _, err := svc.ApproveConfiguration(context.Background(), testTenant, testOwner, p.ID, "cfg-404", ""); err != ErrNotFound {
+		t.Fatalf("missing config approve: want ErrNotFound, got %v", err)
+	}
+}
+
+// calculateTwoConfigs создаёт проект и две ревизии конфигурации, возвращает
+// ID проекта и ID ревизий (rev1, rev2).
+func calculateTwoConfigs(t *testing.T, svc *Service) (string, string, string) {
+	t.Helper()
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Версии", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	calc1, err := svc.Calculate(context.Background(), testTenant, testOwner, p.ID, testConfig(), stair.Options{})
+	if err != nil {
+		t.Fatalf("Calculate #1: %v", err)
+	}
+	calc2, err := svc.Calculate(context.Background(), testTenant, testOwner, p.ID, testConfig(), stair.Options{})
+	if err != nil {
+		t.Fatalf("Calculate #2: %v", err)
+	}
+	if calc1.ConfigurationID == calc2.ConfigurationID {
+		t.Fatal("expected different configuration IDs per revision")
+	}
+	return p.ID, calc1.ConfigurationID, calc2.ConfigurationID
+}
+
+// TestConfigurationVersioning (EDR-0012): ревизии нумеруются монотонно;
+// владелец перечисляет историю и читает ревизию; calc2 — текущая.
+func TestConfigurationVersioning(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+	projectID, rev1, rev2 := calculateTwoConfigs(t, svc)
+
+	list, err := svc.ListConfigurations(context.Background(), testTenant, testOwner, projectID)
+	if err != nil {
+		t.Fatalf("ListConfigurations: %v", err)
+	}
+	if len(list) != 2 || list[0].Revision != 1 || list[1].Revision != 2 {
+		t.Fatalf("revisions = %+v", list)
+	}
+	if list[0].ID != rev1 || list[1].ID != rev2 {
+		t.Fatalf("revision order: %s, %s (want %s, %s)", list[0].ID, list[1].ID, rev1, rev2)
+	}
+
+	got, err := svc.GetConfiguration(context.Background(), testTenant, testOwner, projectID, rev1)
+	if err != nil {
+		t.Fatalf("GetConfiguration: %v", err)
+	}
+	if got.ID != rev1 || got.Revision != 1 {
+		t.Fatalf("config = %+v", got)
+	}
+
+	cur, err := svc.GetLatestConfig(context.Background(), testTenant, testOwner, projectID)
+	if err != nil {
+		t.Fatalf("GetLatestConfig: %v", err)
+	}
+	if cur.ID != rev2 {
+		t.Fatalf("current = %s, want %s", cur.ID, rev2)
+	}
+}
+
+// TestRestoreConfiguration (EDR-0012): editor восстанавливает прежнюю
+// ревизию; она становится текущей. viewer — ErrForbidden; не-член —
+// ErrNotFound; чужая ревизия — ErrNotFound.
+func TestRestoreConfiguration(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+	projectID, rev1, _ := calculateTwoConfigs(t, svc)
+	if err := svc.AddMemberByEmail(context.Background(), testTenant, testOwner, projectID, "editor@test.dev", RoleEditor); err != nil {
+		t.Fatalf("AddMemberByEmail: %v", err)
+	}
+	if err := svc.AddMemberByEmail(context.Background(), testTenant, testOwner, projectID, "viewer@test.dev", RoleViewer); err != nil {
+		t.Fatalf("AddMemberByEmail: %v", err)
+	}
+
+	// Editor восстанавливает rev1.
+	restored, err := svc.RestoreConfiguration(context.Background(), testTenant, "u-editor", projectID, rev1)
+	if err != nil {
+		t.Fatalf("editor restore: %v", err)
+	}
+	if restored.ID != rev1 {
+		t.Fatalf("restored = %s, want %s", restored.ID, rev1)
+	}
+	cur, err := svc.GetLatestConfig(context.Background(), testTenant, testOwner, projectID)
+	if err != nil {
+		t.Fatalf("GetLatestConfig: %v", err)
+	}
+	if cur.ID != rev1 {
+		t.Fatalf("current after restore = %s, want %s", cur.ID, rev1)
+	}
+
+	// Viewer не может восстанавливать.
+	if _, err := svc.RestoreConfiguration(context.Background(), testTenant, "u-viewer", projectID, rev1); err != ErrForbidden {
+		t.Fatalf("viewer restore: want ErrForbidden, got %v", err)
+	}
+	// Не-член — ErrNotFound.
+	if _, err := svc.RestoreConfiguration(context.Background(), testTenant, "u-stranger", projectID, rev1); err != ErrNotFound {
+		t.Fatalf("stranger restore: want ErrNotFound, got %v", err)
+	}
+	// Чужая/несуществующая ревизия — ErrNotFound.
+	if _, err := svc.RestoreConfiguration(context.Background(), testTenant, testOwner, projectID, "cfg-404"); err != ErrNotFound {
+		t.Fatalf("missing restore: want ErrNotFound, got %v", err)
+	}
+	// Не-член не видит историю ревизий.
+	if _, err := svc.ListConfigurations(context.Background(), testTenant, "u-stranger", projectID); err != ErrNotFound {
 		t.Fatalf("stranger list: want ErrNotFound, got %v", err)
 	}
 }
