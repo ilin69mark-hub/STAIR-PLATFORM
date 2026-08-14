@@ -22,3 +22,8 @@ configs/*.local.yaml
 # Runtime
 tmp/
 *.log
+
+# Frontend (Node)
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
