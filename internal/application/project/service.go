@@ -202,6 +202,8 @@ func (s *Service) DeleteComment(ctx context.Context, tenantID, userID, projectID
 
 // Calculate сохраняет конфигурацию и результат расчёта проекта (внутри
 // tenant). Требуется роль owner или editor (право на изменение, EDR-0008).
+// Проект в статусе in_review не принимает расчёт (EDR-0010): конфигурация
+// заморожена до решения ревью → ErrConflict.
 func (s *Service) Calculate(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options) (*Calculation, error) {
 	me, ok, err := s.member(ctx, tenantID, userID, projectID)
 	if err != nil {
@@ -212,6 +214,14 @@ func (s *Service) Calculate(ctx context.Context, tenantID, userID, projectID str
 	}
 	if !me.Role.CanEdit() {
 		return nil, ErrForbidden
+	}
+
+	p, err := s.repo.GetProject(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if p.Status == StatusInReview {
+		return nil, fmt.Errorf("project: calculate while in review: %w", ErrConflict)
 	}
 
 	// Выполняем конвейер.
@@ -243,4 +253,62 @@ func (s *Service) GetLatestConfig(ctx context.Context, tenantID, userID, project
 		return nil, ErrNotFound
 	}
 	return s.repo.GetLatestConfiguration(ctx, tenantID, projectID)
+}
+
+// RequestReview запрашивает ревью проекта (EDR-0010): переводит проект
+// draft|changes_requested → in_review. Требуется роль owner/editor
+// (CanEdit); повторный запрос из in_review — ErrConflict (реализация
+// Repository). Не-член — ErrNotFound.
+func (s *Service) RequestReview(ctx context.Context, tenantID, userID, projectID, comment string) (*ProjectReview, error) {
+	me, ok, err := s.member(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if !me.Role.CanEdit() {
+		return nil, ErrForbidden
+	}
+	return s.repo.RequestReview(ctx, tenantID, projectID, userID, comment)
+}
+
+// SignOffReview подписывает ревью проекта (EDR-0010): переводит проект
+// in_review → approved. Требуется роль owner; автор запроса не может
+// подписать собственное ревью (реализация Repository). Не-член —
+// ErrNotFound.
+func (s *Service) SignOffReview(ctx context.Context, tenantID, userID, projectID, reviewID, comment string) (*ProjectReview, error) {
+	return s.decideReview(ctx, tenantID, userID, projectID, reviewID, comment, ReviewApproved)
+}
+
+// RequestChanges возвращает проект на доработку (EDR-0010): переводит
+// in_review → changes_requested. Требуется роль owner; автор запроса не
+// может вернуть собственное ревью. Не-член — ErrNotFound.
+func (s *Service) RequestChanges(ctx context.Context, tenantID, userID, projectID, reviewID, comment string) (*ProjectReview, error) {
+	return s.decideReview(ctx, tenantID, userID, projectID, reviewID, comment, ReviewChangesRequest)
+}
+
+// decideReview — общая логика решения по ревью (sign-off / request changes).
+func (s *Service) decideReview(ctx context.Context, tenantID, userID, projectID, reviewID, comment, decision string) (*ProjectReview, error) {
+	me, ok, err := s.member(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if !me.Role.CanManage() {
+		return nil, ErrForbidden
+	}
+	return s.repo.DecideReview(ctx, tenantID, projectID, reviewID, userID, decision, comment)
+}
+
+// ListReviews возвращает историю ревью проекта (EDR-0010). Требуется членство.
+func (s *Service) ListReviews(ctx context.Context, tenantID, userID, projectID string) ([]*ProjectReview, error) {
+	if _, ok, err := s.member(ctx, tenantID, userID, projectID); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, ErrNotFound
+	}
+	return s.repo.ListReviews(ctx, tenantID, projectID)
 }

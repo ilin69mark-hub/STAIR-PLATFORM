@@ -66,3 +66,36 @@ type Comment struct {
 	Body      string
 	CreatedAt time.Time
 }
+
+// Статусы проекта (EDR-0010, Phase C C4): жизненный цикл ревью.
+// draft — черновик (по умолчанию); in_review — запрошено ревью;
+// approved — подписано владельцем; changes_requested — возвращено
+// владельцем на доработку.
+const (
+	StatusDraft            = "draft"
+	StatusInReview         = "in_review"
+	StatusApproved         = "approved"
+	StatusChangesRequested = "changes_requested"
+)
+
+// ProjectReview — запись ревью проекта (EDR-0010): один переход статуса
+// (request/sign-off/request changes). История ревью — строки этой сущности;
+// скоуп по tenant через проект.
+type ProjectReview struct {
+	ID          string
+	ProjectID   string
+	RequesterID string
+	ReviewerID  string
+	Decision    string
+	Comment     string
+	CreatedAt   time.Time
+	DecidedAt   *time.Time
+}
+
+// Решения ревью (EDR-0010): requested — запрошено (pending);
+// approved — подписано владельцем; changes_requested — возвращено на доработку.
+const (
+	ReviewRequested      = "requested"
+	ReviewApproved       = "approved"
+	ReviewChangesRequest = "changes_requested"
+)

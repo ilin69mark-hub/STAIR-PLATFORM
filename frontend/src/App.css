@@ -627,3 +627,9 @@ body {
 .comment-add .field__input {
   width: 100%;
 }
+
+/* ---- Ревью (EDR-0010) ---- */
+
+.review-status {
+  font-weight: 600;
+}

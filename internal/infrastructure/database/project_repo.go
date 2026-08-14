@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -417,4 +418,150 @@ func (r *ProjectRepository) DeleteComment(ctx context.Context, tenantID, project
 	default:
 		return nil
 	}
+}
+
+// ---- review (EDR-0010) ----
+
+const reviewCols = `id, project_id, requester_id, reviewer_id, decision, comment, created_at, decided_at`
+
+// RequestReview создаёт запрос ревью (EDR-0010): в одной транзакции
+// переводит проект draft|changes_requested → in_review и добавляет строку
+// ревью (decision=requested). Недопустимый статус → ErrConflict; проект вне
+// tenant → ErrNotFound.
+func (r *ProjectRepository) RequestReview(ctx context.Context, tenantID, projectID, requesterID, comment string) (*project.ProjectReview, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("project: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var cur string
+	if err := tx.QueryRow(ctx,
+		`SELECT status FROM projects WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
+		projectID, tenantID).Scan(&cur); errors.Is(err, pgx.ErrNoRows) {
+		return nil, project.ErrNotFound
+	} else if err != nil {
+		return nil, fmt.Errorf("project: review status lock: %w", err)
+	}
+	if cur != project.StatusDraft && cur != project.StatusChangesRequested {
+		return nil, fmt.Errorf("project: review from status %s: %w", cur, project.ErrConflict)
+	}
+
+	var rv project.ProjectReview
+	if err := tx.QueryRow(ctx,
+		`INSERT INTO project_reviews (project_id, requester_id, decision, comment)
+		 VALUES ($1, $2, 'requested', $3)
+		 RETURNING `+reviewCols,
+		projectID, requesterID, comment).Scan(
+		&rv.ID, &rv.ProjectID, &rv.RequesterID, &rv.ReviewerID,
+		&rv.Decision, &rv.Comment, &rv.CreatedAt, &rv.DecidedAt); err != nil {
+		return nil, fmt.Errorf("project: insert review: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE projects SET status = $2, updated_at = now() WHERE id = $1`,
+		projectID, project.StatusInReview); err != nil {
+		return nil, fmt.Errorf("project: set in_review: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("project: commit: %w", err)
+	}
+	return &rv, nil
+}
+
+// DecideReview завершает ревью (EDR-0010): в одной транзакции переводит
+// проект in_review → approved|changes_requested и фиксирует решение в
+// строке ревью (reviewer_id, decided_at). Только owner (проверка в service);
+// автор запроса ревью не может решать (self-approve запрещён) →
+// ErrForbidden; ревью не в статусе pending или проект вне tenant →
+// ErrNotFound; недопустимый статус проекта → ErrConflict.
+func (r *ProjectRepository) DecideReview(ctx context.Context, tenantID, projectID, reviewID, reviewerID, decision, comment string) (*project.ProjectReview, error) {
+	if decision != project.ReviewApproved && decision != project.ReviewChangesRequest {
+		return nil, fmt.Errorf("project: unknown review decision %q", decision)
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("project: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var rv project.ProjectReview
+	if err := tx.QueryRow(ctx,
+		`SELECT `+reviewCols+` FROM project_reviews rv
+		 WHERE rv.id = $1 AND rv.project_id = $2
+		   AND rv.decision = 'requested' AND rv.decided_at IS NULL
+		 FOR UPDATE`,
+		reviewID, projectID).Scan(
+		&rv.ID, &rv.ProjectID, &rv.RequesterID, &rv.ReviewerID,
+		&rv.Decision, &rv.Comment, &rv.CreatedAt, &rv.DecidedAt); errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("project: review not pending: %w", project.ErrNotFound)
+	} else if err != nil {
+		return nil, fmt.Errorf("project: decide review lock: %w", err)
+	}
+
+	if rv.RequesterID == reviewerID {
+		return nil, fmt.Errorf("project: self-approve forbidden: %w", project.ErrForbidden)
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE project_reviews
+		 SET reviewer_id = $3, decided_at = now(), comment = $4
+		 WHERE id = $1 AND project_id = $2`,
+		reviewID, projectID, reviewerID, comment); err != nil {
+		return nil, fmt.Errorf("project: decide review: %w", err)
+	}
+	rv.ReviewerID = reviewerID
+	rv.Comment = comment
+	now := time.Now()
+	rv.DecidedAt = &now
+
+	var next string
+	if decision == project.ReviewApproved {
+		next = project.StatusApproved
+	} else {
+		next = project.StatusChangesRequested
+	}
+	tag, err := tx.Exec(ctx,
+		`UPDATE projects SET status = $2, updated_at = now()
+		 WHERE id = $1 AND status = $3 AND tenant_id = $4`,
+		projectID, next, project.StatusInReview, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("project: decide status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, fmt.Errorf("project: decide from invalid status: %w", project.ErrConflict)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("project: commit: %w", err)
+	}
+	rv.Decision = decision
+	return &rv, nil
+}
+
+func (r *ProjectRepository) ListReviews(ctx context.Context, tenantID, projectID string) ([]*project.ProjectReview, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT `+reviewCols+` FROM project_reviews rv
+		 WHERE rv.project_id = $1
+		   AND rv.project_id IN (SELECT id FROM projects WHERE tenant_id = $2 AND id = $1)
+		 ORDER BY rv.created_at`, projectID, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("project: list reviews: %w", err)
+	}
+	defer rows.Close()
+
+	out := []*project.ProjectReview{}
+	for rows.Next() {
+		var rv project.ProjectReview
+		if err := rows.Scan(&rv.ID, &rv.ProjectID, &rv.RequesterID, &rv.ReviewerID,
+			&rv.Decision, &rv.Comment, &rv.CreatedAt, &rv.DecidedAt); err != nil {
+			return nil, fmt.Errorf("project: scan review: %w", err)
+		}
+		out = append(out, &rv)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("project: list reviews: %w", err)
+	}
+	return out, nil
 }

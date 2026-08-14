@@ -28,6 +28,10 @@ type ProjectService interface {
 	AddComment(ctx context.Context, tenantID, userID, projectID, body string) (*project.Comment, error)
 	ListComments(ctx context.Context, tenantID, userID, projectID string) ([]*project.Comment, error)
 	DeleteComment(ctx context.Context, tenantID, userID, projectID, commentID string) error
+	RequestReview(ctx context.Context, tenantID, userID, projectID, comment string) (*project.ProjectReview, error)
+	SignOffReview(ctx context.Context, tenantID, userID, projectID, reviewID, comment string) (*project.ProjectReview, error)
+	RequestChanges(ctx context.Context, tenantID, userID, projectID, reviewID, comment string) (*project.ProjectReview, error)
+	ListReviews(ctx context.Context, tenantID, userID, projectID string) ([]*project.ProjectReview, error)
 	Calculate(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options) (*project.Calculation, error)
 	GetResult(ctx context.Context, tenantID, userID, projectID string) (*project.Calculation, error)
 }
@@ -78,6 +82,24 @@ type commentDTO struct {
 // commentRequest — тело запроса добавления комментария.
 type commentRequest struct {
 	Body string `json:"body"`
+}
+
+// reviewDTO — запись ревью проекта (EDR-0010).
+type reviewDTO struct {
+	ID          string     `json:"id"`
+	ProjectID   string     `json:"project_id"`
+	RequesterID string     `json:"requester_id"`
+	ReviewerID  string     `json:"reviewer_id"`
+	Decision    string     `json:"decision"`
+	Comment     string     `json:"comment"`
+	CreatedAt   time.Time  `json:"created_at"`
+	DecidedAt   *time.Time `json:"decided_at"`
+}
+
+// reviewCommentRequest — тело запроса создания/решения ревью (опциональный
+// комментарий).
+type reviewCommentRequest struct {
+	Comment string `json:"comment"`
 }
 
 // calculationDTO — сохранённый расчёт проекта: метаданные + снапшот.
@@ -333,6 +355,104 @@ func handleDeleteComment(svc ProjectService) http.HandlerFunc {
 	}
 }
 
+// handleRequestReview — POST /api/v1/projects/{id}/review (auth+CSRF,
+// owner/editor). 201 — запрос создан; 400 — битый JSON; 403 — нет прав;
+// 404 — нет проекта; 422 — неверный переход.
+func handleRequestReview(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req reviewCommentRequest
+		if err := decodeJSON(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			return
+		}
+		rv, err := svc.RequestReview(r.Context(), tenantID(r.Context()), userID(r.Context()),
+			r.PathValue("id"), req.Comment)
+		switch {
+		case errors.Is(err, project.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "project not found")
+		case errors.Is(err, project.ErrForbidden):
+			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+		case errors.Is(err, project.ErrConflict):
+			writeError(w, http.StatusUnprocessableEntity, "invalid_status", err.Error())
+		case err != nil:
+			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+		default:
+			writeJSON(w, http.StatusCreated, toReviewDTO(rv))
+		}
+	}
+}
+
+// handleSignOffReview — POST /api/v1/projects/{id}/reviews/{reviewID}/sign-off
+// (auth+CSRF, owner). 200 — подписано; 400 — битый JSON; 403 — нет прав
+// (или self-approve); 404 — нет ревью/проекта; 422 — неверный переход.
+func handleSignOffReview(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req reviewCommentRequest
+		if err := decodeJSON(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			return
+		}
+		rv, err := svc.SignOffReview(r.Context(), tenantID(r.Context()), userID(r.Context()),
+			r.PathValue("id"), r.PathValue("reviewID"), req.Comment)
+		writeReviewDecision(w, rv, err)
+	}
+}
+
+// handleRequestChanges — POST /api/v1/projects/{id}/reviews/{reviewID}/changes
+// (auth+CSRF, owner). 200 — возвращено на доработку; 400 — битый JSON;
+// 403 — нет прав (или self-approve); 404 — нет ревью/проекта; 422 —
+// неверный переход.
+func handleRequestChanges(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req reviewCommentRequest
+		if err := decodeJSON(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			return
+		}
+		rv, err := svc.RequestChanges(r.Context(), tenantID(r.Context()), userID(r.Context()),
+			r.PathValue("id"), r.PathValue("reviewID"), req.Comment)
+		writeReviewDecision(w, rv, err)
+	}
+}
+
+// handleListReviews — GET /api/v1/projects/{id}/reviews (auth).
+// 200 — история; 403 — нет прав; 404 — нет проекта.
+func handleListReviews(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		reviews, err := svc.ListReviews(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
+		switch {
+		case errors.Is(err, project.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "project not found")
+		case errors.Is(err, project.ErrForbidden):
+			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+		case err != nil:
+			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+		default:
+			out := make([]reviewDTO, 0, len(reviews))
+			for _, rv := range reviews {
+				out = append(out, toReviewDTO(rv))
+			}
+			writeJSON(w, http.StatusOK, out)
+		}
+	}
+}
+
+// writeReviewDecision — общий вывод ответа решения по ревью.
+func writeReviewDecision(w http.ResponseWriter, rv *project.ProjectReview, err error) {
+	switch {
+	case errors.Is(err, project.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "review or project not found")
+	case errors.Is(err, project.ErrForbidden):
+		writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+	case errors.Is(err, project.ErrConflict):
+		writeError(w, http.StatusUnprocessableEntity, "invalid_status", err.Error())
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+	default:
+		writeJSON(w, http.StatusOK, toReviewDTO(rv))
+	}
+}
+
 // handleCalculateProject — POST /api/v1/projects/{id}/calculate (auth+CSRF).
 // 200 — расчёт сохранён (включая blocking-валидацию); 400 — битый JSON;
 // 404 — нет проекта; 422 — невалидный вход; 500 — сбой.
@@ -416,6 +536,14 @@ func toMemberDTO(m *project.ProjectMember) memberDTO {
 func toCommentDTO(c *project.Comment) commentDTO {
 	return commentDTO{
 		ID: c.ID, ProjectID: c.ProjectID, AuthorID: c.AuthorID, Body: c.Body, CreatedAt: c.CreatedAt,
+	}
+}
+
+func toReviewDTO(rv *project.ProjectReview) reviewDTO {
+	return reviewDTO{
+		ID: rv.ID, ProjectID: rv.ProjectID, RequesterID: rv.RequesterID,
+		ReviewerID: rv.ReviewerID, Decision: rv.Decision, Comment: rv.Comment,
+		CreatedAt: rv.CreatedAt, DecidedAt: rv.DecidedAt,
 	}
 }
 

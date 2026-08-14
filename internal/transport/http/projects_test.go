@@ -20,10 +20,12 @@ type fakeProjectService struct {
 	projects     map[string]*project.Project
 	members      []*project.ProjectMember
 	comments     []*project.Comment
+	reviews      []*project.ProjectReview
 	calc         *project.Calculation
 	createErr    error
 	calculateErr error
 	getErr       error
+	reviewErr    error
 }
 
 func newFakeProjectService() *fakeProjectService {
@@ -98,6 +100,45 @@ func (f *fakeProjectService) DeleteComment(ctx context.Context, tenantID, userID
 		return project.ErrNotFound
 	}
 	return nil
+}
+
+func (f *fakeProjectService) RequestReview(ctx context.Context, tenantID, userID, projectID, comment string) (*project.ProjectReview, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, project.ErrNotFound
+	}
+	if f.reviewErr != nil {
+		return nil, f.reviewErr
+	}
+	rv := &project.ProjectReview{ID: "rv-1", ProjectID: projectID, RequesterID: userID,
+		Decision: project.ReviewRequested, Comment: comment, CreatedAt: time.Now()}
+	rv2 := *rv
+	f.reviews = append(f.reviews, &rv2)
+	return &rv2, nil
+}
+
+func (f *fakeProjectService) SignOffReview(ctx context.Context, tenantID, userID, projectID, reviewID, comment string) (*project.ProjectReview, error) {
+	if f.reviewErr != nil {
+		return nil, f.reviewErr
+	}
+	return &project.ProjectReview{ID: reviewID, ProjectID: projectID, RequesterID: "u-request",
+		ReviewerID: userID, Decision: project.ReviewApproved, Comment: comment,
+		CreatedAt: time.Now(), DecidedAt: &time.Time{}}, nil
+}
+
+func (f *fakeProjectService) RequestChanges(ctx context.Context, tenantID, userID, projectID, reviewID, comment string) (*project.ProjectReview, error) {
+	if f.reviewErr != nil {
+		return nil, f.reviewErr
+	}
+	return &project.ProjectReview{ID: reviewID, ProjectID: projectID, RequesterID: "u-request",
+		ReviewerID: userID, Decision: project.ReviewChangesRequest, Comment: comment,
+		CreatedAt: time.Now(), DecidedAt: &time.Time{}}, nil
+}
+
+func (f *fakeProjectService) ListReviews(ctx context.Context, tenantID, userID, projectID string) ([]*project.ProjectReview, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, project.ErrNotFound
+	}
+	return f.reviews, nil
 }
 
 func (f *fakeProjectService) Calculate(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options) (*project.Calculation, error) {
@@ -486,6 +527,120 @@ func TestDeleteCommentNoContent(t *testing.T) {
 func TestListCommentsNotFound(t *testing.T) {
 	svc := newFakeProjectService()
 	req := authedRequest(http.MethodGet, "/api/v1/projects/p-404/comments", "")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+// TestRequestReview — POST /review (201) возвращает запись ревью.
+func TestRequestReview(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/review", `{"comment": "проверьте"}`)
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var rv reviewDTO
+	if err := json.NewDecoder(rec.Body).Decode(&rv); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if rv.Decision != project.ReviewRequested || rv.Comment != "проверьте" || rv.RequesterID != "u-1" {
+		t.Fatalf("unexpected review: %+v", rv)
+	}
+}
+
+// TestRequestReviewConflict — неверный переход → 422.
+func TestRequestReviewConflict(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "in_review"}
+	svc.reviewErr = project.ErrConflict
+
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/review", `{}`)
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", rec.Code)
+	}
+}
+
+// TestSignOffReview — POST /reviews/{id}/sign-off (200).
+func TestSignOffReview(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "in_review"}
+
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/reviews/rv-1/sign-off", `{"comment": "ок"}`)
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var rv reviewDTO
+	if err := json.NewDecoder(rec.Body).Decode(&rv); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if rv.Decision != project.ReviewApproved || rv.ReviewerID != "u-1" {
+		t.Fatalf("unexpected review: %+v", rv)
+	}
+}
+
+// TestRequestChanges — POST /reviews/{id}/changes (200).
+func TestRequestChanges(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "in_review"}
+
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/reviews/rv-1/changes", `{"comment": "доработать"}`)
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var rv reviewDTO
+	if err := json.NewDecoder(rec.Body).Decode(&rv); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if rv.Decision != project.ReviewChangesRequest || rv.Comment != "доработать" {
+		t.Fatalf("unexpected review: %+v", rv)
+	}
+}
+
+// TestListReviews — GET /reviews возвращает историю.
+func TestListReviews(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "approved"}
+	svc.reviews = []*project.ProjectReview{
+		{ID: "rv-1", ProjectID: "p-1", RequesterID: "u-2", Decision: project.ReviewRequested, CreatedAt: time.Now()},
+		{ID: "rv-2", ProjectID: "p-1", RequesterID: "u-2", ReviewerID: "u-1",
+			Decision: project.ReviewApproved, CreatedAt: time.Now(), DecidedAt: &time.Time{}},
+	}
+
+	req := authedRequest(http.MethodGet, "/api/v1/projects/p-1/reviews", "")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var list []reviewDTO
+	if err := json.NewDecoder(rec.Body).Decode(&list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(list) != 2 || list[0].Decision != project.ReviewRequested || list[1].Decision != project.ReviewApproved {
+		t.Fatalf("unexpected list: %+v", list)
+	}
+}
+
+// TestListReviewsNotFound — 404 для несуществующего проекта.
+func TestListReviewsNotFound(t *testing.T) {
+	svc := newFakeProjectService()
+	req := authedRequest(http.MethodGet, "/api/v1/projects/p-404/reviews", "")
 	rec := httptest.NewRecorder()
 	testRouterWithProjects(svc).ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {

@@ -430,3 +430,92 @@ func TestProjectRepositoryStandaloneConfigAndCalculation(t *testing.T) {
 		t.Fatalf("unexpected calculation: %+v", got)
 	}
 }
+
+// TestProjectRepositoryReviews (EDR-0010): атомарный переход статуса +
+// строка ревью; request из draft → in_review, sign-off → approved;
+// self-approve запрещён; чужой tenant — ErrNotFound.
+func TestProjectRepositoryReviews(t *testing.T) {
+	if os.Getenv("STAIR_TEST_DATABASE_URL") == "" {
+		t.Skip("STAIR_TEST_DATABASE_URL not set; skipping database integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	repo := integrationRepo(t)
+	ar := NewAuthRepository(repo.pool)
+	tenant := testTenantID(t, repo)
+	owner := testOwnerID(t, repo, tenant)
+
+	u2 := &auth.User{Name: "Editor", Email: fmt.Sprintf("rv-%d@test.dev", time.Now().UnixNano()%100000),
+		TenantID: tenant, Role: auth.RoleUser, Status: auth.StatusActive}
+	if err := ar.CreateUser(ctx, u2); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	p := &project.Project{Name: "С ревью"}
+	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if err := repo.AddMember(ctx, tenant, p.ID, &project.ProjectMember{ProjectID: p.ID, UserID: u2.ID, Role: project.RoleEditor}); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+
+	// Editor запрашивает ревью.
+	rv, err := repo.RequestReview(ctx, tenant, p.ID, u2.ID, "проверьте")
+	if err != nil {
+		t.Fatalf("RequestReview: %v", err)
+	}
+	if rv.ID == "" || rv.Decision != project.ReviewRequested || rv.ReviewerID != "" || rv.DecidedAt != nil {
+		t.Fatalf("review = %+v", rv)
+	}
+	got, err := repo.GetProject(ctx, tenant, owner, p.ID)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	if got.Status != project.StatusInReview {
+		t.Fatalf("status = %q, want in_review", got.Status)
+	}
+
+	// Self-approve запрещён (автор = подписант).
+	if _, err := repo.DecideReview(ctx, tenant, p.ID, rv.ID, u2.ID, project.ReviewApproved, ""); !errors.Is(err, project.ErrForbidden) {
+		t.Fatalf("self-approve: want ErrForbidden, got %v", err)
+	}
+
+	// Owner подписывает.
+	done, err := repo.DecideReview(ctx, tenant, p.ID, rv.ID, owner, project.ReviewApproved, "ок")
+	if err != nil {
+		t.Fatalf("DecideReview: %v", err)
+	}
+	if done.Decision != project.ReviewApproved || done.ReviewerID != owner || done.DecidedAt == nil {
+		t.Fatalf("signed = %+v", done)
+	}
+	got, err = repo.GetProject(ctx, tenant, owner, p.ID)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	if got.Status != project.StatusApproved {
+		t.Fatalf("status = %q, want approved", got.Status)
+	}
+
+	// Повторное решение по уже решённому ревью — ErrNotFound.
+	if _, err := repo.DecideReview(ctx, tenant, p.ID, rv.ID, owner, project.ReviewChangesRequest, ""); !errors.Is(err, project.ErrNotFound) {
+		t.Fatalf("double decide: want ErrNotFound, got %v", err)
+	}
+
+	// История.
+	list, err := repo.ListReviews(ctx, tenant, p.ID)
+	if err != nil {
+		t.Fatalf("ListReviews: %v", err)
+	}
+	if len(list) != 1 || list[0].Decision != project.ReviewApproved {
+		t.Fatalf("list = %+v", list)
+	}
+
+	// Чужой tenant не видит.
+	foreign := &project.Project{Name: "Чужой"}
+	if err := repo.CreateProject(ctx, tenant, owner, foreign); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if _, err := repo.RequestReview(ctx, "00000000-0000-0000-0000-000000000000", foreign.ID, owner, "x"); !errors.Is(err, project.ErrNotFound) {
+		t.Fatalf("foreign tenant request: want ErrNotFound, got %v", err)
+	}
+}

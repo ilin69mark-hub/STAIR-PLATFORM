@@ -51,6 +51,22 @@ type Repository interface {
 	// нет (или вне tenant); ErrForbidden — нет прав на удаление.
 	DeleteComment(ctx context.Context, tenantID, projectID, commentID, actorID string) error
 
+	// RequestReview создаёт запрос ревью (EDR-0010): атомарно переводит
+	// проект draft|changes_requested → in_review и добавляет строку ревью
+	// (decision=requested). ErrConflict — недопустимый текущий статус;
+	// ErrNotFound — проект вне tenant.
+	RequestReview(ctx context.Context, tenantID, projectID, requesterID, comment string) (*ProjectReview, error)
+	// DecideReview завершает запрос ревью (EDR-0010): атомарно обновляет
+	// projects.status (approved | changes_requested) и строку ревью
+	// (reviewer_id, decided_at). Переход допустим только из in_review и
+	// только для pending-ревью; автор запроса не может решать (self-approve
+	// запрещён). ErrConflict — недопустимый статус; ErrForbidden — автор
+	// запроса; ErrNotFound — ревью/проект вне tenant.
+	DecideReview(ctx context.Context, tenantID, projectID, reviewID, reviewerID, decision, comment string) (*ProjectReview, error)
+	// ListReviews возвращает историю ревью проекта по возрастанию
+	// created_at (EDR-0010).
+	ListReviews(ctx context.Context, tenantID, projectID string) ([]*ProjectReview, error)
+
 	// SaveConfiguration создаёт новую ревизию конфигурации проекта.
 	SaveConfiguration(ctx context.Context, c *StairConfiguration) error
 	// GetLatestConfiguration возвращает последнюю ревизию конфигурации

@@ -43,6 +43,31 @@ export interface CommentRequest {
   body: string
 }
 
+// ---- Ревью (Phase C, EDR-0010): переходы статуса ревью проекта ----
+
+export type ProjectStatus =
+  | 'draft'
+  | 'in_review'
+  | 'approved'
+  | 'changes_requested'
+
+export type ReviewDecision = 'requested' | 'approved' | 'changes_requested'
+
+export interface ProjectReview {
+  id: string
+  project_id: string
+  requester_id: string
+  reviewer_id: string
+  decision: ReviewDecision
+  comment: string
+  created_at: string
+  decided_at: string | null
+}
+
+export interface ReviewRequest {
+  comment?: string
+}
+
 export interface User {
   id: string
   email: string

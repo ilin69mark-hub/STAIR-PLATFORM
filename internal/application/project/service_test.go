@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -18,7 +19,8 @@ type fakeRepo struct {
 	usersByEmail map[string]string                    // email → userID (в tenant, C2)
 	configs      map[string][]*StairConfiguration
 	calculations map[string][]*Calculation
-	comments     map[string][]*Comment // ключ: projectID → []*Comment
+	comments     map[string][]*Comment       // ключ: projectID → []*Comment
+	reviews      map[string][]*ProjectReview // ключ: projectID → []*ProjectReview
 	next         int
 	err          error
 }
@@ -31,6 +33,7 @@ func newFakeRepo() *fakeRepo {
 		configs:      map[string][]*StairConfiguration{},
 		calculations: map[string][]*Calculation{},
 		comments:     map[string][]*Comment{},
+		reviews:      map[string][]*ProjectReview{},
 	}
 }
 
@@ -237,6 +240,68 @@ func (f *fakeRepo) DeleteComment(ctx context.Context, tenantID, projectID, comme
 		return nil
 	}
 	return ErrNotFound
+}
+
+// setStatus форсирует статус проекта в тестовом репозитории (вспомогательное).
+func (f *fakeRepo) setStatus(tenantID, projectID, status string) {
+	if p, ok := f.projects[key(tenantID, projectID)]; ok {
+		p.Status = status
+	}
+}
+
+func (f *fakeRepo) RequestReview(ctx context.Context, tenantID, projectID, requesterID, comment string) (*ProjectReview, error) {
+	p, ok := f.projects[key(tenantID, projectID)]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if p.Status != StatusDraft && p.Status != StatusChangesRequested {
+		return nil, ErrConflict
+	}
+	f.next++
+	rv := &ProjectReview{
+		ID: itoa(f.next), ProjectID: projectID, RequesterID: requesterID,
+		Decision: ReviewRequested, Comment: comment, CreatedAt: time.Now(),
+	}
+	f.reviews[projectID] = append(f.reviews[projectID], rv)
+	p.Status = StatusInReview
+	return rv, nil
+}
+
+func (f *fakeRepo) DecideReview(ctx context.Context, tenantID, projectID, reviewID, reviewerID, decision, comment string) (*ProjectReview, error) {
+	p, ok := f.projects[key(tenantID, projectID)]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	for _, rv := range f.reviews[projectID] {
+		if rv.ID != reviewID || rv.Decision != ReviewRequested || rv.DecidedAt != nil {
+			continue
+		}
+		if rv.RequesterID == reviewerID {
+			return nil, ErrForbidden
+		}
+		if p.Status != StatusInReview {
+			return nil, ErrConflict
+		}
+		rv.Decision = decision
+		rv.ReviewerID = reviewerID
+		rv.Comment = comment
+		now := time.Now()
+		rv.DecidedAt = &now
+		if decision == ReviewApproved {
+			p.Status = StatusApproved
+		} else {
+			p.Status = StatusChangesRequested
+		}
+		return rv, nil
+	}
+	return nil, ErrNotFound
+}
+
+func (f *fakeRepo) ListReviews(ctx context.Context, tenantID, projectID string) ([]*ProjectReview, error) {
+	if _, ok := f.projects[key(tenantID, projectID)]; !ok {
+		return nil, ErrNotFound
+	}
+	return f.reviews[projectID], nil
 }
 
 func itoa(n int) string {
@@ -638,5 +703,180 @@ func TestDeleteComment(t *testing.T) {
 	// Повторное удаление — ErrNotFound.
 	if err := svc.DeleteComment(context.Background(), testTenant, testOwner, p.ID, ec.ID); err != ErrNotFound {
 		t.Fatalf("expected ErrNotFound for missing comment, got %v", err)
+	}
+}
+
+// TestReviewLifecycle (EDR-0010): editor запрашивает ревью, owner
+// подписывает; статусы проходят draft → in_review → approved; история
+// содержит обе строки.
+func TestReviewLifecycle(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Ревью", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if err := svc.AddMemberByEmail(context.Background(), testTenant, testOwner, p.ID, "editor@test.dev", RoleEditor); err != nil {
+		t.Fatalf("AddMemberByEmail: %v", err)
+	}
+
+	rv, err := svc.RequestReview(context.Background(), testTenant, "u-editor", p.ID, "проверьте расчёт")
+	if err != nil {
+		t.Fatalf("RequestReview: %v", err)
+	}
+	if rv.Decision != ReviewRequested || rv.RequesterID != "u-editor" {
+		t.Fatalf("review = %+v", rv)
+	}
+	got, err := svc.GetProject(context.Background(), testTenant, testOwner, p.ID)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	if got.Status != StatusInReview {
+		t.Fatalf("status = %q, want in_review", got.Status)
+	}
+
+	rv2, err := svc.SignOffReview(context.Background(), testTenant, testOwner, p.ID, rv.ID, "ок")
+	if err != nil {
+		t.Fatalf("SignOffReview: %v", err)
+	}
+	if rv2.Decision != ReviewApproved || rv2.ReviewerID != testOwner || rv2.DecidedAt == nil {
+		t.Fatalf("signed review = %+v", rv2)
+	}
+	got, err = svc.GetProject(context.Background(), testTenant, testOwner, p.ID)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	if got.Status != StatusApproved {
+		t.Fatalf("status = %q, want approved", got.Status)
+	}
+
+	reviews, err := svc.ListReviews(context.Background(), testTenant, testOwner, p.ID)
+	if err != nil {
+		t.Fatalf("ListReviews: %v", err)
+	}
+	if len(reviews) != 1 {
+		t.Fatalf("reviews len = %d, want 1", len(reviews))
+	}
+	if reviews[0].Decision != ReviewApproved || reviews[0].RequesterID != "u-editor" {
+		t.Fatalf("review[0] = %+v", reviews[0])
+	}
+}
+
+// TestReviewPermissions (EDR-0010): viewer не может запросить ревью;
+// editor не может подписать; self-approve запрещён; подпись из draft —
+// ErrConflict.
+func TestReviewPermissions(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Права ревью", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if err := svc.AddMemberByEmail(context.Background(), testTenant, testOwner, p.ID, "viewer@test.dev", RoleViewer); err != nil {
+		t.Fatalf("AddMemberByEmail: %v", err)
+	}
+	if err := svc.AddMemberByEmail(context.Background(), testTenant, testOwner, p.ID, "editor@test.dev", RoleEditor); err != nil {
+		t.Fatalf("AddMemberByEmail: %v", err)
+	}
+
+	// Viewer не может запросить ревью.
+	if _, err := svc.RequestReview(context.Background(), testTenant, "u-viewer", p.ID, "x"); err != ErrForbidden {
+		t.Fatalf("viewer request: want ErrForbidden, got %v", err)
+	}
+	// Editor запрашивает.
+	rv, err := svc.RequestReview(context.Background(), testTenant, "u-editor", p.ID, "")
+	if err != nil {
+		t.Fatalf("RequestReview: %v", err)
+	}
+	// Editor (не owner) не может подписать.
+	if _, err := svc.SignOffReview(context.Background(), testTenant, "u-editor", p.ID, rv.ID, ""); err != ErrForbidden {
+		t.Fatalf("editor sign-off: want ErrForbidden, got %v", err)
+	}
+	// Owner не может подписать собственный запрос (self-approve).
+	repo.setStatus(testTenant, p.ID, StatusDraft)
+	own, err := svc.RequestReview(context.Background(), testTenant, testOwner, p.ID, "мой запрос")
+	if err != nil {
+		t.Fatalf("RequestReview(owner): %v", err)
+	}
+	if _, err := svc.SignOffReview(context.Background(), testTenant, testOwner, p.ID, own.ID, ""); err != ErrForbidden {
+		t.Fatalf("self-approve: want ErrForbidden, got %v", err)
+	}
+	// Подпись из draft — ErrConflict.
+	repo.setStatus(testTenant, p.ID, StatusDraft)
+	ed, err := svc.RequestReview(context.Background(), testTenant, "u-editor", p.ID, "ещё раз")
+	if err != nil {
+		t.Fatalf("RequestReview: %v", err)
+	}
+	repo.setStatus(testTenant, p.ID, StatusDraft)
+	if _, err := svc.SignOffReview(context.Background(), testTenant, testOwner, p.ID, ed.ID, ""); err != ErrConflict {
+		t.Fatalf("sign-off from draft: want ErrConflict, got %v", err)
+	}
+}
+
+// TestRequestChangesReturn (EDR-0010): owner возвращает ревью на доработку;
+// проект становится changes_requested и снова доступен для запроса.
+// Calculate в in_review блокируется.
+func TestRequestChangesReturn(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Доработка", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if err := svc.AddMemberByEmail(context.Background(), testTenant, testOwner, p.ID, "editor@test.dev", RoleEditor); err != nil {
+		t.Fatalf("AddMemberByEmail: %v", err)
+	}
+
+	// Editor запрашивает, owner возвращает на доработку.
+	rv, err := svc.RequestReview(context.Background(), testTenant, "u-editor", p.ID, "запрос")
+	if err != nil {
+		t.Fatalf("RequestReview: %v", err)
+	}
+	rv2, err := svc.RequestChanges(context.Background(), testTenant, testOwner, p.ID, rv.ID, "исправьте марш")
+	if err != nil {
+		t.Fatalf("RequestChanges: %v", err)
+	}
+	if rv2.Decision != ReviewChangesRequest || rv2.ReviewerID != testOwner {
+		t.Fatalf("changes review = %+v", rv2)
+	}
+	got, err := svc.GetProject(context.Background(), testTenant, testOwner, p.ID)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	if got.Status != StatusChangesRequested {
+		t.Fatalf("status = %q, want changes_requested", got.Status)
+	}
+
+	// Повторный запрос из changes_requested допустим.
+	if _, err := svc.RequestReview(context.Background(), testTenant, "u-editor", p.ID, "снова"); err != nil {
+		t.Fatalf("RequestReview from changes_requested: %v", err)
+	}
+
+	// Calculate в in_review блокируется (ErrConflict).
+	repo.setStatus(testTenant, p.ID, StatusInReview)
+	cfg := testConfig()
+	if _, err := svc.Calculate(context.Background(), testTenant, testOwner, p.ID, cfg, stair.Options{}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("Calculate in_review: want ErrConflict, got %v", err)
+	}
+	// Calculate из approved-статуса после решения допустим.
+	repo.setStatus(testTenant, p.ID, StatusApproved)
+	if _, err := svc.Calculate(context.Background(), testTenant, testOwner, p.ID, cfg, stair.Options{}); err != nil {
+		t.Fatalf("Calculate approved: %v", err)
+	}
+}
+
+// TestReviewNonMember (EDR-0010): не-член не видит историю ревью.
+func TestReviewNonMember(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Приватное ревью", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if _, err := svc.RequestReview(context.Background(), testTenant, "u-stranger", p.ID, ""); err != ErrNotFound {
+		t.Fatalf("stranger request: want ErrNotFound, got %v", err)
+	}
+	if _, err := svc.ListReviews(context.Background(), testTenant, "u-stranger", p.ID); err != ErrNotFound {
+		t.Fatalf("stranger list: want ErrNotFound, got %v", err)
 	}
 }

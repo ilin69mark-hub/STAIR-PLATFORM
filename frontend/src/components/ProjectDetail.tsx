@@ -17,6 +17,8 @@ import {
 import { ResultPanel } from './ResultPanel'
 import { MembersPanel } from './MembersPanel'
 import { CommentsPanel } from './CommentsPanel'
+import { ReviewPanel } from './ReviewPanel'
+import type { ProjectStatus } from '../api/types'
 
 interface Props {
   projectId: string
@@ -73,6 +75,10 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
     window.location.href = projectsApi.exportUrl(projectId)
   }
 
+  const handleStatusChange = (status: ProjectStatus) => {
+    setProject((p) => (p ? { ...p, status } : p))
+  }
+
   return (
     <div className="page">
       <header className="page__header">
@@ -116,6 +122,11 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
           )}
         </section>
         <MembersPanel projectId={projectId} />
+        <ReviewPanel
+          projectId={projectId}
+          status={(project?.status ?? 'draft') as ProjectStatus}
+          onStatusChange={handleStatusChange}
+        />
         <CommentsPanel projectId={projectId} />
       </div>
 

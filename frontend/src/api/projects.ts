@@ -10,6 +10,8 @@ import type {
   Project,
   ProjectComment,
   ProjectMember,
+  ProjectReview,
+  ReviewRequest,
 } from './types'
 
 export const projectsApi = {
@@ -44,4 +46,16 @@ export const projectsApi = {
 
   deleteComment: (id: string, commentID: string) =>
     del(`/api/v1/projects/${id}/comments/${commentID}`),
+
+  // ---- Ревью (EDR-0010) ----
+  requestReview: (id: string, body: ReviewRequest) =>
+    post<ProjectReview>(`/api/v1/projects/${id}/review`, body),
+
+  signOffReview: (id: string, reviewID: string, body: ReviewRequest) =>
+    post<ProjectReview>(`/api/v1/projects/${id}/reviews/${reviewID}/sign-off`, body),
+
+  requestChanges: (id: string, reviewID: string, body: ReviewRequest) =>
+    post<ProjectReview>(`/api/v1/projects/${id}/reviews/${reviewID}/changes`, body),
+
+  listReviews: (id: string) => get<ProjectReview[]>(`/api/v1/projects/${id}/reviews`),
 }
