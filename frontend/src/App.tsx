@@ -78,6 +78,7 @@ function App() {
       <ProjectList
         projects={projects}
         loading={loadingList}
+        currentUserId={user.id}
         onSelect={setSelectedId}
         onCreated={(p) => {
           void refresh()

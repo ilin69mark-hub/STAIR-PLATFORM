@@ -24,7 +24,8 @@ export interface ProjectMember {
 }
 
 export interface MemberRequest {
-  user_id: string
+  user_id?: string
+  email?: string
   role: ProjectRole
 }
 

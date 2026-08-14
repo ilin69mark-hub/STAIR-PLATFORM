@@ -23,20 +23,20 @@ afterEach(() => {
 describe('ProjectList', () => {
   it('показывает пустое состояние', () => {
     render(
-      <ProjectList projects={[]} loading={false} onSelect={vi.fn()} onCreated={vi.fn()} />,
+      <ProjectList projects={[]} loading={false} currentUserId="u-owner" onSelect={vi.fn()} onCreated={vi.fn()} />,
     )
     expect(screen.getByText('Проектов пока нет. Создайте первый.')).toBeInTheDocument()
   })
 
   it('показывает загрузку', () => {
-    render(<ProjectList projects={[]} loading onSelect={vi.fn()} onCreated={vi.fn()} />)
+    render(<ProjectList projects={[]} loading currentUserId="u-owner" onSelect={vi.fn()} onCreated={vi.fn()} />)
     expect(screen.getByText('Загрузка…')).toBeInTheDocument()
   })
 
   it('рендерит проекты и вызывает onSelect', () => {
     const onSelect = vi.fn()
     render(
-      <ProjectList projects={projects} loading={false} onSelect={onSelect} onCreated={vi.fn()} />,
+      <ProjectList projects={projects} loading={false} currentUserId="u-owner" onSelect={onSelect} onCreated={vi.fn()} />,
     )
     fireEvent.click(screen.getByText('Лестница 1'))
     expect(onSelect).toHaveBeenCalledWith('p1')
@@ -47,7 +47,7 @@ describe('ProjectList', () => {
     const create = vi.spyOn(projectsApi, 'create').mockResolvedValue(created)
     const onCreated = vi.fn()
     render(
-      <ProjectList projects={projects} loading={false} onSelect={vi.fn()} onCreated={onCreated} />,
+      <ProjectList projects={projects} loading={false} currentUserId="u-owner" onSelect={vi.fn()} onCreated={onCreated} />,
     )
 
     fireEvent.change(screen.getByLabelText(/Название/), { target: { value: '  Новый  ' } })
@@ -62,7 +62,7 @@ describe('ProjectList', () => {
 
   it('кнопка создания заблокирована без названия', () => {
     render(
-      <ProjectList projects={projects} loading={false} onSelect={vi.fn()} onCreated={vi.fn()} />,
+      <ProjectList projects={projects} loading={false} currentUserId="u-owner" onSelect={vi.fn()} onCreated={vi.fn()} />,
     )
     expect(screen.getByRole('button', { name: 'Создать' })).toBeDisabled()
   })
@@ -71,7 +71,7 @@ describe('ProjectList', () => {
     vi.spyOn(projectsApi, 'create').mockRejectedValue(
       new ApiError(500, 'db', 'База недоступна'),
     )
-    render(<ProjectList projects={[]} loading={false} onSelect={vi.fn()} onCreated={vi.fn()} />)
+    render(<ProjectList projects={[]} loading={false} currentUserId="u-owner" onSelect={vi.fn()} onCreated={vi.fn()} />)
     fireEvent.change(screen.getByLabelText(/Название/), { target: { value: 'X' } })
     fireEvent.click(screen.getByRole('button', { name: 'Создать' }))
     expect(await screen.findByText('База недоступна')).toBeInTheDocument()
@@ -79,9 +79,31 @@ describe('ProjectList', () => {
 
   it('показывает общее сообщение при неизвестной ошибке', async () => {
     vi.spyOn(projectsApi, 'create').mockRejectedValue(new Error('boom'))
-    render(<ProjectList projects={[]} loading={false} onSelect={vi.fn()} onCreated={vi.fn()} />)
+    render(<ProjectList projects={[]} loading={false} currentUserId="u-owner" onSelect={vi.fn()} onCreated={vi.fn()} />)
     fireEvent.change(screen.getByLabelText(/Название/), { target: { value: 'X' } })
     fireEvent.click(screen.getByRole('button', { name: 'Создать' }))
     expect(await screen.findByText('Не удалось создать проект')).toBeInTheDocument()
+  })
+
+  it('разделяет мои и предоставленные проекты (C2)', () => {
+    const mixed = [
+      { ...projects[0], id: 'mine', name: 'Мой проект', owner_id: 'u-me' },
+      { ...projects[0], id: 'shared', name: 'Общий проект', owner_id: 'u-other' },
+    ]
+    render(
+      <ProjectList
+        projects={mixed}
+        loading={false}
+        currentUserId="u-me"
+        onSelect={vi.fn()}
+        onCreated={vi.fn()}
+      />,
+    )
+    const ownedPanel = screen.getByText('Мои проекты').closest('section')!
+    const sharedPanel = screen.getByText('Доступные мне').closest('section')!
+    expect(ownedPanel.textContent).toContain('Мой проект')
+    expect(ownedPanel.textContent).not.toContain('Общий проект')
+    expect(sharedPanel.textContent).toContain('Общий проект')
+    expect(sharedPanel.textContent).not.toContain('Мой проект')
   })
 })

@@ -276,6 +276,44 @@ func TestProjectRepositoryCannotTouchOwner(t *testing.T) {
 	}
 }
 
+// TestProjectRepositoryAddMemberByEmail — приглашение по email (C2):
+// резолв в пользователя того же tenant; неизвестный email → ErrNotFound.
+func TestProjectRepositoryAddMemberByEmail(t *testing.T) {
+	if os.Getenv("STAIR_TEST_DATABASE_URL") == "" {
+		t.Skip("STAIR_TEST_DATABASE_URL not set; skipping database integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	repo := integrationRepo(t)
+	ar := NewAuthRepository(repo.pool)
+	tenant := testTenantID(t, repo)
+	owner := testOwnerID(t, repo, tenant)
+
+	email := fmt.Sprintf("invitee-%d@test.dev", time.Now().UnixNano()%100000)
+	u2 := &auth.User{Name: "Invitee", Email: email, TenantID: tenant, Role: auth.RoleUser, Status: auth.StatusActive}
+	if err := ar.CreateUser(ctx, u2); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	p := &project.Project{Name: "Приглашение по email"}
+	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if err := repo.AddMemberByEmail(ctx, tenant, p.ID, email, project.RoleEditor); err != nil {
+		t.Fatalf("AddMemberByEmail: %v", err)
+	}
+	m, err := repo.GetMember(ctx, tenant, p.ID, u2.ID)
+	if err != nil {
+		t.Fatalf("GetMember: %v", err)
+	}
+	if m.Role != project.RoleEditor {
+		t.Fatalf("role = %q", m.Role)
+	}
+	if err := repo.AddMemberByEmail(ctx, tenant, p.ID, "nobody@nowhere.test", project.RoleViewer); !errors.Is(err, project.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for unknown email, got %v", err)
+	}
+}
+
 func TestProjectRepositoryStandaloneConfigAndCalculation(t *testing.T) {
 	if os.Getenv("STAIR_TEST_DATABASE_URL") == "" {
 		t.Skip("STAIR_TEST_DATABASE_URL not set; skipping database integration test")

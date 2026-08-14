@@ -4,7 +4,7 @@
 
 **ID:** EDR-0008
 
-**Status:** DRAFT
+**Status:** APPROVED
 
 **Author:** Project Team
 
@@ -24,6 +24,10 @@ Multi-user Projects): владение проектом и соучастник�
 Совместная работа внутри одного tenant (ECR): проект принадлежит
 пользователю (owner), другие пользователи того же tenant добавляются
 как участники с ролью editor или viewer.
+
+Подсистема совместного доступа (Phase C, Project Sharing) использует ту же
+модель: приглашение участника по email (C2), список «доступные мне»
+(проекты, где вызывающий — не владелец).
 
 ---
 
@@ -136,9 +140,18 @@ CREATE INDEX projects_owner_idx ON projects (owner_id);
 | Method | Path | Body | Result |
 |--------|------|------|--------|
 | GET | `/api/v1/projects/{id}/members` | - | 200 list, 404 нет проекта |
-| POST | `/api/v1/projects/{id}/members` | `{"user_id", "role"}` | 201, 403 нет прав, 422 невалидная роль |
+| POST | `/api/v1/projects/{id}/members` | `{"email", "role"}` или `{"user_id", "role"}` | 201, 403 нет прав, 404 пользователь не найден, 422 невалидная роль |
 | PATCH | `/api/v1/projects/{id}/members/{userID}` | `{"role"}` | 200, 403, 404 |
 | DELETE | `/api/v1/projects/{id}/members/{userID}` | - | 204, 403, 404 |
+
+Добавление участника (share) принимает **email** или **user_id**:
+`email` резолвится в пользователя того же tenant (SEC-0005) —
+C2 Project Sharing. Если передан `email`, используется
+`AddMemberByEmail`; иначе — `AddMember` по `user_id`.
+
+Список проектов `GET /api/v1/projects` уже включает поле `owner_id`
+(EDR-0008); фронтенд делит его на «мои проекты» (`owner_id == текущий
+пользователь`) и «доступные мне» (`owner_id != текущий пользователь`).
 
 Ошибка авторизации — 403 (forbidden), несуществующий проект/участник —
 404 (not found).
@@ -149,13 +162,16 @@ CREATE INDEX projects_owner_idx ON projects (owner_id);
 
 - Service unit: owner добавляет/меняет/удаляет участников; editor не
   может управлять участниками; viewer не может рассчитывать; не-член
-  получает ErrNotFound; смена роли viewer→editor открывает расчёт.
+  получает ErrNotFound; смена роли viewer→editor открывает расчёт;
+  приглашение по email (C2) резолвит в пользователя tenant и запрещено
+  не-owner'у; неизвестный/пустой email → ошибка.
 - Infra repository: членство (CRUD), защита владельца
   (UpdateMemberRole/RemoveMember на owner отклоняется), автовложение
-  owner при создании.
-- Transport: DTO и коды ответов (201/204/403/404/422).
+  owner при создании; AddMemberByEmail (C2) по email с проверкой tenant.
+- Transport: DTO и коды ответов (201/204/403/404/422); приём email или
+  user_id при добавлении.
 - Security: проект tenant A не виден из tenant B; добавление
-  пользователя другого tenant отклоняется.
+  пользователя другого tenant отклоняется (не резолвится по email).
 
 ---
 
@@ -165,10 +181,13 @@ CREATE INDEX projects_owner_idx ON projects (owner_id);
   service.go), репозиторий — `internal/infrastructure/database`
   (migration 000006).
 - Права: фактически проверяются Role.CanEdit / Role.CanManage.
+- Приглашение по email (C2) работает на уровне service/repo/transport.
 - Миграция 000006 применяется на всех средах (в т.ч. тестовых).
-- Фронтенд: управление участниками на странице проекта.
+- Фронтенд: управление участниками на странице проекта; список делится
+  на «мои проекты» и «доступные мне».
 - E2E: owner создаёт проект; второй пользователь не видит проект до
-  добавления; viewer видит, но не редактирует; editor редактирует.
+  добавления (виджет по email); viewer видит, но не редактирует;
+  editor редактирует.
 
 ---
 
@@ -177,7 +196,8 @@ CREATE INDEX projects_owner_idx ON projects (owner_id);
 | Версия | Дата | Изменение |
 |--------|------|-----------|
 | 1.0.0 | 2026-08-14 | Первоначальная редакция (DRAFT) |
+| 1.1.0 | 2026-08-14 | C2 Project Sharing: приглашение участника по email (AddMemberByEmail), список «доступные мне» на фронтенде; status APPROVED |
 
 ---
 
-DRAFT
+APPROVED

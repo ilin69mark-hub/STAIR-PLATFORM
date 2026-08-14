@@ -99,6 +99,26 @@ func (s *Service) AddMember(ctx context.Context, tenantID, actorID, projectID, u
 	return s.repo.AddMember(ctx, tenantID, projectID, &ProjectMember{ProjectID: projectID, UserID: userID, Role: role})
 }
 
+// AddMemberByEmail приглашает участника по email (C2, EDR-0008).
+// Требуется роль owner. Email резолвится в пользователя того же tenant
+// в реализации Repository (SEC-0005). ErrNotFound — нет такого email.
+func (s *Service) AddMemberByEmail(ctx context.Context, tenantID, actorID, projectID, email string, role ProjectRole) error {
+	me, ok, err := s.member(ctx, tenantID, actorID, projectID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrNotFound
+	}
+	if !me.Role.CanManage() {
+		return ErrForbidden
+	}
+	if email == "" {
+		return fmt.Errorf("project: email is required")
+	}
+	return s.repo.AddMemberByEmail(ctx, tenantID, projectID, email, role)
+}
+
 // UpdateMemberRole изменяет роль участника проекта (EDR-0008).
 // Требуется роль owner.
 func (s *Service) UpdateMemberRole(ctx context.Context, tenantID, actorID, projectID, userID string, role ProjectRole) error {

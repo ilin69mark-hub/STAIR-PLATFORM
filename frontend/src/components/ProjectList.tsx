@@ -6,17 +6,46 @@ import { ApiError } from '../api/types'
 interface Props {
   projects: Project[]
   loading: boolean
+  currentUserId: string
   onSelect: (id: string) => void
   onCreated: (p: Project) => void
 }
 
-export function ProjectList({ projects, loading, onSelect, onCreated }: Props) {
+export function ProjectList({
+  projects,
+  loading,
+  currentUserId,
+  onSelect,
+  onCreated,
+}: Props) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const canCreate = name.trim() !== '' && !creating
+
+  const owned = projects.filter((p) => p.owner_id === currentUserId)
+  const shared = projects.filter((p) => p.owner_id !== currentUserId)
+
+  const renderProjects = (list: Project[], empty: string) => (
+    list.length === 0 ? (
+      <p className="muted">{empty}</p>
+    ) : (
+      <ul className="project-list">
+        {list.map((p) => (
+          <li key={p.id}>
+            <button className="project-card" onClick={() => onSelect(p.id)}>
+              <span className="project-card__name">{p.name}</span>
+              <span className="project-card__meta">
+                {p.status} · обновлён {new Date(p.updated_at).toLocaleString('ru-RU')}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    )
+  )
 
   const handleCreate = async () => {
     if (!canCreate) return
@@ -70,26 +99,20 @@ export function ProjectList({ projects, loading, onSelect, onCreated }: Props) {
       </section>
 
       <section className="panel">
-        <h2 className="panel__title">Проекты</h2>
+        <h2 className="panel__title">Мои проекты</h2>
         {loading ? (
           <p className="muted">Загрузка…</p>
-        ) : projects.length === 0 ? (
-          <p className="muted">Проектов пока нет. Создайте первый.</p>
         ) : (
-          <ul className="project-list">
-            {projects.map((p) => (
-              <li key={p.id}>
-                <button className="project-card" onClick={() => onSelect(p.id)}>
-                  <span className="project-card__name">{p.name}</span>
-                  <span className="project-card__meta">
-                    {p.status} · обновлён {new Date(p.updated_at).toLocaleString('ru-RU')}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          renderProjects(owned, 'Проектов пока нет. Создайте первый.')
         )}
       </section>
+
+      {!loading && shared.length > 0 && (
+        <section className="panel">
+          <h2 className="panel__title">Доступные мне</h2>
+          {renderProjects(shared, '')}
+        </section>
+      )}
     </div>
   )
 }

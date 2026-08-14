@@ -42,11 +42,11 @@ export function MembersPanel({ projectId }: Props) {
     e.preventDefault()
     setError(null)
     try {
-      await projectsApi.addMember(projectId, { user_id: addEmail.trim(), role: addRole })
+      await projectsApi.addMember(projectId, { email: addEmail.trim(), role: addRole })
       setAddEmail('')
       load()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Не удалось добавить участника')
+      setError(err instanceof ApiError ? err.message : 'Не удалось пригласить участника')
     }
   }
 

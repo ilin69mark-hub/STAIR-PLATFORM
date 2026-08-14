@@ -22,6 +22,7 @@ type ProjectService interface {
 	ListProjects(ctx context.Context, tenantID, userID string) ([]*project.Project, error)
 	ListMembers(ctx context.Context, tenantID, userID, projectID string) ([]*project.ProjectMember, error)
 	AddMember(ctx context.Context, tenantID, actorID, projectID, userID string, role project.ProjectRole) error
+	AddMemberByEmail(ctx context.Context, tenantID, actorID, projectID, email string, role project.ProjectRole) error
 	UpdateMemberRole(ctx context.Context, tenantID, actorID, projectID, userID string, role project.ProjectRole) error
 	RemoveMember(ctx context.Context, tenantID, actorID, projectID, userID string) error
 	Calculate(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options) (*project.Calculation, error)
@@ -58,6 +59,7 @@ type memberDTO struct {
 // memberRequest — тело запроса управления членом (add/update role).
 type memberRequest struct {
 	UserID string `json:"user_id"`
+	Email  string `json:"email"`
 	Role   string `json:"role"`
 }
 
@@ -175,8 +177,15 @@ func handleAddMember(svc ProjectService) http.HandlerFunc {
 			writeError(w, http.StatusUnprocessableEntity, "invalid_role", err.Error())
 			return
 		}
-		err = svc.AddMember(r.Context(), tenantID(r.Context()), userID(r.Context()),
-			r.PathValue("id"), req.UserID, role)
+		var merr error
+		if req.Email != "" {
+			merr = svc.AddMemberByEmail(r.Context(), tenantID(r.Context()), userID(r.Context()),
+				r.PathValue("id"), req.Email, role)
+		} else {
+			merr = svc.AddMember(r.Context(), tenantID(r.Context()), userID(r.Context()),
+				r.PathValue("id"), req.UserID, role)
+		}
+		err = merr
 		switch {
 		case errors.Is(err, project.ErrNotFound):
 			writeError(w, http.StatusNotFound, "not_found", "project not found")

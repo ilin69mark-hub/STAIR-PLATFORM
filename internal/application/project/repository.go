@@ -30,6 +30,10 @@ type Repository interface {
 	// AddMember добавляет члена с ролью (не владелец — владелец уже
 	// существует). Ошибка — дубликат или роль owner.
 	AddMember(ctx context.Context, tenantID, projectID string, m *ProjectMember) error
+	// AddMemberByEmail добавляет члена по email (C2, EDR-0008): адрес
+	// резолвится в пользователя того же tenant (SEC-0005). ErrNotFound —
+	// пользователь с таким email не найден или вне tenant.
+	AddMemberByEmail(ctx context.Context, tenantID, projectID, email string, role ProjectRole) error
 	// UpdateMemberRole изменяет роль члена (owner не понижается в role и
 	// не может быть назначен повторно).
 	UpdateMemberRole(ctx context.Context, tenantID, projectID, userID string, role ProjectRole) error

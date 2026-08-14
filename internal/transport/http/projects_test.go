@@ -66,6 +66,10 @@ func (f *fakeProjectService) AddMember(ctx context.Context, tenantID, actorID, p
 	return nil
 }
 
+func (f *fakeProjectService) AddMemberByEmail(ctx context.Context, tenantID, actorID, projectID, email string, role project.ProjectRole) error {
+	return nil
+}
+
 func (f *fakeProjectService) UpdateMemberRole(ctx context.Context, tenantID, actorID, projectID, userID string, role project.ProjectRole) error {
 	return nil
 }
@@ -334,6 +338,20 @@ func TestAddMemberValid(t *testing.T) {
 	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
 
 	body := `{"user_id": "u-2", "role": "editor"}`
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/members", body)
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestAddMemberByEmail — приглашение по email (201).
+func TestAddMemberByEmail(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+
+	body := `{"email": "editor@test.dev", "role": "editor"}`
 	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/members", body)
 	rec := httptest.NewRecorder()
 	testRouterWithProjects(svc).ServeHTTP(rec, req)

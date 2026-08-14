@@ -180,6 +180,22 @@ func (r *ProjectRepository) AddMember(ctx context.Context, tenantID, projectID s
 	return nil
 }
 
+// AddMemberByEmail добавляет члена по email (C2, EDR-0008): резолвит
+// email в пользователя того же tenant (SEC-0005).
+func (r *ProjectRepository) AddMemberByEmail(ctx context.Context, tenantID, projectID, email string, role project.ProjectRole) error {
+	var uid string
+	if err := r.pool.QueryRow(ctx,
+		`SELECT id FROM users
+		 WHERE email = $1 AND tenant_id = (SELECT tenant_id FROM projects WHERE id = $2)`,
+		email, projectID,
+	).Scan(&uid); errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("project: member by email not found: %w", project.ErrNotFound)
+	} else if err != nil {
+		return fmt.Errorf("project: member by email lookup: %w", err)
+	}
+	return r.AddMember(ctx, tenantID, projectID, &project.ProjectMember{ProjectID: projectID, UserID: uid, Role: role})
+}
+
 func (r *ProjectRepository) UpdateMemberRole(ctx context.Context, tenantID, projectID, userID string, role project.ProjectRole) error {
 	tag, err := r.pool.Exec(ctx,
 		`UPDATE project_members pm SET role = $3

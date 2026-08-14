@@ -14,6 +14,7 @@ import (
 type fakeRepo struct {
 	projects     map[string]*Project                  // ключ: tenantID + "/" + id
 	members      map[string]map[string]*ProjectMember // ключ: projectID → userID → member
+	usersByEmail map[string]string                    // email → userID (в tenant, C2)
 	configs      map[string][]*StairConfiguration
 	calculations map[string][]*Calculation
 	next         int
@@ -24,6 +25,7 @@ func newFakeRepo() *fakeRepo {
 	return &fakeRepo{
 		projects:     map[string]*Project{},
 		members:      map[string]map[string]*ProjectMember{},
+		usersByEmail: map[string]string{"editor@test.dev": "u-editor", "viewer@test.dev": "u-viewer"},
 		configs:      map[string][]*StairConfiguration{},
 		calculations: map[string][]*Calculation{},
 	}
@@ -115,6 +117,14 @@ func (f *fakeRepo) AddMember(ctx context.Context, tenantID, projectID string, m 
 	}
 	f.members[projectID][m.UserID] = m
 	return nil
+}
+
+func (f *fakeRepo) AddMemberByEmail(ctx context.Context, tenantID, projectID, email string, role ProjectRole) error {
+	uid, ok := f.usersByEmail[email]
+	if !ok {
+		return ErrNotFound
+	}
+	return f.AddMember(ctx, tenantID, projectID, &ProjectMember{ProjectID: projectID, UserID: uid, Role: role})
 }
 
 func (f *fakeRepo) UpdateMemberRole(ctx context.Context, tenantID, projectID, userID string, role ProjectRole) error {
@@ -368,6 +378,40 @@ func TestAddMemberOwnerOnly(t *testing.T) {
 }
 
 // TestAddMemberUnknownProject — добавление в несуществующий проект.
+// TestAddMemberByEmail — приглашение по email (C2): резолв в пользователя
+// tenant, только owner, неизвестный email → ErrNotFound.
+func TestAddMemberByEmail(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Тест", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	if err := svc.AddMemberByEmail(context.Background(), testTenant, testOwner, p.ID, "editor@test.dev", RoleEditor); err != nil {
+		t.Fatalf("owner invite: %v", err)
+	}
+	members, err := svc.ListMembers(context.Background(), testTenant, testOwner, p.ID)
+	if err != nil {
+		t.Fatalf("ListMembers: %v", err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("expected 2 members, got %d", len(members))
+	}
+	// редактор может редактировать (роль назначена), но not owner
+	if err := svc.AddMemberByEmail(context.Background(), testTenant, "u-editor", p.ID, "viewer@test.dev", RoleViewer); err != ErrForbidden {
+		t.Fatalf("expected ErrForbidden for editor, got %v", err)
+	}
+	// неизвестный email
+	if err := svc.AddMemberByEmail(context.Background(), testTenant, testOwner, p.ID, "nobody@test.dev", RoleViewer); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+	// пустой email
+	if err := svc.AddMemberByEmail(context.Background(), testTenant, testOwner, p.ID, "", RoleViewer); err == nil {
+		t.Fatal("expected error for empty email")
+	}
+}
+
 func TestAddMemberUnknownProject(t *testing.T) {
 	svc := NewService(newFakeRepo(), stair.NewService(), DefaultRules())
 	if err := svc.AddMember(context.Background(), testTenant, testOwner, "missing", "u-x", RoleViewer); err != ErrNotFound {
