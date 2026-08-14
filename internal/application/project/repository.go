@@ -41,6 +41,16 @@ type Repository interface {
 	// проекта остаётся за владельцем; перенос владения — вне скоупа C1).
 	RemoveMember(ctx context.Context, tenantID, projectID, userID string) error
 
+	// AddComment добавляет комментарий к проекту (EDR-0009, member authz
+	// проверяет service). Возвращает созданный комментарий с ID/CreatedAt.
+	AddComment(ctx context.Context, tenantID, projectID string, c *Comment) (*Comment, error)
+	// ListComments возвращает комментарии проекта (по возрастанию created_at).
+	ListComments(ctx context.Context, tenantID, projectID string) ([]*Comment, error)
+	// DeleteComment удаляет комментарий. actorID может удалить собственный
+	// комментарий или — если роль owner — любой. ErrNotFound — комментария
+	// нет (или вне tenant); ErrForbidden — нет прав на удаление.
+	DeleteComment(ctx context.Context, tenantID, projectID, commentID, actorID string) error
+
 	// SaveConfiguration создаёт новую ревизию конфигурации проекта.
 	SaveConfiguration(ctx context.Context, c *StairConfiguration) error
 	// GetLatestConfiguration возвращает последнюю ревизию конфигурации

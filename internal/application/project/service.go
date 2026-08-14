@@ -163,6 +163,43 @@ func (s *Service) member(ctx context.Context, tenantID, userID, projectID string
 	return nil, false, err
 }
 
+// AddComment добавляет комментарий к проекту (EDR-0009). Требуется
+// членство (owner/editor/viewer). Возвращает созданный комментарий.
+func (s *Service) AddComment(ctx context.Context, tenantID, userID, projectID, body string) (*Comment, error) {
+	if _, ok, err := s.member(ctx, tenantID, userID, projectID); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, ErrNotFound
+	}
+	if body == "" {
+		return nil, fmt.Errorf("project: comment body is required")
+	}
+	c := &Comment{ProjectID: projectID, AuthorID: userID, Body: body}
+	return s.repo.AddComment(ctx, tenantID, projectID, c)
+}
+
+// ListComments возвращает комментарии проекта (EDR-0009). Требуется членство.
+func (s *Service) ListComments(ctx context.Context, tenantID, userID, projectID string) ([]*Comment, error) {
+	if _, ok, err := s.member(ctx, tenantID, userID, projectID); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, ErrNotFound
+	}
+	return s.repo.ListComments(ctx, tenantID, projectID)
+}
+
+// DeleteComment удаляет комментарий (EDR-0009). Удалять может автор
+// комментария или владелец проекта; остальные — ErrForbidden (реализация
+// Repository проверяет обе роли). Требуется членство.
+func (s *Service) DeleteComment(ctx context.Context, tenantID, userID, projectID, commentID string) error {
+	if _, ok, err := s.member(ctx, tenantID, userID, projectID); err != nil {
+		return err
+	} else if !ok {
+		return ErrNotFound
+	}
+	return s.repo.DeleteComment(ctx, tenantID, projectID, commentID, userID)
+}
+
 // Calculate сохраняет конфигурацию и результат расчёта проекта (внутри
 // tenant). Требуется роль owner или editor (право на изменение, EDR-0008).
 func (s *Service) Calculate(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options) (*Calculation, error) {

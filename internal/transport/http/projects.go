@@ -25,6 +25,9 @@ type ProjectService interface {
 	AddMemberByEmail(ctx context.Context, tenantID, actorID, projectID, email string, role project.ProjectRole) error
 	UpdateMemberRole(ctx context.Context, tenantID, actorID, projectID, userID string, role project.ProjectRole) error
 	RemoveMember(ctx context.Context, tenantID, actorID, projectID, userID string) error
+	AddComment(ctx context.Context, tenantID, userID, projectID, body string) (*project.Comment, error)
+	ListComments(ctx context.Context, tenantID, userID, projectID string) ([]*project.Comment, error)
+	DeleteComment(ctx context.Context, tenantID, userID, projectID, commentID string) error
 	Calculate(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options) (*project.Calculation, error)
 	GetResult(ctx context.Context, tenantID, userID, projectID string) (*project.Calculation, error)
 }
@@ -61,6 +64,20 @@ type memberRequest struct {
 	UserID string `json:"user_id"`
 	Email  string `json:"email"`
 	Role   string `json:"role"`
+}
+
+// commentDTO — комментарий к проекту (EDR-0009).
+type commentDTO struct {
+	ID        string    `json:"id"`
+	ProjectID string    `json:"project_id"`
+	AuthorID  string    `json:"author_id"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// commentRequest — тело запроса добавления комментария.
+type commentRequest struct {
+	Body string `json:"body"`
 }
 
 // calculationDTO — сохранённый расчёт проекта: метаданные + снапшот.
@@ -248,6 +265,74 @@ func handleRemoveMember(svc ProjectService) http.HandlerFunc {
 	}
 }
 
+// handleAddComment — POST /api/v1/projects/{id}/comments (auth+CSRF).
+// 201 — добавлен; 400 — битый JSON; 403 — нет прав; 404 — нет проекта;
+// 422 — пустое тело.
+func handleAddComment(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req commentRequest
+		if err := decodeJSON(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			return
+		}
+		c, err := svc.AddComment(r.Context(), tenantID(r.Context()), userID(r.Context()),
+			r.PathValue("id"), req.Body)
+		switch {
+		case errors.Is(err, project.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "project not found")
+		case errors.Is(err, project.ErrForbidden):
+			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+		case errors.Is(err, project.ErrConflict):
+			writeError(w, http.StatusUnprocessableEntity, "invalid_body", err.Error())
+		case err != nil:
+			writeError(w, http.StatusConflict, "conflict", err.Error())
+		default:
+			writeJSON(w, http.StatusCreated, toCommentDTO(c))
+		}
+	}
+}
+
+// handleListComments — GET /api/v1/projects/{id}/comments (auth).
+// 200 — список; 403 — нет прав; 404 — нет проекта.
+func handleListComments(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		comments, err := svc.ListComments(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
+		switch {
+		case errors.Is(err, project.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "project not found")
+		case errors.Is(err, project.ErrForbidden):
+			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+		case err != nil:
+			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+		default:
+			out := make([]commentDTO, 0, len(comments))
+			for _, c := range comments {
+				out = append(out, toCommentDTO(c))
+			}
+			writeJSON(w, http.StatusOK, out)
+		}
+	}
+}
+
+// handleDeleteComment — DELETE /api/v1/projects/{id}/comments/{commentID}
+// (auth+CSRF). 204 — удалён; 403 — нет прав; 404 — нет комментария/проекта.
+func handleDeleteComment(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		err := svc.DeleteComment(r.Context(), tenantID(r.Context()), userID(r.Context()),
+			r.PathValue("id"), r.PathValue("commentID"))
+		switch {
+		case errors.Is(err, project.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "comment not found")
+		case errors.Is(err, project.ErrForbidden):
+			writeError(w, http.StatusForbidden, "forbidden", "no permission to delete comment")
+		case err != nil:
+			writeError(w, http.StatusConflict, "conflict", err.Error())
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}
+}
+
 // handleCalculateProject — POST /api/v1/projects/{id}/calculate (auth+CSRF).
 // 200 — расчёт сохранён (включая blocking-валидацию); 400 — битый JSON;
 // 404 — нет проекта; 422 — невалидный вход; 500 — сбой.
@@ -325,6 +410,12 @@ func toProjectDTO(p *project.Project) projectDTO {
 func toMemberDTO(m *project.ProjectMember) memberDTO {
 	return memberDTO{
 		ProjectID: m.ProjectID, UserID: m.UserID, Role: string(m.Role), CreatedAt: m.CreatedAt,
+	}
+}
+
+func toCommentDTO(c *project.Comment) commentDTO {
+	return commentDTO{
+		ID: c.ID, ProjectID: c.ProjectID, AuthorID: c.AuthorID, Body: c.Body, CreatedAt: c.CreatedAt,
 	}
 }
 

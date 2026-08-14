@@ -314,6 +314,74 @@ func TestProjectRepositoryAddMemberByEmail(t *testing.T) {
 	}
 }
 
+// TestProjectRepositoryComments — CRUD комментариев (EDR-0009):
+// добавление, список по времени, удаление автором/владельцем.
+func TestProjectRepositoryComments(t *testing.T) {
+	if os.Getenv("STAIR_TEST_DATABASE_URL") == "" {
+		t.Skip("STAIR_TEST_DATABASE_URL not set; skipping database integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	repo := integrationRepo(t)
+	ar := NewAuthRepository(repo.pool)
+	tenant := testTenantID(t, repo)
+	owner := testOwnerID(t, repo, tenant)
+
+	// Второй пользователь для комментария.
+	u2 := &auth.User{Name: "Editor", Email: fmt.Sprintf("cmt-%d@test.dev", time.Now().UnixNano()%100000),
+		TenantID: tenant, Role: auth.RoleUser, Status: auth.StatusActive}
+	if err := ar.CreateUser(ctx, u2); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	p := &project.Project{Name: "С комментариями"}
+	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	// Член для возможности удаления «чужим».
+	if err := repo.AddMember(ctx, tenant, p.ID, &project.ProjectMember{ProjectID: p.ID, UserID: u2.ID, Role: project.RoleEditor}); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+
+	c1, err := repo.AddComment(ctx, tenant, p.ID, &project.Comment{ProjectID: p.ID, AuthorID: owner, Body: "первый"})
+	if err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
+	c2, err := repo.AddComment(ctx, tenant, p.ID, &project.Comment{ProjectID: p.ID, AuthorID: u2.ID, Body: "второй"})
+	if err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
+	if c1.ID == "" || c2.ID == "" {
+		t.Fatal("expected assigned comment IDs")
+	}
+
+	list, err := repo.ListComments(ctx, tenant, p.ID)
+	if err != nil {
+		t.Fatalf("ListComments: %v", err)
+	}
+	if len(list) != 2 || list[0].Body != "первый" || list[1].Body != "второй" {
+		t.Fatalf("list = %+v", list)
+	}
+
+	// Чужой (не автор, не владелец) удалить не может → ErrNotFound.
+	if err := repo.DeleteComment(ctx, tenant, p.ID, c1.ID, u2.ID); !errors.Is(err, project.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for non-author delete, got %v", err)
+	}
+	// Автор удаляет свой.
+	if err := repo.DeleteComment(ctx, tenant, p.ID, c2.ID, u2.ID); err != nil {
+		t.Fatalf("author delete: %v", err)
+	}
+	// Владелец удаляет чужой.
+	if err := repo.DeleteComment(ctx, tenant, p.ID, c1.ID, owner); err != nil {
+		t.Fatalf("owner delete: %v", err)
+	}
+	// Повторное удаление — ErrNotFound.
+	if err := repo.DeleteComment(ctx, tenant, p.ID, c1.ID, owner); !errors.Is(err, project.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for missing comment, got %v", err)
+	}
+}
+
 func TestProjectRepositoryStandaloneConfigAndCalculation(t *testing.T) {
 	if os.Getenv("STAIR_TEST_DATABASE_URL") == "" {
 		t.Skip("STAIR_TEST_DATABASE_URL not set; skipping database integration test")

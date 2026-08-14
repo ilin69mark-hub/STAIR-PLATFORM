@@ -56,3 +56,13 @@ type Calculation struct {
 	Result          []byte // JSON: полный результат
 	CreatedAt       time.Time
 }
+
+// Comment — комментарий к проекту (EDR-0009, Phase C C3): обсуждение
+// в рамках участников. Комментарии скоупятся по tenant через проект.
+type Comment struct {
+	ID        string
+	ProjectID string
+	AuthorID  string
+	Body      string
+	CreatedAt time.Time
+}

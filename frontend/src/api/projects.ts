@@ -4,9 +4,11 @@
 import { del, get, patch, post } from './client'
 import type {
   Calculation,
+  CommentRequest,
   CreateProjectRequest,
   MemberRequest,
   Project,
+  ProjectComment,
   ProjectMember,
 } from './types'
 
@@ -33,4 +35,13 @@ export const projectsApi = {
 
   removeMember: (id: string, userID: string) =>
     del(`/api/v1/projects/${id}/members/${userID}`),
+
+  // ---- Комментарии (EDR-0009) ----
+  listComments: (id: string) => get<ProjectComment[]>(`/api/v1/projects/${id}/comments`),
+
+  addComment: (id: string, body: CommentRequest) =>
+    post<ProjectComment>(`/api/v1/projects/${id}/comments`, body),
+
+  deleteComment: (id: string, commentID: string) =>
+    del(`/api/v1/projects/${id}/comments/${commentID}`),
 }

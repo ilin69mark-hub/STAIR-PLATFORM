@@ -29,6 +29,20 @@ export interface MemberRequest {
   role: ProjectRole
 }
 
+// ---- Обсуждение (Phase C, EDR-0009): комментарии к проекту ----
+
+export interface ProjectComment {
+  id: string
+  project_id: string
+  author_id: string
+  body: string
+  created_at: string
+}
+
+export interface CommentRequest {
+  body: string
+}
+
 export interface User {
   id: string
   email: string

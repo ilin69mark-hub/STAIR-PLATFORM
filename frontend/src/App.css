@@ -576,3 +576,54 @@ body {
 .member-add__role {
   max-width: 170px;
 }
+
+/* ---- Обсуждение (EDR-0009) ---- */
+
+.comment-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.comment {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.comment__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.comment__author {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.comment__date {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.comment__body {
+  margin: 0 0 8px;
+  font-size: 14px;
+  white-space: pre-wrap;
+}
+
+.comment-add {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.comment-add .field__input {
+  width: 100%;
+}

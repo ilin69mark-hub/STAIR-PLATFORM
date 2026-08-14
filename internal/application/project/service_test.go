@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/domain/engineering"
@@ -17,6 +18,7 @@ type fakeRepo struct {
 	usersByEmail map[string]string                    // email → userID (в tenant, C2)
 	configs      map[string][]*StairConfiguration
 	calculations map[string][]*Calculation
+	comments     map[string][]*Comment // ключ: projectID → []*Comment
 	next         int
 	err          error
 }
@@ -28,6 +30,7 @@ func newFakeRepo() *fakeRepo {
 		usersByEmail: map[string]string{"editor@test.dev": "u-editor", "viewer@test.dev": "u-viewer"},
 		configs:      map[string][]*StairConfiguration{},
 		calculations: map[string][]*Calculation{},
+		comments:     map[string][]*Comment{},
 	}
 }
 
@@ -195,6 +198,45 @@ func (f *fakeRepo) GetLatestCalculation(ctx context.Context, tenantID, projectID
 		return nil, ErrNotFound
 	}
 	return cs[len(cs)-1], nil
+}
+
+func (f *fakeRepo) AddComment(ctx context.Context, tenantID, projectID string, c *Comment) (*Comment, error) {
+	if _, ok := f.projects[key(tenantID, projectID)]; !ok {
+		return nil, ErrNotFound
+	}
+	f.next++
+	c.ID = itoa(f.next)
+	c.CreatedAt = time.Now()
+	f.comments[projectID] = append(f.comments[projectID], c)
+	return c, nil
+}
+
+func (f *fakeRepo) ListComments(ctx context.Context, tenantID, projectID string) ([]*Comment, error) {
+	if _, ok := f.projects[key(tenantID, projectID)]; !ok {
+		return nil, ErrNotFound
+	}
+	return f.comments[projectID], nil
+}
+
+func (f *fakeRepo) DeleteComment(ctx context.Context, tenantID, projectID, commentID, actorID string) error {
+	if _, ok := f.projects[key(tenantID, projectID)]; !ok {
+		return ErrNotFound
+	}
+	for i, c := range f.comments[projectID] {
+		if c.ID != commentID {
+			continue
+		}
+		owner := false
+		if m, ok := f.memberLookup(tenantID, projectID, actorID); ok {
+			owner = m.Role == RoleOwner
+		}
+		if c.AuthorID != actorID && !owner {
+			return ErrForbidden
+		}
+		f.comments[projectID] = append(f.comments[projectID][:i], f.comments[projectID][i+1:]...)
+		return nil
+	}
+	return ErrNotFound
 }
 
 func itoa(n int) string {
@@ -509,5 +551,92 @@ func TestParseProjectRole(t *testing.T) {
 	}
 	if RoleEditor.CanManage() || RoleViewer.CanManage() {
 		t.Fatal("only owner CanManage")
+	}
+}
+
+// TestCommentThread — комментарии (EDR-0009): член добавляет, список
+// сортирован по времени, пустое тело отклоняется.
+func TestCommentThread(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Обсуждение", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	c, err := svc.AddComment(context.Background(), testTenant, testOwner, p.ID, "Сделать перила выше?")
+	if err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
+	if c.ID == "" || c.AuthorID != testOwner {
+		t.Fatalf("comment = %+v", c)
+	}
+	if _, err := svc.AddComment(context.Background(), testTenant, testOwner, p.ID, ""); err == nil {
+		t.Fatal("expected error for empty comment body")
+	}
+
+	list, err := svc.ListComments(context.Background(), testTenant, testOwner, p.ID)
+	if err != nil {
+		t.Fatalf("ListComments: %v", err)
+	}
+	if len(list) != 1 || list[0].Body != "Сделать перила выше?" {
+		t.Fatalf("list = %+v", list)
+	}
+}
+
+// TestCommentRequiresMembership — не-член не может читать/писать комментарии.
+func TestCommentRequiresMembership(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Приватный", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if _, err := svc.AddComment(context.Background(), testTenant, "u-stranger", p.ID, "хак"); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound for non-member add, got %v", err)
+	}
+	if _, err := svc.ListComments(context.Background(), testTenant, "u-stranger", p.ID); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound for non-member list, got %v", err)
+	}
+}
+
+// TestDeleteComment — автор или владелец удаляют; чужой член — ErrForbidden.
+func TestDeleteComment(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Удаление", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if err := svc.AddMemberByEmail(context.Background(), testTenant, testOwner, p.ID, "editor@test.dev", RoleEditor); err != nil {
+		t.Fatalf("AddMemberByEmail: %v", err)
+	}
+
+	// Комментарий от редактора.
+	ec, err := svc.AddComment(context.Background(), testTenant, "u-editor", p.ID, "моё замечание")
+	if err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
+	// Чужой комментарий от владельца.
+	oc, err := svc.AddComment(context.Background(), testTenant, testOwner, p.ID, "комментарий владельца")
+	if err != nil {
+		t.Fatalf("AddComment: %v", err)
+	}
+
+	// Редактор удаляет чужой (владельческий) комментарий — запрещено.
+	if err := svc.DeleteComment(context.Background(), testTenant, "u-editor", p.ID, oc.ID); err != ErrForbidden {
+		t.Fatalf("expected ErrForbidden for non-author, got %v", err)
+	}
+	// Редактор удаляет свой — ок.
+	if err := svc.DeleteComment(context.Background(), testTenant, "u-editor", p.ID, ec.ID); err != nil {
+		t.Fatalf("author delete: %v", err)
+	}
+	// Владелец удаляет чужой — ок (CanManage).
+	if err := svc.DeleteComment(context.Background(), testTenant, testOwner, p.ID, oc.ID); err != nil {
+		t.Fatalf("owner delete: %v", err)
+	}
+	// Повторное удаление — ErrNotFound.
+	if err := svc.DeleteComment(context.Background(), testTenant, testOwner, p.ID, ec.ID); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound for missing comment, got %v", err)
 	}
 }

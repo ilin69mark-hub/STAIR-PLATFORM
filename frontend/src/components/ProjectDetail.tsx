@@ -16,6 +16,7 @@ import {
 } from '../lib/config'
 import { ResultPanel } from './ResultPanel'
 import { MembersPanel } from './MembersPanel'
+import { CommentsPanel } from './CommentsPanel'
 
 interface Props {
   projectId: string
@@ -115,6 +116,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
           )}
         </section>
         <MembersPanel projectId={projectId} />
+        <CommentsPanel projectId={projectId} />
       </div>
 
       {calculation && <ResultPanel snapshot={calculation.result} />}

@@ -19,6 +19,7 @@ import (
 type fakeProjectService struct {
 	projects     map[string]*project.Project
 	members      []*project.ProjectMember
+	comments     []*project.Comment
 	calc         *project.Calculation
 	createErr    error
 	calculateErr error
@@ -75,6 +76,27 @@ func (f *fakeProjectService) UpdateMemberRole(ctx context.Context, tenantID, act
 }
 
 func (f *fakeProjectService) RemoveMember(ctx context.Context, tenantID, actorID, projectID, userID string) error {
+	return nil
+}
+
+func (f *fakeProjectService) AddComment(ctx context.Context, tenantID, userID, projectID, body string) (*project.Comment, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, project.ErrNotFound
+	}
+	return &project.Comment{ID: "c-1", ProjectID: projectID, AuthorID: userID, Body: body, CreatedAt: time.Now()}, nil
+}
+
+func (f *fakeProjectService) ListComments(ctx context.Context, tenantID, userID, projectID string) ([]*project.Comment, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, project.ErrNotFound
+	}
+	return f.comments, nil
+}
+
+func (f *fakeProjectService) DeleteComment(ctx context.Context, tenantID, userID, projectID, commentID string) error {
+	if _, ok := f.projects[projectID]; !ok {
+		return project.ErrNotFound
+	}
 	return nil
 }
 
@@ -398,5 +420,75 @@ func TestRemoveMemberNoContent(t *testing.T) {
 	testRouterWithProjects(svc).ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestAddComment — POST /comments (201) возвращает созданный комментарий.
+func TestAddComment(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/comments", `{"body": "проверка"}`)
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var c commentDTO
+	if err := json.NewDecoder(rec.Body).Decode(&c); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if c.Body != "проверка" || c.AuthorID != "u-1" {
+		t.Fatalf("unexpected comment: %+v", c)
+	}
+}
+
+// TestListComments — GET /comments возвращает список.
+func TestListComments(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+	svc.comments = []*project.Comment{
+		{ID: "c-1", ProjectID: "p-1", AuthorID: "u-1", Body: "первый", CreatedAt: time.Now()},
+		{ID: "c-2", ProjectID: "p-1", AuthorID: "u-2", Body: "второй", CreatedAt: time.Now()},
+	}
+
+	req := authedRequest(http.MethodGet, "/api/v1/projects/p-1/comments", "")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var list []commentDTO
+	if err := json.NewDecoder(rec.Body).Decode(&list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(list) != 2 || list[0].Body != "первый" || list[1].Body != "второй" {
+		t.Fatalf("unexpected list: %+v", list)
+	}
+}
+
+// TestDeleteCommentNoContent — DELETE /comments/{id} (204).
+func TestDeleteCommentNoContent(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+
+	req := authedRequest(http.MethodDelete, "/api/v1/projects/p-1/comments/c-1", "")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestListCommentsNotFound — 404 для несуществующего проекта.
+func TestListCommentsNotFound(t *testing.T) {
+	svc := newFakeProjectService()
+	req := authedRequest(http.MethodGet, "/api/v1/projects/p-404/comments", "")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
 	}
 }

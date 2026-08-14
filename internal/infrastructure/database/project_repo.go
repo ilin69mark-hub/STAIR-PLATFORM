@@ -362,3 +362,59 @@ func (r *ProjectRepository) GetLatestCalculation(ctx context.Context, tenantID, 
 	c.Result = raw
 	return &c, nil
 }
+
+func (r *ProjectRepository) AddComment(ctx context.Context, tenantID, projectID string, c *project.Comment) (*project.Comment, error) {
+	if err := r.pool.QueryRow(ctx,
+		`INSERT INTO project_comments (project_id, author_id, body)
+		 VALUES ($1, $2, $3)
+		 RETURNING id, created_at`, projectID, c.AuthorID, c.Body,
+	).Scan(&c.ID, &c.CreatedAt); err != nil {
+		return nil, fmt.Errorf("project: add comment: %w", err)
+	}
+	return c, nil
+}
+
+func (r *ProjectRepository) ListComments(ctx context.Context, tenantID, projectID string) ([]*project.Comment, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT pc.id, pc.project_id, pc.author_id, pc.body, pc.created_at
+		 FROM project_comments pc
+		 WHERE pc.project_id = $1
+		 ORDER BY pc.created_at`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("project: list comments: %w", err)
+	}
+	defer rows.Close()
+
+	out := []*project.Comment{}
+	for rows.Next() {
+		var c project.Comment
+		if err := rows.Scan(&c.ID, &c.ProjectID, &c.AuthorID, &c.Body, &c.CreatedAt); err != nil {
+			return nil, fmt.Errorf("project: scan comment: %w", err)
+		}
+		out = append(out, &c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("project: list comments: %w", err)
+	}
+	return out, nil
+}
+
+func (r *ProjectRepository) DeleteComment(ctx context.Context, tenantID, projectID, commentID, actorID string) error {
+	tag, err := r.pool.Exec(ctx,
+		`DELETE FROM project_comments pc
+		 WHERE pc.id = $1 AND pc.project_id = $2
+		   AND pc.project_id IN (SELECT id FROM projects WHERE tenant_id = $3)
+		   AND (pc.author_id = $4
+		        OR EXISTS (SELECT 1 FROM project_members pm
+		                   WHERE pm.project_id = $2 AND pm.user_id = $4 AND pm.role = 'owner'))`,
+		commentID, projectID, tenantID, actorID)
+	if err != nil {
+		return fmt.Errorf("project: delete comment: %w", err)
+	}
+	switch tag.RowsAffected() {
+	case 0:
+		return fmt.Errorf("project: comment not found or not deletable: %w", project.ErrNotFound)
+	default:
+		return nil
+	}
+}
