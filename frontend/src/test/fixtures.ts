@@ -42,19 +42,21 @@ export const manufacturingFixture: Manufacturing = {
       SolidIndex: 1,
     },
   ],
-  BOM: [
-    {
-      Number: 1,
-      PartNumber: 'P1',
-      Description: 'Косоур',
-      Material: 'STEEL-S235',
-      Thickness: 50,
-      Quantity: 2,
-      Length: 4783,
-      Width: 300,
-    },
-  ],
-  CutList: [],
+  BOM: {
+    Lines: [
+      {
+        Number: 1,
+        PartNumber: 'P1',
+        Description: 'Косоур',
+        Material: 'STEEL-S235',
+        Thickness: 50,
+        Quantity: 2,
+        Length: 4783,
+        Width: 300,
+      },
+    ],
+  },
+  CutList: { Items: [] },
   Nesting: {
     Sheets: [
       {

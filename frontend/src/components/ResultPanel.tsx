@@ -203,7 +203,7 @@ function ManufacturingPanel({ snapshot }: { snapshot: Snapshot }) {
           </tr>
         </thead>
         <tbody>
-          {mfg.BOM.map((l) => (
+          {mfg.BOM.Lines.map((l) => (
             <tr key={l.Number}>
               <td>{l.Number}</td>
               <td>{l.PartNumber}</td>

@@ -43,7 +43,7 @@ export const exportCsv = {
       `stair-${slug(snapshot.project_id)}-bom.csv`,
       buildCsv(
         ['№', 'Деталь', 'Описание', 'Материал', 'Толщина, мм', 'Кол-во', 'Длина, мм', 'Ширина, мм'],
-        mfg.BOM.map((l) => [
+        mfg.BOM.Lines.map((l) => [
           l.Number,
           l.PartNumber,
           l.Description,

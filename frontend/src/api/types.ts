@@ -139,10 +139,18 @@ export interface Nesting {
   Utilization: number
 }
 
+export interface BomDocument {
+  Lines: BomLine[]
+}
+
+export interface CutListDocument {
+  Items: CutItem[]
+}
+
 export interface Manufacturing {
   Parts: Part[]
-  BOM: BomLine[]
-  CutList: CutItem[]
+  BOM: BomDocument
+  CutList: CutListDocument
   Nesting: Nesting
 }
 
