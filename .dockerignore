@@ -1,0 +1,9 @@
+.git
+.github
+.opencode
+docs
+frontend
+configs
+coverage.out
+coverage.html
+*.md

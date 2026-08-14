@@ -5,19 +5,16 @@ React + Vite + TypeScript. Тонкий клиент (FE-0000): бизнес-л�
 
 ## Разработка
 
+Backend (PostgreSQL + Redis + API) поднимается в Docker, фронтенд — локально:
+
 ```bash
-npm install
-npm run dev
+make up   # старт: postgres:5432, redis:6379, api:8080 + миграции (из корня репозитория)
+make fe   # dev-сервер http://localhost:5173
+make stop # остановка Docker-стека
 ```
 
 Dev-сервер на `http://localhost:5173`, проксирует `/api` на Go-бэкенд
 (`http://localhost:8080`, переопределяется `STAIR_API_PROXY_URL`).
-Бэкенд должен быть запущен с `STAIR_DATABASE_URL`:
-
-```bash
-STAIR_DATABASE_URL="postgres://stair:stair@localhost:5433/stair_platform?sslmode=disable" \
-  STAIR_HTTP_ADDR=:8080 go run ./cmd/api
-```
 
 ## Команды
 

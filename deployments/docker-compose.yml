@@ -35,6 +35,22 @@ services:
       timeout: 3s
       retries: 10
 
+  api:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    image: stair-platform-api
+    container_name: stair-platform-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      STAIR_DATABASE_URL: "postgres://stair:stair@postgres:5432/stair_platform?sslmode=disable"
+      STAIR_HTTP_ADDR: ":8080"
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
 volumes:
   stair-postgres-data:
   stair-redis-data:
