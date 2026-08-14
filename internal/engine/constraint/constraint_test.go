@@ -123,8 +123,12 @@ func TestOverlappingRangesDetected(t *testing.T) {
 func TestNonOverlappingVersionsClean(t *testing.T) {
 	set := NewSet("cs", "test")
 	// две версии с непересекающимися диапазонами.
-	set.Add(&Constraint{Code: "X", Version: 1, Category: "g", Active: true, Range: Range{Min: 0, Max: 100, HasMin: true, HasMax: true}})
-	set.Add(&Constraint{Code: "X", Version: 2, Category: "g", Range: Range{Min: 200, Max: 300, HasMin: true, HasMax: true}})
+	if err := set.Add(&Constraint{Code: "X", Version: 1, Category: "g", Active: true, Range: Range{Min: 0, Max: 100, HasMin: true, HasMax: true}}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if err := set.Add(&Constraint{Code: "X", Version: 2, Category: "g", Range: Range{Min: 200, Max: 300, HasMin: true, HasMax: true}}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
 	if violations := ValidateIntegrity(set); len(violations) > 0 {
 		t.Fatalf("non-overlapping versions must be clean, got: %v", violations)
 	}
@@ -133,8 +137,12 @@ func TestNonOverlappingVersionsClean(t *testing.T) {
 func TestMultipleActiveVersionsDetected(t *testing.T) {
 	set := NewSet("cs", "test")
 	// две активные версии одного правила — нарушение инварианта.
-	set.Add(&Constraint{Code: "X", Version: 1, Category: "g", Active: true, Range: Range{Min: 0, Max: 100, HasMin: true, HasMax: true}})
-	set.Add(&Constraint{Code: "X", Version: 2, Category: "g", Active: true, Range: Range{Min: 200, Max: 300, HasMin: true, HasMax: true}})
+	if err := set.Add(&Constraint{Code: "X", Version: 1, Category: "g", Active: true, Range: Range{Min: 0, Max: 100, HasMin: true, HasMax: true}}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if err := set.Add(&Constraint{Code: "X", Version: 2, Category: "g", Active: true, Range: Range{Min: 200, Max: 300, HasMin: true, HasMax: true}}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
 	violations := ValidateIntegrity(set)
 	found := false
 	for _, v := range violations {

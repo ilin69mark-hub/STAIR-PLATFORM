@@ -110,8 +110,8 @@ func triangleArea(a, b, c Point3) float64 {
 // tetraVolume возвращает знаковый объём тетраэдра (0, a, b, c):
 // a·(b×c)/6. Для наружно ориентированной грани вклад положителен.
 func tetraVolume(a, b, c Point3) float64 {
-	va := Vector3{X: a.X, Y: a.Y, Z: a.Z}
-	vb := Vector3{X: b.X, Y: b.Y, Z: b.Z}
-	vc := Vector3{X: c.X, Y: c.Y, Z: c.Z}
+	va := Vector3(a)
+	vb := Vector3(b)
+	vc := Vector3(c)
 	return va.Dot(vb.Cross(vc)) / 6
 }

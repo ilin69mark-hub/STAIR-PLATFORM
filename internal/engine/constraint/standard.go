@@ -17,7 +17,7 @@ const (
 func StandardProfile(name string) *ConstraintSet {
 	set := NewSet("cs-standard", name)
 
-	set.Add(&Constraint{
+	mustAdd(set, &Constraint{
 		Code:     GEO_STEP_HEIGHT,
 		Category: "geometry",
 		Severity: SeverityError,
@@ -27,7 +27,7 @@ func StandardProfile(name string) *ConstraintSet {
 		Message:  "высота ступени должна быть в диапазоне 150-200 мм",
 		Fix:      "скорректируйте число ступеней или общую высоту подъёма",
 	})
-	set.Add(&Constraint{
+	mustAdd(set, &Constraint{
 		Code:     GEO_TREAD_DEPTH,
 		Category: "geometry",
 		Severity: SeverityError,
@@ -37,7 +37,7 @@ func StandardProfile(name string) *ConstraintSet {
 		Message:  "проступь должна быть в диапазоне 260-320 мм",
 		Fix:      "скорректируйте проступь или угол наклона марша",
 	})
-	set.Add(&Constraint{
+	mustAdd(set, &Constraint{
 		Code:     GEO_ANGLE,
 		Category: "geometry",
 		Severity: SeverityError,
@@ -47,7 +47,7 @@ func StandardProfile(name string) *ConstraintSet {
 		Message:  "угол наклона марша должен быть в диапазоне 30-45 градусов",
 		Fix:      "скорректируйте геометрию марша",
 	})
-	set.Add(&Constraint{
+	mustAdd(set, &Constraint{
 		Code:     GEO_CLEARANCE,
 		Category: "geometry",
 		Severity: SeverityWarning,
@@ -57,7 +57,7 @@ func StandardProfile(name string) *ConstraintSet {
 		Message:  "вертикальный просвет должен быть не менее 2000 мм",
 		Fix:      "увеличьте высоту помещения или измените разбивку марша",
 	})
-	set.Add(&Constraint{
+	mustAdd(set, &Constraint{
 		Code:     GEO_STRINGER_THICKNESS,
 		Category: "geometry",
 		Severity: SeverityWarning,
@@ -67,7 +67,7 @@ func StandardProfile(name string) *ConstraintSet {
 		Message:  "толщина косоура должна быть не менее 30 мм",
 		Fix:      "увеличьте толщину косоура",
 	})
-	set.Add(&Constraint{
+	mustAdd(set, &Constraint{
 		Code:     SAF_RAILING_HEIGHT,
 		Category: "safety",
 		Severity: SeverityWarning,
@@ -78,6 +78,14 @@ func StandardProfile(name string) *ConstraintSet {
 		Fix:      "увеличьте высоту ограждения",
 	})
 	return set
+}
+
+// mustAdd добавляет нормативное правило; ошибка невозможна для
+// корректных кодовых констант, поэтому паникуем при инвариантном сбое.
+func mustAdd(set *ConstraintSet, c *Constraint) {
+	if err := set.Add(c); err != nil {
+		panic(fmt.Sprintf("constraint: standard profile: %v", err))
+	}
 }
 
 // ValidateIntegrity проверяет инварианты BC-003:

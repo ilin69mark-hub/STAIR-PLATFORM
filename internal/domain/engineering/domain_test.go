@@ -185,3 +185,87 @@ func TestProjectAggregate(t *testing.T) {
 		t.Fatal("project without name must be rejected")
 	}
 }
+
+func TestNewObjectValidation(t *testing.T) {
+	if _, err := NewObject("", KindProject, "owner", "init"); err == nil {
+		t.Fatal("object without id must be rejected")
+	}
+	if _, err := NewObject("proj-1", KindProject, "", "init"); err == nil {
+		t.Fatal("object without owner must be rejected")
+	}
+	obj, err := NewObject("proj-1", KindProject, "owner", "init")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if obj.State != StateCreated || obj.Current == nil {
+		t.Fatalf("expected created state with initial revision, got %+v", obj.State)
+	}
+}
+
+func TestObjectParameterLifecycle(t *testing.T) {
+	obj, err := NewObject("proj-1", KindProject, "owner", "init")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	p := NewParameter("w", "width", "mm", 900.0, SourceUser)
+	if err := obj.AddParameter(p); err != nil {
+		t.Fatalf("add parameter error: %v", err)
+	}
+	if err := obj.AddParameter(p); err == nil {
+		t.Fatal("duplicate parameter must be rejected")
+	}
+
+	got, ok := obj.Parameter("w")
+	if !ok || got.ID != "w" {
+		t.Fatalf("parameter lookup failed: %+v, %v", got, ok)
+	}
+	if _, ok := obj.Parameter("missing"); ok {
+		t.Fatal("missing parameter must not be found")
+	}
+}
+
+func TestParameterModifyAndArchive(t *testing.T) {
+	p := NewParameter("p", "step.height", "mm", 180.0, SourceUser)
+	if err := p.Modify(200.0); err != nil {
+		t.Fatalf("modify error: %v", err)
+	}
+	if p.State != ParameterModified {
+		t.Fatalf("expected modified, got %s", p.State)
+	}
+	if err := p.Apply(); err != nil {
+		t.Fatalf("apply after modify: %v", err)
+	}
+	if p.State != ParameterApplied {
+		t.Fatalf("expected applied, got %s", p.State)
+	}
+
+	p.Archive()
+	if p.State != ParameterArchived {
+		t.Fatalf("expected archived, got %s", p.State)
+	}
+}
+
+func TestParameterRecalculate(t *testing.T) {
+	calc := NewParameter("c", "count", "int", nil, SourceFormula)
+	if err := calc.Calculate(nil); err != nil {
+		t.Fatalf("calculate error: %v", err)
+	}
+	calc.Recalculate(nil)
+	if calc.State != ParameterRecalculated {
+		t.Fatalf("expected recalculated, got %s", calc.State)
+	}
+}
+
+func TestRevisionAdvance(t *testing.T) {
+	r, err := NewRevision("author", "draft", "model")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := r.Advance(); err != nil {
+		t.Fatalf("advance error: %v", err)
+	}
+	if r.State != RevisionWorking {
+		t.Fatalf("expected working, got %s", r.State)
+	}
+}

@@ -10,15 +10,6 @@ import (
 	engprc "stairplatform/internal/engine/pricing"
 )
 
-func mustLength(t *testing.T, mm float64) engineering.Length {
-	t.Helper()
-	l, err := engineering.NewLength(mm)
-	if err != nil {
-		t.Fatalf("NewLength(%v): %v", mm, err)
-	}
-	return l
-}
-
 func mustLengthHelper(mm float64) engineering.Length {
 	l, err := engineering.NewLength(mm)
 	if err != nil {

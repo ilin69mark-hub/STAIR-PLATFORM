@@ -239,8 +239,12 @@ func TestParametricModelPartialRebuild(t *testing.T) {
 
 func TestParametricModelCycleRejected(t *testing.T) {
 	m := NewParametricModel()
-	m.Add(NewParameter("A", "owner", TypeFloat, 1.0))
-	m.Add(NewParameter("B", "owner", TypeFloat, 2.0))
+	if err := m.Add(NewParameter("A", "owner", TypeFloat, 1.0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Add(NewParameter("B", "owner", TypeFloat, 2.0)); err != nil {
+		t.Fatal(err)
+	}
 	if err := m.AddDependency("A", "B"); err != nil {
 		t.Fatal(err)
 	}
@@ -257,13 +261,17 @@ func TestParametricModelInvariants(t *testing.T) {
 	if err := m.Add(NewParameter("X", "", TypeFloat, 1.0)); err == nil {
 		t.Fatal("missing owner must be rejected")
 	}
-	m.Add(NewParameter("X", "owner", TypeFloat, 1.0))
+	if err := m.Add(NewParameter("X", "owner", TypeFloat, 1.0)); err != nil {
+		t.Fatal(err)
+	}
 	if err := m.Add(NewParameter("X", "owner", TypeFloat, 2.0)); err == nil {
 		t.Fatal("duplicate id must be rejected")
 	}
 	locked := NewParameter("L", "owner", TypeFloat, 1.0)
 	locked.State = StateLocked
-	m.Add(locked)
+	if err := m.Add(locked); err != nil {
+		t.Fatal(err)
+	}
 	if err := m.Set("L", 5.0); err == nil {
 		t.Fatal("locked parameter must not be settable")
 	}
@@ -271,10 +279,14 @@ func TestParametricModelInvariants(t *testing.T) {
 
 func TestParametricModelFormulaError(t *testing.T) {
 	m := NewParametricModel()
-	m.Add(NewParameter("A", "owner", TypeFloat, 1.0))
-	m.Add(NewDerivedParameter("B", "owner", TypeFloat, func(m *ParametricModel) (any, error) {
+	if err := m.Add(NewParameter("A", "owner", TypeFloat, 1.0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Add(NewDerivedParameter("B", "owner", TypeFloat, func(m *ParametricModel) (any, error) {
 		return nil, errBadFormula
-	}))
+	})); err != nil {
+		t.Fatal(err)
+	}
 	if err := m.AddDependency("A", "B"); err != nil {
 		t.Fatal(err)
 	}

@@ -6,20 +6,20 @@ import "fmt"
 type ParamType string
 
 const (
-	TypeInteger   ParamType = "integer"
-	TypeFloat     ParamType = "float"
-	TypeBoolean   ParamType = "boolean"
-	TypeString    ParamType = "string"
-	TypeEnum      ParamType = "enum"
-	TypeLength    ParamType = "length"
-	TypeAngle     ParamType = "angle"
-	TypeArea      ParamType = "area"
-	TypeVolume    ParamType = "volume"
-	TypeMass      ParamType = "mass"
-	TypeMaterial  ParamType = "material"
-	TypeReference ParamType = "reference"
+	TypeInteger    ParamType = "integer"
+	TypeFloat      ParamType = "float"
+	TypeBoolean    ParamType = "boolean"
+	TypeString     ParamType = "string"
+	TypeEnum       ParamType = "enum"
+	TypeLength     ParamType = "length"
+	TypeAngle      ParamType = "angle"
+	TypeArea       ParamType = "area"
+	TypeVolume     ParamType = "volume"
+	TypeMass       ParamType = "mass"
+	TypeMaterial   ParamType = "material"
+	TypeReference  ParamType = "reference"
 	TypeExpression ParamType = "expression"
-	TypeFormula   ParamType = "formula"
+	TypeFormula    ParamType = "formula"
 )
 
 // ParamState — состояние параметра (ENG-GEO-0102).

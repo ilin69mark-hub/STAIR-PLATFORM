@@ -151,3 +151,50 @@ func TestProjectRepositoryNotFound(t *testing.T) {
 		t.Fatalf("calc: expected ErrNotFound, got %v", err)
 	}
 }
+
+func TestProjectRepositoryStandaloneConfigAndCalculation(t *testing.T) {
+	if os.Getenv("STAIR_TEST_DATABASE_URL") == "" {
+		t.Skip("STAIR_TEST_DATABASE_URL not set; skipping database integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	repo := integrationRepo(t)
+
+	p := &project.Project{Name: "Самостоятельные сохранения"}
+	if err := repo.CreateProject(ctx, p); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	// Отдельное сохранение конфигурации (без расчёта).
+	cfg := &project.StairConfiguration{
+		ProjectID: p.ID, WidthMM: 1000, HeightMM: 2800, Flight: "straight",
+		StepHeightMM: 175, StringerThicknessMM: 60, StepThicknessMM: 40,
+		ClearanceMM: 90, RailingHeightMM: 950, ComfortStepMM: 0,
+	}
+	if err := repo.SaveConfiguration(ctx, cfg); err != nil {
+		t.Fatalf("SaveConfiguration: %v", err)
+	}
+	if cfg.ID == "" {
+		t.Fatal("expected assigned config ID")
+	}
+
+	// Отдельное сохранение расчёта (связан с конфигурацией).
+	calc := &project.Calculation{
+		ProjectID: p.ID, ConfigurationID: cfg.ID,
+		Valid: true, Blocking: false, Result: []byte(`{"ok":true}`),
+	}
+	if err := repo.SaveCalculation(ctx, calc); err != nil {
+		t.Fatalf("SaveCalculation: %v", err)
+	}
+	if calc.ID == "" {
+		t.Fatal("expected assigned calculation ID")
+	}
+
+	got, err := repo.GetLatestCalculation(ctx, p.ID)
+	if err != nil {
+		t.Fatalf("GetLatestCalculation: %v", err)
+	}
+	if got.ConfigurationID != cfg.ID || !got.Valid {
+		t.Fatalf("unexpected calculation: %+v", got)
+	}
+}

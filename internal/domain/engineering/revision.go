@@ -102,7 +102,7 @@ var revisionCounter uint64
 func newRevisionID() string {
 	revisionCounter++
 	h := sha256.New()
-	fmt.Fprintf(h, "rev-%d-%d", time.Now().UnixNano(), revisionCounter)
+	_, _ = fmt.Fprintf(h, "rev-%d-%d", time.Now().UnixNano(), revisionCounter)
 	return "REV-" + hex.EncodeToString(h.Sum(nil)[:6])[:6]
 }
 

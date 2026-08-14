@@ -58,7 +58,7 @@ func TestGenerateMeasurement(t *testing.T) {
 	// + 15 проступей + 15 подступенков.
 	d := math.Sqrt(270*270 + 180*180)
 	perimeter := 15.0*(270+180+d) + 100
-	stringerArea := 2*(2*567000+50*perimeter)
+	stringerArea := 2 * (2*567000 + 50*perimeter)
 	treadArea := 15.0 * (2*270*800 + 2*270*40 + 2*800*40)
 	riserArea := 15.0 * (2*40*800 + 2*40*180 + 2*800*180)
 	if !nearlyEq(res.Measurement.SurfaceArea, stringerArea+treadArea+riserArea) {
