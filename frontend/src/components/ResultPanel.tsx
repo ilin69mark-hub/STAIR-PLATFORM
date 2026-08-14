@@ -38,6 +38,8 @@ export function ResultPanel({ snapshot }: Props) {
             <LShapePanel snapshot={s} />
           ) : s.ushape ? (
             <UShapePanel snapshot={s} />
+          ) : s.spiral ? (
+            <SpiralPanel snapshot={s} />
           ) : (
             <FlightPanel snapshot={s} />
           )}
@@ -236,6 +238,63 @@ function UShapePanel({ snapshot }: { snapshot: Snapshot }) {
         <div>
           <dt>Общая высота H</dt>
           <dd>{fmt.mm(u.UpperHeight)}</dd>
+        </div>
+      </dl>
+    </section>
+  )
+}
+
+// SpiralPanel — результат Solver спиральной лестницы с центральной колонной
+// (EDR-0007): веерные проступи вокруг оси Z, полный поворот 360°.
+function SpiralPanel({ snapshot }: { snapshot: Snapshot }) {
+  const sp = snapshot.spiral!
+  return (
+    <section className="panel">
+      <h2 className="panel__title">Спиральный марш (Solver)</h2>
+      <dl className="kv">
+        <div>
+          <dt>Ступеней (полный поворот 360°)</dt>
+          <dd>{sp.StepCount}</dd>
+        </div>
+        <div>
+          <dt>Высота ступени</dt>
+          <dd>{fmt.mm(sp.StepHeight)}</dd>
+        </div>
+        <div>
+          <dt>Наружный радиус R</dt>
+          <dd>{fmt.mm(sp.OuterRadius)}</dd>
+        </div>
+        <div>
+          <dt>Радиус колонны r</dt>
+          <dd>{fmt.mm(sp.ColumnRadius)}</dd>
+        </div>
+        <div>
+          <dt>Радиус линии хода r_ход</dt>
+          <dd>{fmt.mm(sp.WalkRadius)}</dd>
+        </div>
+        <div>
+          <dt>Проступь у колонны / по линии хода / у кромки</dt>
+          <dd>
+            {fmt.mm(sp.InnerTread)} / {fmt.mm(sp.WalkTread)} / {fmt.mm(sp.OuterTread)}
+          </dd>
+        </div>
+        <div>
+          <dt>Угол подъёма</dt>
+          <dd>{fmt.deg(sp.Angle)}</dd>
+        </div>
+        <div>
+          <dt>Угловой шаг / полный угол</dt>
+          <dd>
+            {fmt.deg(sp.AngularStep)} / {fmt.deg(sp.AngularTotal)}
+          </dd>
+        </div>
+        <div>
+          <dt>Длина дуги по наружной кромке</dt>
+          <dd>{fmt.mm(sp.ArcLength)}</dd>
+        </div>
+        <div>
+          <dt>Шаг комфорта S = 2h + b_ход</dt>
+          <dd>{fmt.mm(sp.ComfortStep)}</dd>
         </div>
       </dl>
     </section>

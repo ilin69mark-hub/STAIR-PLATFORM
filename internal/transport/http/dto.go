@@ -1,6 +1,8 @@
 package http
 
 import (
+	"math"
+
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
@@ -25,6 +27,7 @@ type calculateRequest struct {
 	ComfortStepMM       float64   `json:"comfort_step_mm,omitempty"`
 	LandingWidthMM      float64   `json:"landing_width_mm,omitempty"`
 	LowerStepCount      int       `json:"lower_step_count,omitempty"`
+	OuterRadiusMM       float64   `json:"outer_radius_mm,omitempty"`
 	Rates               *ratesDTO `json:"rates,omitempty"`
 }
 
@@ -106,6 +109,23 @@ type ushapeDTO struct {
 	LowerStringerMm float64 `json:"lower_stringer_mm"`
 	UpperStringerMm float64 `json:"upper_stringer_mm"`
 	LandingWidthMm  float64 `json:"landing_width_mm"`
+}
+
+// spiralDTO — результат Solver для спиральной лестницы (EDR-0007).
+type spiralDTO struct {
+	StepCount       int     `json:"step_count"`
+	StepHeightMm    float64 `json:"step_height_mm"`
+	OuterRadiusMm   float64 `json:"outer_radius_mm"`
+	ColumnRadiusMm  float64 `json:"column_radius_mm"`
+	WalkRadiusMm    float64 `json:"walk_radius_mm"`
+	InnerTreadMm    float64 `json:"inner_tread_mm"`
+	WalkTreadMm     float64 `json:"walk_tread_mm"`
+	OuterTreadMm    float64 `json:"outer_tread_mm"`
+	AngleDeg        float64 `json:"angle_deg"`
+	AngularStepDeg  float64 `json:"angular_step_deg"`
+	ArcLengthMm     float64 `json:"arc_length_mm"`
+	ComfortStepMm   float64 `json:"comfort_step_mm"`
+	AngularTotalDeg float64 `json:"angular_total_deg"`
 }
 
 // geometryIssueDTO — запись валидации геометрии (ENG-GEO-0018).
@@ -235,6 +255,7 @@ type calculateResponse struct {
 	Flight        flightDTO        `json:"flight"`
 	LShape        *lshapeDTO       `json:"lshape,omitempty"`
 	UShape        *ushapeDTO       `json:"ushape,omitempty"`
+	Spiral        *spiralDTO       `json:"spiral,omitempty"`
 	Geometry      geometryDTO      `json:"geometry"`
 	Manufacturing manufacturingDTO `json:"manufacturing"`
 	Pricing       pricingDTO       `json:"pricing"`
@@ -287,6 +308,27 @@ func toUShape(u *solver.UShapeResult) *ushapeDTO {
 		UpperHeightMm: u.UpperHeight.Millimeters(), LowerRunMm: u.LowerRun.Millimeters(),
 		UpperRunMm: u.UpperRun.Millimeters(), LowerStringerMm: u.LowerStringer.Millimeters(),
 		UpperStringerMm: u.UpperStringer.Millimeters(), LandingWidthMm: u.LandingWidth.Millimeters(),
+	}
+}
+
+func toSpiral(s *solver.SpiralResult) *spiralDTO {
+	if s == nil {
+		return nil
+	}
+	return &spiralDTO{
+		StepCount:       s.StepCount,
+		StepHeightMm:    s.StepHeight.Millimeters(),
+		OuterRadiusMm:   s.OuterRadius.Millimeters(),
+		ColumnRadiusMm:  s.ColumnRadius.Millimeters(),
+		WalkRadiusMm:    s.WalkRadius.Millimeters(),
+		InnerTreadMm:    s.InnerTread.Millimeters(),
+		WalkTreadMm:     s.WalkTread.Millimeters(),
+		OuterTreadMm:    s.OuterTread.Millimeters(),
+		AngleDeg:        s.Angle.Degrees(),
+		AngularStepDeg:  s.AngularStep * 180 / math.Pi,
+		ArcLengthMm:     s.ArcLength.Millimeters(),
+		ComfortStepMm:   s.ComfortStep,
+		AngularTotalDeg: s.AngularTotal * 180 / math.Pi,
 	}
 }
 
@@ -389,6 +431,7 @@ func toConfig(req calculateRequest) (stair.Config, error) {
 		RailingHeight:     engineering.Length(req.RailingHeightMM),
 		LandingWidth:      engineering.Length(req.LandingWidthMM),
 		LowerStepCount:    req.LowerStepCount,
+		OuterRadius:       engineering.Length(req.OuterRadiusMM),
 	}
 	return cfg, nil
 }

@@ -25,10 +25,10 @@ type GenerationResult struct {
 	Measurement Measurement
 }
 
-// Generate строит параметрическую B-Rep модель марша (прямого или
-// L-образного согласно cfg.Flight), валидирует её (ENG-GEO-0018), измеряет
-// (ENG-GEO-0013) и строит preview mesh (ENG-GEO-0008) — фасад Geometry
-// Engine (ENG-0003). Предусловие: конфигурация с положительными решёнными
+// Generate строит параметрическую B-Rep модель марша (прямого,
+// L-образного, П-образного или спирального согласно cfg.Flight),
+// валидирует её (ENG-GEO-0018), измеряет (ENG-GEO-0013) и строит preview
+// mesh (ENG-GEO-0008) — фасад Geometry Engine (ENG-0003). Предусловие: конфигурация с положительными решёнными
 // параметрами (после Solver, ENG-0001); невыполнение возвращает ошибку.
 // Валидация не блокирует результат: отчёт issues собирается в результат
 // (валидная модель из корректных параметров не содержит ошибок уровня
@@ -44,6 +44,8 @@ func Generate(cfg *engineering.StairConfiguration) (*GenerationResult, error) {
 		model, err = BuildLShapeFlight(cfg)
 	case engineering.FlightUShape:
 		model, err = BuildUShapeFlight(cfg)
+	case engineering.FlightSpiral:
+		model, err = BuildSpiralFlight(cfg)
 	default:
 		model, err = BuildStraightFlight(cfg)
 	}

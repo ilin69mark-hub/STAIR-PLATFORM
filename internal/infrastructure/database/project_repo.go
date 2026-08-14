@@ -80,14 +80,14 @@ func (r *ProjectRepository) ListProjects(ctx context.Context, tenantID string) (
 
 const configCols = `id, project_id, width_mm, height_mm, flight, step_height_mm,
 	stringer_thickness_mm, step_thickness_mm, clearance_mm, railing_height_mm,
-	comfort_step_mm, landing_width_mm, lower_step_count, created_at, updated_at`
+	comfort_step_mm, landing_width_mm, lower_step_count, outer_radius_mm, created_at, updated_at`
 
 func scanConfig(row pgx.Row) (*project.StairConfiguration, error) {
 	var c project.StairConfiguration
 	if err := row.Scan(&c.ID, &c.ProjectID, &c.WidthMM, &c.HeightMM, &c.Flight,
 		&c.StepHeightMM, &c.StringerThicknessMM, &c.StepThicknessMM, &c.ClearanceMM,
 		&c.RailingHeightMM, &c.ComfortStepMM, &c.LandingWidthMM, &c.LowerStepCount,
-		&c.CreatedAt, &c.UpdatedAt); err != nil {
+		&c.OuterRadiusMM, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return nil, err
 	}
 	return &c, nil
@@ -97,12 +97,12 @@ func (r *ProjectRepository) SaveConfiguration(ctx context.Context, c *project.St
 	if err := r.pool.QueryRow(ctx,
 		`INSERT INTO stair_configurations (project_id, width_mm, height_mm, flight,
 			step_height_mm, stringer_thickness_mm, step_thickness_mm, clearance_mm,
-			railing_height_mm, comfort_step_mm, landing_width_mm, lower_step_count)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+			railing_height_mm, comfort_step_mm, landing_width_mm, lower_step_count, outer_radius_mm)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		 RETURNING id, created_at, updated_at`,
 		c.ProjectID, c.WidthMM, c.HeightMM, c.Flight, c.StepHeightMM,
 		c.StringerThicknessMM, c.StepThicknessMM, c.ClearanceMM, c.RailingHeightMM,
-		c.ComfortStepMM, c.LandingWidthMM, c.LowerStepCount,
+		c.ComfortStepMM, c.LandingWidthMM, c.LowerStepCount, c.OuterRadiusMM,
 	).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return fmt.Errorf("project: save config: %w", err)
 	}
@@ -164,12 +164,12 @@ func (r *ProjectRepository) SaveCalculationWithConfig(ctx context.Context, tenan
 	if err := tx.QueryRow(ctx,
 		`INSERT INTO stair_configurations (project_id, width_mm, height_mm, flight,
 			step_height_mm, stringer_thickness_mm, step_thickness_mm, clearance_mm,
-			railing_height_mm, comfort_step_mm, landing_width_mm, lower_step_count)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+			railing_height_mm, comfort_step_mm, landing_width_mm, lower_step_count, outer_radius_mm)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		 RETURNING id, created_at, updated_at`,
 		cfg.ProjectID, cfg.WidthMM, cfg.HeightMM, cfg.Flight, cfg.StepHeightMM,
 		cfg.StringerThicknessMM, cfg.StepThicknessMM, cfg.ClearanceMM, cfg.RailingHeightMM,
-		cfg.ComfortStepMM, cfg.LandingWidthMM, cfg.LowerStepCount,
+		cfg.ComfortStepMM, cfg.LandingWidthMM, cfg.LowerStepCount, cfg.OuterRadiusMM,
 	).Scan(&cfg.ID, &cfg.CreatedAt, &cfg.UpdatedAt); err != nil {
 		return nil, fmt.Errorf("project: save config: %w", err)
 	}

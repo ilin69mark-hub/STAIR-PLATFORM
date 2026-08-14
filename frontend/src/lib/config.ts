@@ -7,6 +7,7 @@ export const flightOptions = [
   { value: 'straight', label: 'Прямой марш' },
   { value: 'l_shape', label: 'L-образная (с площадкой)' },
   { value: 'u_shape', label: 'П-образная (с площадкой)' },
+  { value: 'spiral', label: 'Спиральная (винтовая)' },
 ] as const
 
 export type Flight = (typeof flightOptions)[number]['value']
@@ -23,6 +24,7 @@ export interface ConfigForm {
   comfortStepMM: string
   landingWidthMM: string
   lowerStepCountMM: string
+  outerRadiusMM: string
 }
 
 export const defaultConfig: ConfigForm = {
@@ -37,6 +39,7 @@ export const defaultConfig: ConfigForm = {
   comfortStepMM: '',
   landingWidthMM: '1000',
   lowerStepCountMM: '6',
+  outerRadiusMM: '800',
 }
 
 // ---- Ставки цены (PRC) ----
@@ -114,6 +117,7 @@ export const fieldRules: Record<keyof ConfigForm, FieldRule> = {
   comfortStepMM: { min: 600, max: 640, hint: 'шаг комфорта 600–640' },
   landingWidthMM: { min: 600, max: 3000, hint: 'Wp ≥ ширины марша' },
   lowerStepCountMM: { min: 1, max: 100 },
+  outerRadiusMM: { min: 500, max: 5000, hint: 'R > W (радиус марша)' },
 }
 
 export type FieldErrors = Partial<Record<keyof ConfigForm, string>>
@@ -128,6 +132,8 @@ export function validateForm(f: ConfigForm): FieldErrors {
     if (key === 'landingWidthMM' || key === 'lowerStepCountMM') {
       if (f.flight !== 'l_shape' && f.flight !== 'u_shape') continue
     }
+    // Наружный радиус значим только для спирали (EDR-0007).
+    if (key === 'outerRadiusMM' && f.flight !== 'spiral') continue
     const optional = key === 'comfortStepMM'
     const raw = f[key]
     if (raw.trim() === '') {
@@ -167,6 +173,10 @@ export function toRequest(f: ConfigForm): Record<string, unknown> {
   if (f.flight === 'l_shape' || f.flight === 'u_shape') {
     req.landing_width_mm = Number(f.landingWidthMM)
     req.lower_step_count = Number(f.lowerStepCountMM)
+  }
+  // Наружный радиус передаётся только для спирали (EDR-0007).
+  if (f.flight === 'spiral') {
+    req.outer_radius_mm = Number(f.outerRadiusMM)
   }
   return req
 }

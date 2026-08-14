@@ -34,6 +34,9 @@ type Config struct {
 	// (EDR-0005 L-образный, EDR-0006 П-образный).
 	LandingWidth   engineering.Length // мм — ширина площадки Wp
 	LowerStepCount int                // n1 — число ступеней нижнего марша
+	// OuterRadius — специфичен для спиральной лестницы (EDR-0007):
+	// наружный радиус марша R (радиус колонны r = R − W).
+	OuterRadius engineering.Length
 }
 
 // Options — опциональные настройки расчёта; нулевое значение даёт дефолты.
@@ -52,6 +55,7 @@ type Result struct {
 	Flight         solver.FlightResult  // прямой марш
 	LShape         *solver.LShapeResult // L-образный марш (Flight == LShape)
 	UShape         *solver.UShapeResult // П-образный марш (Flight == UShape)
+	Spiral         *solver.SpiralResult // спиральный марш (Flight == Spiral)
 	Measurement    geometry.Measurement
 	GeometryIssues []kerngeo.ValidationIssue
 	Mesh           *kerngeo.Mesh                // preview mesh для визуализации (ENG-GEO-0008)
@@ -110,6 +114,16 @@ func (s *Service) Calculate(cfg Config, opts Options) (*Result, error) {
 		}
 		res.Validation = vr
 		res.UShape = &ures
+	case engineering.FlightSpiral:
+		sres, vr, err := solver.SolveCheckedSpiral(c, s.constraints)
+		if err != nil {
+			return nil, err
+		}
+		if vr.Blocking {
+			return &Result{Validation: vr}, nil
+		}
+		res.Validation = vr
+		res.Spiral = &sres
 	default:
 		flight, vr, err := solver.SolveChecked(c, s.constraints, comfort)
 		if err != nil {
@@ -163,9 +177,12 @@ func (s *Service) Calculate(cfg Config, opts Options) (*Result, error) {
 // buildConfiguration собирает и валидирует параметрическую конфигурацию
 // из исходных параметров пользователя.
 func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
-	c, err := engineering.NewStairConfiguration(cfg.Width, cfg.Height, cfg.Flight)
-	if err != nil {
-		return nil, fmt.Errorf("stair: %w", err)
+	c := &engineering.StairConfiguration{
+		Width:      cfg.Width,
+		Height:     cfg.Height,
+		Flight:     cfg.Flight,
+		StepCount:  1,
+		StepHeight: cfg.Height,
 	}
 	c.StepHeight = cfg.StepHeight
 	c.StringerThickness = cfg.StringerThickness
@@ -174,5 +191,9 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 	c.RailingHeight = cfg.RailingHeight
 	c.LandingWidth = cfg.LandingWidth
 	c.LowerStepCount = cfg.LowerStepCount
+	c.OuterRadius = cfg.OuterRadius
+	if err := c.Validate(); err != nil {
+		return nil, fmt.Errorf("stair: %w", err)
+	}
 	return c, nil
 }

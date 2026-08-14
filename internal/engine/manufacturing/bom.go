@@ -23,6 +23,8 @@ func kindDescription(kind dommfg.PartKind) string {
 		return "Tread"
 	case dommfg.PartRiser:
 		return "Riser"
+	case dommfg.PartColumn:
+		return "Column"
 	}
 	return string(kind)
 }

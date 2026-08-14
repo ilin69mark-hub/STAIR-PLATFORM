@@ -19,13 +19,13 @@ Status: APPROVED
 
 # Phase A — Product Expansion
 
-Advanced Stair Types
+Advanced Stair Types — **CLOSED 2026-08-14**: L-образный (EDR-0005), П-образный (EDR-0006), спиральный (EDR-0007) марши реализованы end-to-end (solver → geometry → manufacturing → API → frontend → e2e).
 
-Advanced Geometry
+Advanced Geometry — **CLOSED 2026-08-14**: параметрическая генерация твёрдотельных моделей всех типов маршей, включая спираль с центральной колонной (веерные проступи, сегментация дуг).
 
-Advanced Manufacturing
+Advanced Manufacturing — **CLOSED 2026-08-14**: разложение на детали (косоуры, ступени, подступенки, площадки, колонна), BOM, раскрой и стоимостной конвейер для всех типов маршей.
 
-Advanced Pricing
+Advanced Pricing — **CLOSED 2026-08-14**: полный ценовой конвейер (материал → станок → труд → накладные → маржа → НДС) для всех типов маршей.
 
 ---
 

@@ -143,11 +143,19 @@ const landingFields: Array<{ key: keyof ConfigForm; label: string }> = [
   { key: 'lowerStepCountMM', label: 'Ступеней нижнего марша (n1)' },
 ]
 
+// Поля, специфичные для спирального марша (EDR-0007).
+const spiralFields: Array<{ key: keyof ConfigForm; label: string }> = [
+  { key: 'outerRadiusMM', label: 'Наружный радиус R, мм' },
+]
+
 function ConfigForm({ fields, errors, onChange }: ConfigFormProps) {
   const withLanding = fields.flight === 'l_shape' || fields.flight === 'u_shape'
+  const withSpiral = fields.flight === 'spiral'
   const visible = withLanding
     ? [...configFields, ...landingFields]
-    : configFields.filter((f) => !landingFields.some((lf) => lf.key === f.key))
+    : withSpiral
+      ? [...configFields, ...spiralFields]
+      : configFields.filter((f) => !landingFields.some((lf) => lf.key === f.key))
   return (
     <div className="config-grid">
       <div className="field">

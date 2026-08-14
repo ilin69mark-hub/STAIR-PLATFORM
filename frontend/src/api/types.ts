@@ -101,6 +101,22 @@ export interface UShapeResult {
   LandingWidth: number
 }
 
+export interface SpiralResult {
+  StepCount: number
+  StepHeight: number
+  OuterRadius: number
+  ColumnRadius: number
+  WalkRadius: number
+  InnerTread: number
+  WalkTread: number
+  OuterTread: number
+  Angle: number
+  AngularStep: number
+  ArcLength: number
+  ComfortStep: number
+  AngularTotal: number
+}
+
 export interface BBox {
   Min: { X: number; Y: number; Z: number }
   Max: { X: number; Y: number; Z: number }
@@ -222,6 +238,7 @@ export interface Snapshot {
   flight?: FlightResult
   lshape?: LShapeResult
   ushape?: UShapeResult
+  spiral?: SpiralResult
   measurement?: Measurement
   mesh?: Mesh
   issue_count: number

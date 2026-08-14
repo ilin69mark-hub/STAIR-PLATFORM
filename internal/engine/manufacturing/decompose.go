@@ -2,6 +2,7 @@ package manufacturing
 
 import (
 	"fmt"
+	"math"
 
 	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
@@ -16,7 +17,12 @@ import (
 // Семантическая метка обязательна для повёрнутых маршей (L-образная
 // лестница), где ориентация тел зависит от марша. SolidIndex трассирует
 // деталь к телу модели (BC-007).
-func decompose(model *kerngeo.Compound) ([]dommfg.Part, error) {
+//
+// Центральная колонна спиральной лестницы (role "column", EDR-0007)
+// обрабатывается особым образом: её диаметр превышает максимальную
+// толщину материалов каталога, поэтому деталь представляется развёрткой
+// цилиндра — толщиной косоура, длиной H и шириной 2πr (периметр).
+func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]dommfg.Part, error) {
 	if model == nil {
 		return nil, fmt.Errorf("manufacturing: model is required")
 	}
@@ -34,7 +40,16 @@ func decompose(model *kerngeo.Compound) ([]dommfg.Part, error) {
 			bb.Max.Y - bb.Min.Y,
 			bb.Max.Z - bb.Min.Z,
 		}
-		kind, thickness, length, width := classify(ext, solid.Role())
+		var (
+			kind                     dommfg.PartKind
+			thickness, length, width float64
+		)
+		if solid.Role() == "column" {
+			// EDR-0007: развёртка колонны (толщина косоура, H×2πr).
+			kind, thickness, length, width = columnPart(cfg, ext)
+		} else {
+			kind, thickness, length, width = classify(ext, solid.Role())
+		}
 		seq[kind]++
 
 		mk := func(v float64) (engineering.Length, error) {
@@ -64,6 +79,27 @@ func decompose(model *kerngeo.Compound) ([]dommfg.Part, error) {
 	return parts, nil
 }
 
+// columnPart вычисляет габариты развёртки центральной колонны спиральной
+// лестницы (EDR-0007): толщина — толщина косоура t, длина — высота подъёма
+// H (из bbox: тонкая ось колонны — диаметр, большая — высота), ширина —
+// периметр 2πr, где r — радиус колонны (R − W). Длина ≥ ширина инвариант
+// Part сохраняется: периметр развёртки не превышает высоты для разумных
+// радиусов; если это не так, длина/ширина нормализуются.
+func columnPart(cfg *engineering.StairConfiguration, ext [3]float64) (dommfg.PartKind, float64, float64, float64) {
+	t := cfg.StringerThickness.Millimeters()
+	if t <= 0 {
+		t = 30 // безопасный минимум косоура (GEO-STRINGER-THICKNESS)
+	}
+	h := ext[2] // высота колонны = H
+	r := cfg.OuterRadius.Millimeters() - cfg.Width.Millimeters()
+	circ := 2 * math.Pi * r
+	length, width := h, circ
+	if width > length {
+		length, width = width, length
+	}
+	return dommfg.PartColumn, t, length, width
+}
+
 // roleKind сопоставляет семантическую метку тела типу детали.
 // Площадка (landing) — горизонтальная плита, обрабатывается как проступь
 // (PartTread), но получает уникальный номер (TRD).
@@ -75,6 +111,8 @@ func roleKind(role string) (dommfg.PartKind, bool) {
 		return dommfg.PartTread, true
 	case "riser":
 		return dommfg.PartRiser, true
+	case "column":
+		return dommfg.PartColumn, true
 	default:
 		return "", false
 	}
@@ -123,7 +161,8 @@ func classify(dims [3]float64, role string) (dommfg.PartKind, float64, float64, 
 }
 
 // partNumber формирует детерминированный уникальный номер детали:
-// STR-nn для косоуров, TRD-nn для проступей, RSR-nn для подступенков.
+// STR-nn для косоуров, TRD-nn для проступей, RSR-nn для подступенков,
+// CLM-nn для колонны.
 func partNumber(kind dommfg.PartKind, seq int) dommfg.PartNumber {
 	prefix := "STR"
 	switch kind {
@@ -131,6 +170,8 @@ func partNumber(kind dommfg.PartKind, seq int) dommfg.PartNumber {
 		prefix = "TRD"
 	case dommfg.PartRiser:
 		prefix = "RSR"
+	case dommfg.PartColumn:
+		prefix = "CLM"
 	}
 	return dommfg.PartNumber(fmt.Sprintf("%s-%02d", prefix, seq))
 }

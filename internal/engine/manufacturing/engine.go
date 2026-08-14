@@ -37,7 +37,7 @@ func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResu
 		}
 	}
 
-	parts, err := decompose(gen.Model)
+	parts, err := decompose(cfg, gen.Model)
 	if err != nil {
 		return nil, err
 	}

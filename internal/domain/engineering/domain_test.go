@@ -166,6 +166,32 @@ func TestStairConfigurationValidation(t *testing.T) {
 	}
 }
 
+func TestSpiralStairConfigurationGuard(t *testing.T) {
+	w, _ := NewLength(1000)
+	h, _ := NewLength(2700)
+	r, _ := NewLength(1500)
+
+	// Валидная спираль: R > W.
+	cfg := &StairConfiguration{Width: w, Height: h, Flight: FlightSpiral, StepCount: 15, OuterRadius: r}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("validate error: %v", err)
+	}
+
+	// R == W — колонна нулевого радиуса (EDR-0007 §4.4).
+	bad, _ := NewLength(1000)
+	cfg.OuterRadius = bad
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("spiral with R == W must be rejected")
+	}
+
+	// R < W — отрицательный радиус колонны.
+	small, _ := NewLength(800)
+	cfg.OuterRadius = small
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("spiral with R < W must be rejected")
+	}
+}
+
 func TestProjectAggregate(t *testing.T) {
 	proj, err := NewProject("proj-1", "owner", "my staircase", "create")
 	if err != nil {

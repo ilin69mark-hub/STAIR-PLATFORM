@@ -34,6 +34,9 @@ type StairConfiguration struct {
 	// Flight == FlightLShape || Flight == FlightUShape.
 	LowerStepCount int
 	LandingWidth   Length
+	// Спиральная лестница (EDR-0007): наружный радиус марша R. Радиус
+	// колонны r = R − Width. Используется только при Flight == FlightSpiral.
+	OuterRadius Length
 }
 
 // Validate проверяет конфигурацию лестницы.
@@ -81,6 +84,12 @@ func (c *StairConfiguration) Validate() error {
 		}
 		if c.LowerStepCount < 1 || c.LowerStepCount >= c.StepCount {
 			return fmt.Errorf("stair: lower step count must be in [1, %d] for %s", c.StepCount-1, c.Flight)
+		}
+	}
+	if c.Flight == FlightSpiral {
+		// EDR-0007 §4.4: колонна имеет положительный радиус (R > W).
+		if c.OuterRadius.Millimeters() <= c.Width.Millimeters() {
+			return fmt.Errorf("stair: outer radius must exceed the stair width for %s", c.Flight)
 		}
 	}
 	return nil

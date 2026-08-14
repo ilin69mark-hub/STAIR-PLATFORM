@@ -10,6 +10,7 @@ import type {
   Pricing,
   Project,
   Snapshot,
+  SpiralResult,
   UShapeResult,
 } from '../api/types'
 
@@ -52,6 +53,22 @@ export const ushapeFixture: UShapeResult = {
   LowerStringer: 1947,
   UpperStringer: 2920,
   LandingWidth: 1000,
+}
+
+export const spiralFixture: SpiralResult = {
+  StepCount: 15,
+  StepHeight: 180,
+  OuterRadius: 800,
+  ColumnRadius: 300,
+  WalkRadius: 633.333,
+  InnerTread: 125.664,
+  WalkTread: 265.29,
+  OuterTread: 335.103,
+  Angle: (34.15 * Math.PI) / 180,
+  AngularStep: (2 * Math.PI) / 15,
+  ArcLength: 5026.548,
+  ComfortStep: 625.29,
+  AngularTotal: 2 * Math.PI,
 }
 
 export const measurementFixture: Measurement = {
@@ -143,6 +160,18 @@ export function makeUShapeSnapshot(overrides: Partial<Snapshot> = {}): Snapshot 
       flight: undefined,
       lshape: undefined,
       ushape: ushapeFixture,
+    }),
+    ...overrides,
+  }
+}
+
+export function makeSpiralSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
+  return {
+    ...makeSnapshot({
+      flight: undefined,
+      lshape: undefined,
+      ushape: undefined,
+      spiral: spiralFixture,
     }),
     ...overrides,
   }

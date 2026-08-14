@@ -290,3 +290,60 @@ func TestCalculateUShapeLandingTooNarrow(t *testing.T) {
 		t.Fatal("landing width below stair width must be rejected")
 	}
 }
+
+// referenceSpiralConfig — эталонная спиральная конфигурация (EDR-0007):
+// H=2700, h0=180, W=500, R=800 → n=15, h=180, r=300, r_walk=633.33,
+// b_walk≈265.29 (в диапазоне 260–320), S≈625.29 (600–640), α≈34.15°.
+func referenceSpiralConfig() Config {
+	cfg := referenceConfig()
+	cfg.Width = mustLengthHelper(500)
+	cfg.Flight = engineering.FlightSpiral
+	cfg.OuterRadius = mustLengthHelper(800)
+	return cfg
+}
+
+func TestCalculateSpiralPipeline(t *testing.T) {
+	s := NewService()
+	res, err := s.Calculate(referenceSpiralConfig(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Validation.Valid || res.Validation.Blocking {
+		t.Fatalf("expected valid configuration, got %+v", res.Validation)
+	}
+	if res.Spiral == nil {
+		t.Fatal("spiral flight must populate Spiral result")
+	}
+	if res.Spiral.StepCount != 15 {
+		t.Fatalf("step count = %d, want 15", res.Spiral.StepCount)
+	}
+	if res.Spiral.StepHeight.Millimeters() != 180 {
+		t.Fatalf("step height = %v, want 180", res.Spiral.StepHeight.Millimeters())
+	}
+	if res.Spiral.ColumnRadius.Millimeters() != 300 {
+		t.Fatalf("column radius = %v, want 300", res.Spiral.ColumnRadius.Millimeters())
+	}
+	if res.Spiral.OuterRadius.Millimeters() != 800 {
+		t.Fatalf("outer radius = %v, want 800", res.Spiral.OuterRadius.Millimeters())
+	}
+	// полный конвейер: 1 колонна + 15 проступей = 16 деталей.
+	if res.Package == nil || len(res.Package.Parts) != 16 {
+		t.Fatalf("parts = %d, want 16", len(res.Package.Parts))
+	}
+	if res.Mesh == nil || len(res.Mesh.Vertices) == 0 {
+		t.Fatal("spiral pipeline must produce preview mesh")
+	}
+	if res.Price == nil || res.Price.FinalPrice.Minor() <= 0 {
+		t.Fatal("spiral pipeline must produce price")
+	}
+}
+
+func TestCalculateSpiralOuterRadiusTooSmall(t *testing.T) {
+	s := NewService()
+	// R=400 ≤ W=500 → ошибка (EDR-0007 §7): радиус должен превышать ширину.
+	cfg := referenceSpiralConfig()
+	cfg.OuterRadius = mustLengthHelper(400)
+	if _, err := s.Calculate(cfg, Options{}); err == nil {
+		t.Fatal("outer radius below stair width must be rejected")
+	}
+}

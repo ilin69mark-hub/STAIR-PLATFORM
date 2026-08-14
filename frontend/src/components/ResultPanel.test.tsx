@@ -1,7 +1,12 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { ResultPanel } from './ResultPanel'
-import { lshapeFixture, makeSnapshot, ushapeFixture } from '../test/fixtures'
+import {
+  lshapeFixture,
+  makeSnapshot,
+  spiralFixture,
+  ushapeFixture,
+} from '../test/fixtures'
 
 describe('ResultPanel', () => {
   it('рендерит все панели для валидного снапшота', () => {
@@ -45,6 +50,25 @@ describe('ResultPanel', () => {
     expect(screen.getByText('П-образный марш (Solver)')).toBeInTheDocument()
     expect(screen.getByText('6 / 9')).toBeInTheDocument()
     expect(screen.getByText('1 080 мм')).toBeInTheDocument()
+    expect(screen.queryByText('Марш (Solver)')).not.toBeInTheDocument()
+  })
+
+  it('рендерит панель спирального марша, когда есть spiral', () => {
+    render(
+      <ResultPanel
+        snapshot={makeSnapshot({
+          flight: undefined,
+          lshape: undefined,
+          ushape: undefined,
+          spiral: spiralFixture,
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Спиральный марш (Solver)')).toBeInTheDocument()
+    expect(screen.getByText('800 мм')).toBeInTheDocument()
+    expect(screen.getByText('Радиус колонны r')).toBeInTheDocument()
+    expect(screen.getByText('125,664 мм / 265,29 мм / 335,103 мм')).toBeInTheDocument()
     expect(screen.queryByText('Марш (Solver)')).not.toBeInTheDocument()
   })
 

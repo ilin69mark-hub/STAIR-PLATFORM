@@ -15,12 +15,16 @@ const (
 	PartTread PartKind = "tread"
 	// PartRiser — подступенок: тело, тонкое по глубине (ось X).
 	PartRiser PartKind = "riser"
+	// PartColumn — центральная колонна спиральной лестницы (EDR-0007):
+	// вертикальный цилиндр, представляемый в раскрое как развёртка
+	// (длина = высота H, ширина = периметр 2πr, толщина = косоура t).
+	PartColumn PartKind = "column"
 )
 
 // IsValid проверяет корректность типа детали.
 func (k PartKind) IsValid() bool {
 	switch k {
-	case PartStringer, PartTread, PartRiser:
+	case PartStringer, PartTread, PartRiser, PartColumn:
 		return true
 	}
 	return false
