@@ -118,12 +118,27 @@ func RotateY(angle float64) Transform {
 }
 
 // RotateZ возвращает вращение вокруг оси Z на угол (радианы).
+// Для кардинальных углов (кратных π/2) тригонометрические значения в
+// пределах Precision прижимаются к точным {−1, 0, 1}: вращения на 90° и
+// 180° становятся безошибочными (детерминизм ENG-GEO-0101, точка в точку).
 func RotateZ(angle float64) Transform {
 	t := Identity()
 	c, s := math.Cos(angle), math.Sin(angle)
+	if nearUnit(c) {
+		c = math.Round(c)
+	}
+	if nearUnit(s) {
+		s = math.Round(s)
+	}
 	t[0][0], t[0][1] = c, -s
 	t[1][0], t[1][1] = s, c
 	return t
+}
+
+// nearUnit возвращает true, когда значение в пределах Precision от −1, 0
+// или 1 (кардинальный угол).
+func nearUnit(v float64) bool {
+	return math.Abs(v) < Precision || math.Abs(v-1) < Precision || math.Abs(v+1) < Precision
 }
 
 // Rotate возвращает вращение вокруг оси, проходящей через начало координат.

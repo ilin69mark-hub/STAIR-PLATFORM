@@ -42,6 +42,8 @@ func Generate(cfg *engineering.StairConfiguration) (*GenerationResult, error) {
 	switch cfg.Flight {
 	case engineering.FlightLShape:
 		model, err = BuildLShapeFlight(cfg)
+	case engineering.FlightUShape:
+		model, err = BuildUShapeFlight(cfg)
 	default:
 		model, err = BuildStraightFlight(cfg)
 	}

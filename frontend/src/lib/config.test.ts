@@ -44,6 +44,13 @@ describe('validateForm', () => {
     expect(validateForm({ ...cfg, lowerStepCountMM: '' }).lowerStepCountMM).toBe('Укажите значение')
   })
 
+  it('поля площадки обязательны и для u_shape', () => {
+    const cfg = { ...defaultConfig, flight: 'u_shape' as const }
+    expect(validateForm({ ...cfg, landingWidthMM: '' }).landingWidthMM).toBe('Укажите значение')
+    expect(validateForm({ ...cfg, lowerStepCountMM: '' }).lowerStepCountMM).toBe('Укажите значение')
+    expect(validateForm(cfg).landingWidthMM).toBeUndefined()
+  })
+
   it('Wp в диапазоне формы допускается, даже если меньше ширины марша', () => {
     // Проверка Wp ≥ W выполняется на сервере (EDR-0005 §7); форма лишь
     // удерживает Wp в диапазоне 600–3000.
@@ -74,6 +81,12 @@ describe('toRequest', () => {
     const sr = toRequest(defaultConfig)
     expect(sr.landing_width_mm).toBeUndefined()
     expect(sr.lower_step_count).toBeUndefined()
+  })
+
+  it('параметры площадки отправляются и для u_shape', () => {
+    const ur = toRequest({ ...defaultConfig, flight: 'u_shape' as const })
+    expect(ur.landing_width_mm).toBe(1000)
+    expect(ur.lower_step_count).toBe(6)
   })
 })
 

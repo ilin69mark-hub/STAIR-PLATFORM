@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { ResultPanel } from './ResultPanel'
-import { lshapeFixture, makeSnapshot } from '../test/fixtures'
+import { lshapeFixture, makeSnapshot, ushapeFixture } from '../test/fixtures'
 
 describe('ResultPanel', () => {
   it('рендерит все панели для валидного снапшота', () => {
@@ -28,6 +28,23 @@ describe('ResultPanel', () => {
     expect(screen.getByText('6 / 9')).toBeInTheDocument()
     expect(screen.getByText('1 080 мм')).toBeInTheDocument()
     expect(screen.getByText('1 000 мм')).toBeInTheDocument()
+    expect(screen.queryByText('Марш (Solver)')).not.toBeInTheDocument()
+  })
+
+  it('рендерит панель П-образного марша, когда есть ushape', () => {
+    render(
+      <ResultPanel
+        snapshot={makeSnapshot({
+          flight: undefined,
+          lshape: undefined,
+          ushape: ushapeFixture,
+        })}
+      />,
+    )
+
+    expect(screen.getByText('П-образный марш (Solver)')).toBeInTheDocument()
+    expect(screen.getByText('6 / 9')).toBeInTheDocument()
+    expect(screen.getByText('1 080 мм')).toBeInTheDocument()
     expect(screen.queryByText('Марш (Solver)')).not.toBeInTheDocument()
   })
 

@@ -113,23 +113,7 @@ func BuildLShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, 
 	h1 := float64(n1) * h
 
 	// нижний марш в локальных координатах (без поворота).
-	lower := &engineering.StairConfiguration{
-		Width:             cfg.Width,
-		Height:            engineering.Length(h1),
-		Length:            cfg.Length,
-		Angle:             cfg.Angle,
-		Flight:            engineering.FlightStraight,
-		StepCount:         n1,
-		StepHeight:        cfg.StepHeight,
-		StepWidth:         cfg.StepWidth,
-		TreadDepth:        cfg.TreadDepth,
-		Clearance:         cfg.Clearance,
-		RailingHeight:     cfg.RailingHeight,
-		StringerLength:    engineering.Length(float64(n1) * cfg.TreadDepth.Millimeters()),
-		StringerThickness: cfg.StringerThickness,
-		StepThickness:     cfg.StepThickness,
-	}
-	lowerModel, err := BuildStraightFlight(lower)
+	lowerModel, err := BuildStraightFlight(subFlight(cfg, h1, n1))
 	if err != nil {
 		return nil, fmt.Errorf("geometry: lower flight: %w", err)
 	}
@@ -137,23 +121,7 @@ func BuildLShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, 
 	// верхний марш: строится как прямой в локальных координатах, затем
 	// поворот на 90° вокруг Z (направление подъёма → вдоль +Y) и перенос
 	// так, чтобы марш начинался с края площадки на высоте H1.
-	upper := &engineering.StairConfiguration{
-		Width:             cfg.Width,
-		Height:            engineering.Length(float64(n2) * h),
-		Length:            cfg.Length,
-		Angle:             cfg.Angle,
-		Flight:            engineering.FlightStraight,
-		StepCount:         n2,
-		StepHeight:        cfg.StepHeight,
-		StepWidth:         cfg.StepWidth,
-		TreadDepth:        cfg.TreadDepth,
-		Clearance:         cfg.Clearance,
-		RailingHeight:     cfg.RailingHeight,
-		StringerLength:    engineering.Length(float64(n2) * cfg.TreadDepth.Millimeters()),
-		StringerThickness: cfg.StringerThickness,
-		StepThickness:     cfg.StepThickness,
-	}
-	upperModel, err := BuildStraightFlight(upper)
+	upperModel, err := BuildStraightFlight(subFlight(cfg, float64(n2)*h, n2))
 	if err != nil {
 		return nil, fmt.Errorf("geometry: upper flight: %w", err)
 	}
@@ -167,6 +135,90 @@ func BuildLShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, 
 
 	// площадка: горизонтальная плита толщиной st на высоте H1, план
 	// [L1, L1+W]×[0, Wp] (EDR-0005 §4.8), роль "landing".
+	landing, err := buildLanding(w, wp, l1, h1, st)
+	if err != nil {
+		return nil, err
+	}
+
+	solids := append([]*kerngeo.Solid{}, lowerModel.Solids()...)
+	solids = append(solids, landing)
+	for _, s := range upperModel.Solids() {
+		solids = append(solids, kerngeo.TransformSolid(s, upperTransform))
+	}
+	return kerngeo.NewCompound(solids...), nil
+}
+
+// subFlight создаёт конфигурацию прямого марша-секции (нижний/верхний
+// марш многомаршевой лестницы): высота и число ступеней переопределяются,
+// остальные параметры наследуются от родительской конфигурации.
+func subFlight(cfg *engineering.StairConfiguration, height float64, steps int) *engineering.StairConfiguration {
+	return &engineering.StairConfiguration{
+		Width:             cfg.Width,
+		Height:            engineering.Length(height),
+		Length:            cfg.Length,
+		Angle:             cfg.Angle,
+		Flight:            engineering.FlightStraight,
+		StepCount:         steps,
+		StepHeight:        cfg.StepHeight,
+		StepWidth:         cfg.StepWidth,
+		TreadDepth:        cfg.TreadDepth,
+		Clearance:         cfg.Clearance,
+		RailingHeight:     cfg.RailingHeight,
+		StringerLength:    engineering.Length(float64(steps) * cfg.TreadDepth.Millimeters()),
+		StringerThickness: cfg.StringerThickness,
+		StepThickness:     cfg.StepThickness,
+	}
+}
+
+// BuildUShapeFlight строит параметрическую B-Rep модель П-образной
+// лестницы (EDR-0006, ENG-GEO-0007): нижний прямой марш (n1 ступеней),
+// горизонтальная площадка на высоте H1 и верхний прямой марш (n2
+// ступеней), параллельный нижнему и развёрнутый на 180° по горизонтали.
+// Координаты: X — направление подъёма нижнего марша, Y — его ширина,
+// Z — высота (ADR-0008); верхний марш возвращается вдоль −X. Геометрия
+// всегда вычисляется заново из параметров (BC-002). Роли тел
+// проставляются для корректной декомпозиции.
+func BuildUShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, error) {
+	if err := validateFlight(cfg); err != nil {
+		return nil, err
+	}
+	if cfg.Flight != engineering.FlightUShape {
+		return nil, fmt.Errorf("geometry: configuration flight must be u_shape")
+	}
+	w := cfg.Width.Millimeters()
+	b := cfg.TreadDepth.Millimeters()
+	h := cfg.StepHeight.Millimeters()
+	st := cfg.StepThickness.Millimeters()
+	n1 := cfg.LowerStepCount
+	n2 := cfg.StepCount - n1
+	wp := cfg.LandingWidth.Millimeters()
+	// EDR-0006 §4.5: H1 = n1·h — уровень площадки.
+	h1 := float64(n1) * h
+
+	// нижний марш в локальных координатах (без поворота).
+	lowerModel, err := BuildStraightFlight(subFlight(cfg, h1, n1))
+	if err != nil {
+		return nil, fmt.Errorf("geometry: lower flight: %w", err)
+	}
+
+	// верхний марш: строится как прямой в локальных координатах, затем
+	// поворот на 180° вокруг Z (направление подъёма → вдоль −X) и перенос
+	// так, чтобы марш начинался с края площадки на высоте H1 и шёл вдоль
+	// площадки параллельно нижнему маршу.
+	upperModel, err := BuildStraightFlight(subFlight(cfg, float64(n2)*h, n2))
+	if err != nil {
+		return nil, fmt.Errorf("geometry: upper flight: %w", err)
+	}
+	// Площадка: план [L1, L1+W]×[0, Wp], верх на уровне H1 (EDR-0006 §4.8).
+	// Верхний марш (в локальных координатах: подъём вдоль +X, ширина вдоль
+	// +Y) поворачивается на 180° вокруг Z (RotateZ(π)): подъём → вдоль −X,
+	// ширина → вдоль −Y, затем переносится так, чтобы марш занимал
+	// [L1+W−L2, L1+W]×[Wp, Wp+W] на высоте H1 (EDR-0006 §4.8).
+	l1 := float64(n1) * b
+	upperTransform := kerngeo.Translate(l1+w, wp+w, h1).Mul(kerngeo.RotateZ(math.Pi))
+
+	// площадка: горизонтальная плита толщиной st на высоте H1, план
+	// [L1, L1+W]×[0, Wp] (EDR-0006 §4.8), роль "landing".
 	landing, err := buildLanding(w, wp, l1, h1, st)
 	if err != nil {
 		return nil, err

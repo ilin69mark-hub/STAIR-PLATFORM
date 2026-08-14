@@ -10,6 +10,7 @@ import type {
   Pricing,
   Project,
   Snapshot,
+  UShapeResult,
 } from '../api/types'
 
 export const flightFixture: FlightResult = {
@@ -22,6 +23,22 @@ export const flightFixture: FlightResult = {
 }
 
 export const lshapeFixture: LShapeResult = {
+  StepCount: 15,
+  LowerStepCount: 6,
+  UpperStepCount: 9,
+  StepHeight: 180,
+  TreadDepth: 270,
+  Angle: Math.PI / 4,
+  LowerHeight: 1080,
+  UpperHeight: 1620,
+  LowerRun: 1620,
+  UpperRun: 2430,
+  LowerStringer: 1947,
+  UpperStringer: 2920,
+  LandingWidth: 1000,
+}
+
+export const ushapeFixture: UShapeResult = {
   StepCount: 15,
   LowerStepCount: 6,
   UpperStepCount: 9,
@@ -116,6 +133,17 @@ export function makeSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
     issue_count: 0,
     manufacturing: manufacturingFixture,
     pricing: pricingFixture,
+    ...overrides,
+  }
+}
+
+export function makeUShapeSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
+  return {
+    ...makeSnapshot({
+      flight: undefined,
+      lshape: undefined,
+      ushape: ushapeFixture,
+    }),
     ...overrides,
   }
 }

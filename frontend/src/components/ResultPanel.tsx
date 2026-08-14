@@ -34,7 +34,13 @@ export function ResultPanel({ snapshot }: Props) {
 
       {!stopped && (
         <>
-          {s.lshape ? <LShapePanel snapshot={s} /> : <FlightPanel snapshot={s} />}
+          {s.lshape ? (
+            <LShapePanel snapshot={s} />
+          ) : s.ushape ? (
+            <UShapePanel snapshot={s} />
+          ) : (
+            <FlightPanel snapshot={s} />
+          )}
           <GeometryPanel snapshot={s} />
           <ManufacturingPanel snapshot={s} />
           <PricingPanel snapshot={s} pricing={s.pricing!} />
@@ -171,6 +177,65 @@ function LShapePanel({ snapshot }: { snapshot: Snapshot }) {
         <div>
           <dt>Общая высота H</dt>
           <dd>{fmt.mm(l.UpperHeight)}</dd>
+        </div>
+      </dl>
+    </section>
+  )
+}
+
+// UShapePanel — результат Solver П-образной лестницы (EDR-0006):
+// два параллельных марша, площадка между ними на высоте H1.
+function UShapePanel({ snapshot }: { snapshot: Snapshot }) {
+  const u = snapshot.ushape!
+  return (
+    <section className="panel">
+      <h2 className="panel__title">П-образный марш (Solver)</h2>
+      <dl className="kv">
+        <div>
+          <dt>Ступеней всего</dt>
+          <dd>{u.StepCount}</dd>
+        </div>
+        <div>
+          <dt>Нижний / верхний марш</dt>
+          <dd>
+            {u.LowerStepCount} / {u.UpperStepCount}
+          </dd>
+        </div>
+        <div>
+          <dt>Высота ступени</dt>
+          <dd>{fmt.mm(u.StepHeight)}</dd>
+        </div>
+        <div>
+          <dt>Глубина проступи</dt>
+          <dd>{fmt.mm(u.TreadDepth)}</dd>
+        </div>
+        <div>
+          <dt>Угол наклона</dt>
+          <dd>{fmt.deg(u.Angle)}</dd>
+        </div>
+        <div>
+          <dt>Площадка на высоте H1</dt>
+          <dd>{fmt.mm(u.LowerHeight)}</dd>
+        </div>
+        <div>
+          <dt>Ширина площадки Wp</dt>
+          <dd>{fmt.mm(u.LandingWidth)}</dd>
+        </div>
+        <div>
+          <dt>Нижний марш (L1 × R1)</dt>
+          <dd>
+            {fmt.mm(u.LowerRun)} × {fmt.mm(u.LowerStringer)}
+          </dd>
+        </div>
+        <div>
+          <dt>Верхний марш (L2 × R2)</dt>
+          <dd>
+            {fmt.mm(u.UpperRun)} × {fmt.mm(u.UpperStringer)}
+          </dd>
+        </div>
+        <div>
+          <dt>Общая высота H</dt>
+          <dd>{fmt.mm(u.UpperHeight)}</dd>
         </div>
       </dl>
     </section>

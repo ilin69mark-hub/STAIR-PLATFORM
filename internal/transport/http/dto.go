@@ -91,6 +91,23 @@ type lshapeDTO struct {
 	LandingWidthMm  float64 `json:"landing_width_mm"`
 }
 
+// ushapeDTO — результат Solver для П-образной лестницы (EDR-0006).
+type ushapeDTO struct {
+	StepCount       int     `json:"step_count"`
+	LowerStepCount  int     `json:"lower_step_count"`
+	UpperStepCount  int     `json:"upper_step_count"`
+	StepHeightMm    float64 `json:"step_height_mm"`
+	TreadDepthMm    float64 `json:"tread_depth_mm"`
+	AngleDeg        float64 `json:"angle_deg"`
+	LowerHeightMm   float64 `json:"lower_height_mm"`
+	UpperHeightMm   float64 `json:"upper_height_mm"`
+	LowerRunMm      float64 `json:"lower_run_mm"`
+	UpperRunMm      float64 `json:"upper_run_mm"`
+	LowerStringerMm float64 `json:"lower_stringer_mm"`
+	UpperStringerMm float64 `json:"upper_stringer_mm"`
+	LandingWidthMm  float64 `json:"landing_width_mm"`
+}
+
 // geometryIssueDTO — запись валидации геометрии (ENG-GEO-0018).
 type geometryIssueDTO struct {
 	Code     string `json:"code"`
@@ -217,6 +234,7 @@ type calculateResponse struct {
 	Validation    validationDTO    `json:"validation"`
 	Flight        flightDTO        `json:"flight"`
 	LShape        *lshapeDTO       `json:"lshape,omitempty"`
+	UShape        *ushapeDTO       `json:"ushape,omitempty"`
 	Geometry      geometryDTO      `json:"geometry"`
 	Manufacturing manufacturingDTO `json:"manufacturing"`
 	Pricing       pricingDTO       `json:"pricing"`
@@ -255,6 +273,20 @@ func toLShape(l *solver.LShapeResult) *lshapeDTO {
 		UpperHeightMm: l.UpperHeight.Millimeters(), LowerRunMm: l.LowerRun.Millimeters(),
 		UpperRunMm: l.UpperRun.Millimeters(), LowerStringerMm: l.LowerStringer.Millimeters(),
 		UpperStringerMm: l.UpperStringer.Millimeters(), LandingWidthMm: l.LandingWidth.Millimeters(),
+	}
+}
+
+func toUShape(u *solver.UShapeResult) *ushapeDTO {
+	if u == nil {
+		return nil
+	}
+	return &ushapeDTO{
+		StepCount: u.StepCount, LowerStepCount: u.LowerStepCount, UpperStepCount: u.UpperStepCount,
+		StepHeightMm: u.StepHeight.Millimeters(), TreadDepthMm: u.TreadDepth.Millimeters(),
+		AngleDeg: u.Angle.Degrees(), LowerHeightMm: u.LowerHeight.Millimeters(),
+		UpperHeightMm: u.UpperHeight.Millimeters(), LowerRunMm: u.LowerRun.Millimeters(),
+		UpperRunMm: u.UpperRun.Millimeters(), LowerStringerMm: u.LowerStringer.Millimeters(),
+		UpperStringerMm: u.UpperStringer.Millimeters(), LandingWidthMm: u.LandingWidth.Millimeters(),
 	}
 }
 

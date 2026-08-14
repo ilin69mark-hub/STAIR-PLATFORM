@@ -43,11 +43,22 @@ func (r LShapeResult) Apply(cfg *engineering.StairConfiguration) {
 	cfg.LowerStepCount = r.LowerStepCount
 }
 
-// SolveLShape рассчитывает L-образную лестницу по EDR-0005 §4.
-// H — общая высота подъёма, h0 — целевая высота ступени, n1 — число
-// ступеней нижнего марша, wp — ширина площадки, s — шаг комфорта
-// (по умолчанию DefaultComfortStep).
-func SolveLShape(H, h0 engineering.Length, n1 int, wp engineering.Length, s ...float64) (LShapeResult, error) {
+// twoFlightValues — результат решателя марша с площадкой (EDR-0005 §3
+// EDR-0006 §3, общие для L- и П-образного маршей).
+type twoFlightValues struct {
+	n, n1, n2   int
+	h, b, alpha float64
+	h1, h2      float64
+	l1, l2      float64
+	r1, r2      float64
+	wp          float64
+}
+
+// solveTwoFlight вычисляет общий для L- и П-образного маршей блок формул
+// (§4): n, h, b, α, разбивку n1/n2, высоты/длины секций, косоуры, Wp.
+// Валидация входов и edge cases §7 выполняются здесь; результат —
+// единый источник для SolveLShape и SolveUShape (ADR-0003).
+func solveTwoFlight(H, h0 engineering.Length, n1 int, wp engineering.Length, s ...float64) (twoFlightValues, error) {
 	var step float64
 	if len(s) > 0 {
 		step = s[0]
@@ -57,29 +68,29 @@ func SolveLShape(H, h0 engineering.Length, n1 int, wp engineering.Length, s ...f
 
 	hm := H.Millimeters()
 	if hm <= 0 {
-		return LShapeResult{}, fmt.Errorf("solver: rise height must be positive")
+		return twoFlightValues{}, fmt.Errorf("solver: rise height must be positive")
 	}
 	h0m := h0.Millimeters()
 	if h0m <= 0 {
-		return LShapeResult{}, fmt.Errorf("solver: target riser must be positive")
+		return twoFlightValues{}, fmt.Errorf("solver: target riser must be positive")
 	}
 	wpm := wp.Millimeters()
 	if wpm <= 0 {
-		return LShapeResult{}, fmt.Errorf("solver: landing width must be positive")
+		return twoFlightValues{}, fmt.Errorf("solver: landing width must be positive")
 	}
 	if step < ComfortStepMin || step > ComfortStepMax {
-		return LShapeResult{}, fmt.Errorf("solver: comfort step %v out of range %v-%v", step, ComfortStepMin, ComfortStepMax)
+		return twoFlightValues{}, fmt.Errorf("solver: comfort step %v out of range %v-%v", step, ComfortStepMin, ComfortStepMax)
 	}
 
 	// §4.1 число ступеней; §7 edge case: высота без участка.
 	n := int(math.Round(hm / h0m))
 	if n < 1 {
-		return LShapeResult{}, fmt.Errorf("solver: no flight (n < 1) for rise %v", hm)
+		return twoFlightValues{}, fmt.Errorf("solver: no flight (n < 1) for rise %v", hm)
 	}
 
 	// §4.5 разбивка по маршам: 1 ≤ n1 ≤ n−1, n2 ≥ 1.
 	if n1 < 1 || n1 > n-1 {
-		return LShapeResult{}, fmt.Errorf("solver: lower step count %d out of range [1, %d]", n1, n-1)
+		return twoFlightValues{}, fmt.Errorf("solver: lower step count %d out of range [1, %d]", n1, n-1)
 	}
 
 	// §4.2 уточнённая высота ступени (общая).
@@ -87,7 +98,7 @@ func SolveLShape(H, h0 engineering.Length, n1 int, wp engineering.Length, s ...f
 	// §4.3 проступь (общая).
 	b := step - 2*h
 	if b <= 0 {
-		return LShapeResult{}, fmt.Errorf("solver: tread depth must be positive, got %v", b)
+		return twoFlightValues{}, fmt.Errorf("solver: tread depth must be positive, got %v", b)
 	}
 	// §4.4 угол наклона (общий).
 	alpha := math.Atan(h / b)
@@ -103,20 +114,39 @@ func SolveLShape(H, h0 engineering.Length, n1 int, wp engineering.Length, s ...f
 	r1 := math.Sqrt(l1*l1 + h1*h1)
 	r2 := math.Sqrt(l2*l2 + h2*h2)
 
+	return twoFlightValues{
+		n: n, n1: n1, n2: n2,
+		h: h, b: b, alpha: alpha,
+		h1: h1, h2: h2,
+		l1: l1, l2: l2,
+		r1: r1, r2: r2,
+		wp: wpm,
+	}, nil
+}
+
+// SolveLShape рассчитывает L-образную лестницу по EDR-0005 §4.
+// H — общая высота подъёма, h0 — целевая высота ступени, n1 — число
+// ступеней нижнего марша, wp — ширина площадки, s — шаг комфорта
+// (по умолчанию DefaultComfortStep).
+func SolveLShape(H, h0 engineering.Length, n1 int, wp engineering.Length, s ...float64) (LShapeResult, error) {
+	v, err := solveTwoFlight(H, h0, n1, wp, s...)
+	if err != nil {
+		return LShapeResult{}, err
+	}
 	return LShapeResult{
-		StepCount:      n,
-		LowerStepCount: n1,
-		UpperStepCount: n2,
-		StepHeight:     engineering.Length(h),
-		TreadDepth:     engineering.Length(b),
-		Angle:          engineering.Angle(alpha),
-		LowerHeight:    engineering.Length(h1),
-		UpperHeight:    engineering.Length(h2),
-		LowerRun:       engineering.Length(l1),
-		UpperRun:       engineering.Length(l2),
-		LowerStringer:  engineering.Length(r1),
-		UpperStringer:  engineering.Length(r2),
-		LandingWidth:   engineering.Length(wpm),
+		StepCount:      v.n,
+		LowerStepCount: v.n1,
+		UpperStepCount: v.n2,
+		StepHeight:     engineering.Length(v.h),
+		TreadDepth:     engineering.Length(v.b),
+		Angle:          engineering.Angle(v.alpha),
+		LowerHeight:    engineering.Length(v.h1),
+		UpperHeight:    engineering.Length(v.h2),
+		LowerRun:       engineering.Length(v.l1),
+		UpperRun:       engineering.Length(v.l2),
+		LowerStringer:  engineering.Length(v.r1),
+		UpperStringer:  engineering.Length(v.r2),
+		LandingWidth:   engineering.Length(v.wp),
 	}, nil
 }
 

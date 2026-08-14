@@ -29,8 +29,9 @@ type StairConfiguration struct {
 	StringerLength    Length
 	StringerThickness Length
 	StepThickness     Length
-	// L-образный марш (EDR-0005): число ступеней нижнего марша и ширина
-	// площадки. Используются только при Flight == FlightLShape.
+	// Марш с площадкой (L-образный EDR-0005, П-образный EDR-0006): число
+	// ступеней нижнего марша и ширина площадки. Используются только при
+	// Flight == FlightLShape || Flight == FlightUShape.
 	LowerStepCount int
 	LandingWidth   Length
 }
@@ -74,12 +75,12 @@ func (c *StairConfiguration) Validate() error {
 	if c.LandingWidth.Millimeters() < 0 {
 		return fmt.Errorf("stair: landing width must not be negative")
 	}
-	if c.Flight == FlightLShape && c.StepCount > 1 {
+	if (c.Flight == FlightLShape || c.Flight == FlightUShape) && c.StepCount > 1 {
 		if c.LandingWidth.Millimeters() < c.Width.Millimeters() {
-			return fmt.Errorf("stair: landing width must be at least the flight width for l_shape")
+			return fmt.Errorf("stair: landing width must be at least the flight width for %s", c.Flight)
 		}
 		if c.LowerStepCount < 1 || c.LowerStepCount >= c.StepCount {
-			return fmt.Errorf("stair: lower step count must be in [1, %d] for l_shape", c.StepCount-1)
+			return fmt.Errorf("stair: lower step count must be in [1, %d] for %s", c.StepCount-1, c.Flight)
 		}
 	}
 	return nil

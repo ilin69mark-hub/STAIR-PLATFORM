@@ -66,6 +66,7 @@ func toResponse(res *stair.Result) calculateResponse {
 	}
 	resp.Flight = toFlight(*res)
 	resp.LShape = toLShape(res.LShape)
+	resp.UShape = toUShape(res.UShape)
 	resp.Geometry = toGeometry(*res)
 	resp.Manufacturing = toManufacturing(res.Package)
 	resp.Pricing = toPricing(res.Price)

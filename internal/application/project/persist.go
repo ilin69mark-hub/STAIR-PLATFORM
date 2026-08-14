@@ -20,6 +20,7 @@ type Snapshot struct {
 	Validation    validation.Result                       `json:"validation"`
 	Flight        solver.FlightResult                     `json:"flight"`
 	LShape        *solver.LShapeResult                    `json:"lshape,omitempty"`
+	UShape        *solver.UShapeResult                    `json:"ushape,omitempty"`
 	Measurement   geometry.Measurement                    `json:"measurement"`
 	Mesh          *kerngeo.Mesh                           `json:"mesh,omitempty"`
 	IssueCount    int                                     `json:"issue_count"`
@@ -35,6 +36,7 @@ func NewSnapshot(projectID string, res *stair.Result) Snapshot {
 		Validation:    res.Validation,
 		Flight:        res.Flight,
 		LShape:        res.LShape,
+		UShape:        res.UShape,
 		Measurement:   res.Measurement,
 		Mesh:          res.Mesh,
 		IssueCount:    len(res.GeometryIssues),

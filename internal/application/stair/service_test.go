@@ -226,3 +226,67 @@ func TestCalculateLShapeLandingTooNarrow(t *testing.T) {
 		t.Fatal("landing width below stair width must be rejected")
 	}
 }
+
+// referenceUShapeConfig — эталонная П-образная конфигурация (EDR-0006):
+// та же арифметика, что и у L-марша (H=2700, n=15, n1=6, h=180, b=270,
+// W=900, Wp=1000); верхний марш разворачивается на 180°.
+func referenceUShapeConfig() Config {
+	cfg := referenceConfig()
+	cfg.Flight = engineering.FlightUShape
+	cfg.LandingWidth = mustLengthHelper(1000)
+	cfg.LowerStepCount = 6
+	return cfg
+}
+
+func TestCalculateUShapePipeline(t *testing.T) {
+	s := NewService()
+	res, err := s.Calculate(referenceUShapeConfig(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Validation.Valid || res.Validation.Blocking {
+		t.Fatalf("expected valid configuration, got %+v", res.Validation)
+	}
+	if res.UShape == nil {
+		t.Fatal("u_shape flight must populate UShape result")
+	}
+	if res.UShape.StepCount != 15 || res.UShape.LowerStepCount != 6 || res.UShape.UpperStepCount != 9 {
+		t.Fatalf("split = %d/%d/%d, want 15/6/9",
+			res.UShape.StepCount, res.UShape.LowerStepCount, res.UShape.UpperStepCount)
+	}
+	if res.UShape.LowerHeight.Millimeters() != 1080 || res.UShape.UpperHeight.Millimeters() != 1620 {
+		t.Fatalf("flight heights = %v/%v, want 1080/1620",
+			res.UShape.LowerHeight.Millimeters(), res.UShape.UpperHeight.Millimeters())
+	}
+	if res.UShape.LowerRun.Millimeters() != 1620 || res.UShape.UpperRun.Millimeters() != 2430 {
+		t.Fatalf("runs = %v/%v, want 1620/2430",
+			res.UShape.LowerRun.Millimeters(), res.UShape.UpperRun.Millimeters())
+	}
+	// прямой марш должен оставаться нулевым.
+	if res.Flight.StepCount != 0 {
+		t.Fatalf("straight flight must be empty for u_shape, got %+v", res.Flight)
+	}
+	// полный конвейер: 35 деталей, 4 косоура, 16 проступей, 15 подступенков.
+	if res.Package == nil || len(res.Package.Parts) != 35 {
+		t.Fatalf("parts = %d, want 35", len(res.Package.Parts))
+	}
+	if res.Mesh == nil || len(res.Mesh.Vertices) == 0 {
+		t.Fatal("u_shape pipeline must produce preview mesh")
+	}
+	if res.Measurement.Volume != 308700000 {
+		t.Fatalf("volume = %v, want 308700000", res.Measurement.Volume)
+	}
+	if res.Price == nil || res.Price.FinalPrice.Minor() <= 0 {
+		t.Fatal("u_shape pipeline must produce price")
+	}
+}
+
+func TestCalculateUShapeLandingTooNarrow(t *testing.T) {
+	s := NewService()
+	// Wp=500 < W=900 → ошибка (EDR-0006 §7): невозможно выполнить расчёт.
+	cfg := referenceUShapeConfig()
+	cfg.LandingWidth = mustLengthHelper(500)
+	if _, err := s.Calculate(cfg, Options{}); err == nil {
+		t.Fatal("landing width below stair width must be rejected")
+	}
+}

@@ -85,6 +85,22 @@ export interface LShapeResult {
   LandingWidth: number
 }
 
+export interface UShapeResult {
+  StepCount: number
+  LowerStepCount: number
+  UpperStepCount: number
+  StepHeight: number
+  TreadDepth: number
+  Angle: number
+  LowerHeight: number
+  UpperHeight: number
+  LowerRun: number
+  UpperRun: number
+  LowerStringer: number
+  UpperStringer: number
+  LandingWidth: number
+}
+
 export interface BBox {
   Min: { X: number; Y: number; Z: number }
   Max: { X: number; Y: number; Z: number }
@@ -205,6 +221,7 @@ export interface Snapshot {
   validation: ValidationResult
   flight?: FlightResult
   lshape?: LShapeResult
+  ushape?: UShapeResult
   measurement?: Measurement
   mesh?: Mesh
   issue_count: number

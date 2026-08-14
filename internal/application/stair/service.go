@@ -30,7 +30,8 @@ type Config struct {
 	StepThickness     engineering.Length // мм
 	Clearance         engineering.Length // мм
 	RailingHeight     engineering.Length // мм
-	// LandingWidth и LowerStepCount — специфичны для L-марша (EDR-0005).
+	// LandingWidth и LowerStepCount — специфичны для маршей с площадкой
+	// (EDR-0005 L-образный, EDR-0006 П-образный).
 	LandingWidth   engineering.Length // мм — ширина площадки Wp
 	LowerStepCount int                // n1 — число ступеней нижнего марша
 }
@@ -50,6 +51,7 @@ type Result struct {
 	Validation     validation.Result
 	Flight         solver.FlightResult  // прямой марш
 	LShape         *solver.LShapeResult // L-образный марш (Flight == LShape)
+	UShape         *solver.UShapeResult // П-образный марш (Flight == UShape)
 	Measurement    geometry.Measurement
 	GeometryIssues []kerngeo.ValidationIssue
 	Mesh           *kerngeo.Mesh                // preview mesh для визуализации (ENG-GEO-0008)
@@ -98,6 +100,16 @@ func (s *Service) Calculate(cfg Config, opts Options) (*Result, error) {
 		}
 		res.Validation = vr
 		res.LShape = &lres
+	case engineering.FlightUShape:
+		ures, vr, err := solver.SolveCheckedUShape(c, s.constraints, comfort)
+		if err != nil {
+			return nil, err
+		}
+		if vr.Blocking {
+			return &Result{Validation: vr}, nil
+		}
+		res.Validation = vr
+		res.UShape = &ures
 	default:
 		flight, vr, err := solver.SolveChecked(c, s.constraints, comfort)
 		if err != nil {

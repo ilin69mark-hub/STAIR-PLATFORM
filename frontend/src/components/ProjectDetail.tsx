@@ -137,18 +137,17 @@ const configFields: Array<{ key: keyof ConfigForm; label: string }> = [
   { key: 'comfortStepMM', label: 'Шаг комфорта S, мм' },
 ]
 
-// Поля, специфичные для L-образной лестницы (EDR-0005).
-const lshapeFields: Array<{ key: keyof ConfigForm; label: string }> = [
+// Поля, специфичные для маршей с площадкой (EDR-0005, EDR-0006).
+const landingFields: Array<{ key: keyof ConfigForm; label: string }> = [
   { key: 'landingWidthMM', label: 'Ширина площадки Wp, мм' },
   { key: 'lowerStepCountMM', label: 'Ступеней нижнего марша (n1)' },
 ]
 
 function ConfigForm({ fields, errors, onChange }: ConfigFormProps) {
-  const isLShape = fields.flight === 'l_shape'
-  const visible =
-    isLShape
-      ? [...configFields, ...lshapeFields]
-      : configFields.filter((f) => !lshapeFields.some((lf) => lf.key === f.key))
+  const withLanding = fields.flight === 'l_shape' || fields.flight === 'u_shape'
+  const visible = withLanding
+    ? [...configFields, ...landingFields]
+    : configFields.filter((f) => !landingFields.some((lf) => lf.key === f.key))
   return (
     <div className="config-grid">
       <div className="field">

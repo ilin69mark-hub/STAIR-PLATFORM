@@ -6,6 +6,7 @@ import type { Rates } from '../api/types'
 export const flightOptions = [
   { value: 'straight', label: 'Прямой марш' },
   { value: 'l_shape', label: 'L-образная (с площадкой)' },
+  { value: 'u_shape', label: 'П-образная (с площадкой)' },
 ] as const
 
 export type Flight = (typeof flightOptions)[number]['value']
@@ -123,9 +124,9 @@ export function validateForm(f: ConfigForm): FieldErrors {
     [keyof ConfigForm, FieldRule]
   >) {
     if (rule.min === undefined && rule.max === undefined) continue
-    // Поля L-марша значимы только для l_shape.
+    // Поля маршей с площадкой значимы только для l_shape/u_shape (EDR-0005/0006).
     if (key === 'landingWidthMM' || key === 'lowerStepCountMM') {
-      if (f.flight !== 'l_shape') continue
+      if (f.flight !== 'l_shape' && f.flight !== 'u_shape') continue
     }
     const optional = key === 'comfortStepMM'
     const raw = f[key]
@@ -162,8 +163,8 @@ export function toRequest(f: ConfigForm): Record<string, unknown> {
   if (f.comfortStepMM.trim() !== '') {
     req.comfort_step_mm = Number(f.comfortStepMM)
   }
-  // Параметры L-марша передаются только для l_shape (EDR-0005).
-  if (f.flight === 'l_shape') {
+  // Параметры маршей с площадкой передаются только для l_shape/u_shape (EDR-0005/0006).
+  if (f.flight === 'l_shape' || f.flight === 'u_shape') {
     req.landing_width_mm = Number(f.landingWidthMM)
     req.lower_step_count = Number(f.lowerStepCountMM)
   }
