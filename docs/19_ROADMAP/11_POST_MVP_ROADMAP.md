@@ -90,7 +90,15 @@ pending/delivered/failed/dlq), админ-эндпоинты
 `/api/v1/integrations/endpoints` и `POST /api/v1/projects/{id}/quote-send`
 (привилегия `integration.manage`, wire-тесты + DB-интеграционные тесты).
 
-CRM
+CRM — **DONE 2026-08-15**: реализовано E3, EDR-0024 — синхронизация
+метаданных проекта в CRM на webhook-каркасе E2 (kind `crm`): событие
+`crm.project_sync` (канонический документ проекта: project_id, name,
+description, status, owner_id, created/updated_at), эндпоинт
+`POST /api/v1/projects/{id}/crm-sync` (owner/editor, 202/403/404/422),
+сервисный `SyncProject` (общий `enqueue` вынесен из `SendQuote`), общий
+воркер-обработчик `deliverEvent` для `erp.quote_send` и `crm.project_sync`
+(диспетчер реестра выведен на обе ветки), unit/worker/transport-тесты.
+Без новой миграции (таблицы 000014 поддерживают kind=crm).
 
 Manufacturing
 

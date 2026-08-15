@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"stairplatform/internal/application/integrations"
 	"stairplatform/internal/application/project"
@@ -64,6 +65,16 @@ func (f *fakeIntegrationService) SendQuote(_ context.Context, _, projectID strin
 	}
 	d := &integrations.Delivery{ID: "del-1", EndpointID: "ep-1", ProjectID: projectID,
 		EventType: integrations.EventTypeQuoteSend, Status: integrations.StatusPending, Payload: payload}
+	f.sent = d
+	return d, nil
+}
+
+func (f *fakeIntegrationService) SyncProject(_ context.Context, _, projectID string, payload []byte) (*integrations.Delivery, error) {
+	if f.sendErr != nil {
+		return nil, f.sendErr
+	}
+	d := &integrations.Delivery{ID: "del-2", EndpointID: "ep-crm", ProjectID: projectID,
+		EventType: integrations.EventTypeProjectSync, Status: integrations.StatusPending, Payload: payload}
 	f.sent = d
 	return d, nil
 }
@@ -183,6 +194,64 @@ func TestQuoteSendNoEndpoint(t *testing.T) {
 	i.sendErr = integrations.ErrNoEndpoint
 	router := testRouterWithIntegrations(projects, i)
 	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/quote-send", "")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "no_endpoint") {
+		t.Fatalf("expected error code no_endpoint: %s", rec.Body.String())
+	}
+}
+
+func TestProjectSync(t *testing.T) {
+	i, projects := integrationsTestSetup()
+	projects.projects["p-1"].CreatedAt = time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	projects.projects["p-1"].UpdatedAt = time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
+	router := testRouterWithIntegrations(projects, i)
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/crm-sync", "")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var out deliveryDTO
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.ID != "del-2" || out.EventType != "crm.project_sync" || out.ProjectID != "p-1" {
+		t.Fatalf("unexpected delivery DTO: %+v", out)
+	}
+	if i.sent == nil || len(i.sent.Payload) == 0 {
+		t.Fatal("expected CRM payload sent to service")
+	}
+	var doc crmProjectDocument
+	if err := json.Unmarshal(i.sent.Payload, &doc); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if doc.Name != "А" || doc.Status != "draft" || doc.ProjectID != "p-1" ||
+		doc.CreatedAt != "2026-08-01T12:00:00Z" || doc.UpdatedAt != "2026-08-02T12:00:00Z" {
+		t.Fatalf("unexpected CRM document: %+v", doc)
+	}
+}
+
+func TestProjectSyncNotFound(t *testing.T) {
+	i, projects := integrationsTestSetup()
+	delete(projects.projects, "p-1")
+	router := testRouterWithIntegrations(projects, i)
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/crm-sync", "")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestProjectSyncNoEndpoint(t *testing.T) {
+	i, projects := integrationsTestSetup()
+	i.sendErr = integrations.ErrNoEndpoint
+	router := testRouterWithIntegrations(projects, i)
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/crm-sync", "")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnprocessableEntity {

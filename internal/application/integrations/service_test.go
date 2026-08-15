@@ -191,6 +191,51 @@ func TestSendQuoteNoQueue(t *testing.T) {
 	}
 }
 
+func TestSyncProjectHappyPath(t *testing.T) {
+	svc, _, q := newTestService()
+	if _, err := svc.RegisterEndpoint(context.Background(), testTenant, "crm", "crm", "https://crm.example.com/hook", "s"); err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte(`{"project_id":"p-1"}`)
+	d, err := svc.SyncProject(context.Background(), testTenant, "p-1", payload)
+	if err != nil {
+		t.Fatalf("SyncProject: %v", err)
+	}
+	if d.Status != StatusPending || d.EventType != EventTypeProjectSync || d.ProjectID != "p-1" {
+		t.Fatalf("unexpected delivery: %+v", d)
+	}
+	if len(q.jobs) != 1 || q.jobs[0].Type != queue.JobProjectSync {
+		t.Fatalf("expected one project_sync job, got %+v", q.jobs)
+	}
+	var jp struct {
+		EventID string `json:"event_id"`
+	}
+	if err := json.Unmarshal(q.jobs[0].Payload, &jp); err != nil || jp.EventID != d.ID {
+		t.Fatalf("job payload mismatch: %+v", q.jobs[0].Payload)
+	}
+}
+
+func TestSyncProjectNoEndpoint(t *testing.T) {
+	svc, _, q := newTestService()
+	if _, err := svc.SyncProject(context.Background(), testTenant, "p-1", []byte("{}")); !errors.Is(err, ErrNoEndpoint) {
+		t.Fatalf("err = %v, want ErrNoEndpoint", err)
+	}
+	if len(q.jobs) != 0 {
+		t.Fatal("no job should be enqueued without endpoint")
+	}
+}
+
+func TestSyncProjectNoQueue(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, nil)
+	if _, err := svc.RegisterEndpoint(context.Background(), testTenant, "crm", "crm", "https://crm.example.com", "s"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SyncProject(context.Background(), testTenant, "p-1", []byte("{}")); err == nil {
+		t.Fatal("expected error without queue")
+	}
+}
+
 func TestDeleteEndpoint(t *testing.T) {
 	svc, _, _ := newTestService()
 	ep, _ := svc.RegisterEndpoint(context.Background(), testTenant, "erp", "erp", "https://erp.example.com", "s")

@@ -22,6 +22,9 @@ const (
 	// JobQuoteSend — доставка коммерческого предложения в ERP (EDR-0023).
 	// Payload: {event_id, endpoint_id}.
 	JobQuoteSend = "erp.quote_send"
+	// JobProjectSync — синхронизация проекта в CRM (EDR-0024).
+	// Payload: {event_id, endpoint_id}.
+	JobProjectSync = "crm.project_sync"
 )
 
 // DefaultMaxAttempts — предел попыток задания перед окончательным отказом.

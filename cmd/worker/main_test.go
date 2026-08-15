@@ -265,3 +265,58 @@ func TestRegistryQuoteSendUnknownEvent(t *testing.T) {
 		t.Fatal("expected error for unknown event")
 	}
 }
+
+func TestRegistryProjectSyncDelivered(t *testing.T) {
+	r, svc, repo, s := quoteSender(t)
+	// quoteSender регистрирует ERP-эндпоинт; для CRM нужен свой kind.
+	ep := &integrations.Endpoint{ID: "e2", Kind: integrations.KindCRM, URL: "https://crm.example.com/hook", SecretEnc: "secret"}
+	if err := repo.CreateEndpoint(context.Background(), ep); err != nil {
+		t.Fatalf("create crm endpoint: %v", err)
+	}
+	d, err := svc.SyncProject(context.Background(), "t-1", "p-1", []byte(`{"project_id":"p-1"}`))
+	if err != nil {
+		t.Fatalf("SyncProject: %v", err)
+	}
+	job, err := queue.NewJob(queue.JobProjectSync, map[string]string{
+		"event_id": d.ID, "endpoint_id": ep.ID, "tenant_id": "t-1",
+	})
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	if err := r.Handle(context.Background(), job); err != nil {
+		t.Fatalf("Handle crm.project_sync: %v", err)
+	}
+	got := repo.get(d.ID)
+	if got.Status != integrations.StatusDelivered || got.DeliveredAt == nil {
+		t.Fatalf("expected delivered, got %+v", got)
+	}
+	if len(s.urls) != 1 || s.urls[0] != "https://crm.example.com/hook" {
+		t.Fatalf("webhook not sent to crm endpoint: %+v", s.urls)
+	}
+}
+
+func TestRegistryProjectSyncFailed(t *testing.T) {
+	r, svc, repo, s := quoteSender(t)
+	ep := &integrations.Endpoint{ID: "e2", Kind: integrations.KindCRM, URL: "https://crm.example.com/hook", SecretEnc: "secret"}
+	if err := repo.CreateEndpoint(context.Background(), ep); err != nil {
+		t.Fatalf("create crm endpoint: %v", err)
+	}
+	d, err := svc.SyncProject(context.Background(), "t-1", "p-1", []byte(`{}`))
+	if err != nil {
+		t.Fatalf("SyncProject: %v", err)
+	}
+	s.fail = true
+	job, err := queue.NewJob(queue.JobProjectSync, map[string]string{
+		"event_id": d.ID, "endpoint_id": ep.ID, "tenant_id": "t-1",
+	})
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	if err := r.Handle(context.Background(), job); err == nil {
+		t.Fatal("expected error from failed webhook")
+	}
+	got := repo.get(d.ID)
+	if got.Status != integrations.StatusFailed || got.LastError == "" {
+		t.Fatalf("expected failed status, got %+v", got)
+	}
+}

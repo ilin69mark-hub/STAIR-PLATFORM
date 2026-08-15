@@ -80,10 +80,24 @@ func (s *Service) DeleteEndpoint(ctx context.Context, tenantID, id string) error
 // создаёт событие доставки (status=pending) и enqueue задания в TaskQueue.
 // payload — канонический документ quote (Snapshot проекта).
 func (s *Service) SendQuote(ctx context.Context, tenantID, projectID string, payload []byte) (*Delivery, error) {
+	return s.enqueue(ctx, tenantID, projectID, KindERP, EventTypeQuoteSend, payload)
+}
+
+// SyncProject ставит задание crm.project_sync для проекта (EDR-0024 §3.2):
+// создаёт событие доставки (status=pending) и enqueue задания в TaskQueue.
+// payload — канонический документ проекта (EDR-0024 §3.3).
+func (s *Service) SyncProject(ctx context.Context, tenantID, projectID string, payload []byte) (*Delivery, error) {
+	return s.enqueue(ctx, tenantID, projectID, KindCRM, EventTypeProjectSync, payload)
+}
+
+// enqueue — общая постановка события доставки в очередь (EDR-0024 §3.2):
+// находит единственный активный эндпоинт нужного kind, создаёт событие
+// (pending) и ставит задание {event_id, endpoint_id, tenant_id}.
+func (s *Service) enqueue(ctx context.Context, tenantID, projectID string, kind Kind, eventType string, payload []byte) (*Delivery, error) {
 	if s.queue == nil {
 		return nil, fmt.Errorf("integrations: queue not configured")
 	}
-	endpoint, err := s.repo.FindEndpointByKind(ctx, tenantID, KindERP)
+	endpoint, err := s.repo.FindEndpointByKind(ctx, tenantID, kind)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +106,7 @@ func (s *Service) SendQuote(ctx context.Context, tenantID, projectID string, pay
 		TenantID:   tenantID,
 		EndpointID: endpoint.ID,
 		ProjectID:  projectID,
-		EventType:  EventTypeQuoteSend,
+		EventType:  eventType,
 		Payload:    append(json.RawMessage(nil), payload...),
 		Status:     StatusPending,
 		CreatedAt:  s.now().UTC(),
@@ -113,12 +127,12 @@ func (s *Service) SendQuote(ctx context.Context, tenantID, projectID string, pay
 	if err != nil {
 		return nil, fmt.Errorf("integrations: marshal job: %w", err)
 	}
-	job, err := queue.NewJob(EventTypeQuoteSend, json.RawMessage(jobPayload))
+	job, err := queue.NewJob(eventType, json.RawMessage(jobPayload))
 	if err != nil {
 		return nil, err
 	}
 	if err := s.queue.Enqueue(ctx, job); err != nil {
-		return nil, fmt.Errorf("integrations: enqueue %s: %w", EventTypeQuoteSend, err)
+		return nil, fmt.Errorf("integrations: enqueue %s: %w", eventType, err)
 	}
 	return d, nil
 }

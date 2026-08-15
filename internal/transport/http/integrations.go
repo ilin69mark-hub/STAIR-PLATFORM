@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -18,6 +19,8 @@ type IntegrationService interface {
 	GetEndpoint(ctx context.Context, tenantID, id string) (*integrations.Endpoint, error)
 	DeleteEndpoint(ctx context.Context, tenantID, id string) error
 	SendQuote(ctx context.Context, tenantID, projectID string, payload []byte) (*integrations.Delivery, error)
+	// SyncProject ставит задание crm.project_sync для проекта (EDR-0024).
+	SyncProject(ctx context.Context, tenantID, projectID string, payload []byte) (*integrations.Delivery, error)
 }
 
 // ---- DTO ----
@@ -156,6 +159,65 @@ func handleQuoteSend(projects ProjectService, svc IntegrationService) http.Handl
 		d, err := svc.SendQuote(ctx, tenant, projectID, calc.Result)
 		if errors.Is(err, integrations.ErrNoEndpoint) {
 			writeError(w, http.StatusUnprocessableEntity, "no_endpoint", "no erp endpoint configured")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			return
+		}
+		writeJSON(w, http.StatusAccepted, toDeliveryDTO(d))
+	}
+}
+
+// crmProjectDocument — канонический документ проекта для CRM (EDR-0024 §3.3).
+type crmProjectDocument struct {
+	ProjectID   string `json:"project_id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
+	OwnerID     string `json:"owner_id"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
+// handleProjectSync — POST /api/v1/projects/{id}/crm-sync (auth, член проекта).
+// Синхронизирует метаданные проекта в CRM (EDR-0024 §3.5). 202 — событие
+// поставлено в очередь; 403 — нет прав; 404 — нет проекта; 422 — нет
+// CRM-эндпоинта.
+func handleProjectSync(projects ProjectService, svc IntegrationService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		projectID := r.PathValue("id")
+		ctx := r.Context()
+		user := userID(ctx)
+		tenant := tenantID(ctx)
+
+		p, err := projects.GetProject(ctx, tenant, user, projectID)
+		if errors.Is(err, project.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "no such project")
+			return
+		}
+		if errors.Is(err, project.ErrForbidden) {
+			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			return
+		}
+
+		doc := crmProjectDocument{ProjectID: p.ID, Name: p.Name, Description: p.Description,
+			Status: p.Status, OwnerID: p.OwnerID,
+			CreatedAt: p.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+			UpdatedAt: p.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z")}
+		payload, err := json.Marshal(doc)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			return
+		}
+
+		d, err := svc.SyncProject(ctx, tenant, projectID, payload)
+		if errors.Is(err, integrations.ErrNoEndpoint) {
+			writeError(w, http.StatusUnprocessableEntity, "no_endpoint", "no crm endpoint configured")
 			return
 		}
 		if err != nil {

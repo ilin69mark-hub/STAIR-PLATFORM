@@ -54,8 +54,8 @@ func (r *registry) Handle(ctx context.Context, job queue.Job) error {
 		return r.cleanupSsoStates(ctx)
 	case queue.JobCleanupAudit:
 		return r.cleanupAudit(ctx)
-	case queue.JobQuoteSend:
-		return r.quoteSend(ctx, job)
+	case queue.JobQuoteSend, queue.JobProjectSync:
+		return r.deliverEvent(ctx, job)
 	default:
 		return fmt.Errorf("worker: unknown job type %q", job.Type)
 	}
@@ -64,17 +64,18 @@ func (r *registry) Handle(ctx context.Context, job queue.Job) error {
 // overrideWebhook подменяет клиент webhook в тестах.
 func (r *registry) overrideWebhook(s webhookSender) { r.webhook = s }
 
-// quoteSend доставляет коммерческое предложение в ERP (EDR-0023 §3.4):
-// читает событие доставки и эндпоинт, отправляет webhook с HMAC-подписью,
-// отмечает delivered; при ошибке — failed/DLQ по политике воркера.
-func (r *registry) quoteSend(ctx context.Context, job queue.Job) error {
+// deliverEvent доставляет событие внешней системе (EDR-0023 §3.4, EDR-0024
+// §3.4): читает событие доставки и эндпоинт, отправляет webhook с
+// HMAC-подписью, отмечает delivered; при ошибке — failed/DLQ по политике
+// воркера. Общий для erp.quote_send и crm.project_sync.
+func (r *registry) deliverEvent(ctx context.Context, job queue.Job) error {
 	var p struct {
 		EventID    string `json:"event_id"`
 		EndpointID string `json:"endpoint_id"`
 		TenantID   string `json:"tenant_id"`
 	}
 	if err := json.Unmarshal(job.Payload, &p); err != nil {
-		return fmt.Errorf("worker: quote_send payload: %w", err)
+		return fmt.Errorf("worker: deliver payload: %w", err)
 	}
 	d, err := r.integrationsRepo.GetDelivery(ctx, p.TenantID, p.EventID)
 	if err != nil {
