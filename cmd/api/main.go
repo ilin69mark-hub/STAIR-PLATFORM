@@ -18,10 +18,12 @@ import (
 	"stairplatform/internal/application/project"
 
 	"stairplatform/internal/application/stair"
+	appstorage "stairplatform/internal/application/storage"
 	"stairplatform/internal/infrastructure/database"
 	"stairplatform/internal/infrastructure/health"
 	"stairplatform/internal/infrastructure/oidc"
 	"stairplatform/internal/infrastructure/queue"
+	infstorage "stairplatform/internal/infrastructure/storage"
 	transporthttp "stairplatform/internal/transport/http"
 )
 
@@ -77,6 +79,15 @@ func main() {
 	authSvc := auth.NewService(database.NewAuthRepository(pool), sessionTTL(), auditSvc)
 	intSvc := integrations.NewService(database.NewIntegrationRepository(pool), queueBackend.Queue())
 
+	// Storage (EDR-0026 §3.5): объектное хранилище из окружения. Бэкенд
+	// задаётся STAIR_STORAGE_BACKEND (filesystem|s3); сбой конфигурации —
+	// фатален (сервис доступен только при валидном хранилище).
+	storageSvc, err := newStorageService()
+	if err != nil {
+		slog.Error("storage init failed", "error", err)
+		os.Exit(1)
+	}
+
 	// SSO (EDR-0017 §3.2): OIDC-провайдер из окружения. Пока STAIR_SSO_ISSUER
 	// не задан — SSO выключен (публичный ключ, кнопка на фронте не видна).
 	if issuer := os.Getenv("STAIR_SSO_ISSUER"); issuer != "" {
@@ -101,6 +112,7 @@ func main() {
 		ShutdownTimeout:    shutdownTimeout,
 		Region:             region,
 		Integrations:       intSvc,
+		Storage:            storageSvc,
 	}
 
 	// Readiness (EDR-0018 §3.2): SELECT 1 + Redis PING.
@@ -200,6 +212,27 @@ func envString(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// newStorageService создаёт сервис объектного хранилища (EDR-0026 §3.5)
+// по STAIR_STORAGE_BACKEND и параметрам окружения.
+func newStorageService() (*appstorage.Service, error) {
+	store, err := infstorage.NewObjectStore(
+		os.Getenv("STAIR_STORAGE_BACKEND"),
+		infstorage.Options{
+			FSRoot:    envString("STAIR_STORAGE_DIR", "./storage"),
+			Endpoint:  os.Getenv("STAIR_S3_ENDPOINT"),
+			Bucket:    os.Getenv("STAIR_S3_BUCKET"),
+			Region:    envString("STAIR_S3_REGION", "us-east-1"),
+			AccessKey: os.Getenv("STAIR_S3_ACCESS_KEY"),
+			SecretKey: os.Getenv("STAIR_S3_SECRET_KEY"),
+			PathStyle: envBool("STAIR_S3_PATH_STYLE", true),
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return appstorage.NewService(store), nil
 }
 
 // apiQueueBackend оборачивает выбранный бэкенд очереди заданий (EDR-0020):

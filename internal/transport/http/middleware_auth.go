@@ -43,6 +43,9 @@ type Config struct {
 	// Integrations — сервис интеграций (EDR-0023 §3.4); nil — маршруты
 	// integrations/quote-send не регистрируются.
 	Integrations IntegrationService
+	// Storage — сервис объектного хранилища (EDR-0026 §3.5); nil — маршруты
+	// storage/export-cad не регистрируются.
+	Storage StorageService
 }
 
 // DefaultConfig возвращает конфигурацию по умолчанию.

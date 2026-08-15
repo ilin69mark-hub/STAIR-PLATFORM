@@ -109,7 +109,16 @@ nesting в snake_case), эндпоинт `POST /api/v1/projects/{id}/order-send`
 `deliverEvent` (JobOrderSend на ту же ветку), unit/worker/transport-тесты.
 Без новой миграции.
 
-Storage
+Storage — **DONE 2026-08-15**: реализовано E5, EDR-0026 — абстракция
+объектного хранилища `internal/infrastructure/storage` (ObjectStore
+Put/Get/Delete, ValidationKey, фабрика по `STAIR_STORAGE_BACKEND`), два
+бэкенда: filesystem (корень `STAIR_STORAGE_DIR`, защита от выхода за root)
+и S3-совместимый с подписью AWS SigV4 на чистой stdlib (path-style для
+MinIO, `STAIR_S3_*`); прикладной сервис `internal/application/storage`
+(tenant-скоуп ключей, SaveExport/Load/Delete); транспорт:
+`POST /api/v1/projects/{id}/export/cad/store` (экспорт E1 в хранилище),
+`GET/DELETE /api/v1/storage/{key...}` (скоуп tenant);
+unit-тесты SigV4 (эталон AWS), fs, s3 (httptest), app и транспорта.
 
 Payments
 
