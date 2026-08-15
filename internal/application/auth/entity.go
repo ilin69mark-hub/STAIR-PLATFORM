@@ -183,6 +183,30 @@ type ApiKey struct {
 	LastUsedAt *time.Time
 }
 
+// OAuthAccount — привязка внешнего identity (SSO, EDR-0017 §3.1).
+// Уникальность (provider, subject): один внешний identity — одна учётная
+// запись. Subject — `sub` claim IdP.
+type OAuthAccount struct {
+	ID        string
+	Provider  string
+	Subject   string
+	UserID    string // владелец учётной записи (FK users)
+	CreatedAt time.Time
+}
+
+// SsoState — одноразовое OIDC-состояние начала входа (EDR-0017 §3.3).
+// StateHash — SHA-256 от state; хранится в БД до 10 минут (TTL), расходуется
+// при колбэке.
+type SsoState struct {
+	ID           string
+	StateHash    string
+	Nonce        string
+	PKCEVerifier string
+	Redirect     string
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
+}
+
 // Active возвращает true, если ключ не отозван.
 func (k *ApiKey) Active() bool {
 	return k.RevokedAt == nil
@@ -244,4 +268,20 @@ type Repository interface {
 	RevokeApiKey(ctx context.Context, tenantID, keyID string) error
 	// TouchApiKey обновляет last_used_at (использование ключа).
 	TouchApiKey(ctx context.Context, keyID string) error
+
+	// CreateOAuthAccount сохраняет привязку внешнего identity (EDR-0017);
+	// ErrEmailExists-эквивалент ErrOAuthExists — (provider,subject) занят.
+	CreateOAuthAccount(ctx context.Context, a *OAuthAccount) error
+	// GetOAuthAccountByProviderSubject возвращает привязку по внешнему
+	// identity; ErrNotFound — нет.
+	GetOAuthAccountByProviderSubject(ctx context.Context, provider, subject string) (*OAuthAccount, error)
+	// ListOAuthAccounts возвращает привязки пользователя.
+	ListOAuthAccounts(ctx context.Context, userID string) ([]*OAuthAccount, error)
+
+	// CreateSsoState сохраняет одноразовый OIDC-состояние (state hash,
+	// nonce, PKCE verifier). ExpiresAt — TTL 10 минут.
+	CreateSsoState(ctx context.Context, s *SsoState) error
+	// ConsumeSsoState извлекает и удаляет состояние по хешу state
+	// (одноразовое использование); ErrNotFound — нет/истекло.
+	ConsumeSsoState(ctx context.Context, stateHash string) (*SsoState, error)
 }

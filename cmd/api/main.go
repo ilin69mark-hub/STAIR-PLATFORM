@@ -16,6 +16,7 @@ import (
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/infrastructure/database"
+	"stairplatform/internal/infrastructure/oidc"
 	transporthttp "stairplatform/internal/transport/http"
 )
 
@@ -59,6 +60,18 @@ func main() {
 		auditSvc,
 	)
 	authSvc := auth.NewService(database.NewAuthRepository(pool), sessionTTL(), auditSvc)
+
+	// SSO (EDR-0017 §3.2): OIDC-провайдер из окружения. Пока STAIR_SSO_ISSUER
+	// не задан — SSO выключен (публичный ключ, кнопка на фронте не видна).
+	if issuer := os.Getenv("STAIR_SSO_ISSUER"); issuer != "" {
+		authSvc = authSvc.WithOIDCProvider(oidc.New(oidc.Config{
+			ProviderName: envString("STAIR_SSO_PROVIDER", "sso"),
+			Issuer:       issuer,
+			ClientID:     os.Getenv("STAIR_SSO_CLIENT_ID"),
+			ClientSecret: os.Getenv("STAIR_SSO_CLIENT_SECRET"),
+			RedirectURL:  os.Getenv("STAIR_SSO_REDIRECT_URL"),
+		}))
+	}
 
 	cfg := transporthttp.Config{
 		CookieSecure:       envBool("STAIR_COOKIE_SECURE", false),
@@ -136,4 +149,11 @@ func envInt(key string, def int) int {
 		return def
 	}
 	return n
+}
+
+func envString(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }

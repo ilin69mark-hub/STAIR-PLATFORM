@@ -103,7 +103,7 @@ Advanced Security — **CLOSED 2026-08-15**: реализовано end-to-end (
 
 Audit — **CLOSED 2026-08-15**: реализовано end-to-end (G1, EDR-0013) — персистентный журнал событий безопасности с записью из auth/project сервисов, API чтения (проект + admin) и панелью «Аудит».
 
-SSO
+SSO — **CLOSED 2026-08-15**: реализовано end-to-end (G5, EDR-0017) — OIDC Authorization Code flow с PKCE на стандартной библиотеке (Discovery, token exchange, JWKS RS256-верификация id_token), provisioning по email (автосоздание/привязка в default tenant), единый вход в общую session-сессию, кнопка «Войти через …» на AuthPage, аудит sso.login/sso.login_denied/sso.linked. Phase G — **полностью CLOSED**.
 
 Enterprise Controls — **CLOSED 2026-08-15**: реализовано end-to-end (G4, EDR-0016) — admin-панель (пользователи: роль/статус, политики безопасности per-tenant, экспорт данных JSON/CSV), API-ключи (service-токены со scope-правами, Bearer-доступ), аудит всех admin-действий.
 

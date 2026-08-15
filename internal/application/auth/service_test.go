@@ -9,12 +9,14 @@ import (
 
 // fakeRepo — тестовая реализация Repository в памяти.
 type fakeRepo struct {
-	users    map[string]*User // by email
-	byID     map[string]*User
-	sessions map[string]*Session // by token hash
-	tenant   *Tenant
-	policy   *Policy
-	apiKeys  []*ApiKey
+	users     map[string]*User // by email
+	byID      map[string]*User
+	sessions  map[string]*Session // by token hash
+	tenant    *Tenant
+	policy    *Policy
+	apiKeys   []*ApiKey
+	oauths    []*OAuthAccount
+	ssoStates []*SsoState
 }
 
 func newFakeRepo() *fakeRepo {
@@ -152,6 +154,59 @@ func (f *fakeRepo) TouchApiKey(ctx context.Context, keyID string) error {
 		}
 	}
 	return nil
+}
+
+// ---- SSO / OAuthAccount (EDR-0017) ----
+
+func (f *fakeRepo) CreateOAuthAccount(ctx context.Context, a *OAuthAccount) error {
+	for _, ex := range f.oauths {
+		if ex.Provider == a.Provider && ex.Subject == a.Subject {
+			return ErrOAuthExists
+		}
+	}
+	a.ID = "oa-" + a.Provider + "-" + a.Subject
+	a.CreatedAt = time.Now().UTC()
+	f.oauths = append(f.oauths, a)
+	return nil
+}
+
+func (f *fakeRepo) GetOAuthAccountByProviderSubject(ctx context.Context, provider, subject string) (*OAuthAccount, error) {
+	for _, a := range f.oauths {
+		if a.Provider == provider && a.Subject == subject {
+			return a, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (f *fakeRepo) ListOAuthAccounts(ctx context.Context, userID string) ([]*OAuthAccount, error) {
+	var out []*OAuthAccount
+	for _, a := range f.oauths {
+		if a.UserID == userID {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) CreateSsoState(ctx context.Context, s *SsoState) error {
+	s.ID = "st-" + s.StateHash
+	s.CreatedAt = time.Now().UTC()
+	f.ssoStates = append(f.ssoStates, s)
+	return nil
+}
+
+func (f *fakeRepo) ConsumeSsoState(ctx context.Context, stateHash string) (*SsoState, error) {
+	for i, s := range f.ssoStates {
+		if s.StateHash == stateHash {
+			if time.Now().UTC().After(s.ExpiresAt) {
+				return nil, ErrNotFound
+			}
+			f.ssoStates = append(f.ssoStates[:i], f.ssoStates[i+1:]...)
+			return s, nil
+		}
+	}
+	return nil, ErrNotFound
 }
 
 func (f *fakeRepo) CreateSession(ctx context.Context, s *Session) error {

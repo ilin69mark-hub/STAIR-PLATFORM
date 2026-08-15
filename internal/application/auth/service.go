@@ -17,18 +17,22 @@ import (
 
 // Ошибки auth (SEC-0003).
 var (
-	ErrNotFound       = errors.New("auth: not found")
-	ErrEmailExists    = errors.New("auth: email already registered")
-	ErrInvalidEmail   = errors.New("auth: invalid email")
-	ErrWeakPassword   = errors.New("auth: password too weak (min 8 chars)")
-	ErrInvalidCreds   = errors.New("auth: invalid credentials")
-	ErrUserDisabled   = errors.New("auth: user disabled")
-	ErrSessionExpired = errors.New("auth: session expired or invalid")
-	ErrForbidden      = errors.New("auth: forbidden")
-	ErrUnknownRole    = errors.New("auth: unknown role")
-	ErrInvalidPolicy  = errors.New("auth: invalid policy")
-	ErrInvalidStatus  = errors.New("auth: invalid status")
-	ErrKeyRevoked     = errors.New("auth: api key revoked")
+	ErrNotFound         = errors.New("auth: not found")
+	ErrEmailExists      = errors.New("auth: email already registered")
+	ErrInvalidEmail     = errors.New("auth: invalid email")
+	ErrWeakPassword     = errors.New("auth: password too weak (min 8 chars)")
+	ErrInvalidCreds     = errors.New("auth: invalid credentials")
+	ErrUserDisabled     = errors.New("auth: user disabled")
+	ErrSessionExpired   = errors.New("auth: session expired or invalid")
+	ErrForbidden        = errors.New("auth: forbidden")
+	ErrUnknownRole      = errors.New("auth: unknown role")
+	ErrInvalidPolicy    = errors.New("auth: invalid policy")
+	ErrInvalidStatus    = errors.New("auth: invalid status")
+	ErrKeyRevoked       = errors.New("auth: api key revoked")
+	ErrOAuthExists      = errors.New("auth: oauth account already linked")
+	ErrSsoState         = errors.New("auth: sso state invalid or expired")
+	ErrSsoDenied        = errors.New("auth: sso login denied")
+	ErrSsoNotConfigured = errors.New("auth: sso not configured")
 )
 
 // Service — прикладной сервис auth (BE-0002 Use Cases). Не зависит от
@@ -37,6 +41,7 @@ type Service struct {
 	repo       Repository
 	sessionTTL time.Duration
 	audit      *audit.Service
+	sso        OIDCProvider
 }
 
 // NewService создаёт сервис auth. sessionTTL — время жизни сессии

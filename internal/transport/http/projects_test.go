@@ -307,6 +307,16 @@ func (testAuth) RevokeApiKey(ctx context.Context, tenantID, actorID, keyID strin
 	return nil
 }
 
+func (testAuth) SsoAuthorizeURL(_ context.Context, _ string) (string, error) {
+	return "https://idp.example/authorize", nil
+}
+
+func (testAuth) SsoCallback(_ context.Context, code, state string) (*auth.User, string, error) {
+	return &auth.User{ID: "u-1", Email: "sso@example.com", Role: auth.RoleUser, TenantID: "t-1"}, "token-1", nil
+}
+
+func (testAuth) SsoEnabled() auth.SsoConfig { return auth.SsoConfig{} }
+
 func testRouterWithProjects(p ProjectService) http.Handler {
 	return NewRouter(stair.NewService(), p, testAuth{}, DefaultConfig())
 }

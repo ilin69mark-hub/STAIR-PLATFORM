@@ -20,6 +20,12 @@ type fakeAuth struct {
 	authUser    *auth.User
 	authErr     error
 	tokens      map[string]*auth.User
+
+	ssoURL      string
+	ssoBeginErr error
+	ssoErr      error
+	ssoEnabled  bool
+	ssoProvider string
 }
 
 func newFakeAuth() *fakeAuth {
@@ -96,6 +102,21 @@ func (f *fakeAuth) ListApiKeys(ctx context.Context, tenantID string) ([]*auth.Ap
 
 func (f *fakeAuth) RevokeApiKey(ctx context.Context, tenantID, actorID, keyID string) error {
 	return nil
+}
+
+func (f *fakeAuth) SsoAuthorizeURL(_ context.Context, _ string) (string, error) {
+	return f.ssoURL, f.ssoBeginErr
+}
+
+func (f *fakeAuth) SsoCallback(_ context.Context, code, state string) (*auth.User, string, error) {
+	if f.ssoErr != nil {
+		return nil, "", f.ssoErr
+	}
+	return f.authUser, "sso-token", nil
+}
+
+func (f *fakeAuth) SsoEnabled() auth.SsoConfig {
+	return auth.SsoConfig{Enabled: f.ssoEnabled, Provider: f.ssoProvider}
 }
 
 func authTestRouter(a AuthService) http.Handler {

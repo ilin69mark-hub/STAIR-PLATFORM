@@ -10,3 +10,11 @@ database:
 
 redis:
   addr: "localhost:6379"
+
+# SSO (EDR-0017): включён только когда задан issuer. Секрет не коммитим.
+sso:
+  provider: "sso"               # STAIR_SSO_PROVIDER
+  issuer: ""                    # STAIR_SSO_ISSUER (пусто → SSO выключен)
+  client_id: ""                 # STAIR_SSO_CLIENT_ID
+  client_secret: ""             # STAIR_SSO_CLIENT_SECRET
+  redirect_url: ""              # STAIR_SSO_REDIRECT_URL

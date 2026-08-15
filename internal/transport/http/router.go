@@ -34,6 +34,11 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	mux.Handle("GET /api/v1/auth/me", authProtected(handleMe()))
 	mux.Handle("POST /api/v1/auth/logout", authMutating(handleLogout(authSvc)))
 
+	// SSO (EDR-0017 §6): публичные маршруты (начала и колбэк).
+	mux.HandleFunc("GET /api/v1/auth/sso", handleSsoBegin(authSvc))
+	mux.HandleFunc("GET /api/v1/auth/sso/callback", handleSsoCallback(authSvc))
+	mux.HandleFunc("GET /api/v1/auth/sso/config", handleSsoConfig(authSvc))
+
 	mux.Handle("GET /api/v1/admin/users", authProtected(handleListUsers(authSvc)))
 	mux.Handle("PATCH /api/v1/admin/users/{id}", authMutating(handleUpdateUser(authSvc)))
 	mux.Handle("GET /api/v1/admin/overview", authProtected(handleAdminOverview(authSvc, projects)))

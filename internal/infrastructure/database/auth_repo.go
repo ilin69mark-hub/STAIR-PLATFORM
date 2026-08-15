@@ -320,3 +320,102 @@ func scanApiKey(row pgx.Row) (*auth.ApiKey, error) {
 	k.LastUsedAt = lastUsedAt
 	return &k, nil
 }
+
+// ---- SSO / OAuthAccount (EDR-0017) ----
+
+// CreateOAuthAccount сохраняет привязку внешнего identity (EDR-0017 §3.1).
+// ErrOAuthExists — (provider, subject) уже привязан.
+func (r *AuthRepository) CreateOAuthAccount(ctx context.Context, a *auth.OAuthAccount) error {
+	err := r.pool.QueryRow(ctx,
+		`INSERT INTO oauth_accounts (provider, subject, user_id)
+		 VALUES ($1, $2, $3)
+		 RETURNING id, created_at`,
+		a.Provider, a.Subject, a.UserID,
+	).Scan(&a.ID, &a.CreatedAt)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique_violation
+			return auth.ErrOAuthExists
+		}
+		return fmt.Errorf("auth: create oauth account: %w", err)
+	}
+	return nil
+}
+
+// GetOAuthAccountByProviderSubject возвращает привязку по внешнему identity;
+// ErrNotFound — нет.
+func (r *AuthRepository) GetOAuthAccountByProviderSubject(ctx context.Context, provider, subject string) (*auth.OAuthAccount, error) {
+	a, err := scanOAuthAccount(r.pool.QueryRow(ctx,
+		`SELECT id, provider, subject, user_id, created_at
+		 FROM oauth_accounts WHERE provider = $1 AND subject = $2`, provider, subject))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, auth.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("auth: get oauth account: %w", err)
+	}
+	return a, nil
+}
+
+// ListOAuthAccounts возвращает привязки пользователя.
+func (r *AuthRepository) ListOAuthAccounts(ctx context.Context, userID string) ([]*auth.OAuthAccount, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, provider, subject, user_id, created_at
+		 FROM oauth_accounts WHERE user_id = $1 ORDER BY created_at`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("auth: list oauth accounts: %w", err)
+	}
+	defer rows.Close()
+	var out []*auth.OAuthAccount
+	for rows.Next() {
+		a, err := scanOAuthAccount(rows)
+		if err != nil {
+			return nil, fmt.Errorf("auth: scan oauth account: %w", err)
+		}
+		out = append(out, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("auth: list oauth accounts rows: %w", err)
+	}
+	return out, nil
+}
+
+// CreateSsoState сохраняет одноразовый OIDC-state (EDR-0017 §3.3).
+func (r *AuthRepository) CreateSsoState(ctx context.Context, s *auth.SsoState) error {
+	err := r.pool.QueryRow(ctx,
+		`INSERT INTO sso_states (state_hash, nonce, pkce_verifier, redirect, expires_at)
+		 VALUES ($1, $2, $3, $4, $5)
+		 RETURNING id, created_at`,
+		s.StateHash, s.Nonce, s.PKCEVerifier, s.Redirect, s.ExpiresAt,
+	).Scan(&s.ID, &s.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("auth: create sso state: %w", err)
+	}
+	return nil
+}
+
+// ConsumeSsoState извлекает и удаляет одноразовый state; ErrNotFound — нет.
+func (r *AuthRepository) ConsumeSsoState(ctx context.Context, stateHash string) (*auth.SsoState, error) {
+	var s auth.SsoState
+	err := r.pool.QueryRow(ctx,
+		`DELETE FROM sso_states
+		 WHERE state_hash = $1 AND expires_at > now()
+		 RETURNING id, state_hash, nonce, pkce_verifier, redirect, created_at, expires_at`,
+		stateHash,
+	).Scan(&s.ID, &s.StateHash, &s.Nonce, &s.PKCEVerifier, &s.Redirect, &s.CreatedAt, &s.ExpiresAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, auth.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("auth: consume sso state: %w", err)
+	}
+	return &s, nil
+}
+
+func scanOAuthAccount(row pgx.Row) (*auth.OAuthAccount, error) {
+	var a auth.OAuthAccount
+	if err := row.Scan(&a.ID, &a.Provider, &a.Subject, &a.UserID, &a.CreatedAt); err != nil {
+		return nil, err
+	}
+	return &a, nil
+}

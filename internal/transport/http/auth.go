@@ -38,6 +38,12 @@ type AuthService interface {
 	ListApiKeys(ctx context.Context, tenantID string) ([]*auth.ApiKey, error)
 	// RevokeApiKey отзывает ключ (мягко).
 	RevokeApiKey(ctx context.Context, tenantID, actorID, keyID string) error
+	// SsoAuthorizeURL начинает SSO-вход (EDR-0017 §6): возвращает URL IdP.
+	SsoAuthorizeURL(ctx context.Context, redirect string) (string, error)
+	// SsoCallback завершает SSO-вход; возвращает пользователя и session-токен.
+	SsoCallback(ctx context.Context, code, state string) (*auth.User, string, error)
+	// SsoEnabled возвращает публичную конфигурацию SSO.
+	SsoEnabled() auth.SsoConfig
 }
 
 // Имена cookie (SEC-0003). session — httpOnly, его читает только сервер;

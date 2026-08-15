@@ -89,6 +89,34 @@ body {
   gap: 14px;
 }
 
+/* SSO (EDR-0017): разделитель и кнопка входа через провайдер. */
+.auth__sso {
+  margin-top: 18px;
+}
+
+.auth__divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.auth__divider::before,
+.auth__divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.auth__sso-btn {
+  width: 100%;
+  display: inline-flex;
+  justify-content: center;
+}
+
 .page__title {
   margin: 0;
   font-size: 28px;

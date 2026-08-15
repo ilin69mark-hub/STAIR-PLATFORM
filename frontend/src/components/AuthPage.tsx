@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useAuth } from '../auth/context'
+import { authApi, type SsoConfig } from '../api/auth'
 import { apiErrorMessage } from '../auth/errors'
 
 type Mode = 'login' | 'register'
@@ -12,6 +13,32 @@ export function AuthPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [sso, setSso] = useState<SsoConfig | null>(null)
+
+  // SSO (EDR-0017): показываем кнопку только когда провайдер включён.
+  useEffect(() => {
+    let cancelled = false
+    authApi
+      .ssoConfig()
+      .then((c) => {
+        if (!cancelled) setSso(c)
+      })
+      .catch(() => {
+        if (!cancelled) setSso(null)
+      })
+    // Обработка отказа IdP (редирект колбэка с ?error=...).
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('error') === 'sso_error') {
+      const msg = params.get('message') ?? 'Не удалось войти через SSO'
+      setError(msg)
+      const url = new URL(window.location.href)
+      url.search = ''
+      window.history.replaceState({}, '', url.toString())
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const switchMode = (m: Mode) => {
     setMode(m)
@@ -112,6 +139,17 @@ export function AuthPage() {
               </button>
             </div>
           </form>
+
+          {sso?.enabled && (
+            <div className="auth__sso">
+              <div className="auth__divider">
+                <span>или</span>
+              </div>
+              <a className="btn btn--ghost auth__sso-btn" href={authApi.ssoUrl('/')}>
+                Войти через {sso.provider}
+              </a>
+            </div>
+          )}
         </section>
       </div>
     </div>

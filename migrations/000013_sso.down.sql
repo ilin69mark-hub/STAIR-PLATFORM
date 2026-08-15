@@ -1,0 +1,3 @@
+-- STAIR PLATFORM — SSO (EDR-0017): откат.
+DROP TABLE IF EXISTS sso_states;
+DROP TABLE IF EXISTS oauth_accounts;
