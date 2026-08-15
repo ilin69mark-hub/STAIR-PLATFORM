@@ -2,8 +2,10 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -130,6 +132,29 @@ func (r *AuthRepository) UpdateUserRole(ctx context.Context, tenantID, userID st
 	return nil
 }
 
+// UpdateUserStatus меняет статус пользователя tenant (EDR-0016 §3.1).
+// ErrNotFound — пользователь не найден в tenant.
+func (r *AuthRepository) UpdateUserStatus(ctx context.Context, tenantID, userID string, status auth.Status) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE users SET status = $1, updated_at = now()
+		 WHERE id = $2 AND tenant_id = $3`, status, userID, tenantID)
+	if err != nil {
+		return fmt.Errorf("auth: update user status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return auth.ErrNotFound
+	}
+	return nil
+}
+
+// DeleteUserSessions удаляет все сессии пользователя (блокировка, EDR-0016).
+func (r *AuthRepository) DeleteUserSessions(ctx context.Context, userID string) error {
+	if _, err := r.pool.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, userID); err != nil {
+		return fmt.Errorf("auth: delete user sessions: %w", err)
+	}
+	return nil
+}
+
 func (r *AuthRepository) CreateSession(ctx context.Context, s *auth.Session) error {
 	err := r.pool.QueryRow(ctx,
 		`INSERT INTO sessions (user_id, token_hash, expires_at)
@@ -163,4 +188,135 @@ func (r *AuthRepository) DeleteSessionByTokenHash(ctx context.Context, tokenHash
 		return fmt.Errorf("auth: delete session: %w", err)
 	}
 	return nil
+}
+
+// ---- политики безопасности (EDR-0016 §3.2) ----
+
+// GetPolicy возвращает политику tenant; ErrNotFound — настройки отсутствуют.
+func (r *AuthRepository) GetPolicy(ctx context.Context, tenantID string) (auth.Policy, error) {
+	var raw []byte
+	err := r.pool.QueryRow(ctx,
+		`SELECT policy FROM tenant_settings WHERE tenant_id = $1`, tenantID,
+	).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return auth.DefaultPolicy(), auth.ErrNotFound
+	}
+	if err != nil {
+		return auth.Policy{}, fmt.Errorf("auth: get policy: %w", err)
+	}
+	var p auth.Policy
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return auth.Policy{}, fmt.Errorf("auth: unmarshal policy: %w", err)
+		}
+	}
+	return p.WithDefaults(), nil
+}
+
+// UpdatePolicy сохраняет политику tenant (upsert, EDR-0016 §3.2).
+func (r *AuthRepository) UpdatePolicy(ctx context.Context, tenantID string, p auth.Policy) error {
+	raw, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Errorf("auth: marshal policy: %w", err)
+	}
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO tenant_settings (tenant_id, policy, updated_at)
+		 VALUES ($1, $2, now())
+		 ON CONFLICT (tenant_id) DO UPDATE SET policy = EXCLUDED.policy, updated_at = now()`,
+		tenantID, raw); err != nil {
+		return fmt.Errorf("auth: update policy: %w", err)
+	}
+	return nil
+}
+
+// ---- API-ключи (EDR-0016 §3.3) ----
+
+// CreateApiKey сохраняет API-ключ.
+func (r *AuthRepository) CreateApiKey(ctx context.Context, k *auth.ApiKey) error {
+	err := r.pool.QueryRow(ctx,
+		`INSERT INTO api_keys (tenant_id, name, token_hash, scopes, created_by)
+		 VALUES ($1, $2, $3, $4, $5)
+		 RETURNING id, created_at`,
+		k.TenantID, k.Name, k.TokenHash, k.Scopes, nullable(k.CreatedBy),
+	).Scan(&k.ID, &k.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("auth: create api key: %w", err)
+	}
+	return nil
+}
+
+// ListApiKeys возвращает ключи tenant (по убыванию created_at).
+func (r *AuthRepository) ListApiKeys(ctx context.Context, tenantID string) ([]*auth.ApiKey, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, tenant_id, name, token_hash, scopes, created_by, created_at, revoked_at, last_used_at
+		 FROM api_keys WHERE tenant_id = $1 ORDER BY created_at DESC`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("auth: list api keys: %w", err)
+	}
+	defer rows.Close()
+	var out []*auth.ApiKey
+	for rows.Next() {
+		k, err := scanApiKey(rows)
+		if err != nil {
+			return nil, fmt.Errorf("auth: scan api key: %w", err)
+		}
+		out = append(out, k)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("auth: list api keys rows: %w", err)
+	}
+	return out, nil
+}
+
+// GetApiKeyByTokenHash возвращает ключ по хешу токена; ErrNotFound — нет.
+func (r *AuthRepository) GetApiKeyByTokenHash(ctx context.Context, tokenHash string) (*auth.ApiKey, error) {
+	k, err := scanApiKey(r.pool.QueryRow(ctx,
+		`SELECT id, tenant_id, name, token_hash, scopes, created_by, created_at, revoked_at, last_used_at
+		 FROM api_keys WHERE token_hash = $1`, tokenHash))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, auth.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("auth: get api key: %w", err)
+	}
+	return k, nil
+}
+
+// RevokeApiKey отзывает ключ (мягко: revoked_at); ErrNotFound — нет.
+func (r *AuthRepository) RevokeApiKey(ctx context.Context, tenantID, keyID string) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND tenant_id = $2 AND revoked_at IS NULL`,
+		keyID, tenantID)
+	if err != nil {
+		return fmt.Errorf("auth: revoke api key: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return auth.ErrNotFound
+	}
+	return nil
+}
+
+// TouchApiKey обновляет last_used_at (использование ключа).
+func (r *AuthRepository) TouchApiKey(ctx context.Context, keyID string) error {
+	if _, err := r.pool.Exec(ctx, `UPDATE api_keys SET last_used_at = now() WHERE id = $1`, keyID); err != nil {
+		return fmt.Errorf("auth: touch api key: %w", err)
+	}
+	return nil
+}
+
+func scanApiKey(row pgx.Row) (*auth.ApiKey, error) {
+	var k auth.ApiKey
+	var createdBy *string
+	var revokedAt *time.Time
+	var lastUsedAt *time.Time
+	if err := row.Scan(&k.ID, &k.TenantID, &k.Name, &k.TokenHash, &k.Scopes,
+		&createdBy, &k.CreatedAt, &revokedAt, &lastUsedAt); err != nil {
+		return nil, err
+	}
+	if createdBy != nil {
+		k.CreatedBy = *createdBy
+	}
+	k.RevokedAt = revokedAt
+	k.LastUsedAt = lastUsedAt
+	return &k, nil
 }

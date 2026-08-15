@@ -98,6 +98,13 @@ func (s *Service) ListProjects(ctx context.Context, tenantID, userID string) ([]
 	return s.repo.ListProjects(ctx, tenantID, userID)
 }
 
+// ListTenantProjects возвращает все проекты tenant (EDR-0016 §3):
+// используется admin-экспортом и обзором; членство не требуется.
+// Право data.export/users.list проверяется в транспорте.
+func (s *Service) ListTenantProjects(ctx context.Context, tenantID string) ([]*Project, error) {
+	return s.repo.ListTenantProjects(ctx, tenantID)
+}
+
 // ListMembers возвращает участников проекта (EDR-0008). Требуется членство.
 func (s *Service) ListMembers(ctx context.Context, tenantID, userID, projectID string) ([]*ProjectMember, error) {
 	if _, ok, err := s.member(ctx, tenantID, userID, projectID); err != nil {

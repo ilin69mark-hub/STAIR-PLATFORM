@@ -4,6 +4,7 @@ import { projectsApi } from './api/projects'
 import type { Project } from './api/types'
 import { ProjectList } from './components/ProjectList'
 import { ProjectDetail } from './components/ProjectDetail'
+import { AdminPanel } from './components/AdminPanel'
 import { AuthPage } from './components/AuthPage'
 import { useAuth } from './auth/context'
 import { ApiError } from './api/types'
@@ -12,6 +13,7 @@ function App() {
   const { user, loading, logout } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [showAdmin, setShowAdmin] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loadingList, setLoadingList] = useState(false)
 
@@ -47,7 +49,14 @@ function App() {
 
   const handleLogout = async () => {
     setSelectedId(null)
+    setShowAdmin(false)
     await logout()
+  }
+
+  if (showAdmin) {
+    return (
+      <AdminPanel currentUserId={user.id} onBack={() => setShowAdmin(false)} />
+    )
   }
 
   if (selectedId) {
@@ -69,6 +78,11 @@ function App() {
         </div>
         <div className="page__actions">
           <span className="muted">{user.email}</span>
+          {user.role === 'admin' && (
+            <button className="btn" onClick={() => setShowAdmin(true)}>
+              Администрирование
+            </button>
+          )}
           <button className="btn btn--ghost" onClick={handleLogout}>
             Выйти
           </button>

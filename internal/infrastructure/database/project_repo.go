@@ -114,6 +114,29 @@ func (r *ProjectRepository) ListProjects(ctx context.Context, tenantID, userID s
 	return out, rows.Err()
 }
 
+// ListTenantProjects возвращает все проекты tenant (EDR-0016: экспорт
+// данных и admin-overview); членство не требуется.
+func (r *ProjectRepository) ListTenantProjects(ctx context.Context, tenantID string) ([]*project.Project, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT p.id, p.name, p.description, p.status, p.owner_id, p.created_at, p.updated_at
+		 FROM projects p
+		 WHERE p.tenant_id = $1
+		 ORDER BY p.created_at DESC`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("project: list tenant projects: %w", err)
+	}
+	defer rows.Close()
+	var out []*project.Project
+	for rows.Next() {
+		p, err := scanProject(rows)
+		if err != nil {
+			return nil, fmt.Errorf("project: list tenant projects: %w", err)
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // ---- members (EDR-0008) ----
 
 func scanMember(row pgx.Row) (*project.ProjectMember, error) {

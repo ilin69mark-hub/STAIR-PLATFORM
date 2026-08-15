@@ -42,13 +42,24 @@ func DefaultConfig() Config {
 	}
 }
 
-// requireAuth — обязательная аутентификация (SEC-0003). Читает session-cookie,
-// проверяет токен через auth.Service и кладёт пользователя в контекст.
-// При ротации сессии (EDR-0014 §3.1) обновляет session-cookie новым токеном.
-// 401 — нет/невалидная сессия.
+// requireAuth — обязательная аутентификация (SEC-0003). Принимает либо
+// session-cookie (браузер), либо Authorization: Bearer <api-key> (EDR-0016
+// §7, интеграции). Читает токен, проверяет через auth.Service и кладёт
+// субъект в контекст. При ротации сессии (EDR-0014 §3.1) обновляет
+// session-cookie новым токеном. 401 — нет/невалидная сессия.
 func requireAuth(svc AuthService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// API-ключ (Bearer): не-браузерный клиент, CSRF не требуется.
+			if bearer := bearerToken(r); bearer != "" {
+				key, err := svc.AuthenticateApiKey(r.Context(), bearer)
+				if err != nil {
+					writeError(w, http.StatusUnauthorized, "unauthorized", "invalid api key")
+					return
+				}
+				next.ServeHTTP(w, r.WithContext(withApiKey(r.Context(), key)))
+				return
+			}
 			token := sessionToken(r)
 			if token == "" {
 				writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
@@ -67,6 +78,15 @@ func requireAuth(svc AuthService) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(withAuthUser(r.Context(), u)))
 		})
 	}
+}
+
+// bearerToken извлекает opaque-токен из Authorization: Bearer <token>.
+func bearerToken(r *http.Request) string {
+	h := r.Header.Get("Authorization")
+	if len(h) > 7 && strings.EqualFold(h[:7], "Bearer ") {
+		return strings.TrimSpace(h[7:])
+	}
+	return ""
 }
 
 // requireCSRF — защита от CSRF для мутирующих запросов (double-submit):

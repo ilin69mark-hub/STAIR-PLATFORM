@@ -114,6 +114,41 @@ export interface User {
   tenant_id: string
 }
 
+// ---- Enterprise admin (Phase G, EDR-0016) ----
+
+export interface AdminUser extends User {
+  status: 'active' | 'disabled'
+}
+
+export interface AdminPolicy {
+  min_password_length: number
+  require_number: boolean
+  require_upper: boolean
+  session_ttl_seconds: number
+  login_rate_limit_per_min: number
+}
+
+export interface AdminOverview {
+  tenant_id: string
+  users: number
+  active_users: number
+  disabled_users: number
+  admins: number
+  projects: number
+  active_api_keys: number
+  total_api_keys: number
+}
+
+export interface ApiKey {
+  id: string
+  name: string
+  scopes: string[]
+  created_by?: string
+  created_at: string
+  revoked_at?: string
+  last_used_at?: string
+}
+
 // ---- Аудит (Phase G, EDR-0013): журнал событий безопасности ----
 
 export interface AuditEvent {

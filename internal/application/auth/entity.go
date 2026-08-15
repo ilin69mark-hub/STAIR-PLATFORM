@@ -7,6 +7,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -30,13 +31,28 @@ const (
 	PermissionUsersList Permission = "users.list"
 	// PermissionUsersUpdateRole — смена роли пользователя (EDR-0015 §3.4).
 	PermissionUsersUpdateRole Permission = "users.update_role"
+	// PermissionUsersManage — смена роли и статуса (EDR-0016 §3.1).
+	PermissionUsersManage Permission = "users.manage"
+	// PermissionSettingsRead — чтение политик безопасности (EDR-0016).
+	PermissionSettingsRead Permission = "settings.read"
+	// PermissionSettingsWrite — изменение политик безопасности (EDR-0016).
+	PermissionSettingsWrite Permission = "settings.write"
+	// PermissionDataExport — экспорт данных tenant (EDR-0016).
+	PermissionDataExport Permission = "data.export"
+	// PermissionApiKeysManage — управление API-ключами (EDR-0016).
+	PermissionApiKeysManage Permission = "api_keys.manage"
 )
 
-// Permissions возвращает набор прав роли (матрица EDR-0015 §3.2).
+// Permissions возвращает набор прав роли (матрица EDR-0015 §3.2,
+// расширена EDR-0016 §3.1).
 func (r Role) Permissions() []Permission {
 	switch r {
 	case RoleAdmin:
-		return []Permission{PermissionAuditReadAll, PermissionUsersList, PermissionUsersUpdateRole}
+		return []Permission{
+			PermissionAuditReadAll, PermissionUsersList, PermissionUsersUpdateRole,
+			PermissionUsersManage, PermissionSettingsRead, PermissionSettingsWrite,
+			PermissionDataExport, PermissionApiKeysManage,
+		}
 	default:
 		return nil
 	}
@@ -101,6 +117,87 @@ type Session struct {
 	ExpiresAt time.Time
 }
 
+// Policy — настраиваемые политики безопасности tenant (EDR-0016 §3.2).
+// Хранится как JSONB в tenant_settings; нулевые значения означают дефолт.
+type Policy struct {
+	MinPasswordLength    int  `json:"min_password_length"`
+	RequireNumber        bool `json:"require_number"`
+	RequireUpper         bool `json:"require_upper"`
+	SessionTTLSeconds    int  `json:"session_ttl_seconds"`
+	LoginRateLimitPerMin int  `json:"login_rate_limit_per_min"`
+}
+
+// DefaultPolicy возвращает политику по умолчанию (совпадает с поведением
+// MVP: min 8 символов, TTL 24ч, лимит входа 10/мин).
+func DefaultPolicy() Policy {
+	return Policy{
+		MinPasswordLength:    8,
+		RequireNumber:        false,
+		RequireUpper:         false,
+		SessionTTLSeconds:    86400,
+		LoginRateLimitPerMin: 10,
+	}
+}
+
+// WithDefaults заполняет нулевые поля значениями по умолчанию.
+func (p Policy) WithDefaults() Policy {
+	d := DefaultPolicy()
+	if p.MinPasswordLength <= 0 {
+		p.MinPasswordLength = d.MinPasswordLength
+	}
+	if p.SessionTTLSeconds <= 0 {
+		p.SessionTTLSeconds = d.SessionTTLSeconds
+	}
+	if p.LoginRateLimitPerMin <= 0 {
+		p.LoginRateLimitPerMin = d.LoginRateLimitPerMin
+	}
+	return p
+}
+
+// Validate проверяет диапазоны политики; ErrInvalidPolicy — невалидна.
+func (p Policy) Validate() error {
+	if p.MinPasswordLength < 8 || p.MinPasswordLength > 128 {
+		return fmt.Errorf("%w: min_password_length must be in [8,128]", ErrInvalidPolicy)
+	}
+	if p.SessionTTLSeconds < 300 || p.SessionTTLSeconds > 86400 {
+		return fmt.Errorf("%w: session_ttl_seconds must be in [300,86400]", ErrInvalidPolicy)
+	}
+	if p.LoginRateLimitPerMin < 1 || p.LoginRateLimitPerMin > 1000 {
+		return fmt.Errorf("%w: login_rate_limit_per_min must be in [1,1000]", ErrInvalidPolicy)
+	}
+	return nil
+}
+
+// ApiKey — долгоживущий service-токен для интеграций (EDR-0016 §3.3).
+// TokenHash — SHA-256 от opaque-токена; открытый токен отдаётся один раз
+// при создании. RevokedAt — мягкий отзыв (мгновенная инвалидация).
+type ApiKey struct {
+	ID         string
+	TenantID   string
+	Name       string
+	TokenHash  string
+	Scopes     []string
+	CreatedBy  string
+	CreatedAt  time.Time
+	RevokedAt  *time.Time
+	LastUsedAt *time.Time
+}
+
+// Active возвращает true, если ключ не отозван.
+func (k *ApiKey) Active() bool {
+	return k.RevokedAt == nil
+}
+
+// HasScope возвращает true, если ключ обладает правом scope.
+func (k *ApiKey) HasScope(scope Permission) bool {
+	for _, s := range k.Scopes {
+		if Permission(s) == scope {
+			return true
+		}
+	}
+	return false
+}
+
 // Repository — порт доступа к данным auth (BE-0005).
 type Repository interface {
 	// DefaultTenant возвращает дефолтный tenant (slug "default").
@@ -116,6 +213,9 @@ type Repository interface {
 	ListUsers(ctx context.Context, tenantID string) ([]*User, error)
 	// UpdateUserRole меняет роль пользователя tenant; ErrNotFound — нет.
 	UpdateUserRole(ctx context.Context, tenantID, userID string, role Role) error
+	// UpdateUserStatus меняет статус пользователя tenant (EDR-0016 §3.1);
+	// ErrNotFound — нет.
+	UpdateUserStatus(ctx context.Context, tenantID, userID string, status Status) error
 
 	// CreateSession сохраняет сессию (токен уже захэширован).
 	CreateSession(ctx context.Context, s *Session) error
@@ -124,4 +224,24 @@ type Repository interface {
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (*Session, error)
 	// DeleteSessionByTokenHash удаляет сессию (лог-аут).
 	DeleteSessionByTokenHash(ctx context.Context, tokenHash string) error
+	// DeleteUserSessions удаляет все сессии пользователя (блокировка,
+	// EDR-0016 §3.1; немедленная ревокация).
+	DeleteUserSessions(ctx context.Context, userID string) error
+
+	// GetPolicy возвращает политику безопасности tenant (EDR-0016 §3.2);
+	// ErrNotFound — настройки отсутствуют (дефолтная политика).
+	GetPolicy(ctx context.Context, tenantID string) (Policy, error)
+	// UpdatePolicy сохраняет политику безопасности tenant (upsert).
+	UpdatePolicy(ctx context.Context, tenantID string, p Policy) error
+
+	// CreateApiKey сохраняет API-ключ (EDR-0016 §3.3).
+	CreateApiKey(ctx context.Context, k *ApiKey) error
+	// ListApiKeys возвращает ключи tenant (по убыванию created_at).
+	ListApiKeys(ctx context.Context, tenantID string) ([]*ApiKey, error)
+	// GetApiKeyByTokenHash возвращает ключ по хешу токена; ErrNotFound — нет.
+	GetApiKeyByTokenHash(ctx context.Context, tokenHash string) (*ApiKey, error)
+	// RevokeApiKey отзывает ключ (мягко: revoked_at); ErrNotFound — нет.
+	RevokeApiKey(ctx context.Context, tenantID, keyID string) error
+	// TouchApiKey обновляет last_used_at (использование ключа).
+	TouchApiKey(ctx context.Context, keyID string) error
 }

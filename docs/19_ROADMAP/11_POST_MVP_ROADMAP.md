@@ -105,7 +105,7 @@ Audit — **CLOSED 2026-08-15**: реализовано end-to-end (G1, EDR-0013
 
 SSO
 
-Enterprise Controls
+Enterprise Controls — **CLOSED 2026-08-15**: реализовано end-to-end (G4, EDR-0016) — admin-панель (пользователи: роль/статус, политики безопасности per-tenant, экспорт данных JSON/CSV), API-ключи (service-токены со scope-правами, Bearer-доступ), аудит всех admin-действий.
 
 Advanced Permissions — **CLOSED 2026-08-15**: реализовано end-to-end (G3, EDR-0015) — permission-модель (RBAC) в auth (admin/user) и project (owner/editor/viewer) с единым механизмом HasPermission вместо CanEdit/CanManage и inline-сравнений; admin-эндпоинты управления пользователями (список и смена роли, tenant-скоуп, запрет смены собственной роли).
 

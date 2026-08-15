@@ -20,6 +20,7 @@ type ProjectService interface {
 	CreateProject(ctx context.Context, tenantID, ownerID, name, description string) (*project.Project, error)
 	GetProject(ctx context.Context, tenantID, userID, id string) (*project.Project, error)
 	ListProjects(ctx context.Context, tenantID, userID string) ([]*project.Project, error)
+	ListTenantProjects(ctx context.Context, tenantID string) ([]*project.Project, error)
 	ListMembers(ctx context.Context, tenantID, userID, projectID string) ([]*project.ProjectMember, error)
 	AddMember(ctx context.Context, tenantID, actorID, projectID, userID string, role project.ProjectRole) error
 	AddMemberByEmail(ctx context.Context, tenantID, actorID, projectID, email string, role project.ProjectRole) error

@@ -60,6 +60,14 @@ func (f *fakeProjectService) ListProjects(ctx context.Context, tenantID, userID 
 	return out, nil
 }
 
+func (f *fakeProjectService) ListTenantProjects(ctx context.Context, tenantID string) ([]*project.Project, error) {
+	out := make([]*project.Project, 0, len(f.projects))
+	for _, p := range f.projects {
+		out = append(out, p)
+	}
+	return out, nil
+}
+
 func (f *fakeProjectService) ListMembers(ctx context.Context, tenantID, userID, projectID string) ([]*project.ProjectMember, error) {
 	if _, ok := f.projects[projectID]; !ok {
 		return nil, project.ErrNotFound
@@ -261,6 +269,41 @@ func (testAuth) ListUsers(ctx context.Context, tenantID string) ([]*auth.User, e
 }
 
 func (testAuth) UpdateUserRole(ctx context.Context, tenantID, actorID, userID string, role auth.Role) error {
+	return nil
+}
+
+func (testAuth) UpdateUser(ctx context.Context, tenantID, actorID, userID string, role *auth.Role, status *auth.Status) error {
+	return nil
+}
+
+func (testAuth) GetPolicy(ctx context.Context, tenantID string) (auth.Policy, error) {
+	return auth.DefaultPolicy(), nil
+}
+
+func (testAuth) UpdatePolicy(ctx context.Context, tenantID, actorID string, p auth.Policy) error {
+	return nil
+}
+
+func (testAuth) AuthenticateApiKey(ctx context.Context, token string) (*auth.ApiKey, error) {
+	if token == "" {
+		return nil, auth.ErrSessionExpired
+	}
+	return &auth.ApiKey{TenantID: "t-1", Scopes: []string{string(auth.PermissionUsersList)}}, nil
+}
+
+func (testAuth) CreateApiKey(ctx context.Context, tenantID, actorID, name string, scopes []auth.Permission) (*auth.ApiKey, string, error) {
+	sc := make([]string, 0, len(scopes))
+	for _, s := range scopes {
+		sc = append(sc, string(s))
+	}
+	return &auth.ApiKey{ID: "key-1", TenantID: tenantID, Name: name, Scopes: sc}, "secret-token", nil
+}
+
+func (testAuth) ListApiKeys(ctx context.Context, tenantID string) ([]*auth.ApiKey, error) {
+	return nil, nil
+}
+
+func (testAuth) RevokeApiKey(ctx context.Context, tenantID, actorID, keyID string) error {
 	return nil
 }
 

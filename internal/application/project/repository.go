@@ -21,6 +21,9 @@ type Repository interface {
 	// ListProjects возвращает проекты tenant'а, где вызывающий является
 	// членом (владелец или участник), в порядке создания.
 	ListProjects(ctx context.Context, tenantID, userID string) ([]*Project, error)
+	// ListTenantProjects возвращает ВСЕ проекты tenant (EDR-0016 §3,
+	// экспорт/overview); используется admin-сервисом, членство не требуется.
+	ListTenantProjects(ctx context.Context, tenantID string) ([]*Project, error)
 
 	// GetMember возвращает членство пользователя в проекте;
 	// ErrNotFound — не член (или проект вне tenant).

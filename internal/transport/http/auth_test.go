@@ -63,6 +63,41 @@ func (f *fakeAuth) UpdateUserRole(ctx context.Context, tenantID, actorID, userID
 	return nil
 }
 
+func (f *fakeAuth) UpdateUser(ctx context.Context, tenantID, actorID, userID string, role *auth.Role, status *auth.Status) error {
+	return nil
+}
+
+func (f *fakeAuth) GetPolicy(ctx context.Context, tenantID string) (auth.Policy, error) {
+	return auth.DefaultPolicy(), nil
+}
+
+func (f *fakeAuth) UpdatePolicy(ctx context.Context, tenantID, actorID string, p auth.Policy) error {
+	return nil
+}
+
+func (f *fakeAuth) AuthenticateApiKey(ctx context.Context, token string) (*auth.ApiKey, error) {
+	if token != "secret-token" {
+		return nil, auth.ErrSessionExpired
+	}
+	return &auth.ApiKey{TenantID: "t-1", Scopes: []string{string(auth.PermissionUsersList)}}, nil
+}
+
+func (f *fakeAuth) CreateApiKey(ctx context.Context, tenantID, actorID, name string, scopes []auth.Permission) (*auth.ApiKey, string, error) {
+	sc := make([]string, 0, len(scopes))
+	for _, s := range scopes {
+		sc = append(sc, string(s))
+	}
+	return &auth.ApiKey{ID: "key-1", TenantID: tenantID, Name: name, Scopes: sc}, "secret-token", nil
+}
+
+func (f *fakeAuth) ListApiKeys(ctx context.Context, tenantID string) ([]*auth.ApiKey, error) {
+	return nil, nil
+}
+
+func (f *fakeAuth) RevokeApiKey(ctx context.Context, tenantID, actorID, keyID string) error {
+	return nil
+}
+
 func authTestRouter(a AuthService) http.Handler {
 	return NewRouter(stair.NewService(), nil, a, DefaultConfig())
 }

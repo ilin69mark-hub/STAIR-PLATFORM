@@ -11,13 +11,13 @@ import (
 	"stairplatform/internal/application/auth"
 )
 
-// roleErrAuth — admin-аутентификация с управляемой ошибкой UpdateUserRole.
+// roleErrAuth — admin-аутентификация с управляемой ошибкой UpdateUser.
 type roleErrAuth struct {
 	adminAuth
 	updateErr error
 }
 
-func (r *roleErrAuth) UpdateUserRole(ctx context.Context, tenantID, actorID, userID string, role auth.Role) error {
+func (r *roleErrAuth) UpdateUser(ctx context.Context, tenantID, actorID, userID string, role *auth.Role, status *auth.Status) error {
 	if r.updateErr != nil {
 		return r.updateErr
 	}

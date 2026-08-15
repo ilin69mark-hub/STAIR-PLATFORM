@@ -35,7 +35,14 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	mux.Handle("POST /api/v1/auth/logout", authMutating(handleLogout(authSvc)))
 
 	mux.Handle("GET /api/v1/admin/users", authProtected(handleListUsers(authSvc)))
-	mux.Handle("PATCH /api/v1/admin/users/{id}", authMutating(handleUpdateUserRole(authSvc)))
+	mux.Handle("PATCH /api/v1/admin/users/{id}", authMutating(handleUpdateUser(authSvc)))
+	mux.Handle("GET /api/v1/admin/overview", authProtected(handleAdminOverview(authSvc, projects)))
+	mux.Handle("GET /api/v1/admin/settings", authProtected(handleGetSettings(authSvc)))
+	mux.Handle("PUT /api/v1/admin/settings", authMutating(handleUpdateSettings(authSvc)))
+	mux.Handle("GET /api/v1/admin/export", authProtected(handleExport(authSvc, projects, auditsvc)))
+	mux.Handle("GET /api/v1/admin/api-keys", authProtected(handleListApiKeys(authSvc)))
+	mux.Handle("POST /api/v1/admin/api-keys", authMutating(handleCreateApiKey(authSvc)))
+	mux.Handle("DELETE /api/v1/admin/api-keys/{id}", authMutating(handleRevokeApiKey(authSvc)))
 
 	if auditsvc != nil {
 		mux.Handle("GET /api/v1/audit", authProtected(handleListTenantAudit(auditsvc)))

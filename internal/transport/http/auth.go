@@ -13,7 +13,8 @@ import (
 
 // AuthService — прикладной интерфейс auth, ожидаемый транспортным слоем
 // (инверсия зависимостей, DOM-0008). Реализуется application/auth.Service.
-// Включает управление пользователями (EDR-0015 §3.4).
+// Включает управление пользователями (EDR-0015 §3.4) и Enterprise Controls
+// (EDR-0016: статус, политики, API-ключи).
 type AuthService interface {
 	Register(ctx context.Context, email, name, password string) (*auth.User, string, error)
 	Login(ctx context.Context, email, password string) (*auth.User, string, error)
@@ -23,6 +24,20 @@ type AuthService interface {
 	Logout(ctx context.Context, token string) error
 	ListUsers(ctx context.Context, tenantID string) ([]*auth.User, error)
 	UpdateUserRole(ctx context.Context, tenantID, actorID, userID string, role auth.Role) error
+	// UpdateUser меняет роль и/или статус пользователя (EDR-0016 §3.1).
+	UpdateUser(ctx context.Context, tenantID, actorID, userID string, role *auth.Role, status *auth.Status) error
+	// GetPolicy возвращает политику безопасности tenant (EDR-0016 §3.2).
+	GetPolicy(ctx context.Context, tenantID string) (auth.Policy, error)
+	// UpdatePolicy сохраняет политику безопасности tenant.
+	UpdatePolicy(ctx context.Context, tenantID, actorID string, p auth.Policy) error
+	// AuthenticateApiKey проверяет service-токен (Bearer, EDR-0016 §7).
+	AuthenticateApiKey(ctx context.Context, token string) (*auth.ApiKey, error)
+	// CreateApiKey создаёт API-ключ; открытый токен отдаётся один раз.
+	CreateApiKey(ctx context.Context, tenantID, actorID, name string, scopes []auth.Permission) (*auth.ApiKey, string, error)
+	// ListApiKeys возвращает ключи tenant.
+	ListApiKeys(ctx context.Context, tenantID string) ([]*auth.ApiKey, error)
+	// RevokeApiKey отзывает ключ (мягко).
+	RevokeApiKey(ctx context.Context, tenantID, actorID, keyID string) error
 }
 
 // Имена cookie (SEC-0003). session — httpOnly, его читает только сервер;
@@ -48,8 +63,39 @@ func authUser(ctx context.Context) *auth.User {
 	return u
 }
 
-// tenantID возвращает tenant аутентифицированного пользователя.
+// ---- контекст API-ключ ----
+
+type apiKeyCtxKey struct{}
+
+// withApiKey кладёт API-ключ в контекст запроса (Bearer, EDR-0016 §7).
+func withApiKey(ctx context.Context, k *auth.ApiKey) context.Context {
+	return context.WithValue(ctx, apiKeyCtxKey{}, k)
+}
+
+// apiKey возвращает API-ключ из контекста (nil — session-аутентификация).
+func apiKey(ctx context.Context) *auth.ApiKey {
+	k, _ := ctx.Value(apiKeyCtxKey{}).(*auth.ApiKey)
+	return k
+}
+
+// hasPermission проверяет право субъекта запроса (EDR-0015/0016):
+// пользователя по его роли или API-ключа по его scopes.
+func hasPermission(r *http.Request, p auth.Permission) bool {
+	if k := apiKey(r.Context()); k != nil {
+		return k.HasScope(p)
+	}
+	if u := authUser(r.Context()); u != nil {
+		return u.Role.HasPermission(p)
+	}
+	return false
+}
+
+// tenantID возвращает tenant аутентифицированного субъекта (пользователя
+// или API-ключа).
 func tenantID(ctx context.Context) string {
+	if k := apiKey(ctx); k != nil {
+		return k.TenantID
+	}
 	if u := authUser(ctx); u != nil {
 		return u.TenantID
 	}
@@ -57,7 +103,7 @@ func tenantID(ctx context.Context) string {
 }
 
 // userID возвращает ID аутентифицированного пользователя (инициатора
-// запроса); пустая строка — не аутентифицирован.
+// запроса); пустая строка — не аутентифицирован или API-ключ.
 func userID(ctx context.Context) string {
 	if u := authUser(ctx); u != nil {
 		return u.ID

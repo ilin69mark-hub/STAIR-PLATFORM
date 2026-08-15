@@ -98,6 +98,17 @@ func (f *fakeRepo) ListProjects(ctx context.Context, tenantID, userID string) ([
 	return out, nil
 }
 
+func (f *fakeRepo) ListTenantProjects(ctx context.Context, tenantID string) ([]*Project, error) {
+	var out []*Project
+	prefix := tenantID + "/"
+	for k, p := range f.projects {
+		if strings.HasPrefix(k, prefix) {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeRepo) GetMember(ctx context.Context, tenantID, projectID, userID string) (*ProjectMember, error) {
 	m, ok := f.memberLookup(tenantID, projectID, userID)
 	if !ok {

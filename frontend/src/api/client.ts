@@ -69,5 +69,8 @@ export const post = <T>(url: string, body: unknown): Promise<T> =>
 export const patch = <T>(url: string, body: unknown): Promise<T> =>
   request<T>(url, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify(body) })
 
+export const put = <T>(url: string, body: unknown): Promise<T> =>
+  request<T>(url, { method: 'PUT', headers: jsonHeaders, body: JSON.stringify(body) })
+
 export const del = <T = undefined>(url: string): Promise<T> =>
   request<T>(url, { method: 'DELETE' })
