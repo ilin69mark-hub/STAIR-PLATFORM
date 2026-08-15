@@ -26,6 +26,11 @@ type fakeRepo struct {
 	mfgSeries []ManufacturingPoint
 	mfgTotErr error
 	mfgSerErr error
+
+	costTotals CostTotals
+	costSeries []CostPoint
+	costTotErr error
+	costSerErr error
 }
 
 func (f *fakeRepo) UsageTotals(_ context.Context, _ string, from, to time.Time) (UsageTotals, error) {
@@ -80,6 +85,25 @@ func (f *fakeRepo) ManufacturingSeries(_ context.Context, _ string, from, to tim
 	f.gotTo = to
 	f.gotGran = g
 	return f.mfgSeries, nil
+}
+
+func (f *fakeRepo) CostTotals(_ context.Context, _ string, from, to time.Time) (CostTotals, error) {
+	if f.costTotErr != nil {
+		return CostTotals{}, f.costTotErr
+	}
+	f.gotFrom = from
+	f.gotTo = to
+	return f.costTotals, nil
+}
+
+func (f *fakeRepo) CostSeries(_ context.Context, _ string, from, to time.Time, g Granularity) ([]CostPoint, error) {
+	if f.costSerErr != nil {
+		return nil, f.costSerErr
+	}
+	f.gotFrom = from
+	f.gotTo = to
+	f.gotGran = g
+	return f.costSeries, nil
 }
 
 func TestUsage(t *testing.T) {
@@ -249,5 +273,61 @@ func TestManufacturingPropagatesRepoErrors(t *testing.T) {
 		time.Now(), time.Now().Add(time.Hour), GranularityDay)
 	if err == nil {
 		t.Fatal("expected error from manufacturing totals")
+	}
+}
+
+func TestCost(t *testing.T) {
+	repo := &fakeRepo{
+		costTotals: CostTotals{
+			Calculations: 2, Material: 100, Machine: 20, Labor: 30, Overhead: 10,
+			ProductionCost: 160, Margin: 40, Discount: 0, PreTax: 200, Tax: 20,
+			FinalPrice: 220, AvgFinalPrice: 110, Currency: "RUB",
+		},
+		costSeries: []CostPoint{
+			{Bucket: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Calculations: 2, FinalPrice: 220, AvgFinalPrice: 110},
+		},
+	}
+	svc := NewService(repo)
+	from := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
+	rep, err := svc.Cost(context.Background(), "t-1", from, to, GranularityDay)
+	if err != nil {
+		t.Fatalf("Cost: %v", err)
+	}
+	if rep.Totals.FinalPrice != 220 || rep.Totals.Currency != "RUB" {
+		t.Fatalf("unexpected totals: %+v", rep.Totals)
+	}
+	if len(rep.Series) != 1 || rep.Series[0].FinalPrice != 220 {
+		t.Fatalf("unexpected series: %+v", rep.Series)
+	}
+	if !rep.From.Equal(from.UTC()) || !rep.To.Equal(to.UTC()) {
+		t.Fatalf("from/to not normalized: %v %v", rep.From, rep.To)
+	}
+}
+
+func TestCostInvalidGranularity(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	_, err := svc.Cost(context.Background(), "t-1",
+		time.Now(), time.Now().Add(time.Hour), Granularity("hour"))
+	if !errors.Is(err, ErrInvalidGranularity) {
+		t.Fatalf("expected ErrInvalidGranularity, got %v", err)
+	}
+}
+
+func TestCostInvalidRange(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	_, err := svc.Cost(context.Background(), "t-1",
+		time.Now().Add(time.Hour), time.Now(), GranularityDay)
+	if !errors.Is(err, ErrInvalidRange) {
+		t.Fatalf("expected ErrInvalidRange, got %v", err)
+	}
+}
+
+func TestCostPropagatesRepoErrors(t *testing.T) {
+	svc := NewService(&fakeRepo{costTotErr: errors.New("db down")})
+	_, err := svc.Cost(context.Background(), "t-1",
+		time.Now(), time.Now().Add(time.Hour), GranularityDay)
+	if err == nil {
+		t.Fatal("expected error from cost totals")
 	}
 }

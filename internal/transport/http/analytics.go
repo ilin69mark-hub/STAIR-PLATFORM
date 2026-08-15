@@ -16,6 +16,7 @@ type AnalyticsService interface {
 	Usage(ctx context.Context, tenantID string, from, to time.Time, g analytics.Granularity) (*analytics.UsageReport, error)
 	Projects(ctx context.Context, tenantID string, from, to time.Time) (*analytics.ProjectReport, error)
 	Manufacturing(ctx context.Context, tenantID string, from, to time.Time, g analytics.Granularity) (*analytics.ManufacturingReport, error)
+	Cost(ctx context.Context, tenantID string, from, to time.Time, g analytics.Granularity) (*analytics.CostReport, error)
 }
 
 // ---- DTO ----
@@ -217,6 +218,74 @@ func toManufacturingReportDTO(rep *analytics.ManufacturingReport) manufacturingR
 	return d
 }
 
+// costPointDTO — стоимостные метрики одного бакета (EDR-0031 §3.4).
+type costPointDTO struct {
+	Bucket        string  `json:"bucket"`
+	Calculations  int     `json:"calculations"`
+	FinalPrice    int64   `json:"final_price"`
+	AvgFinalPrice float64 `json:"avg_final_price"`
+}
+
+// costTotalsDTO — агрегаты стоимости tenant (EDR-0031 §3.4).
+type costTotalsDTO struct {
+	Calculations   int     `json:"calculations"`
+	Material       int64   `json:"material"`
+	Machine        int64   `json:"machine"`
+	Labor          int64   `json:"labor"`
+	Overhead       int64   `json:"overhead"`
+	ProductionCost int64   `json:"production_cost"`
+	Margin         int64   `json:"margin"`
+	Discount       int64   `json:"discount"`
+	PreTax         int64   `json:"pre_tax"`
+	Tax            int64   `json:"tax"`
+	FinalPrice     int64   `json:"final_price"`
+	AvgFinalPrice  float64 `json:"avg_final_price"`
+	Currency       string  `json:"currency"`
+}
+
+// costReportDTO — ответ Cost Analytics.
+type costReportDTO struct {
+	From        string         `json:"from"`
+	To          string         `json:"to"`
+	Granularity string         `json:"granularity"`
+	Totals      costTotalsDTO  `json:"totals"`
+	Series      []costPointDTO `json:"series"`
+}
+
+// toCostReportDTO конвертирует отчёт в представление API.
+func toCostReportDTO(rep *analytics.CostReport) costReportDTO {
+	d := costReportDTO{
+		From:        rep.From.Format("2006-01-02"),
+		To:          rep.To.Format("2006-01-02"),
+		Granularity: string(rep.Granularity),
+		Totals: costTotalsDTO{
+			Calculations:   rep.Totals.Calculations,
+			Material:       rep.Totals.Material,
+			Machine:        rep.Totals.Machine,
+			Labor:          rep.Totals.Labor,
+			Overhead:       rep.Totals.Overhead,
+			ProductionCost: rep.Totals.ProductionCost,
+			Margin:         rep.Totals.Margin,
+			Discount:       rep.Totals.Discount,
+			PreTax:         rep.Totals.PreTax,
+			Tax:            rep.Totals.Tax,
+			FinalPrice:     rep.Totals.FinalPrice,
+			AvgFinalPrice:  rep.Totals.AvgFinalPrice,
+			Currency:       rep.Totals.Currency,
+		},
+		Series: make([]costPointDTO, 0, len(rep.Series)),
+	}
+	for _, p := range rep.Series {
+		d.Series = append(d.Series, costPointDTO{
+			Bucket:        p.Bucket.Format("2006-01-02"),
+			Calculations:  p.Calculations,
+			FinalPrice:    p.FinalPrice,
+			AvgFinalPrice: p.AvgFinalPrice,
+		})
+	}
+	return d
+}
+
 // ---- handlers ----
 
 // handleUsageAnalytics — GET /api/v1/admin/analytics/usage (auth+admin).
@@ -337,6 +406,49 @@ func handleManufacturingAnalytics(svc AnalyticsService) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, toManufacturingReportDTO(rep))
+	}
+}
+
+// handleCostAnalytics — GET /api/v1/admin/analytics/cost (auth+admin).
+// 200 — отчёт Cost Analytics; 403 — нет права analytics.read;
+// 422 — невалидные from/to/granularity; 500 — ошибка.
+func handleCostAnalytics(svc AnalyticsService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !hasPermission(r, auth.PermissionAnalyticsRead) {
+			writeError(w, http.StatusForbidden, "forbidden", "admin required")
+			return
+		}
+
+		from, err := queryTime(r, "from", time.Now().UTC().AddDate(0, 0, -30))
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_from", "from must be YYYY-MM-DD or RFC3339")
+			return
+		}
+		to, err := queryTime(r, "to", time.Now().UTC())
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_to", "to must be YYYY-MM-DD or RFC3339")
+			return
+		}
+		g := analytics.Granularity(r.URL.Query().Get("granularity"))
+		if g == "" {
+			g = analytics.GranularityDay
+		}
+		if !g.Valid() {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_granularity", "granularity must be day, week or month")
+			return
+		}
+
+		rep, err := svc.Cost(r.Context(), tenantID(r.Context()), from, to, g)
+		if err != nil {
+			switch {
+			case errors.Is(err, analytics.ErrInvalidRange):
+				writeError(w, http.StatusUnprocessableEntity, "invalid_range", "from must not be after to")
+			default:
+				writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			}
+			return
+		}
+		writeJSON(w, http.StatusOK, toCostReportDTO(rep))
 	}
 }
 

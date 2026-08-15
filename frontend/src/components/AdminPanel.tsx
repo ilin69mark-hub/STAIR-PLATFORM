@@ -6,6 +6,7 @@ import type {
   AdminPolicy,
   AdminUser,
   ApiKey,
+  CostReport,
   ManufacturingReport,
   ProjectReport,
   UsageGranularity,
@@ -52,6 +53,10 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
   const [mfg, setMfg] = useState<ManufacturingReport | null>(null)
   const [mfgGranularity, setMfgGranularity] = useState<UsageGranularity>('day')
   const [mfgLoading, setMfgLoading] = useState(false)
+
+  const [cost, setCost] = useState<CostReport | null>(null)
+  const [costGranularity, setCostGranularity] = useState<UsageGranularity>('day')
+  const [costLoading, setCostLoading] = useState(false)
 
   const loadUsage = useCallback(async (granularity: UsageGranularity) => {
     setUsageLoading(true)
@@ -106,6 +111,24 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
     }
   }, [])
 
+  const loadCost = useCallback(async (granularity: UsageGranularity) => {
+    setCostLoading(true)
+    try {
+      const now = new Date()
+      const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+      const rep = await analyticsApi.cost({
+        from: from.toISOString().slice(0, 10),
+        to: now.toISOString().slice(0, 10),
+        granularity,
+      })
+      setCost(rep)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Не удалось загрузить аналитику стоимости')
+    } finally {
+      setCostLoading(false)
+    }
+  }, [])
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -132,7 +155,8 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
     void loadUsage('day')
     void loadProjects()
     void loadManufacturing('day')
-  }, [load, loadUsage, loadProjects, loadManufacturing])
+    void loadCost('day')
+  }, [load, loadUsage, loadProjects, loadManufacturing, loadCost])
 
   const clearNotice = () => setNotice(null)
 
@@ -625,6 +649,76 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
                         <td>{p.parts}</td>
                         <td>{p.sheets}</td>
                         <td>{(p.utilization * 100).toFixed(1)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            ) : null}
+          </section>
+
+          <section className="panel">
+            <h2 className="panel__title">Стоимость</h2>
+            <p className="muted">Финансовые метрики из ценовых брейкдаунов расчётов (EDR-0031).</p>
+            <div className="row--actions">
+              {(['day', 'week', 'month'] as UsageGranularity[]).map((g) => (
+                <button
+                  key={g}
+                  className={g === costGranularity ? 'btn btn--primary' : 'btn'}
+                  onClick={() => {
+                    setCostGranularity(g)
+                    void loadCost(g)
+                  }}
+                >
+                  {g === 'day' ? 'День' : g === 'week' ? 'Неделя' : 'Месяц'}
+                </button>
+              ))}
+            </div>
+            {costLoading ? (
+              <p className="muted">Загрузка…</p>
+            ) : cost ? (
+              <>
+                <dl className="kv">
+                  <div>
+                    <dt>Расчёты</dt>
+                    <dd>{cost.totals.calculations}</dd>
+                  </div>
+                  <div>
+                    <dt>Себестоимость (материал/машина/труд/накладные)</dt>
+                    <dd>
+                      {cost.totals.material} / {cost.totals.machine} / {cost.totals.labor} /{' '}
+                      {cost.totals.overhead}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Итоговая цена / средняя</dt>
+                    <dd>
+                      {cost.totals.final_price} / {cost.totals.avg_final_price.toFixed(2)} {cost.totals.currency}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Прибыль / налог</dt>
+                    <dd>
+                      {cost.totals.margin} / {cost.totals.tax}
+                    </dd>
+                  </div>
+                </dl>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Дата</th>
+                      <th>Расчёты</th>
+                      <th>Итоговая цена</th>
+                      <th>Средняя</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cost.series.map((p) => (
+                      <tr key={p.bucket}>
+                        <td>{p.bucket}</td>
+                        <td>{p.calculations}</td>
+                        <td>{p.final_price}</td>
+                        <td>{p.avg_final_price.toFixed(2)}</td>
                       </tr>
                     ))}
                   </tbody>

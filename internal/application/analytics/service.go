@@ -103,3 +103,33 @@ func (s *Service) Manufacturing(ctx context.Context, tenantID string, from, to t
 		Series:      series,
 	}, nil
 }
+
+// Cost возвращает Cost Analytics за окно [from, to] с гранулярностью g
+// (EDR-0031 §3.2). from/to приведены к UTC; валидация диапазона и
+// гранулярности — как в EDR-0028.
+func (s *Service) Cost(ctx context.Context, tenantID string, from, to time.Time, g Granularity) (*CostReport, error) {
+	if !g.Valid() {
+		return nil, ErrInvalidGranularity
+	}
+	if from.IsZero() || to.IsZero() || to.Before(from) {
+		return nil, ErrInvalidRange
+	}
+	from = from.UTC()
+	to = to.UTC()
+
+	totals, err := s.repo.CostTotals(ctx, tenantID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("analytics: cost totals: %w", err)
+	}
+	series, err := s.repo.CostSeries(ctx, tenantID, from, to, g)
+	if err != nil {
+		return nil, fmt.Errorf("analytics: cost series: %w", err)
+	}
+	return &CostReport{
+		From:        from,
+		To:          to,
+		Granularity: g,
+		Totals:      totals,
+		Series:      series,
+	}, nil
+}

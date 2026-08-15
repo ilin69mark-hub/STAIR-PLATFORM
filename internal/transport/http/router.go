@@ -116,6 +116,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		mux.Handle("GET /api/v1/admin/analytics/usage", authProtected(handleUsageAnalytics(analytics)))
 		mux.Handle("GET /api/v1/admin/analytics/projects", authProtected(handleProjectsAnalytics(analytics)))
 		mux.Handle("GET /api/v1/admin/analytics/manufacturing", authProtected(handleManufacturingAnalytics(analytics)))
+		mux.Handle("GET /api/v1/admin/analytics/cost", authProtected(handleCostAnalytics(analytics)))
 	}
 
 	mux.HandleFunc("GET /", handleNotFound)

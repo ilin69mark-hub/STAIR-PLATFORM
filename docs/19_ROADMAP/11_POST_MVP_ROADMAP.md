@@ -160,7 +160,14 @@ Manufacturing Analytics — **DONE 2026-08-15** (F3, EDR-0030): JSONB-агрег
 `analytics.read`/`queryTime`/гранулярности); панель «Производство» в
 AdminPanel; unit/DB/транспорт-тесты.
 
-Cost Analytics
+Cost Analytics — **DONE 2026-08-15** (F4, EDR-0031): JSONB-агрегаты из
+снапшотов расчётов (`calculations.result->'pricing'`) — себестоимость
+(материал/машина/труд/накладные), цепочка цены (прибыль/налог/итоговая
+цена), средняя итоговая цена и валюта; серии по бакетам day/week/month
+(непрерывные, `generate_series`); `GET /api/v1/admin/analytics/cost` (та же
+трубка `analytics.read`/`queryTime`/гранулярности); панель «Стоимость» в
+AdminPanel; unit/DB/транспорт-тесты. **Phase F — полностью CLOSED
+(F1–F4).**
 
 ---
 

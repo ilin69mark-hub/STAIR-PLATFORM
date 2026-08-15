@@ -327,3 +327,83 @@ func (r *AnalyticsRepository) ManufacturingSeries(ctx context.Context, tenantID 
 	}
 	return out, nil
 }
+
+// CostTotals возвращает агрегаты стоимости tenant за окно (EDR-0031 §3.3):
+// JSONB-суммы по расчётам с полем pricing.
+func (r *AnalyticsRepository) CostTotals(ctx context.Context, tenantID string, from, to time.Time) (analytics.CostTotals, error) {
+	var t analytics.CostTotals
+	err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(DISTINCT c.id),
+			COALESCE(SUM(COALESCE((c.result->'pricing'->>'Material')::int8, 0)), 0) AS material,
+			COALESCE(SUM(COALESCE((c.result->'pricing'->>'Machine')::int8, 0)), 0) AS machine,
+			COALESCE(SUM(COALESCE((c.result->'pricing'->>'Labor')::int8, 0)), 0) AS labor,
+			COALESCE(SUM(COALESCE((c.result->'pricing'->>'Overhead')::int8, 0)), 0) AS overhead,
+			COALESCE(SUM(COALESCE((c.result->'pricing'->>'ProductionCost')::int8, 0)), 0) AS production_cost,
+			COALESCE(SUM(COALESCE((c.result->'pricing'->>'Margin')::int8, 0)), 0) AS margin,
+			COALESCE(SUM(COALESCE((c.result->'pricing'->>'Discount')::int8, 0)), 0) AS discount,
+			COALESCE(SUM(COALESCE((c.result->'pricing'->>'PreTax')::int8, 0)), 0) AS pre_tax,
+			COALESCE(SUM(COALESCE((c.result->'pricing'->>'Tax')::int8, 0)), 0) AS tax,
+			COALESCE(SUM(COALESCE((c.result->'pricing'->>'FinalPrice')::int8, 0)), 0) AS final_price,
+			COALESCE(AVG(COALESCE((c.result->'pricing'->>'FinalPrice')::int8, 0)), 0)::float8 AS avg_final,
+			COALESCE((SELECT (c2.result->'pricing'->'Currency'->>'Code')::text
+			  FROM calculations c2 JOIN public.projects p2 ON p2.id = c2.project_id
+			  WHERE p2.tenant_id = $1 AND c2.created_at BETWEEN $2 AND $3
+			    AND c2.result ? 'pricing'
+			  ORDER BY c2.created_at DESC LIMIT 1), '') AS currency
+		FROM calculations c JOIN public.projects p ON p.id = c.project_id
+		WHERE p.tenant_id = $1 AND c.created_at BETWEEN $2 AND $3
+		  AND c.result ? 'pricing'`,
+		tenantID, from, to,
+	).Scan(&t.Calculations, &t.Material, &t.Machine, &t.Labor, &t.Overhead,
+		&t.ProductionCost, &t.Margin, &t.Discount, &t.PreTax, &t.Tax,
+		&t.FinalPrice, &t.AvgFinalPrice, &t.Currency)
+	if err != nil {
+		return analytics.CostTotals{}, fmt.Errorf("analytics: cost totals: %w", err)
+	}
+	return t, nil
+}
+
+// CostSeries возвращает ряд стоимостных метрик по бакетам гранулярности g
+// (EDR-0031 §3.3). Пустые бакеты заполнены нулями.
+func (r *AnalyticsRepository) CostSeries(ctx context.Context, tenantID string, from, to time.Time, g analytics.Granularity) ([]analytics.CostPoint, error) {
+	rows, err := r.pool.Query(ctx,
+		`WITH buckets AS (
+			SELECT generate_series(
+				date_trunc($2, $3::timestamptz),
+				date_trunc($2, $4::timestamptz),
+				$5::interval
+			) AS bucket
+		),
+		priced AS (
+			SELECT date_trunc($2, c.created_at) AS bucket, c.result
+			FROM calculations c JOIN public.projects p ON p.id = c.project_id
+			WHERE p.tenant_id = $1 AND c.created_at BETWEEN $3 AND $4
+			  AND c.result ? 'pricing'
+		)
+		SELECT b.bucket,
+			COUNT(pr.result) AS calcs,
+			COALESCE(SUM(COALESCE((pr.result->'pricing'->>'FinalPrice')::int8, 0)), 0) AS final_price,
+			COALESCE(AVG(COALESCE((pr.result->'pricing'->>'FinalPrice')::int8, 0)), 0)::float8 AS avg_final
+		FROM buckets b
+		LEFT JOIN priced pr ON pr.bucket = b.bucket
+		GROUP BY b.bucket
+		ORDER BY b.bucket`,
+		tenantID, string(g), from, to, g.Interval())
+	if err != nil {
+		return nil, fmt.Errorf("analytics: cost series: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]analytics.CostPoint, 0)
+	for rows.Next() {
+		var p analytics.CostPoint
+		if err := rows.Scan(&p.Bucket, &p.Calculations, &p.FinalPrice, &p.AvgFinalPrice); err != nil {
+			return nil, fmt.Errorf("analytics: cost series scan: %w", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("analytics: cost series rows: %w", err)
+	}
+	return out, nil
+}

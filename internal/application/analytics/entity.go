@@ -96,6 +96,11 @@ type Repository interface {
 	// ManufacturingSeries возвращает ряд производственных метрик по бакетам
 	// гранулярности g в окне (пустые бакеты заполнены нулями).
 	ManufacturingSeries(ctx context.Context, tenantID string, from, to time.Time, g Granularity) ([]ManufacturingPoint, error)
+	// CostTotals возвращает агрегаты стоимости tenant за окно.
+	CostTotals(ctx context.Context, tenantID string, from, to time.Time) (CostTotals, error)
+	// CostSeries возвращает ряд стоимостных метрик по бакетам
+	// гранулярности g в окне (пустые бакеты заполнены нулями).
+	CostSeries(ctx context.Context, tenantID string, from, to time.Time, g Granularity) ([]CostPoint, error)
 }
 
 // ProjectRow — сводка по одному проекту tenant (EDR-0029 §3.1).
@@ -168,4 +173,40 @@ type ManufacturingReport struct {
 	Granularity Granularity
 	Totals      ManufacturingTotals
 	Series      []ManufacturingPoint
+}
+
+// CostPoint — стоимостные метрики одного бакета (EDR-0031 §3.1):
+// количество расчётов, сумма и средняя итоговая цена.
+type CostPoint struct {
+	Bucket        time.Time
+	Calculations  int
+	FinalPrice    int64 // сумма по бакету (минорные единицы)
+	AvgFinalPrice float64
+}
+
+// CostTotals — агрегаты стоимости tenant за окно (EDR-0031 §3.1).
+// Все суммы в минорных единицах (int64, ADR-0008).
+type CostTotals struct {
+	Calculations   int
+	Material       int64
+	Machine        int64
+	Labor          int64
+	Overhead       int64
+	ProductionCost int64
+	Margin         int64
+	Discount       int64
+	PreTax         int64
+	Tax            int64
+	FinalPrice     int64
+	AvgFinalPrice  float64
+	Currency       string
+}
+
+// CostReport — полный ответ Cost Analytics.
+type CostReport struct {
+	From        time.Time
+	To          time.Time
+	Granularity Granularity
+	Totals      CostTotals
+	Series      []CostPoint
 }

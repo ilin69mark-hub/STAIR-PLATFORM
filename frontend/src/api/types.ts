@@ -242,6 +242,37 @@ export interface ManufacturingReport {
   series: ManufacturingPoint[]
 }
 
+export interface CostPoint {
+  bucket: string
+  calculations: number
+  final_price: number
+  avg_final_price: number
+}
+
+export interface CostTotals {
+  calculations: number
+  material: number
+  machine: number
+  labor: number
+  overhead: number
+  production_cost: number
+  margin: number
+  discount: number
+  pre_tax: number
+  tax: number
+  final_price: number
+  avg_final_price: number
+  currency: string
+}
+
+export interface CostReport {
+  from: string
+  to: string
+  granularity: UsageGranularity
+  totals: CostTotals
+  series: CostPoint[]
+}
+
 // ---- Аудит (Phase G, EDR-0013): журнал событий безопасности ----
 
 export interface AuditEvent {

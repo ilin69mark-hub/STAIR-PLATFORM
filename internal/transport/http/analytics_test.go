@@ -23,6 +23,7 @@ type fakeAnalyticsService struct {
 
 	projRep *analytics.ProjectReport
 	mfgRep  *analytics.ManufacturingReport
+	costRep *analytics.CostReport
 }
 
 func (f *fakeAnalyticsService) Usage(_ context.Context, _ string, from, to time.Time, g analytics.Granularity) (*analytics.UsageReport, error) {
@@ -52,6 +53,16 @@ func (f *fakeAnalyticsService) Manufacturing(_ context.Context, _ string, from, 
 	f.gotTo = to
 	f.gotGran = g
 	return f.mfgRep, nil
+}
+
+func (f *fakeAnalyticsService) Cost(_ context.Context, _ string, from, to time.Time, g analytics.Granularity) (*analytics.CostReport, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.gotFrom = from
+	f.gotTo = to
+	f.gotGran = g
+	return f.costRep, nil
 }
 
 // testRouterWithAnalytics собирает роутер с fake-аналитикой и admin-auth.
@@ -324,6 +335,78 @@ func TestManufacturingAnalyticsServerError(t *testing.T) {
 	}
 }
 
+func TestCostAnalytics(t *testing.T) {
+	svc := &fakeAnalyticsService{costRep: &analytics.CostReport{
+		From:        time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		To:          time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC),
+		Granularity: analytics.GranularityDay,
+		Totals: analytics.CostTotals{
+			Calculations: 2, Material: 100, Machine: 20, Labor: 30, Overhead: 10,
+			ProductionCost: 160, Margin: 40, Discount: 0, PreTax: 200, Tax: 20,
+			FinalPrice: 220, AvgFinalPrice: 110, Currency: "RUB",
+		},
+		Series: []analytics.CostPoint{
+			{Bucket: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+				Calculations: 2, FinalPrice: 220, AvgFinalPrice: 110},
+		},
+	}}
+	req := authedRequest(http.MethodGet, "/api/v1/admin/analytics/cost?from=2026-08-01&to=2026-08-02&granularity=day", "")
+	rec := httptest.NewRecorder()
+	testRouterWithAnalytics(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body costReportDTO
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Totals.FinalPrice != 220 || body.Totals.Currency != "RUB" {
+		t.Fatalf("unexpected totals: %+v", body.Totals)
+	}
+	if len(body.Series) != 1 || body.Series[0].FinalPrice != 220 {
+		t.Fatalf("unexpected series: %+v", body.Series)
+	}
+	if svc.gotGran != analytics.GranularityDay {
+		t.Fatalf("expected day granularity, got %s", svc.gotGran)
+	}
+}
+
+func TestCostAnalyticsRequiresAdmin(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Analytics = &fakeAnalyticsService{}
+	router := NewRouter(stair.NewService(), nil, testAuth{}, cfg)
+	req := authedRequest(http.MethodGet, "/api/v1/admin/analytics/cost", "")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCostAnalyticsInvalidGranularity(t *testing.T) {
+	svc := &fakeAnalyticsService{}
+	req := authedRequest(http.MethodGet, "/api/v1/admin/analytics/cost?granularity=hour", "")
+	rec := httptest.NewRecorder()
+	testRouterWithAnalytics(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCostAnalyticsServerError(t *testing.T) {
+	svc := &fakeAnalyticsService{err: context.DeadlineExceeded}
+	req := authedRequest(http.MethodGet, "/api/v1/admin/analytics/cost", "")
+	rec := httptest.NewRecorder()
+	testRouterWithAnalytics(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 // TestAnalyticsNotRegisteredWhenNil — маршруты не регистрируются без сервиса.
 func TestAnalyticsNotRegisteredWhenNil(t *testing.T) {
 	router := NewRouter(stair.NewService(), nil, adminAuth{}, DefaultConfig())
@@ -331,6 +414,7 @@ func TestAnalyticsNotRegisteredWhenNil(t *testing.T) {
 		"/api/v1/admin/analytics/usage",
 		"/api/v1/admin/analytics/projects",
 		"/api/v1/admin/analytics/manufacturing",
+		"/api/v1/admin/analytics/cost",
 	} {
 		req := authedRequest(http.MethodGet, path, "")
 		rec := httptest.NewRecorder()

@@ -13,6 +13,7 @@ import (
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/domain/engineering"
 	"stairplatform/internal/domain/manufacturing"
+	"stairplatform/internal/domain/pricing"
 	"stairplatform/internal/engine/validation"
 )
 
@@ -480,6 +481,129 @@ func TestManufacturingTotalsIsolation(t *testing.T) {
 		t.Fatalf("ManufacturingTotals: %v", err)
 	}
 	if totals.Calculations != 0 || totals.Parts != 0 || len(totals.Materials) != 0 {
+		t.Fatalf("tenant isolation violated: %+v", totals)
+	}
+}
+
+// costSnapshot строит снапшот с ценовым брейкдауном (EDR-0031 §3.1):
+// себестоимость 160, итоговая цена 220 RUB (2 расчёта → суммы ×2).
+func costSnapshot(projectID string) project.Snapshot {
+	return project.Snapshot{
+		ProjectID:  projectID,
+		Validation: validation.Result{Valid: true, Blocking: false},
+		Pricing: &pricing.PriceBreakdown{
+			Currency:       pricing.CurrencyRUB,
+			Material:       100,
+			Machine:        20,
+			Labor:          30,
+			Overhead:       10,
+			ProductionCost: 160,
+			Margin:         40,
+			Discount:       0,
+			PreTax:         200,
+			Tax:            20,
+			FinalPrice:     220,
+		},
+	}
+}
+
+// seedCost создаёт tenant с двумя расчётами, имеющими ценовой брейкдаун
+// (по 220 RUB итоговая цена каждый). Возвращает tenant ID.
+func seedCost(t *testing.T, ctx context.Context, pr *ProjectRepository, t0 time.Time) string {
+	t.Helper()
+	tenant := createTestTenant(t, pr, fmt.Sprintf("cost-%d", time.Now().UnixNano()))
+	for i := 0; i < 2; i++ {
+		projID := testProject(t, ctx, pr, tenant, fmt.Sprintf("Cost project %d", i))
+		cfg := &project.StairConfiguration{
+			ProjectID: projID, WidthMM: 900, HeightMM: 3000, Flight: "straight",
+			StepHeightMM: 180, StringerThicknessMM: 40, StepThicknessMM: 30,
+			ClearanceMM: 30, RailingHeightMM: 900, ComfortStepMM: 300,
+		}
+		if _, err := pr.SaveCalculationWithConfig(ctx, tenant, cfg, costSnapshot(projID)); err != nil {
+			t.Fatalf("SaveCalculationWithConfig: %v", err)
+		}
+	}
+	return tenant
+}
+
+func TestCostTotals(t *testing.T) {
+	repo, pr := newAnalyticsRepo(t)
+	ctx := context.Background()
+	t0 := time.Now().UTC()
+	tenant := seedCost(t, ctx, pr, t0)
+
+	from := t0.Add(-time.Hour)
+	to := t0.Add(time.Hour)
+	totals, err := repo.CostTotals(ctx, tenant, from, to)
+	if err != nil {
+		t.Fatalf("CostTotals: %v", err)
+	}
+	if totals.Calculations != 2 {
+		t.Fatalf("expected 2 calculations, got %d", totals.Calculations)
+	}
+	if totals.FinalPrice != 440 {
+		t.Fatalf("expected final_price 440, got %d", totals.FinalPrice)
+	}
+	if totals.ProductionCost != 320 {
+		t.Fatalf("expected production_cost 320, got %d", totals.ProductionCost)
+	}
+	if totals.Material != 200 || totals.Machine != 40 || totals.Labor != 60 {
+		t.Fatalf("unexpected cost elements: %+v", totals)
+	}
+	if totals.Tax != 40 || totals.Margin != 80 {
+		t.Fatalf("unexpected margin/tax: %+v", totals)
+	}
+	if totals.Currency != "RUB" {
+		t.Fatalf("expected currency RUB, got %q", totals.Currency)
+	}
+	if totals.AvgFinalPrice != 220 {
+		t.Fatalf("expected avg final price 220, got %v", totals.AvgFinalPrice)
+	}
+}
+
+func TestCostSeriesContinuous(t *testing.T) {
+	repo, pr := newAnalyticsRepo(t)
+	ctx := context.Background()
+	t0 := time.Now().UTC()
+	tenant := seedCost(t, ctx, pr, t0)
+
+	from := t0.Add(-48 * time.Hour)
+	to := t0.Add(24 * time.Hour)
+	series, err := repo.CostSeries(ctx, tenant, from, to, analytics.GranularityDay)
+	if err != nil {
+		t.Fatalf("CostSeries: %v", err)
+	}
+	if len(series) < 3 {
+		t.Fatalf("expected continuous series >= 3 buckets, got %d", len(series))
+	}
+	found := false
+	for _, p := range series {
+		if p.Calculations > 0 && p.FinalPrice > 0 {
+			found = true
+			if p.FinalPrice != 440 {
+				t.Fatalf("expected 440 final_price in active bucket, got %d", p.FinalPrice)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected a bucket with seeded cost: %+v", series)
+	}
+}
+
+func TestCostTotalsIsolation(t *testing.T) {
+	repo, pr := newAnalyticsRepo(t)
+	ctx := context.Background()
+	t0 := time.Now().UTC()
+	seedCost(t, ctx, pr, t0)
+
+	other := createTestTenant(t, pr, fmt.Sprintf("othercost-%d", time.Now().UnixNano()))
+	from := t0.Add(-time.Hour)
+	to := t0.Add(time.Hour)
+	totals, err := repo.CostTotals(ctx, other, from, to)
+	if err != nil {
+		t.Fatalf("CostTotals: %v", err)
+	}
+	if totals.Calculations != 0 || totals.FinalPrice != 0 {
 		t.Fatalf("tenant isolation violated: %+v", totals)
 	}
 }

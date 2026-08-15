@@ -9,6 +9,7 @@ import {
   type AdminPolicy,
   type AdminUser,
   type ApiKey,
+  type CostReport,
   type ManufacturingReport,
   type ProjectReport,
   type UsageReport,
@@ -125,6 +126,35 @@ const manufacturing: ManufacturingReport = {
   ],
 }
 
+const cost: CostReport = {
+  from: '2026-07-16',
+  to: '2026-08-15',
+  granularity: 'day',
+  totals: {
+    calculations: 2,
+    material: 200,
+    machine: 40,
+    labor: 60,
+    overhead: 20,
+    production_cost: 320,
+    margin: 80,
+    discount: 0,
+    pre_tax: 400,
+    tax: 40,
+    final_price: 440,
+    avg_final_price: 220,
+    currency: 'RUB',
+  },
+  series: [
+    {
+      bucket: '2026-08-15',
+      calculations: 2,
+      final_price: 440,
+      avg_final_price: 220,
+    },
+  ],
+}
+
 function mockApi() {
   vi.spyOn(adminApi, 'overview').mockResolvedValue(overview)
   vi.spyOn(adminApi, 'listUsers').mockResolvedValue(users)
@@ -133,6 +163,7 @@ function mockApi() {
   vi.spyOn(analyticsApi, 'usage').mockResolvedValue(usage)
   vi.spyOn(analyticsApi, 'projects').mockResolvedValue(projects)
   vi.spyOn(analyticsApi, 'manufacturing').mockResolvedValue(manufacturing)
+  vi.spyOn(analyticsApi, 'cost').mockResolvedValue(cost)
 }
 
 afterEach(() => {
@@ -160,6 +191,7 @@ describe('AdminPanel', () => {
     vi.spyOn(analyticsApi, 'usage').mockResolvedValue(usage)
     vi.spyOn(analyticsApi, 'projects').mockResolvedValue(projects)
     vi.spyOn(analyticsApi, 'manufacturing').mockResolvedValue(manufacturing)
+    vi.spyOn(analyticsApi, 'cost').mockResolvedValue(cost)
     render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
     expect(await screen.findByText('Нет доступа')).toBeInTheDocument()
   })
@@ -286,11 +318,11 @@ describe('AdminPanel', () => {
     )
     vi.spyOn(analyticsApi, 'projects').mockResolvedValue(projects)
     vi.spyOn(analyticsApi, 'manufacturing').mockResolvedValue(manufacturing)
+    vi.spyOn(analyticsApi, 'cost').mockResolvedValue(cost)
     render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
 
     expect(await screen.findByText('Нет права analytics.read')).toBeInTheDocument()
   })
-
   it('показывает сводку по проектам', async () => {
     mockApi()
     const projectsMock = vi.spyOn(analyticsApi, 'projects').mockResolvedValue(projects)
@@ -331,6 +363,26 @@ describe('AdminPanel', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Неделя' })[1])
     await waitFor(() =>
       expect(mfgMock).toHaveBeenCalledWith(expect.objectContaining({ granularity: 'week' })),
+    )
+  })
+
+  it('показывает аналитику стоимости и меняет гранулярность', async () => {
+    mockApi()
+    const costMock = vi.spyOn(analyticsApi, 'cost').mockResolvedValue(cost)
+    render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
+
+    expect(await screen.findByText('Стоимость')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(costMock).toHaveBeenCalledWith(expect.objectContaining({ granularity: 'day' })),
+    )
+    // Агрегаты: итоговая цена 440 / средняя 220 RUB.
+    expect(screen.getByText('440 / 220.00 RUB')).toBeInTheDocument()
+    // Серия: бакет 2026-08-15.
+    expect(screen.getAllByText('2026-08-15').length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Месяц' })[2])
+    await waitFor(() =>
+      expect(costMock).toHaveBeenCalledWith(expect.objectContaining({ granularity: 'month' })),
     )
   })
 })
