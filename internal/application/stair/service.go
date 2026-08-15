@@ -5,7 +5,9 @@
 package stair
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
@@ -80,8 +82,30 @@ func NewService() *Service {
 // Calculate выполняет полный конвейер: Solver → Validation → Geometry →
 // Manufacturing → Cost → Price (BC-002, PRC-0002). При blocking-валидации
 // возвращает Result с заполненным Validation (не ошибка); ошибка —
-// только при невозможности выполнить расчёт (некорректный вход, сбой).
-func (s *Service) Calculate(cfg Config, opts Options) (*Result, error) {
+// только при невозможности выполнить расчёт (некорректный вход, сбой или
+// отмена контекста). Контекст проверяется между стадиями (B2, EDR-0033).
+func (s *Service) Calculate(ctx context.Context, cfg Config, opts Options) (*Result, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	flight := flightLabel(cfg.Flight)
+	start := time.Now()
+	res, err := s.calculate(ctx, cfg, opts)
+	valid := "true"
+	if res == nil || res.Validation.Blocking {
+		valid = "false"
+	}
+	if err != nil && res == nil {
+		valid = "false"
+	}
+	calculateDuration.With(flight, valid).Observe(time.Since(start).Seconds())
+	return res, err
+}
+
+func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Result, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("stair: %w", err)
+	}
 	c, err := buildConfiguration(cfg)
 	if err != nil {
 		return nil, err
@@ -136,16 +160,25 @@ func (s *Service) Calculate(cfg Config, opts Options) (*Result, error) {
 		res.Flight = flight
 	}
 
-	gen, err := geometry.Generate(c)
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("stair: %w", err)
+	}
+	gen, err := geometry.Generate(ctx, c)
 	if err != nil {
 		return nil, fmt.Errorf("stair: geometry: %w", err)
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("stair: %w", err)
+	}
 	pkg, err := engmfg.Manufacture(c, gen)
 	if err != nil {
 		return nil, fmt.Errorf("stair: manufacturing: %w", err)
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("stair: %w", err)
+	}
 	rates := opts.MachineRates
 	if rates == nil {
 		m := engmfg.DefaultMachineRates()
@@ -172,6 +205,15 @@ func (s *Service) Calculate(cfg Config, opts Options) (*Result, error) {
 	res.Cost = ds
 	res.Price = price
 	return res, nil
+}
+
+// flightLabel нормализует тип марша в label метрики (пустое значение —
+// прямой марш).
+func flightLabel(f engineering.FlightType) string {
+	if f == "" {
+		return string(engineering.FlightStraight)
+	}
+	return string(f)
 }
 
 // buildConfiguration собирает и валидирует параметрическую конфигурацию

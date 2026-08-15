@@ -276,7 +276,7 @@ func (s *Service) Calculate(ctx context.Context, tenantID, userID, projectID str
 	}
 
 	// Выполняем конвейер.
-	res, err := s.calc.Calculate(cfg, opts)
+	res, err := s.calc.Calculate(ctx, cfg, opts)
 	if err != nil {
 		return nil, fmt.Errorf("project: calculate: %w", err)
 	}
@@ -326,7 +326,7 @@ func (s *Service) ExportCAD(ctx context.Context, tenantID, userID, projectID str
 	if err != nil {
 		return nil, err
 	}
-	res, err := s.calc.Calculate(cfg, opts)
+	res, err := s.calc.Calculate(ctx, cfg, opts)
 	if err != nil {
 		return nil, fmt.Errorf("project: export cad: %w", err)
 	}

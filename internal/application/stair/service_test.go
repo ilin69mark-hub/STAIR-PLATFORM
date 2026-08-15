@@ -1,6 +1,8 @@
 package stair
 
 import (
+	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -42,7 +44,7 @@ func customRates() *engprc.Rates {
 
 func TestCalculateValidPipeline(t *testing.T) {
 	s := NewService()
-	res, err := s.Calculate(referenceConfig(), Options{})
+	res, err := s.Calculate(context.Background(), referenceConfig(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,11 +100,11 @@ func TestCalculateValidPipeline(t *testing.T) {
 
 func TestCalculateDeterminism(t *testing.T) {
 	s := NewService()
-	a, err := s.Calculate(referenceConfig(), Options{})
+	a, err := s.Calculate(context.Background(), referenceConfig(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.Calculate(referenceConfig(), Options{})
+	b, err := s.Calculate(context.Background(), referenceConfig(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +115,7 @@ func TestCalculateDeterminism(t *testing.T) {
 
 func TestCalculateCustomRates(t *testing.T) {
 	s := NewService()
-	res, err := s.Calculate(referenceConfig(), Options{Rates: customRates()})
+	res, err := s.Calculate(context.Background(), referenceConfig(), Options{Rates: customRates()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +130,7 @@ func TestCalculateBlockingValidation(t *testing.T) {
 	// Целевая высота ступени 10 мм → n=270, h=10 вне диапазона 150-200 → Error.
 	cfg := referenceConfig()
 	cfg.StepHeight = mustLengthHelper(10)
-	res, err := s.Calculate(cfg, Options{})
+	res, err := s.Calculate(context.Background(), cfg, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +150,7 @@ func TestCalculateInvalidInput(t *testing.T) {
 	s := NewService()
 	cfg := referenceConfig()
 	cfg.Height = mustLengthHelper(0)
-	if _, err := s.Calculate(cfg, Options{}); err == nil {
+	if _, err := s.Calculate(context.Background(), cfg, Options{}); err == nil {
 		t.Fatal("zero rise height must be rejected")
 	}
 }
@@ -158,7 +160,7 @@ func TestCalculateComfortStepBoundary(t *testing.T) {
 	// Шаг комфорта 600 → b = 600 - 2*180 = 240 < 260 (диапазон tread 260-320)
 	// → blocking с GEO-TREAD-DEPTH.
 	cfg := referenceConfig()
-	res, err := s.Calculate(cfg, Options{ComfortStep: 600})
+	res, err := s.Calculate(context.Background(), cfg, Options{ComfortStep: 600})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +182,7 @@ func referenceLShapeConfig() Config {
 
 func TestCalculateLShapePipeline(t *testing.T) {
 	s := NewService()
-	res, err := s.Calculate(referenceLShapeConfig(), Options{})
+	res, err := s.Calculate(context.Background(), referenceLShapeConfig(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +224,7 @@ func TestCalculateLShapeLandingTooNarrow(t *testing.T) {
 	// Wp=500 < W=900 → ошибка (EDR-0005 §7): невозможно выполнить расчёт.
 	cfg := referenceLShapeConfig()
 	cfg.LandingWidth = mustLengthHelper(500)
-	if _, err := s.Calculate(cfg, Options{}); err == nil {
+	if _, err := s.Calculate(context.Background(), cfg, Options{}); err == nil {
 		t.Fatal("landing width below stair width must be rejected")
 	}
 }
@@ -240,7 +242,7 @@ func referenceUShapeConfig() Config {
 
 func TestCalculateUShapePipeline(t *testing.T) {
 	s := NewService()
-	res, err := s.Calculate(referenceUShapeConfig(), Options{})
+	res, err := s.Calculate(context.Background(), referenceUShapeConfig(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +288,7 @@ func TestCalculateUShapeLandingTooNarrow(t *testing.T) {
 	// Wp=500 < W=900 → ошибка (EDR-0006 §7): невозможно выполнить расчёт.
 	cfg := referenceUShapeConfig()
 	cfg.LandingWidth = mustLengthHelper(500)
-	if _, err := s.Calculate(cfg, Options{}); err == nil {
+	if _, err := s.Calculate(context.Background(), cfg, Options{}); err == nil {
 		t.Fatal("landing width below stair width must be rejected")
 	}
 }
@@ -304,7 +306,7 @@ func referenceSpiralConfig() Config {
 
 func TestCalculateSpiralPipeline(t *testing.T) {
 	s := NewService()
-	res, err := s.Calculate(referenceSpiralConfig(), Options{})
+	res, err := s.Calculate(context.Background(), referenceSpiralConfig(), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +345,7 @@ func TestCalculateSpiralOuterRadiusTooSmall(t *testing.T) {
 	// R=400 ≤ W=500 → ошибка (EDR-0007 §7): радиус должен превышать ширину.
 	cfg := referenceSpiralConfig()
 	cfg.OuterRadius = mustLengthHelper(400)
-	if _, err := s.Calculate(cfg, Options{}); err == nil {
+	if _, err := s.Calculate(context.Background(), cfg, Options{}); err == nil {
 		t.Fatal("outer radius below stair width must be rejected")
 	}
 }
@@ -353,8 +355,22 @@ func BenchmarkCalculatePipeline(b *testing.B) {
 	cfg := referenceConfig()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := s.Calculate(cfg, Options{}); err != nil {
+		if _, err := s.Calculate(context.Background(), cfg, Options{}); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestCalculateCancelled(t *testing.T) {
+	// Отменённый контекст: конвейер не выполняется, возвращается
+	// context.Canceled (B2, EDR-0033 §3.1).
+	s := NewService()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := s.Calculate(ctx, referenceConfig(), Options{}); err == nil {
+		t.Fatal("expected cancellation error, got nil")
+	} else if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 }

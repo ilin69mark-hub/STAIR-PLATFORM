@@ -1,6 +1,7 @@
 package manufacturing
 
 import (
+	"context"
 	"math"
 	"reflect"
 	"testing"
@@ -43,7 +44,7 @@ func testConfig(t *testing.T) *engineering.StairConfiguration {
 
 func genResult(t *testing.T, cfg *engineering.StairConfiguration) *enggeo.GenerationResult {
 	t.Helper()
-	res, err := enggeo.Generate(cfg)
+	res, err := enggeo.Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

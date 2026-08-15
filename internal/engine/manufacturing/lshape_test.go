@@ -1,6 +1,7 @@
 package manufacturing
 
 import (
+	"context"
 	"testing"
 
 	"stairplatform/internal/domain/engineering"
@@ -32,7 +33,7 @@ func lshapeConfig(t *testing.T) *engineering.StairConfiguration {
 // классифицируются как подступенки, площадка — как проступь.
 func TestManufactureLShapeParts(t *testing.T) {
 	cfg := lshapeConfig(t)
-	res, err := enggeo.Generate(cfg)
+	res, err := enggeo.Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +66,7 @@ func TestManufactureLShapeParts(t *testing.T) {
 // подступенки 800×180×40, площадка 1000×900×40.
 func TestManufactureLShapeDimensions(t *testing.T) {
 	cfg := lshapeConfig(t)
-	res, err := enggeo.Generate(cfg)
+	res, err := enggeo.Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +122,7 @@ func TestManufactureLShapeDimensions(t *testing.T) {
 // объединяются по размерам, площадка — отдельная проступь.
 func TestManufactureLShapeBOM(t *testing.T) {
 	cfg := lshapeConfig(t)
-	res, err := enggeo.Generate(cfg)
+	res, err := enggeo.Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +168,7 @@ func TestManufactureLShapeBOM(t *testing.T) {
 // L-марша корректна и валидна.
 func TestManufactureLShapeNesting(t *testing.T) {
 	cfg := lshapeConfig(t)
-	res, err := enggeo.Generate(cfg)
+	res, err := enggeo.Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

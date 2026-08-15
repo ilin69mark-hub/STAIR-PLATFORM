@@ -1,6 +1,7 @@
 package geometry
 
 import (
+	"context"
 	"math"
 	"testing"
 
@@ -157,7 +158,7 @@ func TestBuildLShapeFlightErrors(t *testing.T) {
 
 func TestGenerateLShape(t *testing.T) {
 	cfg := lshapeConfig(t)
-	res, err := Generate(cfg)
+	res, err := Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,11 +182,11 @@ func TestGenerateLShape(t *testing.T) {
 }
 
 func TestGenerateLShapeDeterminism(t *testing.T) {
-	a, err := Generate(lshapeConfig(t))
+	a, err := Generate(context.Background(), lshapeConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := Generate(lshapeConfig(t))
+	b, err := Generate(context.Background(), lshapeConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}

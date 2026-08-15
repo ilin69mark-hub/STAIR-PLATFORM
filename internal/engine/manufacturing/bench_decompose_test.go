@@ -1,6 +1,7 @@
 package manufacturing
 
 import (
+	"context"
 	"testing"
 
 	"stairplatform/internal/domain/engineering"
@@ -19,7 +20,7 @@ func mfgBenchConfig() *engineering.StairConfiguration {
 }
 
 func BenchmarkDecompose(b *testing.B) {
-	gen, err := enggeo.Generate(mfgBenchConfig())
+	gen, err := enggeo.Generate(context.Background(), mfgBenchConfig())
 	if err != nil {
 		b.Fatal(err)
 	}

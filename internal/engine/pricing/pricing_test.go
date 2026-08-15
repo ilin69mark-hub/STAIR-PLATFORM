@@ -1,6 +1,7 @@
 package pricing
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -25,7 +26,7 @@ func testDataset(t *testing.T) *dommfg.ManufacturingCostDataset {
 	cfg.StringerThickness = mustLength(t, 50)
 	cfg.StepThickness = mustLength(t, 40)
 
-	gen, err := enggeo.Generate(cfg)
+	gen, err := enggeo.Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,8 @@
 package stair
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"stairplatform/internal/domain/engineering"
@@ -18,7 +20,7 @@ func TestOptimizeSingleCandidate(t *testing.T) {
 	}
 	svc := NewService()
 
-	out, err := svc.Optimize(cfg, Options{}, req)
+	out, err := svc.Optimize(context.Background(), cfg, Options{}, req)
 	if err != nil {
 		t.Fatalf("optimize: %v", err)
 	}
@@ -44,11 +46,11 @@ func TestOptimizeDeterminism(t *testing.T) {
 	svc := NewService()
 	req := OptimizeRequest{Target: TargetPrice}
 
-	first, err := svc.Optimize(cfg, Options{}, req)
+	first, err := svc.Optimize(context.Background(), cfg, Options{}, req)
 	if err != nil {
 		t.Fatalf("optimize: %v", err)
 	}
-	second, err := svc.Optimize(cfg, Options{}, req)
+	second, err := svc.Optimize(context.Background(), cfg, Options{}, req)
 	if err != nil {
 		t.Fatalf("optimize: %v", err)
 	}
@@ -66,7 +68,7 @@ func TestOptimizeValidBounds(t *testing.T) {
 	cfg := referenceConfig()
 	svc := NewService()
 
-	out, err := svc.Optimize(cfg, Options{}, OptimizeRequest{Target: TargetPrice})
+	out, err := svc.Optimize(context.Background(), cfg, Options{}, OptimizeRequest{Target: TargetPrice})
 	if err != nil {
 		t.Fatalf("optimize: %v", err)
 	}
@@ -96,7 +98,7 @@ func TestOptimizeNoValidCandidate(t *testing.T) {
 		StepCountMax: 18,
 	}
 
-	out, err := svc.Optimize(cfg, Options{}, req)
+	out, err := svc.Optimize(context.Background(), cfg, Options{}, req)
 	if err != nil {
 		t.Fatalf("optimize: %v", err)
 	}
@@ -110,14 +112,14 @@ func TestOptimizeNoValidCandidate(t *testing.T) {
 
 func TestOptimizeUnknownTarget(t *testing.T) {
 	svc := NewService()
-	if _, err := svc.Optimize(referenceConfig(), Options{}, OptimizeRequest{Target: "weight"}); err == nil {
+	if _, err := svc.Optimize(context.Background(), referenceConfig(), Options{}, OptimizeRequest{Target: "weight"}); err == nil {
 		t.Fatal("expected error for unknown target")
 	}
 }
 
 func TestOptimizeInvertedRange(t *testing.T) {
 	svc := NewService()
-	out, err := svc.Optimize(referenceConfig(), Options{}, OptimizeRequest{
+	out, err := svc.Optimize(context.Background(), referenceConfig(), Options{}, OptimizeRequest{
 		Target:       TargetCost,
 		StepCountMin: 10,
 		StepCountMax: 2,
@@ -144,7 +146,7 @@ func TestOptimizeLShape(t *testing.T) {
 	}
 	svc := NewService()
 
-	out, err := svc.Optimize(cfg, Options{}, OptimizeRequest{Target: TargetPrice})
+	out, err := svc.Optimize(context.Background(), cfg, Options{}, OptimizeRequest{Target: TargetPrice})
 	if err != nil {
 		t.Fatalf("optimize: %v", err)
 	}
@@ -176,7 +178,7 @@ func TestOptimizeSpiral(t *testing.T) {
 	}
 	svc := NewService()
 
-	out, err := svc.Optimize(cfg, Options{}, OptimizeRequest{Target: TargetPrice})
+	out, err := svc.Optimize(context.Background(), cfg, Options{}, OptimizeRequest{Target: TargetPrice})
 	if err != nil {
 		t.Fatalf("optimize: %v", err)
 	}
@@ -185,5 +187,24 @@ func TestOptimizeSpiral(t *testing.T) {
 	}
 	if out.BestResult.Spiral == nil {
 		t.Fatal("expected spiral result")
+	}
+}
+
+func TestOptimizeCancelled(t *testing.T) {
+	// Отменённый контекст: поиск не выполняется, возвращается ошибка
+	// context.Canceled (B2, EDR-0033 §3.1).
+	svc := NewService()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	out, err := svc.Optimize(ctx, referenceConfig(), Options{}, OptimizeRequest{})
+	if err == nil {
+		t.Fatal("expected cancellation error, got nil")
+	}
+	if out != nil {
+		t.Fatalf("expected nil result on cancellation, got %+v", out)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 }

@@ -46,6 +46,17 @@ func Triangulate(points []Point3) ([][3]int, error) {
 		next[i] = (i + 1) % n
 	}
 
+	// Reflex-список (B2, EDR-0033): для CCW-контура вершина рефлексная,
+	// если поворот в ней не левый. Теорема: если ухо (a,b,c) содержит
+	// вершину, то содержит reflex-вершину — поэтому isEar проверяет только
+	// reflex-вершины вместо всех (O(n²) вместо O(n³) в худшем случае).
+	// После среза уха reflex-статус меняется только у двух соседей.
+	removed := make([]bool, n)
+	reflex := make([]bool, n)
+	for i := 0; i < n; i++ {
+		reflex[i] = isReflexVertex(pts, prev[i], i, next[i])
+	}
+
 	tris := make([][3]int, 0, n-2)
 	remaining := n
 	guard := 0
@@ -57,10 +68,14 @@ func Triangulate(points []Point3) ([][3]int, error) {
 			return nil, fmt.Errorf("geometry: polygon is not simple")
 		}
 		a, b, c := prev[i], i, next[i]
-		if isEar(pts, a, b, c) {
+		if isEar(pts, removed, reflex, a, b, c) {
 			tris = append(tris, [3]int{idx[a], idx[b], idx[c]})
+			removed[b] = true
 			next[a] = c
 			prev[c] = a
+			// Изменились только соседи срезанной вершины.
+			reflex[a] = isReflexVertex(pts, prev[a], a, next[a])
+			reflex[c] = isReflexVertex(pts, prev[c], c, next[c])
 			remaining--
 			i = a
 			continue
@@ -80,15 +95,16 @@ func Triangulate(points []Point3) ([][3]int, error) {
 }
 
 // isEar проверяет, что вершина b является ухом: выпуклая и треугольник
-// (a,b,c) не содержит других вершин полигона.
-func isEar(p [][2]float64, a, b, c int) bool {
+// (a,b,c) не содержит других вершин полигона. Благодаря reflex-списку
+// достаточно проверить reflex-вершины (B2, EDR-0033 §3.4).
+func isEar(p [][2]float64, removed, reflex []bool, a, b, c int) bool {
 	ab := [2]float64{p[b][0] - p[a][0], p[b][1] - p[a][1]}
 	bc := [2]float64{p[c][0] - p[b][0], p[c][1] - p[b][1]}
 	if cross2(ab, bc) <= triangulationTolerance {
 		return false
 	}
 	for i := range p {
-		if i == a || i == b || i == c {
+		if removed[i] || !reflex[i] || i == a || i == b || i == c {
 			continue
 		}
 		if pointInTriangle(p[i], p[a], p[b], p[c]) {
@@ -96,6 +112,14 @@ func isEar(p [][2]float64, a, b, c int) bool {
 		}
 	}
 	return true
+}
+
+// isReflexVertex проверяет, что вершина cur контура рефлексная (не левый
+// поворот) в CCW-полигоне.
+func isReflexVertex(p [][2]float64, prev, cur, next int) bool {
+	ab := [2]float64{p[cur][0] - p[prev][0], p[cur][1] - p[prev][1]}
+	bc := [2]float64{p[next][0] - p[cur][0], p[next][1] - p[cur][1]}
+	return cross2(ab, bc) <= triangulationTolerance
 }
 
 // pointInTriangle проверяет попадание точки в треугольник (включая

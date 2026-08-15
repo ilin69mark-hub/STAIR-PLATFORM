@@ -33,7 +33,7 @@ Advanced Pricing — **CLOSED 2026-08-14**: полный ценовой конв
 
 Advanced Optimization — **DONE 2026-08-15**: детерминированный поиск оптимальной конфигурации (EDR-0032) — `POST /api/v1/stairs:optimize` и `POST /api/v1/projects/{id}/optimize`; цели цена/себестоимость/материал; UI «Оптимизировать» в редакторе проекта.
 
-Performance Optimization
+Performance Optimization — **DONE 2026-08-15**: context.Context через движки (отмена поиска/конвейера, EDR-0033), latency-метрики `stair_calculate_duration_seconds`/`stair_optimize_duration_seconds` в /metrics, pprof на `/debug/pprof/*` по `STAIR_PPROF_ENABLED`, триангуляция ear clipping до O(n²) через reflex-список.
 
 Parallel Execution
 

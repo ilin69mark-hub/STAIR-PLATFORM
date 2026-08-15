@@ -1,6 +1,7 @@
 package geometry
 
 import (
+	"context"
 	"strconv"
 	"testing"
 
@@ -51,7 +52,7 @@ func BenchmarkGenerateStraight(b *testing.B) {
 			b.ReportAllocs()
 			var last *GenerationResult
 			for i := 0; i < b.N; i++ {
-				res, err := Generate(cfg)
+				res, err := Generate(context.Background(), cfg)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -70,7 +71,7 @@ func BenchmarkGenerateSpiral(b *testing.B) {
 			b.ReportAllocs()
 			var last *GenerationResult
 			for i := 0; i < b.N; i++ {
-				res, err := Generate(cfg)
+				res, err := Generate(context.Background(), cfg)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -87,7 +88,7 @@ func BenchmarkGenerateSpiral(b *testing.B) {
 func BenchmarkToPreviewMesh(b *testing.B) {
 	for _, n := range []int{15} {
 		cfg := benchConfig(n)
-		res, err := Generate(cfg)
+		res, err := Generate(context.Background(), cfg)
 		if err != nil {
 			b.Fatal(err)
 		}

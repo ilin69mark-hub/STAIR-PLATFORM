@@ -40,7 +40,7 @@ func (s *Service) Optimize(ctx context.Context, tenantID, userID, projectID stri
 		return nil, fmt.Errorf("project: optimize while in review: %w", ErrConflict)
 	}
 
-	out, err := s.calc.Optimize(cfg, opts, oreq)
+	out, err := s.calc.Optimize(ctx, cfg, opts, oreq)
 	if err != nil {
 		return nil, fmt.Errorf("project: optimize: %w", err)
 	}

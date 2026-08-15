@@ -1,6 +1,7 @@
 package project
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -10,7 +11,7 @@ import (
 // TestSnapshotIncludesPreviewMesh проверяет, что экспортный документ
 // содержит preview mesh (vertices + triangles) для 3D-визуализации.
 func TestSnapshotIncludesPreviewMesh(t *testing.T) {
-	res, err := stair.NewService().Calculate(testConfig(), stair.Options{})
+	res, err := stair.NewService().Calculate(context.Background(), testConfig(), stair.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +46,7 @@ func TestSnapshotIncludesPreviewMesh(t *testing.T) {
 // TestSnapshotOmitsMeshWhenAbsent — при blocking-валидации конвейер
 // останавливается и mesh отсутствует (omitempty).
 func TestSnapshotOmitsMeshWhenAbsent(t *testing.T) {
-	res, err := stair.NewService().Calculate(testConfig(), stair.Options{})
+	res, err := stair.NewService().Calculate(context.Background(), testConfig(), stair.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

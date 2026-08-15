@@ -1,7 +1,9 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"stairplatform/internal/application/stair"
@@ -19,8 +21,18 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 // StairService — прикладной интерфейс расчёта лестницы, ожидаемый
 // транспортным слоем (инверсия зависимостей, DOM-0008).
 type StairService interface {
-	Calculate(cfg stair.Config, opts stair.Options) (*stair.Result, error)
-	Optimize(cfg stair.Config, opts stair.Options, req stair.OptimizeRequest) (*stair.OptimizeResult, error)
+	Calculate(ctx context.Context, cfg stair.Config, opts stair.Options) (*stair.Result, error)
+	Optimize(ctx context.Context, cfg stair.Config, opts stair.Options, req stair.OptimizeRequest) (*stair.OptimizeResult, error)
+}
+
+// mapStairError преобразует ошибку конвейера в статус: отмена/дедлайн
+// контекста (клиент оборвал соединение) — 499, остальное — 422.
+func mapStairError(w http.ResponseWriter, err error) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		writeError(w, 499, "cancelled", "operation cancelled")
+		return
+	}
+	writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
 }
 
 // handleCalculate — POST /api/v1/stairs:calculate.
@@ -47,9 +59,9 @@ func handleCalculate(svc StairService) http.HandlerFunc {
 			return
 		}
 
-		res, err := svc.Calculate(cfg, opts)
+		res, err := svc.Calculate(r.Context(), cfg, opts)
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
+			mapStairError(w, err)
 			return
 		}
 
@@ -81,9 +93,9 @@ func handleOptimize(svc StairService) http.HandlerFunc {
 			return
 		}
 
-		out, err := svc.Optimize(cfg, opts, toOptimizeRequest(req))
+		out, err := svc.Optimize(r.Context(), cfg, opts, toOptimizeRequest(req))
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
+			mapStairError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, toOptimizeResponse(out))

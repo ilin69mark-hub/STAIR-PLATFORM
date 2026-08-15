@@ -1,6 +1,7 @@
 package manufacturing
 
 import (
+	"context"
 	"strconv"
 	"testing"
 
@@ -29,7 +30,7 @@ func BenchmarkManufacture(b *testing.B) {
 	cfg.TreadDepth = mfgMustLength(b, 270)
 	cfg.StringerThickness = mfgMustLength(b, 50)
 	cfg.StepThickness = mfgMustLength(b, 40)
-	gen, err := enggeo.Generate(cfg)
+	gen, err := enggeo.Generate(context.Background(), cfg)
 	if err != nil {
 		b.Fatal(err)
 	}

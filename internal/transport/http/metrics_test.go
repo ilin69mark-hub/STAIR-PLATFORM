@@ -83,6 +83,44 @@ func TestMetricsRegistryWrite(t *testing.T) {
 	}
 }
 
+// TestMetricsStairPipeline: после расчёта в реестре прикладного слоя
+// появляется stair_calculate_duration_seconds с лейблами flight/valid
+// (B2, EDR-0033 §3.2), а /metrics выводит оба реестра.
+func TestMetricsStairPipeline(t *testing.T) {
+	r := testRouter()
+
+	req := authedRequest(http.MethodPost, "/api/v1/stairs:calculate", referenceJSON)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("calculate: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Прикладной реестр напрямую.
+	var sb strings.Builder
+	if err := stair.ServiceMetricsReg.Write(&sb); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	body := sb.String()
+	if !strings.Contains(body, "# TYPE stair_calculate_duration_seconds histogram") {
+		t.Fatalf("missing stair_calculate_duration_seconds type:\n%s", body)
+	}
+	if !strings.Contains(body, `stair_calculate_duration_seconds_count{flight="straight",valid="true"}`) {
+		t.Fatalf("missing pipeline count with flight/valid labels:\n%s", body)
+	}
+
+	// /metrics пишет оба реестра.
+	req = httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("metrics: expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "stair_calculate_duration_seconds_count") {
+		t.Fatal("/metrics must include application-layer metrics")
+	}
+}
+
 // metricsBody рендерит содержимое глобального реестра.
 func metricsBody(t *testing.T) string {
 	t.Helper()

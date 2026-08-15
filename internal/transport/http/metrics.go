@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"stairplatform/internal/application/stair"
 	"stairplatform/internal/infrastructure/metrics"
 )
 
@@ -98,11 +99,16 @@ func refreshRuntimeMetrics() {
 
 // handleMetrics — GET /metrics (Prometheus text-format, EDR-0021 §6).
 // Публичный: не требует auth/CSRF/rate-limit (мониторинг не должен
-// блокироваться).
+// блокироваться). Пишет HTTP-реестр и реестр прикладного слоя расчёта
+// (stair_calculate_duration_seconds и др., B2, EDR-0033 §3.2).
 func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	refreshRuntimeMetrics()
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	if err := httpMetricsReg.Write(w); err != nil {
+		writeError(w, http.StatusInternalServerError, "metrics", "metrics write failed")
+		return
+	}
+	if err := stair.ServiceMetricsReg.Write(w); err != nil {
 		writeError(w, http.StatusInternalServerError, "metrics", "metrics write failed")
 	}
 }

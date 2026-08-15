@@ -1,8 +1,10 @@
 package stair
 
 import (
+	"context"
 	"fmt"
 	"math"
+	"time"
 
 	"stairplatform/internal/domain/engineering"
 	"stairplatform/internal/engine/optimization"
@@ -56,8 +58,22 @@ type OptimizeResult struct {
 // (EDR-0032): перебор числа ступеней (и разбивки для L/U-маршей) по сетке
 // шага комфорта; лучшим считается валидный кандидат с минимальным значением
 // цели (цена/себестоимость/материал). Оценщик — существующий конвейер
-// Calculate. Результат детерминирован (ADR-0003).
-func (s *Service) Optimize(cfg Config, opts Options, req OptimizeRequest) (*OptimizeResult, error) {
+// Calculate. Результат детерминирован (ADR-0003). Контекст отменяется
+// между оценками (B2, EDR-0033 §3.1).
+func (s *Service) Optimize(ctx context.Context, cfg Config, opts Options, req OptimizeRequest) (*OptimizeResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	start := time.Now()
+	out, err := s.optimize(ctx, cfg, opts, req)
+	optimizeDuration.With(flightLabel(cfg.Flight), string(outTarget(req.Target))).Observe(time.Since(start).Seconds())
+	return out, err
+}
+
+func (s *Service) optimize(ctx context.Context, cfg Config, opts Options, req OptimizeRequest) (*OptimizeResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("stair: optimize: %w", err)
+	}
 	if req.Target == "" {
 		req.Target = TargetPrice
 	}
@@ -135,14 +151,14 @@ func (s *Service) Optimize(cfg Config, opts Options, req OptimizeRequest) (*Opti
 		if k.ComfortStep > 0 {
 			o.ComfortStep = k.ComfortStep
 		}
-		res, err := s.Calculate(cand, o)
+		res, err := s.Calculate(ctx, cand, o)
 		if err != nil || res.Validation.Blocking || res.Price == nil {
 			return false, 0
 		}
 		return true, optimization.Objective(objectiveValue(res, req.Target))
 	}
 
-	r := optimization.Search(eval, optimization.Options{
+	r := optimization.Search(ctx, eval, optimization.Options{
 		StepCountMin: nMin,
 		StepCountMax: nMax,
 		LowerStepMin: n1Min,
@@ -152,6 +168,9 @@ func (s *Service) Optimize(cfg Config, opts Options, req OptimizeRequest) (*Opti
 		ComfortStep:  sGrid,
 		Maximize:     req.Maximize,
 	})
+	if r.Cancelled {
+		return nil, fmt.Errorf("stair: optimize: %w", ctx.Err())
+	}
 
 	out := &OptimizeResult{Valid: r.Valid, Evaluated: r.Evaluated, Target: req.Target}
 	if !r.Valid {
@@ -166,7 +185,7 @@ func (s *Service) Optimize(cfg Config, opts Options, req OptimizeRequest) (*Opti
 	if r.Best.ComfortStep > 0 {
 		bo.ComfortStep = r.Best.ComfortStep
 	}
-	br, err := s.Calculate(best, bo)
+	br, err := s.Calculate(ctx, best, bo)
 	if err != nil {
 		return nil, fmt.Errorf("stair: optimize best: %w", err)
 	}
@@ -192,4 +211,13 @@ func objectiveValue(res *Result, t OptimizeTarget) float64 {
 	default:
 		return res.Price.FinalPrice.Major(cur)
 	}
+}
+
+// outTarget нормализует целевую метрику для label метрики (пустое значение
+// — цена по умолчанию).
+func outTarget(t OptimizeTarget) OptimizeTarget {
+	if t == "" {
+		return TargetPrice
+	}
+	return t
 }

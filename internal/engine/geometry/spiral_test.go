@@ -1,6 +1,7 @@
 package geometry
 
 import (
+	"context"
 	"math"
 	"testing"
 
@@ -193,7 +194,7 @@ func TestBuildSpiralFlightDeterminism(t *testing.T) {
 // TestGenerateSpiral проверяет полный конвейер Generate для спирали.
 func TestGenerateSpiral(t *testing.T) {
 	cfg := spiralConfig(t)
-	res, err := Generate(cfg)
+	res, err := Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,11 +212,11 @@ func TestGenerateSpiral(t *testing.T) {
 // TestGenerateSpiralDeterminism проверяет детерминизм Generate.
 func TestGenerateSpiralDeterminism(t *testing.T) {
 	cfg := spiralConfig(t)
-	a, err := Generate(cfg)
+	a, err := Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := Generate(cfg)
+	b, err := Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

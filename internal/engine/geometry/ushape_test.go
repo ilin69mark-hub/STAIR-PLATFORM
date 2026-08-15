@@ -1,6 +1,7 @@
 package geometry
 
 import (
+	"context"
 	"math"
 	"testing"
 
@@ -157,7 +158,7 @@ func TestBuildUShapeFlightErrors(t *testing.T) {
 
 func TestGenerateUShape(t *testing.T) {
 	cfg := ushapeConfig(t)
-	res, err := Generate(cfg)
+	res, err := Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,11 +183,11 @@ func TestGenerateUShape(t *testing.T) {
 }
 
 func TestGenerateUShapeDeterminism(t *testing.T) {
-	a, err := Generate(ushapeConfig(t))
+	a, err := Generate(context.Background(), ushapeConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := Generate(ushapeConfig(t))
+	b, err := Generate(context.Background(), ushapeConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}

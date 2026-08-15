@@ -1,6 +1,7 @@
 package manufacturing
 
 import (
+	"context"
 	"testing"
 
 	"stairplatform/internal/domain/engineering"
@@ -32,7 +33,7 @@ func ushapeConfig(t *testing.T) *engineering.StairConfiguration {
 // марша не классифицируются как подступенки, площадка — как проступь.
 func TestManufactureUShapeParts(t *testing.T) {
 	cfg := ushapeConfig(t)
-	res, err := enggeo.Generate(cfg)
+	res, err := enggeo.Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +66,7 @@ func TestManufactureUShapeParts(t *testing.T) {
 // подступенки 800×180×40, площадка 1000×900×40.
 func TestManufactureUShapeDimensions(t *testing.T) {
 	cfg := ushapeConfig(t)
-	res, err := enggeo.Generate(cfg)
+	res, err := enggeo.Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +122,7 @@ func TestManufactureUShapeDimensions(t *testing.T) {
 // объединяются по размерам, площадка — отдельная проступь.
 func TestManufactureUShapeBOM(t *testing.T) {
 	cfg := ushapeConfig(t)
-	res, err := enggeo.Generate(cfg)
+	res, err := enggeo.Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +168,7 @@ func TestManufactureUShapeBOM(t *testing.T) {
 // П-марша корректна и валидна.
 func TestManufactureUShapeNesting(t *testing.T) {
 	cfg := ushapeConfig(t)
-	res, err := enggeo.Generate(cfg)
+	res, err := enggeo.Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

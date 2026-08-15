@@ -1,6 +1,7 @@
 package manufacturing
 
 import (
+	"context"
 	"math"
 	"testing"
 
@@ -30,7 +31,7 @@ func spiralConfig(t *testing.T) *engineering.StairConfiguration {
 // 1 колонна + 15 проступей.
 func TestManufactureSpiralParts(t *testing.T) {
 	cfg := spiralConfig(t)
-	res, err := enggeo.Generate(cfg)
+	res, err := enggeo.Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +60,7 @@ func TestManufactureSpiralParts(t *testing.T) {
 // длина H, ширина периметр 2πr (EDR-0007).
 func TestManufactureSpiralColumn(t *testing.T) {
 	cfg := spiralConfig(t)
-	res, err := enggeo.Generate(cfg)
+	res, err := enggeo.Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +92,7 @@ func TestManufactureSpiralColumn(t *testing.T) {
 // «Column», проступи группой.
 func TestManufactureSpiralBOM(t *testing.T) {
 	cfg := spiralConfig(t)
-	res, err := enggeo.Generate(cfg)
+	res, err := enggeo.Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +122,7 @@ func TestManufactureSpiralBOM(t *testing.T) {
 // TestManufactureSpiralNesting проверяет раскладку спиральной модели.
 func TestManufactureSpiralNesting(t *testing.T) {
 	cfg := spiralConfig(t)
-	res, err := enggeo.Generate(cfg)
+	res, err := enggeo.Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +147,7 @@ func TestManufactureSpiralNesting(t *testing.T) {
 // TestManufactureSpiralDeterminism проверяет детерминизм производства.
 func TestManufactureSpiralDeterminism(t *testing.T) {
 	cfg := spiralConfig(t)
-	res, err := enggeo.Generate(cfg)
+	res, err := enggeo.Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

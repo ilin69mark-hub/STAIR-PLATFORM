@@ -1,6 +1,7 @@
 package geometry
 
 import (
+	"context"
 	"math"
 	"reflect"
 	"testing"
@@ -15,7 +16,7 @@ func nearlyEq(a, b float64) bool {
 }
 
 func TestGenerateResult(t *testing.T) {
-	res, err := Generate(testConfig(t))
+	res, err := Generate(context.Background(), testConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +37,7 @@ func TestGenerateResult(t *testing.T) {
 }
 
 func TestGenerateMeasurement(t *testing.T) {
-	res, err := Generate(testConfig(t))
+	res, err := Generate(context.Background(), testConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,10 +70,10 @@ func TestGenerateMeasurement(t *testing.T) {
 func TestGenerateErrors(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.StepHeight = mustLength(t, 0)
-	if _, err := Generate(cfg); err == nil {
+	if _, err := Generate(context.Background(), cfg); err == nil {
 		t.Fatal("invalid config must be rejected")
 	}
-	if _, err := Generate(nil); err == nil {
+	if _, err := Generate(context.Background(), nil); err == nil {
 		t.Fatal("nil config must be rejected")
 	}
 }
@@ -80,7 +81,7 @@ func TestGenerateErrors(t *testing.T) {
 func TestGenerateNoSteps(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.StepThickness = mustLength(t, 0)
-	res, err := Generate(cfg)
+	res, err := Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,11 +99,11 @@ func TestGenerateNoSteps(t *testing.T) {
 }
 
 func TestGenerateDeterminism(t *testing.T) {
-	a, err := Generate(testConfig(t))
+	a, err := Generate(context.Background(), testConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := Generate(testConfig(t))
+	b, err := Generate(context.Background(), testConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +113,7 @@ func TestGenerateDeterminism(t *testing.T) {
 }
 
 func TestGenerateMeshConsistency(t *testing.T) {
-	res, err := Generate(testConfig(t))
+	res, err := Generate(context.Background(), testConfig(t))
 	if err != nil {
 		t.Fatal(err)
 	}

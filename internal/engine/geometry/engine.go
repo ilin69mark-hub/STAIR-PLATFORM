@@ -1,6 +1,7 @@
 package geometry
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 
@@ -36,7 +37,15 @@ type GenerationResult struct {
 // Валидация не блокирует результат: отчёт issues собирается в результат
 // (валидная модель из корректных параметров не содержит ошибок уровня
 // SeverityError). Результат детерминирован при детерминированной конфигурации.
-func Generate(cfg *engineering.StairConfiguration) (*GenerationResult, error) {
+// Контекст отмены (B2, EDR-0033 §3.1): errgroup.WithContext глобально
+// отменяет обработку при отмене/ошибке любого воркера.
+func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*GenerationResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("geometry: %w", ctx.Err())
+	}
 	if cfg == nil {
 		return nil, fmt.Errorf("geometry: configuration is required")
 	}
@@ -54,6 +63,9 @@ func Generate(cfg *engineering.StairConfiguration) (*GenerationResult, error) {
 	}
 	if err != nil {
 		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("geometry: %w", ctx.Err())
 	}
 	result := &GenerationResult{Model: model}
 
@@ -78,16 +90,20 @@ func Generate(cfg *engineering.StairConfiguration) (*GenerationResult, error) {
 	}
 	outs := make([]solidOut, len(solids))
 
-	// Ограниченный пул: не больше числа логических ядер (B3.1).
+	// Ограниченный пул: не больше числа логических ядер (B3.1). Отмена
+	// контекста глобальна: при отмене воркеры выходят через ctx-ошибку.
+	g, gctx := errgroup.WithContext(ctx)
 	limit := runtime.GOMAXPROCS(0)
 	if limit > len(solids) {
 		limit = len(solids)
 	}
-	g := new(errgroup.Group)
 	g.SetLimit(limit)
 	for i, solid := range solids {
 		i, solid := i, solid
 		g.Go(func() error {
+			if err := gctx.Err(); err != nil {
+				return err
+			}
 			o := solidOut{}
 			for _, issue := range kerngeo.ValidateCached(solid, caches[i]) {
 				issue.Element = fmt.Sprintf("solid:%d/%s", i, issue.Element)
@@ -105,6 +121,9 @@ func Generate(cfg *engineering.StairConfiguration) (*GenerationResult, error) {
 		})
 	}
 	if err := g.Wait(); err != nil {
+		if gctx.Err() != nil {
+			return nil, fmt.Errorf("geometry: %w", gctx.Err())
+		}
 		return nil, fmt.Errorf("geometry: solid processing: %w", err)
 	}
 

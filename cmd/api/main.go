@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"strconv"
@@ -145,9 +146,11 @@ func main() {
 		Redis: redisClient,
 	}
 
+	router := transporthttp.NewRouter(stairSvc, projectSvc, authSvc, cfg, auditSvc)
+
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           transporthttp.NewRouter(stairSvc, projectSvc, authSvc, cfg, auditSvc),
+		Handler:           newRootHandler(router),
 		ReadTimeout:       15 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -180,6 +183,30 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("api server stopped")
+}
+
+// newRootHandler собирает корневой mux: API-роутер и, при
+// STAIR_PPROF_ENABLED=true, маршруты net/http/pprof (B2, EDR-0033 §3.3).
+// pprof по умолчанию выключен: включать только во внутреннем контуре/
+// локально (доступ без auth).
+func newRootHandler(api http.Handler) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/", api)
+	if envBool("STAIR_PPROF_ENABLED", false) {
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		mux.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
+		mux.Handle("/debug/pprof/heap", pprof.Handler("heap"))
+		mux.Handle("/debug/pprof/allocs", pprof.Handler("allocs"))
+		mux.Handle("/debug/pprof/threadcreate", pprof.Handler("threadcreate"))
+		mux.Handle("/debug/pprof/block", pprof.Handler("block"))
+		mux.Handle("/debug/pprof/mutex", pprof.Handler("mutex"))
+		slog.Info("pprof profiling enabled", "path", "/debug/pprof/")
+	}
+	return mux
 }
 
 // sessionTTL возвращает время жизни сессии из STAIR_SESSION_TTL

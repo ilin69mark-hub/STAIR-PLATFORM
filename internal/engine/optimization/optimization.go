@@ -7,6 +7,8 @@
 // кандидат — результат детерминирован (ADR-0003).
 package optimization
 
+import "context"
+
 // Candidate — точка поиска: параметры разбивки марша.
 type Candidate struct {
 	StepCount      int     // n — число ступеней
@@ -45,14 +47,21 @@ type Result struct {
 	Best      Candidate
 	Value     Objective
 	Valid     bool
-	Evaluated int // общее число оценок (включая невалидные)
+	Evaluated int  // общее число оценок (включая невалидные)
+	Cancelled bool // true — поиск прерван отменой контекста (B2, EDR-0033)
 }
 
 // Search выполняет детерминированный исчерпывающий поиск по сетке
 // n × n1 × S. Возвращает первый (в порядке обхода) лучший валидный
 // кандидат; при отсутствии допустимых кандидатов — Result{Valid: false}.
-func Search(eval Evaluator, opt Options) Result {
+// Контекст проверяется между оценками: при отмене возвращается текущее
+// накопленное состояние с Cancelled: true. Отмена не меняет результат при
+// её отсутствии (детерминизм ADR-0003).
+func Search(ctx context.Context, eval Evaluator, opt Options) Result {
 	var out Result
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if eval == nil {
 		return out
 	}
@@ -75,6 +84,10 @@ func Search(eval Evaluator, opt Options) Result {
 	for n := opt.StepCountMin; n <= opt.StepCountMax; n++ {
 		for n1 := n1Min; n1 <= n1Max; n1++ {
 			for _, s := range comfortPts {
+				if err := ctx.Err(); err != nil {
+					out.Cancelled = true
+					return out
+				}
 				cand := Candidate{StepCount: n, LowerStepCount: n1, ComfortStep: s}
 				valid, v := eval(cand)
 				out.Evaluated++
