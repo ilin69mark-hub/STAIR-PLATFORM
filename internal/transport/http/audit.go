@@ -83,10 +83,10 @@ func handleListProjectAudit(projects ProjectService, auditSvc AuditService) http
 }
 
 // handleListTenantAudit — GET /api/v1/audit (auth+admin).
-// 200 — события tenant; 403 — роль не admin.
+// 200 — события tenant; 403 — нет права audit.read_all.
 func handleListTenantAudit(auditSvc AuditService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if u := authUser(r.Context()); u == nil || u.Role != auth.RoleAdmin {
+		if u := authUser(r.Context()); u == nil || !u.Role.HasPermission(auth.PermissionAuditReadAll) {
 			writeError(w, http.StatusForbidden, "forbidden", "admin required")
 			return
 		}

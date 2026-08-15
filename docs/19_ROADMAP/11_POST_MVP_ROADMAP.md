@@ -107,7 +107,7 @@ SSO
 
 Enterprise Controls
 
-Advanced Permissions
+Advanced Permissions — **CLOSED 2026-08-15**: реализовано end-to-end (G3, EDR-0015) — permission-модель (RBAC) в auth (admin/user) и project (owner/editor/viewer) с единым механизмом HasPermission вместо CanEdit/CanManage и inline-сравнений; admin-эндпоинты управления пользователями (список и смена роли, tenant-скоуп, запрет смены собственной роли).
 
 ---
 

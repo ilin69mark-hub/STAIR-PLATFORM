@@ -13,6 +13,7 @@ import (
 
 // AuthService — прикладной интерфейс auth, ожидаемый транспортным слоем
 // (инверсия зависимостей, DOM-0008). Реализуется application/auth.Service.
+// Включает управление пользователями (EDR-0015 §3.4).
 type AuthService interface {
 	Register(ctx context.Context, email, name, password string) (*auth.User, string, error)
 	Login(ctx context.Context, email, password string) (*auth.User, string, error)
@@ -20,6 +21,8 @@ type AuthService interface {
 	// (EDR-0014), новый session-токен для обновления cookie.
 	Authenticate(ctx context.Context, token string) (*auth.User, string, error)
 	Logout(ctx context.Context, token string) error
+	ListUsers(ctx context.Context, tenantID string) ([]*auth.User, error)
+	UpdateUserRole(ctx context.Context, tenantID, actorID, userID string, role auth.Role) error
 }
 
 // Имена cookie (SEC-0003). session — httpOnly, его читает только сервер;

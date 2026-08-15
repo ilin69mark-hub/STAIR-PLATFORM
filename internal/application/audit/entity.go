@@ -19,6 +19,7 @@ const (
 	ActionAuthLogout        Action = "auth.logout"
 	ActionAuthLoginDenied   Action = "auth.login_denied"
 	ActionAuthzDenied       Action = "authz.denied"
+	ActionUserRoleChanged   Action = "user.role_changed"
 	ActionProjectCreated    Action = "project.created"
 	ActionProjectModified   Action = "project.modified"
 	ActionMemberAdded       Action = "member.added"

@@ -219,6 +219,30 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 	return s.repo.DeleteSessionByTokenHash(ctx, hash)
 }
 
+// ListUsers возвращает пользователей tenant (EDR-0015 §3.4). Требуется
+// право users.list (проверка в транспорте).
+func (s *Service) ListUsers(ctx context.Context, tenantID string) ([]*User, error) {
+	return s.repo.ListUsers(ctx, tenantID)
+}
+
+// UpdateUserRole меняет роль пользователя tenant (EDR-0015 §3.4).
+// Требуется право users.update_role (проверка в транспорте); роль — только
+// user|admin. Запрещено менять собственную роль (инвариант админа).
+func (s *Service) UpdateUserRole(ctx context.Context, tenantID, actorID, userID string, role Role) error {
+	if actorID == userID {
+		s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied, "change own role")
+		return ErrForbidden
+	}
+	if err := s.repo.UpdateUserRole(ctx, tenantID, userID, role); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied, "user not found in tenant")
+		}
+		return err
+	}
+	s.record(ctx, actorID, tenantID, audit.ActionUserRoleChanged, audit.ResultOK, "user role changed to "+string(role))
+	return nil
+}
+
 // newToken генерирует opaque-токен: 32 случайных байта в hex (64 символа).
 func newToken() (string, error) {
 	b := make([]byte, 32)

@@ -34,6 +34,9 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	mux.Handle("GET /api/v1/auth/me", authProtected(handleMe()))
 	mux.Handle("POST /api/v1/auth/logout", authMutating(handleLogout(authSvc)))
 
+	mux.Handle("GET /api/v1/admin/users", authProtected(handleListUsers(authSvc)))
+	mux.Handle("PATCH /api/v1/admin/users/{id}", authMutating(handleUpdateUserRole(authSvc)))
+
 	if auditsvc != nil {
 		mux.Handle("GET /api/v1/audit", authProtected(handleListTenantAudit(auditsvc)))
 		mux.Handle("GET /api/v1/projects/{id}/audit", authProtected(handleListProjectAudit(projects, auditsvc)))

@@ -1182,3 +1182,38 @@ func TestRestoreConfiguration(t *testing.T) {
 		t.Fatalf("stranger list: want ErrNotFound, got %v", err)
 	}
 }
+
+func TestProjectRolePermissionsMatrix(t *testing.T) {
+	cases := []struct {
+		role    ProjectRole
+		perm    Permission
+		allowed bool
+	}{
+		{RoleViewer, PermissionProjectRead, true},
+		{RoleViewer, PermissionProjectEdit, false},
+		{RoleViewer, PermissionProjectManage, false},
+		{RoleEditor, PermissionProjectRead, true},
+		{RoleEditor, PermissionProjectEdit, true},
+		{RoleEditor, PermissionProjectManage, false},
+		{RoleOwner, PermissionProjectRead, true},
+		{RoleOwner, PermissionProjectEdit, true},
+		{RoleOwner, PermissionProjectManage, true},
+	}
+	for _, c := range cases {
+		if got := c.role.HasPermission(c.perm); got != c.allowed {
+			t.Errorf("%s.HasPermission(%s) = %v, want %v", c.role, c.perm, got, c.allowed)
+		}
+	}
+}
+
+func TestProjectRoleCanEditManageCompatibility(t *testing.T) {
+	if !RoleOwner.CanEdit() || !RoleOwner.CanManage() {
+		t.Error("owner must edit and manage")
+	}
+	if !RoleEditor.CanEdit() || RoleEditor.CanManage() {
+		t.Error("editor must edit but not manage")
+	}
+	if RoleViewer.CanEdit() || RoleViewer.CanManage() {
+		t.Error("viewer must not edit or manage")
+	}
+}

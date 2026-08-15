@@ -91,6 +91,45 @@ func (r *AuthRepository) scanUser(row pgx.Row) (*auth.User, error) {
 	return &u, nil
 }
 
+// ListUsers возвращает пользователей tenant (EDR-0015 §3.4).
+func (r *AuthRepository) ListUsers(ctx context.Context, tenantID string) ([]*auth.User, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, tenant_id, email, name, password_hash, role, status, created_at, updated_at
+		 FROM users WHERE tenant_id = $1 ORDER BY created_at`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("auth: list users: %w", err)
+	}
+	defer rows.Close()
+	var out []*auth.User
+	for rows.Next() {
+		var u auth.User
+		if err := rows.Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.PasswordHash,
+			&u.Role, &u.Status, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("auth: scan user: %w", err)
+		}
+		out = append(out, &u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("auth: list users rows: %w", err)
+	}
+	return out, nil
+}
+
+// UpdateUserRole меняет роль пользователя tenant (EDR-0015 §3.4).
+// ErrNotFound — пользователь не найден в tenant.
+func (r *AuthRepository) UpdateUserRole(ctx context.Context, tenantID, userID string, role auth.Role) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE users SET role = $1, updated_at = now()
+		 WHERE id = $2 AND tenant_id = $3`, role, userID, tenantID)
+	if err != nil {
+		return fmt.Errorf("auth: update user role: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return auth.ErrNotFound
+	}
+	return nil
+}
+
 func (r *AuthRepository) CreateSession(ctx context.Context, s *auth.Session) error {
 	err := r.pool.QueryRow(ctx,
 		`INSERT INTO sessions (user_id, token_hash, expires_at)

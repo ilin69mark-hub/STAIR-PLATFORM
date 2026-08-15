@@ -18,6 +18,50 @@ const (
 	RoleAdmin Role = "admin"
 )
 
+// Permission — именованное право на операцию (EDR-0015 §3.1). Системные
+// права владеет роль пользователя (auth), проектные — роль участника
+// (project package). Проверка — через Role.HasPermission.
+type Permission string
+
+const (
+	// PermissionAuditReadAll — чтение глобального журнала аудита (EDR-0013).
+	PermissionAuditReadAll Permission = "audit.read_all"
+	// PermissionUsersList — просмотр пользователей tenant (EDR-0015 §3.4).
+	PermissionUsersList Permission = "users.list"
+	// PermissionUsersUpdateRole — смена роли пользователя (EDR-0015 §3.4).
+	PermissionUsersUpdateRole Permission = "users.update_role"
+)
+
+// Permissions возвращает набор прав роли (матрица EDR-0015 §3.2).
+func (r Role) Permissions() []Permission {
+	switch r {
+	case RoleAdmin:
+		return []Permission{PermissionAuditReadAll, PermissionUsersList, PermissionUsersUpdateRole}
+	default:
+		return nil
+	}
+}
+
+// HasPermission возвращает true, если роль обладает правом p.
+func (r Role) HasPermission(p Permission) bool {
+	for _, perm := range r.Permissions() {
+		if perm == p {
+			return true
+		}
+	}
+	return false
+}
+
+// ParseRole нормализует роль из строки DTO; ErrUnknownRole — невалидная.
+func ParseRole(s string) (Role, error) {
+	switch Role(s) {
+	case RoleUser, RoleAdmin:
+		return Role(s), nil
+	default:
+		return "", ErrUnknownRole
+	}
+}
+
 // Status — состояние учётной записи (SEC-0003).
 type Status string
 
@@ -68,6 +112,10 @@ type Repository interface {
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
 	// GetUserByID возвращает пользователя по ID; ErrNotFound — нет.
 	GetUserByID(ctx context.Context, id string) (*User, error)
+	// ListUsers возвращает пользователей tenant (EDR-0015 §3.4).
+	ListUsers(ctx context.Context, tenantID string) ([]*User, error)
+	// UpdateUserRole меняет роль пользователя tenant; ErrNotFound — нет.
+	UpdateUserRole(ctx context.Context, tenantID, userID string, role Role) error
 
 	// CreateSession сохраняет сессию (токен уже захэширован).
 	CreateSession(ctx context.Context, s *Session) error

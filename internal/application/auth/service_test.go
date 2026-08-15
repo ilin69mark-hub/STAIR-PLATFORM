@@ -51,6 +51,25 @@ func (f *fakeRepo) GetUserByID(ctx context.Context, id string) (*User, error) {
 	return u, nil
 }
 
+func (f *fakeRepo) ListUsers(ctx context.Context, tenantID string) ([]*User, error) {
+	var out []*User
+	for _, u := range f.byID {
+		if u.TenantID == tenantID {
+			out = append(out, u)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) UpdateUserRole(ctx context.Context, tenantID, userID string, role Role) error {
+	u, ok := f.byID[userID]
+	if !ok || u.TenantID != tenantID {
+		return ErrNotFound
+	}
+	u.Role = role
+	return nil
+}
+
 func (f *fakeRepo) CreateSession(ctx context.Context, s *Session) error {
 	s.ID = "s-" + s.TokenHash
 	s.CreatedAt = time.Now().UTC()
@@ -261,5 +280,99 @@ func TestDisabledUserCannotLogin(t *testing.T) {
 
 	if _, _, err := svc.Login(context.Background(), "off@example.com", "password123"); err != ErrUserDisabled {
 		t.Fatalf("expected ErrUserDisabled, got %v", err)
+	}
+}
+
+// --- EDR-0015: Permission-модель и admin-операции ---
+
+func TestRolePermissionsMatrix(t *testing.T) {
+	cases := []struct {
+		role    Role
+		perm    Permission
+		allowed bool
+	}{
+		{RoleAdmin, PermissionAuditReadAll, true},
+		{RoleAdmin, PermissionUsersList, true},
+		{RoleAdmin, PermissionUsersUpdateRole, true},
+		{RoleUser, PermissionAuditReadAll, false},
+		{RoleUser, PermissionUsersList, false},
+		{RoleUser, PermissionUsersUpdateRole, false},
+	}
+	for _, c := range cases {
+		if got := c.role.HasPermission(c.perm); got != c.allowed {
+			t.Errorf("%s.HasPermission(%s) = %v, want %v", c.role, c.perm, got, c.allowed)
+		}
+	}
+}
+
+func TestParseRole(t *testing.T) {
+	if _, err := ParseRole("admin"); err != nil {
+		t.Fatalf("admin: %v", err)
+	}
+	if _, err := ParseRole("user"); err != nil {
+		t.Fatalf("user: %v", err)
+	}
+	if _, err := ParseRole("superadmin"); err != ErrUnknownRole {
+		t.Fatalf("expected ErrUnknownRole, got %v", err)
+	}
+}
+
+func TestListUsersScopedToTenant(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, 0)
+	_, _, _ = svc.Register(context.Background(), "one@example.com", "A", "password123")
+	_, _, _ = svc.Register(context.Background(), "two@example.com", "B", "password123")
+
+	users, err := svc.ListUsers(context.Background(), "t-1")
+	if err != nil {
+		t.Fatalf("ListUsers: %v", err)
+	}
+	if len(users) != 2 {
+		t.Fatalf("expected 2 users in tenant t-1, got %d", len(users))
+	}
+	other, err := svc.ListUsers(context.Background(), "t-2")
+	if err != nil {
+		t.Fatalf("ListUsers t-2: %v", err)
+	}
+	if len(other) != 0 {
+		t.Fatalf("expected 0 users in tenant t-2, got %d", len(other))
+	}
+}
+
+func TestUpdateUserRole(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, 0)
+	u, _, _ := svc.Register(context.Background(), "up@example.com", "A", "password123")
+
+	if err := svc.UpdateUserRole(context.Background(), u.TenantID, "admin-actor", u.ID, RoleAdmin); err != nil {
+		t.Fatalf("UpdateUserRole: %v", err)
+	}
+	got, err := repo.GetUserByID(context.Background(), u.ID)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if got.Role != RoleAdmin {
+		t.Fatalf("expected role admin, got %s", got.Role)
+	}
+}
+
+func TestUpdateUserRoleCannotChangeOwnRole(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, 0)
+	u, _, _ := svc.Register(context.Background(), "self@example.com", "A", "password123")
+
+	if err := svc.UpdateUserRole(context.Background(), u.TenantID, u.ID, u.ID, RoleAdmin); err != ErrForbidden {
+		t.Fatalf("expected ErrForbidden for self-role change, got %v", err)
+	}
+}
+
+func TestUpdateUserRoleNotFoundInTenant(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, 0)
+	u, _, _ := svc.Register(context.Background(), "miss@example.com", "A", "password123")
+
+	err := svc.UpdateUserRole(context.Background(), "t-other", "admin", u.ID, RoleAdmin)
+	if err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound for foreign tenant, got %v", err)
 	}
 }

@@ -119,7 +119,7 @@ func (s *Service) AddMember(ctx context.Context, tenantID, actorID, projectID, u
 	if !ok {
 		return ErrNotFound
 	}
-	if !me.Role.CanManage() {
+	if !me.Role.HasPermission(PermissionProjectManage) {
 		s.record(ctx, tenantID, actorID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "add member: owner required")
 		return ErrForbidden
 	}
@@ -141,7 +141,7 @@ func (s *Service) AddMemberByEmail(ctx context.Context, tenantID, actorID, proje
 	if !ok {
 		return ErrNotFound
 	}
-	if !me.Role.CanManage() {
+	if !me.Role.HasPermission(PermissionProjectManage) {
 		s.record(ctx, tenantID, actorID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "add member by email: owner required")
 		return ErrForbidden
 	}
@@ -161,7 +161,7 @@ func (s *Service) UpdateMemberRole(ctx context.Context, tenantID, actorID, proje
 	if !ok {
 		return ErrNotFound
 	}
-	if !me.Role.CanManage() {
+	if !me.Role.HasPermission(PermissionProjectManage) {
 		s.record(ctx, tenantID, actorID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "update member role: owner required")
 		return ErrForbidden
 	}
@@ -182,7 +182,7 @@ func (s *Service) RemoveMember(ctx context.Context, tenantID, actorID, projectID
 	if !ok {
 		return ErrNotFound
 	}
-	if !me.Role.CanManage() {
+	if !me.Role.HasPermission(PermissionProjectManage) {
 		s.record(ctx, tenantID, actorID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "remove member: owner required")
 		return ErrForbidden
 	}
@@ -254,7 +254,7 @@ func (s *Service) Calculate(ctx context.Context, tenantID, userID, projectID str
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if !me.Role.CanEdit() {
+	if !me.Role.HasPermission(PermissionProjectEdit) {
 		s.record(ctx, tenantID, userID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "calculate: editor required")
 		return nil, ErrForbidden
 	}
@@ -326,7 +326,7 @@ func (s *Service) GetConfiguration(ctx context.Context, tenantID, userID, projec
 
 // RestoreConfiguration делает ревизию конфигурации текущей (EDR-0012,
 // DB-0006 Recovery): прежняя версия снова становится рабочей. Требуется
-// роль owner или editor (CanEdit); не-член — ErrNotFound.
+// роль с правом project.edit; не-член — ErrNotFound.
 func (s *Service) RestoreConfiguration(ctx context.Context, tenantID, userID, projectID, configurationID string) (*StairConfiguration, error) {
 	me, ok, err := s.member(ctx, tenantID, userID, projectID)
 	if err != nil {
@@ -335,7 +335,7 @@ func (s *Service) RestoreConfiguration(ctx context.Context, tenantID, userID, pr
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if !me.Role.CanEdit() {
+	if !me.Role.HasPermission(PermissionProjectEdit) {
 		s.record(ctx, tenantID, userID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "restore configuration: editor required")
 		return nil, ErrForbidden
 	}
@@ -352,7 +352,7 @@ func (s *Service) RestoreConfiguration(ctx context.Context, tenantID, userID, pr
 
 // RequestReview запрашивает ревью проекта (EDR-0010): переводит проект
 // draft|changes_requested → in_review. Требуется роль owner/editor
-// (CanEdit); повторный запрос из in_review — ErrConflict (реализация
+// (право project.edit); повторный запрос из in_review — ErrConflict (реализация
 // Repository). Не-член — ErrNotFound.
 func (s *Service) RequestReview(ctx context.Context, tenantID, userID, projectID, comment string) (*ProjectReview, error) {
 	me, ok, err := s.member(ctx, tenantID, userID, projectID)
@@ -362,7 +362,7 @@ func (s *Service) RequestReview(ctx context.Context, tenantID, userID, projectID
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if !me.Role.CanEdit() {
+	if !me.Role.HasPermission(PermissionProjectEdit) {
 		s.record(ctx, tenantID, userID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "request review: editor required")
 		return nil, ErrForbidden
 	}
@@ -397,7 +397,7 @@ func (s *Service) decideReview(ctx context.Context, tenantID, userID, projectID,
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if !me.Role.CanManage() {
+	if !me.Role.HasPermission(PermissionProjectManage) {
 		s.record(ctx, tenantID, userID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "decide review: owner required")
 		return nil, ErrForbidden
 	}
@@ -439,7 +439,7 @@ func (s *Service) ApproveConfiguration(ctx context.Context, tenantID, userID, pr
 	if !ok {
 		return nil, ErrNotFound
 	}
-	if !me.Role.CanManage() {
+	if !me.Role.HasPermission(PermissionProjectManage) {
 		s.record(ctx, tenantID, userID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "approve configuration: owner required")
 		return nil, ErrForbidden
 	}

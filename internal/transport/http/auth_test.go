@@ -55,6 +55,14 @@ func (f *fakeAuth) Authenticate(ctx context.Context, token string) (*auth.User, 
 
 func (f *fakeAuth) Logout(ctx context.Context, token string) error { return nil }
 
+func (f *fakeAuth) ListUsers(ctx context.Context, tenantID string) ([]*auth.User, error) {
+	return []*auth.User{{ID: "u-2", TenantID: tenantID, Email: "member@example.com", Role: auth.RoleUser}}, nil
+}
+
+func (f *fakeAuth) UpdateUserRole(ctx context.Context, tenantID, actorID, userID string, role auth.Role) error {
+	return nil
+}
+
 func authTestRouter(a AuthService) http.Handler {
 	return NewRouter(stair.NewService(), nil, a, DefaultConfig())
 }

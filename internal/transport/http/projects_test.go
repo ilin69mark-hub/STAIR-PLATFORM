@@ -256,6 +256,14 @@ func (testAuth) Authenticate(ctx context.Context, token string) (*auth.User, str
 
 func (testAuth) Logout(ctx context.Context, token string) error { return nil }
 
+func (testAuth) ListUsers(ctx context.Context, tenantID string) ([]*auth.User, error) {
+	return []*auth.User{{ID: "u-2", TenantID: tenantID, Email: "member@example.com", Role: auth.RoleUser}}, nil
+}
+
+func (testAuth) UpdateUserRole(ctx context.Context, tenantID, actorID, userID string, role auth.Role) error {
+	return nil
+}
+
 func testRouterWithProjects(p ProjectService) http.Handler {
 	return NewRouter(stair.NewService(), p, testAuth{}, DefaultConfig())
 }
