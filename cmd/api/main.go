@@ -14,6 +14,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"stairplatform/internal/application/analytics"
+	appast "stairplatform/internal/application/assistant"
 	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/integrations"
@@ -90,6 +91,23 @@ func main() {
 	// воркер (calc не нужен API-процессу).
 	jobsSvc := jobs.NewService(database.NewCalcJobRepository(pool), queueBackend.Queue(), nil)
 
+	// AI-ассистенты (EDR-0036, Phase D D1): локальный детерминированный
+	// бэкенд всегда; первичный OpenAI-совместимый — только при
+	// STAIR_AI_BASE_URL (AI-0003: primary → local → error).
+	assistantSvc := appast.NewService(stairSvc, auditSvc)
+	if aiBase := os.Getenv("STAIR_AI_BASE_URL"); aiBase != "" {
+		oai, err := appast.NewOpenAI(appast.OpenAIConfig{
+			BaseURL: aiBase,
+			APIKey:  os.Getenv("STAIR_AI_API_KEY"),
+			Model:   os.Getenv("STAIR_AI_MODEL"),
+		})
+		if err != nil {
+			slog.Error("assistant openai init failed", "error", err)
+			os.Exit(1)
+		}
+		assistantSvc = assistantSvc.WithPrimaryBackend(oai)
+	}
+
 	// Storage (EDR-0026 §3.5): объектное хранилище из окружения. Бэкенд
 	// задаётся STAIR_STORAGE_BACKEND (filesystem|s3); сбой конфигурации —
 	// фатален (сервис доступен только при валидном хранилище).
@@ -138,6 +156,7 @@ func main() {
 		PaymentsWebhookSecret: paymentWebhookSecret,
 		Analytics:             analyticsSvc,
 		Jobs:                  jobsSvc,
+		Assistant:             assistantSvc,
 	}
 
 	// Readiness (EDR-0018 §3.2): SELECT 1 + Redis PING.

@@ -59,7 +59,14 @@ Versioning — **CLOSED 2026-08-15**: реализовано end-to-end (C6, EDR
 
 # Phase D — AI
 
-AI Design Assistant
+AI Design Assistant — **DONE 2026-08-15**: реализован D1, EDR-0036 —
+фундация AI Layer + Design Assistant: `internal/application/assistant`
+(Service/ModelRouter/DesignExpert, тулы Calculate/Optimize/ValidateConfig
+поверх stair.Service, локальный детерминированный комментатор + опциональный
+OpenAI-совместимый первичный бэкенд с фолбэком AI-0003, аудит
+`ai.assist.design`, метрика `stair_assistant_duration_seconds`),
+`POST /api/v1/assistant/design` (auth), проводка в cmd/api;
+unit-тесты эксперта/роутера/OpenAI + транспортные тесты.
 
 AI Engineering Assistant
 

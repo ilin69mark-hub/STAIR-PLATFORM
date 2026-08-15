@@ -24,6 +24,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	payments := cfg.Payments
 	analytics := cfg.Analytics
 	jobsSvc := cfg.Jobs
+	assistantSvc := cfg.Assistant
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handleHealth)
@@ -66,6 +67,10 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 
 	mux.Handle("POST /api/v1/stairs:calculate", authProtected(handleCalculate(svc)))
 	mux.Handle("POST /api/v1/stairs:optimize", authProtected(handleOptimize(svc)))
+	if assistantSvc != nil {
+		// AI-ассистенты (Phase D, D1–D4): design/engineering/manufacturing/pricing.
+		mux.Handle("POST /api/v1/assistant/{kind}", authProtected(handleAssistantAsk(assistantSvc)))
+	}
 	if jobsSvc != nil {
 		mux.Handle("POST /api/v1/stairs:calculate/async", authMutating(handleCalculateAsync(jobsSvc)))
 		mux.Handle("GET /api/v1/jobs/{id}", authProtected(handleGetJob(jobsSvc)))

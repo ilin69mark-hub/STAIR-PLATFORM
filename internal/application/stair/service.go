@@ -229,6 +229,12 @@ func ValidateConfig(cfg Config) error {
 	return nil
 }
 
+// ValidateConfig — метод сервиса (тот же шаг, что и функция ValidateConfig);
+// нужен транспортному/ассистентному слою через интерфейс (DOM-0008).
+func (s *Service) ValidateConfig(cfg Config) error {
+	return ValidateConfig(cfg)
+}
+
 func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 	c := &engineering.StairConfiguration{
 		Width:      cfg.Width,

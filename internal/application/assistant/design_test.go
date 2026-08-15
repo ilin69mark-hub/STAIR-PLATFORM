@@ -1,0 +1,312 @@
+package assistant
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"stairplatform/internal/application/stair"
+	"stairplatform/internal/domain/engineering"
+	domprc "stairplatform/internal/domain/pricing"
+	"stairplatform/internal/engine/solver"
+)
+
+// fakeCalc — in-memory реализация порта stairCalculator для юнит-тестов.
+type fakeCalc struct {
+	optByFlight map[engineering.FlightType]*stair.OptimizeResult
+	validateErr error
+	seen        []engineering.FlightType
+}
+
+func (f *fakeCalc) Calculate(context.Context, stair.Config, stair.Options) (*stair.Result, error) {
+	return nil, errors.New("not implemented in fake")
+}
+
+func (f *fakeCalc) Optimize(_ context.Context, cfg stair.Config, _ stair.Options, _ stair.OptimizeRequest) (*stair.OptimizeResult, error) {
+	o, ok := f.optByFlight[cfg.Flight]
+	if !ok {
+		return &stair.OptimizeResult{Valid: false}, nil
+	}
+	f.seen = append(f.seen, cfg.Flight)
+	return o, nil
+}
+
+func (f *fakeCalc) ValidateConfig(stair.Config) error { return f.validateErr }
+
+// optResult конструирует оптимум заданного марша с ценой и комфортом.
+// Для non-spiral шаг комфорта в Response считаем из геометрии: h=180,
+// b = comfort − 2h — тогда comfortStepOf совпадёт с переданным comfort.
+func optResult(flight engineering.FlightType, priceMajor float64, comfort float64) *stair.OptimizeResult {
+	tread := comfort - 360 // 2*180
+	res := &stair.Result{
+		Price: &domprc.PriceBreakdown{
+			Currency:   domprc.CurrencyRUB,
+			FinalPrice: domprc.NewMoney(int64(priceMajor*100 + 0.5)),
+		},
+	}
+	switch flight {
+	case engineering.FlightLShape:
+		res.LShape = &solver.LShapeResult{
+			StepCount: 15, StepHeight: engineering.Length(180), TreadDepth: engineering.Length(tread),
+		}
+	case engineering.FlightUShape:
+		res.UShape = &solver.UShapeResult{
+			StepCount: 16, StepHeight: engineering.Length(169), TreadDepth: engineering.Length(tread),
+		}
+	case engineering.FlightSpiral:
+		res.Spiral = &solver.SpiralResult{StepCount: 14, StepHeight: engineering.Length(193), ComfortStep: comfort}
+	default:
+		res.Flight = solver.FlightResult{
+			StepCount: 15, StepHeight: engineering.Length(180), TreadDepth: engineering.Length(tread),
+		}
+	}
+	return &stair.OptimizeResult{
+		Valid:       true,
+		Target:      stair.TargetPrice,
+		Objective:   priceMajor,
+		BestResult:  res,
+		ComfortStep: comfort,
+	}
+}
+
+func testServiceWithCalc(calc stairCalculator) *Service {
+	return NewService(calc, nil)
+}
+
+func TestDesignRecommendCheapestFlight(t *testing.T) {
+	calc := &fakeCalc{optByFlight: map[engineering.FlightType]*stair.OptimizeResult{
+		engineering.FlightStraight: optResult(engineering.FlightStraight, 100, 630),
+		engineering.FlightLShape:   optResult(engineering.FlightLShape, 140, 628),
+		engineering.FlightUShape:   optResult(engineering.FlightUShape, 150, 635),
+		engineering.FlightSpiral:   optResult(engineering.FlightSpiral, 200, 640),
+	}}
+	svc := testServiceWithCalc(calc)
+
+	res, err := svc.Ask(context.Background(), "t1", "u1", KindDesign, DesignRequest{
+		Config: stair.Config{Width: 900, Height: 2700, Flight: engineering.FlightStraight},
+	})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if res.Kind != KindDesign {
+		t.Fatalf("kind = %q, want design", res.Kind)
+	}
+	if !strings.Contains(res.Response.Recommendation, "прямой марш") {
+		t.Fatalf("recommendation %q should mention straight flight", res.Response.Recommendation)
+	}
+	if res.Response.Recommendation == "" {
+		t.Fatal("recommendation must be non-empty")
+	}
+	if res.Commentary == "" {
+		t.Fatal("commentary must be non-empty")
+	}
+	// Рекомендация — самый дешёвый вариант.
+	if len(res.Response.Alternatives) != 3 {
+		t.Fatalf("alternatives = %d, want 3", len(res.Response.Alternatives))
+	}
+	// Перебор всех четырёх типов без сбоя (спираль без радиуса — R=2W).
+	if len(calc.seen) != 4 {
+		t.Fatalf("evaluated %d flight types, want 4", len(calc.seen))
+	}
+}
+
+func TestDesignComfortPriority(t *testing.T) {
+	calc := &fakeCalc{optByFlight: map[engineering.FlightType]*stair.OptimizeResult{
+		// Прямой марш с отклонением комфорта больше, но дешевле.
+		engineering.FlightStraight: optResult(engineering.FlightStraight, 90, 700),
+		// L-образный с идеальным комфортом, но дороже.
+		engineering.FlightLShape: optResult(engineering.FlightLShape, 150, 630),
+		engineering.FlightUShape: optResult(engineering.FlightUShape, 160, 700),
+		engineering.FlightSpiral: optResult(engineering.FlightSpiral, 200, 700),
+	}}
+	svc := testServiceWithCalc(calc)
+
+	res, err := svc.Ask(context.Background(), "t1", "u1", KindDesign, DesignRequest{
+		Config:      stair.Config{Width: 900, Height: 2700, Flight: engineering.FlightStraight},
+		Preferences: DesignPreferences{Priority: PriorityComfort},
+	})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if !strings.Contains(res.Response.Recommendation, "L-образный") {
+		t.Fatalf("comfort priority should recommend L-shape, got %q", res.Response.Recommendation)
+	}
+}
+
+func TestDesignUnknownPriorityInvalid(t *testing.T) {
+	svc := testServiceWithCalc(&fakeCalc{})
+	_, err := svc.Ask(context.Background(), "t1", "u1", KindDesign, DesignRequest{
+		Config:      stair.Config{Width: 900, Height: 2700},
+		Preferences: DesignPreferences{Priority: DesignPriority("metal")},
+	})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("err = %v, want ErrInvalid", err)
+	}
+}
+
+func TestDesignInvalidConfig(t *testing.T) {
+	svc := testServiceWithCalc(&fakeCalc{validateErr: errors.New("bad width")})
+	_, err := svc.Ask(context.Background(), "t1", "u1", KindDesign, DesignRequest{
+		Config: stair.Config{Width: -5, Height: 2700},
+	})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("err = %v, want ErrInvalid", err)
+	}
+}
+
+func TestDesignNoFeasible(t *testing.T) {
+	svc := testServiceWithCalc(&fakeCalc{optByFlight: map[engineering.FlightType]*stair.OptimizeResult{}})
+	_, err := svc.Ask(context.Background(), "t1", "u1", KindDesign, DesignRequest{
+		Config: stair.Config{Width: 900, Height: 2700},
+	})
+	if !errors.Is(err, ErrNoFeasible) {
+		t.Fatalf("err = %v, want ErrNoFeasible", err)
+	}
+}
+
+func TestAskUnknownKind(t *testing.T) {
+	svc := testServiceWithCalc(&fakeCalc{})
+	_, err := svc.Ask(context.Background(), "t1", "u1", Kind("nope"), nil)
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("err = %v, want ErrInvalid", err)
+	}
+}
+
+func TestAskRejectsEmptyTenant(t *testing.T) {
+	svc := testServiceWithCalc(&fakeCalc{})
+	_, err := svc.Ask(context.Background(), "", "u1", KindDesign, DesignRequest{})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("err = %v, want ErrInvalid", err)
+	}
+}
+
+// ---- ModelRouter ----
+
+type stubBackend struct {
+	text string
+	err  error
+}
+
+func (s stubBackend) Infer(context.Context, Prompt) (*Answer, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &Answer{Text: s.text}, nil
+}
+
+func TestRouterPrimaryUsed(t *testing.T) {
+	r := NewModelRouter(stubBackend{text: "from llm"}, localComment)
+	ans, err := r.Infer(context.Background(), &intent{Kind: "design", UserTask: "k", Context: "c"}, &Response{Recommendation: "r"})
+	if err != nil {
+		t.Fatalf("Infer: %v", err)
+	}
+	if ans.Text != "from llm" {
+		t.Fatalf("text = %q, want from llm", ans.Text)
+	}
+}
+
+func TestRouterFallbackOnPrimaryFail(t *testing.T) {
+	r := NewModelRouter(stubBackend{err: errors.New("api down")}, localComment)
+	resp := &Response{Recommendation: "Рекомендуется прямой марш"}
+	ans, err := r.Infer(context.Background(), &intent{Kind: "design", UserTask: "k", Context: "c"}, resp)
+	if err != nil {
+		t.Fatalf("Infer: %v", err)
+	}
+	if !strings.Contains(ans.Text, "прямой марш") {
+		t.Fatalf("fallback text should contain recommendation, got %q", ans.Text)
+	}
+}
+
+func TestRouterLocalOnly(t *testing.T) {
+	r := NewModelRouter(nil, localComment)
+	ans, err := r.Infer(context.Background(), &intent{Kind: "design"}, &Response{Recommendation: "x"})
+	if err != nil {
+		t.Fatalf("Infer: %v", err)
+	}
+	if ans.Text == "" {
+		t.Fatal("local-only router must return non-empty text")
+	}
+}
+
+// ---- OpenAI backend ----
+
+func TestOpenAIInfer(t *testing.T) {
+	var gotModel, gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		gotModel = body.Model
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{"message": map[string]interface{}{"content": "первичный комментарий"}},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	o, err := NewOpenAI(OpenAIConfig{BaseURL: srv.URL, APIKey: "secret", Model: "gpt-test"})
+	if err != nil {
+		t.Fatalf("NewOpenAI: %v", err)
+	}
+	ans, err := o.Infer(context.Background(), Prompt{UserTask: "задача", Context: "контекст"})
+	if err != nil {
+		t.Fatalf("Infer: %v", err)
+	}
+	if ans.Text != "первичный комментарий" {
+		t.Fatalf("text = %q", ans.Text)
+	}
+	if gotModel != "gpt-test" || gotAuth != "Bearer secret" {
+		t.Fatalf("model=%q auth=%q", gotModel, gotAuth)
+	}
+}
+
+func TestOpenAIErrorStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("boom"))
+	}))
+	defer srv.Close()
+	o, err := NewOpenAI(OpenAIConfig{BaseURL: srv.URL, Model: "m"})
+	if err != nil {
+		t.Fatalf("NewOpenAI: %v", err)
+	}
+	if _, err := o.Infer(context.Background(), Prompt{UserTask: "t", Context: "c"}); err == nil {
+		t.Fatal("expected error on 500")
+	}
+}
+
+func TestOpenAIServiceIntegration(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{"message": map[string]interface{}{"content": "LLM-комментарий"}},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	calc := &fakeCalc{optByFlight: map[engineering.FlightType]*stair.OptimizeResult{
+		engineering.FlightStraight: optResult(engineering.FlightStraight, 100, 630),
+	}}
+	svc := NewService(calc, nil)
+	o, _ := NewOpenAI(OpenAIConfig{BaseURL: srv.URL, Model: "m"})
+	svc = svc.WithPrimaryBackend(o)
+
+	res, err := svc.Ask(context.Background(), "t1", "u1", KindDesign, DesignRequest{
+		Config: stair.Config{Width: 900, Height: 2700, Flight: engineering.FlightStraight},
+	})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if res.Commentary != "LLM-комментарий" {
+		t.Fatalf("commentary = %q, want LLM-комментарий", res.Commentary)
+	}
+}

@@ -58,6 +58,9 @@ type Config struct {
 	// Jobs — сервис фоновых заданий (EDR-0035, Phase B B4); nil —
 	// маршруты stairs:calculate/async и jobs/{id} не регистрируются.
 	Jobs JobsService
+	// Assistant — сервис AI-ассистентов (EDR-0036, Phase D D1); nil —
+	// маршруты assistant/{kind} не регистрируются.
+	Assistant AssistantService
 }
 
 // DefaultConfig возвращает конфигурацию по умолчанию.

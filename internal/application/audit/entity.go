@@ -38,6 +38,11 @@ const (
 	ActionReviewRequested   Action = "review.requested"
 	ActionReviewSigned      Action = "review.signed"
 	ActionReviewChanges     Action = "review.changes"
+	// AI-ассистенты (Phase D, EDR-0036..0039; AI-0001 «AI полностью аудируем»).
+	ActionAiAssistDesign        Action = "ai.assist.design"
+	ActionAiAssistEngineering   Action = "ai.assist.engineering"
+	ActionAiAssistManufacturing Action = "ai.assist.manufacturing"
+	ActionAiAssistPricing       Action = "ai.assist.pricing"
 )
 
 // Result — исход события.
