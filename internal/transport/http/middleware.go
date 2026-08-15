@@ -76,7 +76,10 @@ func withLogging(next http.Handler) http.Handler {
 				"path", r.URL.Path,
 				"status", sw.status,
 				"duration_ms", float64(time.Since(start).Microseconds())/1000.0,
+				"remote_ip", clientIP(r),
+				"user_agent", r.UserAgent(),
 			)
+			recordHTTPMetrics(r.Method, r.URL.Path, sw.status, time.Since(start))
 		}()
 
 		w.Header().Set(requestIDHeader, rid)

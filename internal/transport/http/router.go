@@ -22,6 +22,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handleHealth)
+	mux.HandleFunc("GET /metrics", handleMetrics)
 	if readiness != nil {
 		mux.HandleFunc("GET /ready", handleReady(readiness))
 	}
@@ -106,6 +107,8 @@ func applyConfig(cfg Config) {
 	}
 	maxBodyBytes = cfg.MaxBodyBytes
 	region = cfg.Region
+	regionLabel = cfg.Region
+	instanceLabel = cfg.InstanceID
 	loginLimiter = newRateLimiterStrategy(cfg.RedisAddr, cfg.LoginRateLimit, cfg.LoginRateWindow)
 	registerLimiter = newRateLimiterStrategy(cfg.RedisAddr, cfg.RegisterRateLimit, cfg.RegisterRateWindow)
 }
