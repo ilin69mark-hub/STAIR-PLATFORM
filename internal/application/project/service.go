@@ -7,6 +7,7 @@ import (
 
 	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/stair"
+	kerngeo "stairplatform/internal/geometry"
 )
 
 // ErrNotFound — сущность не найдена.
@@ -296,6 +297,44 @@ func (s *Service) GetResult(ctx context.Context, tenantID, userID, projectID str
 		return nil, ErrNotFound
 	}
 	return s.repo.GetLatestCalculation(ctx, tenantID, projectID)
+}
+
+// ExportCAD возвращает полигональную сетку текущей (последней) сохранённой
+// конфигурации проекта (EDR-0022 §3.4, ENG-GEO-0008). Сетка всегда
+// пересчитывается детерминированно из параметрической модели. Требуется
+// членство с правом project.read.
+func (s *Service) ExportCAD(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, error) {
+	me, ok, err := s.member(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if !me.Role.HasPermission(PermissionProjectRead) {
+		return nil, ErrForbidden
+	}
+
+	sc, err := s.repo.GetLatestConfiguration(ctx, tenantID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if sc == nil {
+		return nil, ErrNotFound
+	}
+	cfg, opts, err := fromConfigEntity(sc)
+	if err != nil {
+		return nil, err
+	}
+	res, err := s.calc.Calculate(cfg, opts)
+	if err != nil {
+		return nil, fmt.Errorf("project: export cad: %w", err)
+	}
+	if res.Mesh == nil {
+		return nil, fmt.Errorf("project: export cad: %w", ErrConflict)
+	}
+	s.record(ctx, tenantID, userID, projectID, audit.ActionProjectModified, audit.ResultOK, "cad export")
+	return res.Mesh, nil
 }
 
 // GetLatestConfig возвращает текущую (или последнюю) сохранённую

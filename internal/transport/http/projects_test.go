@@ -13,6 +13,8 @@ import (
 	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
+	kerngeo "stairplatform/internal/geometry"
+	cadexp "stairplatform/internal/infrastructure/cad"
 )
 
 // fakeProjectService — тестовая реализация ProjectService.
@@ -24,6 +26,7 @@ type fakeProjectService struct {
 	approvals    []*project.ConfigurationApproval
 	configs      []*project.StairConfiguration
 	calc         *project.Calculation
+	cadMesh      *kerngeo.Mesh
 	createErr    error
 	calculateErr error
 	getErr       error
@@ -204,6 +207,19 @@ func (f *fakeProjectService) GetResult(ctx context.Context, tenantID, userID, pr
 		return nil, project.ErrNotFound
 	}
 	return f.calc, nil
+}
+
+func (f *fakeProjectService) ExportCAD(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, project.ErrNotFound
+	}
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	if f.cadMesh == nil {
+		return nil, project.ErrNotFound
+	}
+	return f.cadMesh, nil
 }
 
 func (f *fakeProjectService) ListConfigurations(ctx context.Context, tenantID, userID, projectID string) ([]*project.StairConfiguration, error) {
@@ -487,6 +503,70 @@ func TestExportProjectNoCalculation(t *testing.T) {
 	testRouterWithProjects(svc).ServeHTTP(rec, req)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d", rec.Code)
+	}
+}
+
+// ---- CAD export (EDR-0022) ----
+
+func cadTestMesh() *kerngeo.Mesh {
+	return &kerngeo.Mesh{
+		Vertices: []kerngeo.Point3{
+			kerngeo.NewPoint3(0, 0, 0), kerngeo.NewPoint3(10, 0, 0), kerngeo.NewPoint3(10, 10, 0),
+		},
+		Triangles: [][3]int{{0, 1, 2}},
+	}
+}
+
+func TestExportCAD(t *testing.T) {
+	for _, format := range []cadexp.Format{cadexp.DXF, cadexp.STL, cadexp.SVG} {
+		t.Run(string(format), func(t *testing.T) {
+			svc := newFakeProjectService()
+			svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+			svc.cadMesh = cadTestMesh()
+
+			req := authedRequest(http.MethodGet, "/api/v1/projects/p-1/export/cad?format="+string(format), "")
+			rec := httptest.NewRecorder()
+			testRouterWithProjects(svc).ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if ct := rec.Header().Get("Content-Type"); ct != format.MIME() {
+				t.Errorf("Content-Type = %q, want %q", ct, format.MIME())
+			}
+			if cd := rec.Header().Get("Content-Disposition"); !strings.Contains(cd, format.Extension()) {
+				t.Errorf("Content-Disposition = %q, want %q in it", cd, format.Extension())
+			}
+			if rec.Body.Len() == 0 {
+				t.Errorf("empty body")
+			}
+		})
+	}
+}
+
+func TestExportCADBadFormat(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+	svc.cadMesh = cadTestMesh()
+
+	req := authedRequest(http.MethodGet, "/api/v1/projects/p-1/export/cad?format=obj", "")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestExportCADNoMesh(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+	svc.cadMesh = nil
+
+	req := authedRequest(http.MethodGet, "/api/v1/projects/p-1/export/cad?format=dxf", "")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
 	}
 }
 

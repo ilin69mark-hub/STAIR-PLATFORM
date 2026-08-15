@@ -82,6 +82,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	mux.Handle("POST /api/v1/projects/{id}/configurations/{configID}/restore", authMutating(handleRestoreConfiguration(projects)))
 	mux.Handle("POST /api/v1/projects/{id}/calculate", authMutating(handleCalculateProject(projects)))
 	mux.Handle("GET /api/v1/projects/{id}/export", authProtected(handleExportProject(projects)))
+	mux.Handle("GET /api/v1/projects/{id}/export/cad", authProtected(handleExportCAD(projects)))
 	mux.HandleFunc("GET /", handleNotFound)
 	return withLogging(mux)
 }

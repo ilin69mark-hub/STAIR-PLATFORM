@@ -1,7 +1,10 @@
 package project
 
 import (
+	"fmt"
+
 	"stairplatform/internal/application/stair"
+	"stairplatform/internal/domain/engineering"
 	"stairplatform/internal/domain/manufacturing"
 	"stairplatform/internal/domain/pricing"
 	"stairplatform/internal/engine/geometry"
@@ -65,4 +68,67 @@ func toConfigEntity(projectID string, cfg stair.Config, opts stair.Options) *Sta
 		LowerStepCount:      cfg.LowerStepCount,
 		OuterRadiusMM:       cfg.OuterRadius.Millimeters(),
 	}
+}
+
+// fromConfigEntity восстанавливает stair.Config из сохранённой ревизии
+// (обратное к toConfigEntity, EDR-0022 §3.4). Используется CAD-экспортом.
+// ComfortStep отсутствует в stair.Config — он возвращается в Options.
+func fromConfigEntity(e *StairConfiguration) (stair.Config, stair.Options, error) {
+	mk := func(v float64) (engineering.Length, error) {
+		l, err := engineering.NewLength(v)
+		if err != nil {
+			return 0, fmt.Errorf("project: invalid stored %v mm: %w", v, err)
+		}
+		return l, nil
+	}
+	width, err := mk(e.WidthMM)
+	if err != nil {
+		return stair.Config{}, stair.Options{}, err
+	}
+	height, err := mk(e.HeightMM)
+	if err != nil {
+		return stair.Config{}, stair.Options{}, err
+	}
+	step, err := mk(e.StepHeightMM)
+	if err != nil {
+		return stair.Config{}, stair.Options{}, err
+	}
+	stringer, err := mk(e.StringerThicknessMM)
+	if err != nil {
+		return stair.Config{}, stair.Options{}, err
+	}
+	thick, err := mk(e.StepThicknessMM)
+	if err != nil {
+		return stair.Config{}, stair.Options{}, err
+	}
+	clearance, err := mk(e.ClearanceMM)
+	if err != nil {
+		return stair.Config{}, stair.Options{}, err
+	}
+	railing, err := mk(e.RailingHeightMM)
+	if err != nil {
+		return stair.Config{}, stair.Options{}, err
+	}
+	landing, err := mk(e.LandingWidthMM)
+	if err != nil {
+		return stair.Config{}, stair.Options{}, err
+	}
+	outer, err := mk(e.OuterRadiusMM)
+	if err != nil {
+		return stair.Config{}, stair.Options{}, err
+	}
+	cfg := stair.Config{
+		Width:             width,
+		Height:            height,
+		Flight:            engineering.FlightType(e.Flight),
+		StepHeight:        step,
+		StringerThickness: stringer,
+		StepThickness:     thick,
+		Clearance:         clearance,
+		RailingHeight:     railing,
+		LandingWidth:      landing,
+		LowerStepCount:    e.LowerStepCount,
+		OuterRadius:       outer,
+	}
+	return cfg, stair.Options{ComfortStep: e.ComfortStepMM}, nil
 }

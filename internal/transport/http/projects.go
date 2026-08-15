@@ -1,14 +1,18 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
+	kerngeo "stairplatform/internal/geometry"
+	"stairplatform/internal/infrastructure/cad"
 )
 
 // ProjectService — прикладной интерфейс управления проектами (BC-001,
@@ -38,6 +42,7 @@ type ProjectService interface {
 	ListApprovals(ctx context.Context, tenantID, userID, projectID string) ([]*project.ConfigurationApproval, error)
 	Calculate(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options) (*project.Calculation, error)
 	GetResult(ctx context.Context, tenantID, userID, projectID string) (*project.Calculation, error)
+	ExportCAD(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, error)
 	ListConfigurations(ctx context.Context, tenantID, userID, projectID string) ([]*project.StairConfiguration, error)
 	GetConfiguration(ctx context.Context, tenantID, userID, projectID, configurationID string) (*project.StairConfiguration, error)
 	RestoreConfiguration(ctx context.Context, tenantID, userID, projectID, configurationID string) (*project.StairConfiguration, error)
@@ -697,6 +702,43 @@ func handleExportProject(svc ProjectService) http.HandlerFunc {
 		w.Header().Set("Content-Disposition", `attachment; filename="project-export.json"`)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(calc.Result)
+	}
+}
+
+// handleExportCAD — GET /api/v1/projects/{id}/export/cad?format=dxf|stl|svg
+// (auth, член проекта). Детерминированный экспорт сетки текущей конфигурации
+// (EDR-0022). 200 — файл; 400 — неверный format; 403 — нет членства;
+// 404 — нет проекта/конфигурации; 500 — сбой конвейера.
+func handleExportCAD(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		format, err := cad.ParseFormat(r.URL.Query().Get("format"))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_input", err.Error())
+			return
+		}
+		mesh, err := svc.ExportCAD(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
+		if errors.Is(err, project.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "no configuration for project")
+			return
+		}
+		if errors.Is(err, project.ErrForbidden) {
+			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			return
+		}
+		var buf bytes.Buffer
+		if err := cad.Write(&buf, mesh, format); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "cad export failed")
+			return
+		}
+		w.Header().Set("Content-Type", format.MIME())
+		w.Header().Set("Content-Disposition",
+			fmt.Sprintf(`attachment; filename="project-%s%s"`, r.PathValue("id"), format.Extension()))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(buf.Bytes())
 	}
 }
 

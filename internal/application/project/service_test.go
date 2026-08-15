@@ -544,6 +544,54 @@ func TestCalculateProjectNotFound(t *testing.T) {
 	}
 }
 
+// TestExportCAD — CAD-экспорт (EDR-0022): сетка детерминированно
+// пересчитывается из сохранённой конфигурации.
+func TestExportCAD(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "CAD", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	calc, err := svc.Calculate(context.Background(), testTenant, testOwner, p.ID, testConfig(), stair.Options{})
+	if err != nil {
+		t.Fatalf("Calculate: %v", err)
+	}
+	if !calc.Valid {
+		t.Fatal("expected valid calculation")
+	}
+
+	mesh, err := svc.ExportCAD(context.Background(), testTenant, testOwner, p.ID)
+	if err != nil {
+		t.Fatalf("ExportCAD: %v", err)
+	}
+	if mesh == nil || len(mesh.Vertices) == 0 || len(mesh.Triangles) == 0 {
+		t.Fatalf("expected non-empty mesh, got %+v", mesh)
+	}
+
+	// Детерминированность: повторный экспорт даёт те же вершины.
+	mesh2, err := svc.ExportCAD(context.Background(), testTenant, testOwner, p.ID)
+	if err != nil {
+		t.Fatalf("second ExportCAD: %v", err)
+	}
+	if len(mesh.Vertices) != len(mesh2.Vertices) {
+		t.Fatalf("vertex count changed: %d vs %d", len(mesh.Vertices), len(mesh2.Vertices))
+	}
+	for i := range mesh.Vertices {
+		if mesh.Vertices[i] != mesh2.Vertices[i] {
+			t.Fatalf("vertex %d mismatch: %+v vs %+v", i, mesh.Vertices[i], mesh2.Vertices[i])
+		}
+	}
+}
+
+func TestExportCADNoConfiguration(t *testing.T) {
+	svc := NewService(newFakeRepo(), stair.NewService(), DefaultRules())
+	if _, err := svc.ExportCAD(context.Background(), testTenant, testOwner, "missing"); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
 func TestCalculateBlockingValidation(t *testing.T) {
 	repo := newFakeRepo()
 	svc := NewService(repo, stair.NewService(), DefaultRules())

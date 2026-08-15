@@ -71,7 +71,12 @@ AI Pricing Assistant
 
 # Phase E — Integrations
 
-CAD
+CAD — **DONE 2026-08-15**: реализовано E1, EDR-0022 — CAD-экспорт сетки
+конфигурации в форматы DXF (R12 ASCII, 3DFACE), STL (ASCII) и SVG
+(2D-проекция) на чистой stdlib; `internal/infrastructure/cad` (pure writers),
+`project.Service.ExportCAD` (детерминированный пересчёт mesh из сохранённой
+конфигурации), `GET /api/v1/projects/{id}/export/cad?format=dxf|stl|svg`,
+unit-тесты writers и endpoint (ADR-0006/DEV-0009).
 
 ERP
 
