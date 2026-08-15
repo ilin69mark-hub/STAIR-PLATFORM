@@ -11,11 +11,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/project"
+
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/infrastructure/database"
+	"stairplatform/internal/infrastructure/health"
 	"stairplatform/internal/infrastructure/oidc"
 	transporthttp "stairplatform/internal/transport/http"
 )
@@ -23,6 +26,9 @@ import (
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+
+	instanceID := os.Getenv("STAIR_INSTANCE_ID")
+	shutdownTimeout := envDuration("STAIR_SHUTDOWN_TIMEOUT", 10*time.Second)
 
 	addr := os.Getenv("STAIR_HTTP_ADDR")
 	if addr == "" {
@@ -81,6 +87,19 @@ func main() {
 		RegisterRateWindow: time.Minute,
 		RedisAddr:          os.Getenv("STAIR_REDIS_ADDR"),
 		MaxBodyBytes:       1 << 20,
+		InstanceID:         instanceID,
+		ShutdownTimeout:    shutdownTimeout,
+	}
+
+	// Readiness (EDR-0018 §3.2): SELECT 1 + Redis PING.
+	var redisClient *redis.Client
+	if cfg.RedisAddr != "" {
+		redisClient = redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+		defer redisClient.Close()
+	}
+	cfg.Readiness = &health.Checker{
+		DB:    pool,
+		Redis: redisClient,
 	}
 
 	srv := &http.Server{
@@ -94,7 +113,7 @@ func main() {
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("api server starting", "addr", addr)
+		slog.Info("api server starting", "addr", addr, "instance_id", instanceID)
 		errCh <- srv.ListenAndServe()
 	}()
 
@@ -111,7 +130,7 @@ func main() {
 		slog.Info("shutdown signal received", "signal", sig.String())
 	}
 
-	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancelShutdown()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("graceful shutdown failed", "error", err)
@@ -149,6 +168,19 @@ func envInt(key string, def int) int {
 		return def
 	}
 	return n
+}
+
+// envDuration возвращает длительность из env (time.Duration синтаксис).
+func envDuration(key string, def time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return def
+	}
+	return d
 }
 
 func envString(key, def string) string {

@@ -28,6 +28,15 @@ type Config struct {
 	RedisAddr string
 	// MaxBodyBytes — предельный размер тела запроса (защита от DoS).
 	MaxBodyBytes int64
+	// InstanceID — идентификатор реплики (STAIR_INSTANCE_ID, EDR-0018 §3.5);
+	// пусто — не логируется.
+	InstanceID string
+	// ShutdownTimeout — таймаут graceful shutdown (STAIR_SHUTDOWN_TIMEOUT).
+	// Используется не HTTP-слоем, а cmd/api при остановке сервера.
+	ShutdownTimeout time.Duration
+	// Readiness — пробы готовности (EDR-0018 §3.2); nil — /ready не
+	// регистрируется (инстанс всегда «не проверяем»).
+	Readiness ReadinessChecker
 }
 
 // DefaultConfig возвращает конфигурацию по умолчанию.

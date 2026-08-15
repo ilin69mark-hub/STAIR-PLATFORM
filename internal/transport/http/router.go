@@ -18,9 +18,13 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	if len(auditSvc) > 0 {
 		auditsvc = auditSvc[0]
 	}
+	readiness := cfg.Readiness
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handleHealth)
+	if readiness != nil {
+		mux.HandleFunc("GET /ready", handleReady(readiness))
+	}
 	mux.Handle("POST /api/v1/auth/register", limitRate(registerLimiter, handleRegister(authSvc)))
 	mux.Handle("POST /api/v1/auth/login", limitRate(loginLimiter, handleLogin(authSvc)))
 
