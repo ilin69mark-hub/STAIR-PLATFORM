@@ -86,7 +86,14 @@ Manufacturing Assistant: `manufacturingExpert` в
 `POST /api/v1/assistant/manufacturing` (auth), unit-тесты (готовность/
 низкая утилизация/blocking) + транспортный тест.
 
-AI Pricing Assistant
+AI Pricing Assistant — **DONE 2026-08-15**: реализован D4, EDR-0039 —
+Pricing Assistant: `pricingExpert` в `internal/application/assistant/pricing.go`
+(разбор PriceBreakdown: доля материалов >60% — warning, накладные >30% —
+info, маржа >40%/<10% — info/warning; rating 1−0.3·warn−0.1·info; подсказки
+по материалоёмкости и тонкой марже; удельные цены на м²/кг; nil-безопасный
+intent при блокировке), `POST /api/v1/assistant/pricing` (auth), unit-тесты
+(сбалансированная/материалоёмкая/тонкая маржа/blocked) + транспортный
+тест. **Phase D — полностью CLOSED.**
 
 ---
 

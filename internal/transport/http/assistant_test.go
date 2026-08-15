@@ -119,6 +119,31 @@ func TestAssistantManufacturingHandler(t *testing.T) {
 	}
 }
 
+func TestAssistantPricingHandler(t *testing.T) {
+	ast := &fakeAssistant{res: &appast.Result{
+		Kind: appast.KindPricing,
+		Response: appast.Response{
+			Recommendation: "Цена корректна и сбалансирована",
+			Rating:         1,
+		},
+		Commentary: "Структура цены в норме.",
+	}}
+	router := assistantTestRouter(newFakeAuth(), ast)
+
+	body := `{"width_mm":900,"height_mm":2700,"flight":"straight"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/pricing", strings.NewReader(body))
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "token-1"})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if ast.kind != appast.KindPricing {
+		t.Fatalf("kind = %q, want pricing", ast.kind)
+	}
+}
+
 func TestAssistantUnauthorized(t *testing.T) {
 	router := assistantTestRouter(newFakeAuth(), &fakeAssistant{res: &appast.Result{}})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/design",

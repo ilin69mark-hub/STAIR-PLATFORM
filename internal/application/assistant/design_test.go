@@ -381,6 +381,114 @@ func TestManufacturingBlocked(t *testing.T) {
 	}
 }
 
+// --- Pricing assistant (D4) ----
+
+// prcCalc — порт с фиксированным PriceBreakdown.
+type prcCalc struct {
+	res *stair.Result
+	err error
+}
+
+func (f *prcCalc) Calculate(context.Context, stair.Config, stair.Options) (*stair.Result, error) {
+	return f.res, f.err
+}
+func (f *prcCalc) Optimize(context.Context, stair.Config, stair.Options, stair.OptimizeRequest) (*stair.OptimizeResult, error) {
+	return nil, errors.New("not used")
+}
+func (f *prcCalc) ValidateConfig(stair.Config) error { return nil }
+
+func prcResult(material, machine, labor, overhead, margin, final int64) *stair.Result {
+	cur := domprc.CurrencyRUB
+	pc := domprc.NewMoney(material + machine + labor + overhead)
+	return &stair.Result{
+		Flight: solver.FlightResult{StepCount: 15, StepHeight: engineering.Length(180), TreadDepth: engineering.Length(270)},
+		Price: &domprc.PriceBreakdown{
+			Currency:       cur,
+			Material:       domprc.NewMoney(material),
+			Machine:        domprc.NewMoney(machine),
+			Labor:          domprc.NewMoney(labor),
+			Overhead:       domprc.NewMoney(overhead),
+			ProductionCost: pc,
+			Margin:         domprc.NewMoney(margin),
+			FinalPrice:     domprc.NewMoney(final),
+		},
+		Cost: &dommfg.ManufacturingCostDataset{PartArea: 1e6, Mass: 100},
+	}
+}
+
+func TestPricingAnalysisBalanced(t *testing.T) {
+	// Материал 40%, мажжа 15% — внутри порогов.
+	svc := NewService(&prcCalc{res: prcResult(4000, 2000, 2000, 1000, 1500, 11500)}, nil)
+	res, err := svc.Ask(context.Background(), "t1", "u1", KindPricing, AnalysisRequest{
+		Config: stair.Config{Width: 900, Height: 2700, Flight: engineering.FlightStraight},
+	})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if res.Kind != KindPricing {
+		t.Fatalf("kind = %q", res.Kind)
+	}
+	for _, f := range res.Response.Findings {
+		if f.Severity == "warning" {
+			t.Fatalf("unexpected warning: %+v", f)
+		}
+	}
+	if res.Response.Rating <= 0.8 {
+		t.Fatalf("rating = %v, want high for balanced price", res.Response.Rating)
+	}
+	if !strings.Contains(res.Response.Recommendation, "сбалансирована") {
+		t.Fatalf("recommendation should say balanced, got %q", res.Response.Recommendation)
+	}
+}
+
+func TestPricingMaterialHeavy(t *testing.T) {
+	// Материал 80% себестоимости → warning + suggestion.
+	svc := NewService(&prcCalc{res: prcResult(8000, 500, 500, 1000, 1000, 11000)}, nil)
+	res, err := svc.Ask(context.Background(), "t1", "u1", KindPricing, AnalysisRequest{
+		Config: stair.Config{Width: 900, Height: 2700, Flight: engineering.FlightStraight},
+	})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if !hasWarning(res.Response.Findings, "материалы") {
+		t.Fatalf("expected material-heavy warning, got %+v", res.Response.Findings)
+	}
+	if len(res.Response.Suggestions) == 0 {
+		t.Fatal("expected suggestions for material-heavy price")
+	}
+}
+
+func TestPricingThinMargin(t *testing.T) {
+	// Маржа 5% → warning.
+	svc := NewService(&prcCalc{res: prcResult(3000, 1000, 1000, 500, 282, 5762)}, nil)
+	res, err := svc.Ask(context.Background(), "t1", "u1", KindPricing, AnalysisRequest{
+		Config: stair.Config{Width: 900, Height: 2700, Flight: engineering.FlightStraight},
+	})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if !hasWarning(res.Response.Findings, "маржа") {
+		t.Fatalf("expected thin-margin warning, got %+v", res.Response.Findings)
+	}
+}
+
+func TestPricingBlocked(t *testing.T) {
+	res := &stair.Result{
+		Validation: validation.Result{Blocking: true},
+		Flight:     solver.FlightResult{StepCount: 15, StepHeight: engineering.Length(180), TreadDepth: engineering.Length(270)},
+	}
+	svc := NewService(&prcCalc{res: res}, nil)
+	out, err := svc.Ask(context.Background(), "t1", "u1", KindPricing, AnalysisRequest{
+		Config: stair.Config{Width: 900, Height: 2700, Flight: engineering.FlightStraight},
+	})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if out.Response.Rating != 0 {
+		t.Fatalf("rating = %v, want 0 on blocked", out.Response.Rating)
+	}
+}
+
 func hasWarning(findings []Finding, element string) bool {
 	for _, f := range findings {
 		if f.Element == element && f.Severity == "warning" {
