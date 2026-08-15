@@ -61,10 +61,13 @@ func main() {
 	authSvc := auth.NewService(database.NewAuthRepository(pool), sessionTTL(), auditSvc)
 
 	cfg := transporthttp.Config{
-		CookieSecure:    envBool("STAIR_COOKIE_SECURE", false),
-		LoginRateLimit:  envInt("STAIR_LOGIN_RATE_LIMIT", 10),
-		LoginRateWindow: time.Minute,
-		MaxBodyBytes:    1 << 20,
+		CookieSecure:       envBool("STAIR_COOKIE_SECURE", false),
+		LoginRateLimit:     envInt("STAIR_LOGIN_RATE_LIMIT", 10),
+		LoginRateWindow:    time.Minute,
+		RegisterRateLimit:  envInt("STAIR_REGISTER_RATE_LIMIT", 5),
+		RegisterRateWindow: time.Minute,
+		RedisAddr:          os.Getenv("STAIR_REDIS_ADDR"),
+		MaxBodyBytes:       1 << 20,
 	}
 
 	srv := &http.Server{

@@ -247,11 +247,11 @@ func (testAuth) Login(ctx context.Context, email, password string) (*auth.User, 
 	return &auth.User{ID: "u-1", Email: email, Role: auth.RoleUser, TenantID: "t-1"}, "token-1", nil
 }
 
-func (testAuth) Authenticate(ctx context.Context, token string) (*auth.User, error) {
+func (testAuth) Authenticate(ctx context.Context, token string) (*auth.User, string, error) {
 	if token == "" {
-		return nil, auth.ErrSessionExpired
+		return nil, "", auth.ErrSessionExpired
 	}
-	return &auth.User{ID: "u-1", Email: "test@example.com", Role: auth.RoleUser, TenantID: "t-1"}, nil
+	return &auth.User{ID: "u-1", Email: "test@example.com", Role: auth.RoleUser, TenantID: "t-1"}, "", nil
 }
 
 func (testAuth) Logout(ctx context.Context, token string) error { return nil }

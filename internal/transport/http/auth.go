@@ -16,7 +16,9 @@ import (
 type AuthService interface {
 	Register(ctx context.Context, email, name, password string) (*auth.User, string, error)
 	Login(ctx context.Context, email, password string) (*auth.User, string, error)
-	Authenticate(ctx context.Context, token string) (*auth.User, error)
+	// Authenticate возвращает пользователя и, при ротации сессии
+	// (EDR-0014), новый session-токен для обновления cookie.
+	Authenticate(ctx context.Context, token string) (*auth.User, string, error)
 	Logout(ctx context.Context, token string) error
 }
 
@@ -168,6 +170,20 @@ func handleMe() http.HandlerFunc {
 // csrf — отдельный случайный nonce, не session-токен: иначе клиентский JS
 // смог бы прочитать session-токен (нарушение httpOnly).
 func setSessionCookies(w http.ResponseWriter, token string) {
+	setSessionCookie(w, token)
+	http.SetCookie(w, &http.Cookie{
+		Name:     csrfCookieName,
+		Value:    newCSRF(),
+		Path:     "/",
+		HttpOnly: false,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   cookieSecure,
+	})
+}
+
+// setSessionCookie выставляет только session-cookie (httpOnly). Используется
+// при ротации сессии (EDR-0014 §3.1), когда csrf-cookie менять не нужно.
+func setSessionCookie(w http.ResponseWriter, token string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,
@@ -176,14 +192,6 @@ func setSessionCookies(w http.ResponseWriter, token string) {
 		SameSite: http.SameSiteLaxMode,
 		Secure:   cookieSecure,
 		Expires:  time.Now().Add(24 * time.Hour),
-	})
-	http.SetCookie(w, &http.Cookie{
-		Name:     csrfCookieName,
-		Value:    newCSRF(),
-		Path:     "/",
-		HttpOnly: false,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   cookieSecure,
 	})
 }
 

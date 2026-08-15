@@ -328,3 +328,70 @@ func TestIntegrationAuditLog(t *testing.T) {
 		t.Fatalf("expected project.created in audit, got %+v", events)
 	}
 }
+
+// TestIntegrationSessionRotation — EDR-0014 §3.1: старая сессия (> TTL/2)
+// ротируется при аутентификации; новый session-cookie выдаётся, старый
+// токен перестаёт работать.
+func TestIntegrationSessionRotation(t *testing.T) {
+	router := integrationRouter(t)
+	cookie := registerLogin(t, router, testEmail("rotate"))
+
+	// Состарим сессию в БД сверх половины TTL (TTL=1ч, половина — 30 мин).
+	if err := ageSessions(t); err != nil {
+		t.Fatalf("age sessions: %v", err)
+	}
+
+	// Запрос с (теперь уже старым) токеном: requireAuth ротирует сессию
+	// и выдаёт новый session-cookie.
+	rec := authedDo(router, http.MethodGet, "/api/v1/projects", cookie, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("authenticated request: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	newCookie := joinSetCookie(rec.Result().Cookies())
+	if newCookie == cookie {
+		t.Fatal("expected a new session cookie after rotation")
+	}
+	if !strings.Contains(newCookie, sessionCookieName+"=") {
+		t.Fatalf("expected session cookie in response, got %q", newCookie)
+	}
+
+	// Старый токен больше не валиден.
+	rec = authedDo(router, http.MethodGet, "/api/v1/projects", cookie, "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("old token must be revoked after rotation: expected 401, got %d", rec.Code)
+	}
+
+	// Новый токен валиден.
+	rec = authedDo(router, http.MethodGet, "/api/v1/projects", newCookie, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("new token must work: expected 200, got %d", rec.Code)
+	}
+}
+
+// ageSessions смещает created_at всех сессий в прошлое (интеграционный
+// хелпер для теста ротации).
+func ageSessions(t *testing.T) error {
+	t.Helper()
+	url := os.Getenv("STAIR_TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("STAIR_TEST_DATABASE_URL not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	pool, err := database.Connect(ctx, database.DefaultConfig(url))
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	_, err = pool.Exec(ctx, `UPDATE sessions SET created_at = created_at - interval '40 minutes'`)
+	return err
+}
+
+// joinSetCookie собирает Set-Cookie в один заголовок (как registerLogin).
+func joinSetCookie(cookies []*http.Cookie) string {
+	var parts []string
+	for _, c := range cookies {
+		parts = append(parts, c.Name+"="+c.Value)
+	}
+	return strings.Join(parts, "; ")
+}

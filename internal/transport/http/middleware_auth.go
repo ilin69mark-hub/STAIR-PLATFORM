@@ -2,6 +2,8 @@ package http
 
 import (
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
@@ -18,6 +20,12 @@ type Config struct {
 	LoginRateLimit int
 	// LoginRateWindow — окно rate-limit входа.
 	LoginRateWindow time.Duration
+	// RegisterRateLimit — максимум регистраций с одного IP за окно.
+	RegisterRateLimit int
+	// RegisterRateWindow — окно rate-limit регистрации.
+	RegisterRateWindow time.Duration
+	// RedisAddr — адрес Redis для распределённого лимитера; пусто — memory.
+	RedisAddr string
 	// MaxBodyBytes — предельный размер тела запроса (защита от DoS).
 	MaxBodyBytes int64
 }
@@ -25,15 +33,18 @@ type Config struct {
 // DefaultConfig возвращает конфигурацию по умолчанию.
 func DefaultConfig() Config {
 	return Config{
-		CookieSecure:    false,
-		LoginRateLimit:  10,
-		LoginRateWindow: time.Minute,
-		MaxBodyBytes:    1 << 20, // 1 MiB
+		CookieSecure:       false,
+		LoginRateLimit:     10,
+		LoginRateWindow:    time.Minute,
+		RegisterRateLimit:  5,
+		RegisterRateWindow: time.Minute,
+		MaxBodyBytes:       1 << 20, // 1 MiB
 	}
 }
 
 // requireAuth — обязательная аутентификация (SEC-0003). Читает session-cookie,
 // проверяет токен через auth.Service и кладёт пользователя в контекст.
+// При ротации сессии (EDR-0014 §3.1) обновляет session-cookie новым токеном.
 // 401 — нет/невалидная сессия.
 func requireAuth(svc AuthService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -43,11 +54,15 @@ func requireAuth(svc AuthService) func(http.Handler) http.Handler {
 				writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
 				return
 			}
-			u, err := svc.Authenticate(r.Context(), token)
+			u, rotatedToken, err := svc.Authenticate(r.Context(), token)
 			if err != nil {
 				clearSessionCookies(w)
 				writeError(w, http.StatusUnauthorized, "unauthorized", "session expired or invalid")
 				return
+			}
+			if rotatedToken != "" {
+				// Сессия ротирована: выдаём новый session-cookie (httpOnly).
+				setSessionCookie(w, rotatedToken)
 			}
 			next.ServeHTTP(w, r.WithContext(withAuthUser(r.Context(), u)))
 		})
@@ -55,7 +70,8 @@ func requireAuth(svc AuthService) func(http.Handler) http.Handler {
 }
 
 // requireCSRF — защита от CSRF для мутирующих запросов (double-submit):
-// заголовок X-CSRF-Token должен совпадать с csrf-cookie.
+// заголовок X-CSRF-Token должен совпадать с csrf-cookie. Дополнительно
+// (EDR-0014 §3.3) проверяется Origin/Referer запроса.
 func requireCSRF(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(csrfCookieName)
@@ -67,8 +83,38 @@ func requireCSRF(next http.Handler) http.Handler {
 			writeError(w, http.StatusForbidden, "csrf", "csrf token mismatch")
 			return
 		}
+		if !csrfOriginAllowed(r) {
+			writeError(w, http.StatusForbidden, "csrf", "cross-origin request rejected")
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// csrfOriginAllowed проверяет источник запроса (EDR-0014 §3.3): Origin,
+// если заголовок есть, иначе Referer. Host источника должен совпадать с
+// host запроса; при отсутствии обоих заголовков (не-браузерный клиент)
+// запрос пропускается.
+func csrfOriginAllowed(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		origin = r.Header.Get("Referer")
+	}
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(u.Host, r.Host)
+}
+
+// RateLimiter — стратегия лимитирования по ключу (IP). Интерфейс позволяет
+// подменять реализацию: memory (fallback) и redis (EDR-0014 §3.2).
+type RateLimiter interface {
+	// Allow возвращает true, если запрос с ключом разрешён.
+	Allow(ip string) bool
 }
 
 // rateLimiter — простейший sliding-window лимитер по IP (в памяти).
@@ -106,11 +152,14 @@ func (l *rateLimiter) allow(ip string) bool {
 	return b.count <= l.limit
 }
 
+// Allow — реализация RateLimiter (делегирует allow).
+func (l *rateLimiter) Allow(ip string) bool { return l.allow(ip) }
+
 // limitRate ограничивает число запросов с одного IP (анти-брутфорс
-// login/register, SEC-0003).
-func limitRate(l *rateLimiter, next http.Handler) http.Handler {
+// login/register, SEC-0003; EDR-0014 §3.2).
+func limitRate(l RateLimiter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !l.allow(clientIP(r)) {
+		if !l.Allow(clientIP(r)) {
 			writeError(w, http.StatusTooManyRequests, "rate_limited", "too many requests")
 			return
 		}

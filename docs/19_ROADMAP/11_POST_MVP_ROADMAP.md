@@ -99,7 +99,7 @@ Cost Analytics
 
 # Phase G — Enterprise
 
-Advanced Security
+Advanced Security — **CLOSED 2026-08-15**: реализовано end-to-end (G2, EDR-0014) — ротация сессий, rate limiting login/register (Redis с fallback на память), проверка Origin/Referer поверх double-submit CSRF.
 
 Audit — **CLOSED 2026-08-15**: реализовано end-to-end (G1, EDR-0013) — персистентный журнал событий безопасности с записью из auth/project сервисов, API чтения (проект + admin) и панелью «Аудит».
 

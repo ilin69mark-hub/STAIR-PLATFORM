@@ -21,7 +21,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handleHealth)
-	mux.HandleFunc("POST /api/v1/auth/register", handleRegister(authSvc))
+	mux.Handle("POST /api/v1/auth/register", limitRate(registerLimiter, handleRegister(authSvc)))
 	mux.Handle("POST /api/v1/auth/login", limitRate(loginLimiter, handleLogin(authSvc)))
 
 	authProtected := func(next http.Handler) http.Handler {
@@ -76,14 +76,24 @@ func applyConfig(cfg Config) {
 	if cfg.LoginRateWindow <= 0 {
 		cfg.LoginRateWindow = DefaultConfig().LoginRateWindow
 	}
+	if cfg.RegisterRateLimit <= 0 {
+		cfg.RegisterRateLimit = DefaultConfig().RegisterRateLimit
+	}
+	if cfg.RegisterRateWindow <= 0 {
+		cfg.RegisterRateWindow = DefaultConfig().RegisterRateWindow
+	}
 	if cfg.MaxBodyBytes <= 0 {
 		cfg.MaxBodyBytes = DefaultConfig().MaxBodyBytes
 	}
 	maxBodyBytes = cfg.MaxBodyBytes
-	loginLimiter = newRateLimiter(cfg.LoginRateLimit, cfg.LoginRateWindow)
+	loginLimiter = newRateLimiterStrategy(cfg.RedisAddr, cfg.LoginRateLimit, cfg.LoginRateWindow)
+	registerLimiter = newRateLimiterStrategy(cfg.RedisAddr, cfg.RegisterRateLimit, cfg.RegisterRateWindow)
 }
 
-var loginLimiter *rateLimiter
+var (
+	loginLimiter    RateLimiter
+	registerLimiter RateLimiter
+)
 
 func handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{

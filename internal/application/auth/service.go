@@ -156,30 +156,51 @@ func (s *Service) Login(ctx context.Context, email, password string) (*User, str
 }
 
 // Authenticate проверяет session-токен: хеширует, ищет сессию, проверяет
-// срок действия и статус пользователя. Возвращает пользователя.
-func (s *Service) Authenticate(ctx context.Context, token string) (*User, error) {
+// срок действия и статус пользователя. Возвращает пользователя и, при
+// ротации сессии (EDR-0014 §3.1), новый session-токен (пустая строка —
+// ротации не было). Транспорт обязан при ротации выставить новый cookie
+// и использовать новый токен вместо старого.
+func (s *Service) Authenticate(ctx context.Context, token string) (*User, string, error) {
 	if token == "" {
-		return nil, ErrSessionExpired
+		return nil, "", ErrSessionExpired
 	}
 	sess, err := s.repo.GetSessionByTokenHash(ctx, HashToken(token))
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return nil, ErrSessionExpired
+			return nil, "", ErrSessionExpired
 		}
-		return nil, err
+		return nil, "", err
 	}
 	if time.Now().UTC().After(sess.ExpiresAt) {
 		_ = s.repo.DeleteSessionByTokenHash(ctx, sess.TokenHash)
-		return nil, ErrSessionExpired
+		return nil, "", ErrSessionExpired
 	}
 	u, err := s.repo.GetUserByID(ctx, sess.UserID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if u.Status != StatusActive {
-		return nil, ErrUserDisabled
+		return nil, "", ErrUserDisabled
 	}
-	return u, nil
+	// Ротация: если сессия старше половины TTL, выдаём новый токен и
+	// удаляем старую сессию (защита от session fixation, EDR-0014 §3.1).
+	if time.Now().UTC().After(sess.CreatedAt.Add(s.sessionTTL / 2)) {
+		newToken, err := newToken()
+		if err != nil {
+			return nil, "", err
+		}
+		rotated := &Session{
+			UserID:    u.ID,
+			TokenHash: HashToken(newToken),
+			ExpiresAt: time.Now().UTC().Add(s.sessionTTL),
+		}
+		if err := s.repo.CreateSession(ctx, rotated); err != nil {
+			return nil, "", fmt.Errorf("auth: rotate session: %w", err)
+		}
+		_ = s.repo.DeleteSessionByTokenHash(ctx, sess.TokenHash)
+		return u, newToken, nil
+	}
+	return u, "", nil
 }
 
 // Logout удаляет сессию (мгновенная ревокация). Токен — хеш session-токена.

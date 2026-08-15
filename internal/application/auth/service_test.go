@@ -53,6 +53,7 @@ func (f *fakeRepo) GetUserByID(ctx context.Context, id string) (*User, error) {
 
 func (f *fakeRepo) CreateSession(ctx context.Context, s *Session) error {
 	s.ID = "s-" + s.TokenHash
+	s.CreatedAt = time.Now().UTC()
 	f.sessions[s.TokenHash] = s
 	return nil
 }
@@ -136,9 +137,12 @@ func TestLoginAndAuthenticate(t *testing.T) {
 		t.Fatal("session must be stored by token hash")
 	}
 
-	got, err := svc.Authenticate(context.Background(), token)
+	got, rotated, err := svc.Authenticate(context.Background(), token)
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
+	}
+	if rotated != "" {
+		t.Fatalf("fresh session must not rotate, got new token %q", rotated)
 	}
 	if got.ID != u.ID {
 		t.Fatalf("user id = %q, want %q", got.ID, u.ID)
@@ -151,6 +155,59 @@ func TestLoginWrongPassword(t *testing.T) {
 	_, _, _ = svc.Register(context.Background(), "a@b.co", "A", "password123")
 	if _, _, err := svc.Login(context.Background(), "a@b.co", "wrongpass"); err != ErrInvalidCreds {
 		t.Fatalf("expected ErrInvalidCreds, got %v", err)
+	}
+}
+
+// TestSessionRotation — старая сессия ротируется (EDR-0014 §3.1):
+// выдан новый токен, старая сессия удалена, новый токен валиден.
+func TestSessionRotation(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, time.Hour)
+	_, _, _ = svc.Register(context.Background(), "rot@example.com", "A", "password123")
+	_, token, err := svc.Login(context.Background(), "rot@example.com", "password123")
+	if err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+
+	// Состарим сессию сверх половины TTL (TTL=1ч, половина — 30 мин).
+	if s, ok := repo.sessions[HashToken(token)]; ok {
+		s.CreatedAt = time.Now().UTC().Add(-time.Hour)
+	}
+
+	u, rotated, err := svc.Authenticate(context.Background(), token)
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	if rotated == "" {
+		t.Fatal("expected session rotation for old session")
+	}
+	if u.ID == "" {
+		t.Fatal("expected user")
+	}
+	// Старая сессия удалена, новый токен валиден.
+	if _, ok := repo.sessions[HashToken(token)]; ok {
+		t.Fatal("old session must be deleted after rotation")
+	}
+	if got, r2, err := svc.Authenticate(context.Background(), rotated); err != nil || got == nil {
+		t.Fatalf("rotated token must authenticate (err=%v)", err)
+	} else if r2 != "" {
+		t.Fatalf("fresh rotated session must not rotate again, got %q", r2)
+	}
+}
+
+// TestSessionRotationFreshNone — свежая сессия не ротируется.
+func TestSessionRotationFreshNone(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, time.Hour)
+	_, _, _ = svc.Register(context.Background(), "fresh@example.com", "A", "password123")
+	_, token, _ := svc.Login(context.Background(), "fresh@example.com", "password123")
+
+	_, rotated, err := svc.Authenticate(context.Background(), token)
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	if rotated != "" {
+		t.Fatalf("fresh session must not rotate, got %q", rotated)
 	}
 }
 
@@ -170,14 +227,14 @@ func TestAuthenticateExpiredSession(t *testing.T) {
 		t.Fatalf("Login: %v", err)
 	}
 	time.Sleep(5 * time.Millisecond)
-	if _, err := svc.Authenticate(context.Background(), token); err != ErrSessionExpired {
+	if _, _, err := svc.Authenticate(context.Background(), token); err != ErrSessionExpired {
 		t.Fatalf("expected ErrSessionExpired, got %v", err)
 	}
 }
 
 func TestAuthenticateUnknownToken(t *testing.T) {
 	svc := NewService(newFakeRepo(), 0)
-	if _, err := svc.Authenticate(context.Background(), "no-such-token"); err != ErrSessionExpired {
+	if _, _, err := svc.Authenticate(context.Background(), "no-such-token"); err != ErrSessionExpired {
 		t.Fatalf("expected ErrSessionExpired, got %v", err)
 	}
 }
@@ -191,7 +248,7 @@ func TestLogoutRevokesSession(t *testing.T) {
 	if err := svc.Logout(context.Background(), token); err != nil {
 		t.Fatalf("Logout: %v", err)
 	}
-	if _, err := svc.Authenticate(context.Background(), token); err != ErrSessionExpired {
+	if _, _, err := svc.Authenticate(context.Background(), token); err != ErrSessionExpired {
 		t.Fatalf("token must be revoked: expected ErrSessionExpired, got %v", err)
 	}
 }

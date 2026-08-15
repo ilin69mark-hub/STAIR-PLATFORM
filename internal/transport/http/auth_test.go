@@ -43,14 +43,14 @@ func (f *fakeAuth) Login(ctx context.Context, email, password string) (*auth.Use
 	return f.authUser, "token-1", nil
 }
 
-func (f *fakeAuth) Authenticate(ctx context.Context, token string) (*auth.User, error) {
+func (f *fakeAuth) Authenticate(ctx context.Context, token string) (*auth.User, string, error) {
 	if f.authErr != nil {
-		return nil, f.authErr
+		return nil, "", f.authErr
 	}
 	if u, ok := f.tokens[token]; ok {
-		return u, nil
+		return u, "", nil
 	}
-	return nil, auth.ErrSessionExpired
+	return nil, "", auth.ErrSessionExpired
 }
 
 func (f *fakeAuth) Logout(ctx context.Context, token string) error { return nil }
@@ -242,5 +242,106 @@ func TestRateLimitWindowResets(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if !l.allow("1.2.3.4") {
 		t.Fatal("request after window must be allowed")
+	}
+}
+
+func TestRateLimitRegister(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.RegisterRateLimit = 2
+	router := authTestRouterWithConfig(cfg)
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
+			strings.NewReader(`{"email":"r@example.com","name":"A","password":"secret123"}`))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("attempt %d: expected 201, got %d", i+1, rec.Code)
+		}
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
+		strings.NewReader(`{"email":"r2@example.com","name":"B","password":"secret123"}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 after register limit, got %d", rec.Code)
+	}
+}
+
+func TestRateLimiterStrategyFallsBackToMemory(t *testing.T) {
+	// Недоступный адрес Redis → fallback на memory; лимитер работает.
+	l := newRateLimiterStrategy("127.0.0.1:1", 1, time.Minute)
+	if !l.Allow("1.2.3.4") {
+		t.Fatal("first request must be allowed")
+	}
+	if l.Allow("1.2.3.4") {
+		t.Fatal("memory fallback must apply limit (block second request from same IP)")
+	}
+	if !l.Allow("9.9.9.9") {
+		t.Fatal("different IP must be allowed")
+	}
+}
+
+func TestCSRFOriginAllowed(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/v1/projects",
+		strings.NewReader(`{"name":"A"}`))
+	req.Header.Set("Origin", "http://localhost")
+	if !csrfOriginAllowed(req) {
+		t.Fatal("same-origin Origin must be allowed")
+	}
+}
+
+func TestCSRFCrossOriginRejected(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/v1/projects",
+		strings.NewReader(`{"name":"A"}`))
+	req.Header.Set("Origin", "http://evil.example")
+	if csrfOriginAllowed(req) {
+		t.Fatal("cross-origin Origin must be rejected")
+	}
+}
+
+func TestCSRFRefererAllowed(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/v1/projects",
+		strings.NewReader(`{"name":"A"}`))
+	req.Header.Set("Referer", "http://localhost/app")
+	if !csrfOriginAllowed(req) {
+		t.Fatal("same-host Referer must be allowed")
+	}
+}
+
+func TestCSRFNoOriginAllowed(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/v1/projects",
+		strings.NewReader(`{"name":"A"}`))
+	if !csrfOriginAllowed(req) {
+		t.Fatal("request without Origin/Referer must be allowed (non-browser client)")
+	}
+}
+
+func TestCSRFRejectsCrossOriginRequest(t *testing.T) {
+	router := authTestRouter(newFakeAuth())
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/v1/projects",
+		strings.NewReader(`{"name":"A"}`))
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "token-1"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-1"})
+	req.Header.Set(csrfHeader, "csrf-1")
+	req.Header.Set("Origin", "http://evil.example")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for cross-origin mutation, got %d", rec.Code)
+	}
+}
+
+func TestCSRFAllowsSameOriginRequest(t *testing.T) {
+	router := NewRouter(stair.NewService(), newFakeProjectService(), newFakeAuth(), DefaultConfig())
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/v1/projects",
+		strings.NewReader(`{"name":"A"}`))
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "token-1"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-1"})
+	req.Header.Set(csrfHeader, "csrf-1")
+	req.Header.Set("Origin", "http://localhost")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code == http.StatusForbidden {
+		t.Fatalf("same-origin mutation must not be rejected by CSRF, got 403")
 	}
 }

@@ -96,8 +96,8 @@ func TestAuditRoutesAbsentWithoutService(t *testing.T) {
 // adminAuth — аутентификация с ролью admin (для глобального аудита).
 type adminAuth struct{ testAuth }
 
-func (adminAuth) Authenticate(ctx context.Context, token string) (*auth.User, error) {
-	return &auth.User{ID: "u-admin", Email: "admin@example.com", Role: auth.RoleAdmin, TenantID: "t-1"}, nil
+func (adminAuth) Authenticate(ctx context.Context, token string) (*auth.User, string, error) {
+	return &auth.User{ID: "u-admin", Email: "admin@example.com", Role: auth.RoleAdmin, TenantID: "t-1"}, "", nil
 }
 
 func TestListTenantAuditAsAdmin(t *testing.T) {
