@@ -113,13 +113,13 @@ Advanced Permissions — **CLOSED 2026-08-15**: реализовано end-to-en
 
 # Phase H — Scale
 
-Horizontal Scaling
+Horizontal Scaling — **CLOSED 2026-08-15**: реализовано (H1, EDR-0018) — разграничение liveness/readiness, эндпоинт `/ready` (SELECT 1 по БД + Redis PING, 200/503), пробы с коротким таймаутом, конфигурация инстанса `STAIR_INSTANCE_ID`/`STAIR_SHUTDOWN_TIMEOUT`, stateless-аудит (состояние в shared БД/Redis).
 
-Regional Deployment
+Regional Deployment — **CLOSED 2026-08-15**: реализовано (H2, EDR-0019) — региональный конфиг-слой `STAIR_REGION` (отражается в `/health` и логах), документация топологии multi-region (blue/green, canary, LB-пробы `/health`+`/ready`), пример docker-compose `deployments/multi-region.example.yml`, развёртывание (README в `deployments/`).
 
-Distributed Infrastructure
+Distributed Infrastructure — **CLOSED 2026-08-15**: реализовано (H3, EDR-0020) — система фоновых заданий: JobQueue (распределённая на Redis List + in-memory fallback), процесс воркера `cmd/worker` (BRPOP-потребитель, retry/backoff, max-attempts, graceful shutdown, периодический таймер очистки), очистка истёкших сессий, sso_states и аудит-ретенции (новые repo-методы DeleteExpiredSessions/DeleteExpiredSsoStates/DeleteBefore).
 
-Advanced Observability
+Advanced Observability — **CLOSED 2026-08-15**: реализовано (H4, EDR-0021) — собственный реестр метрик на чистой stdlib (Counter/Histogram/Gauge на sync/atomic, Prometheus text-формат), публичный эндпоинт `/metrics` (HTTP-метрики: count/duration; runtime: goroutines/mem/uptime; labels region/node), канонизация path в label ({id}), расширенные HTTP-логи (remote_ip, user_agent). Phase H — **полностью CLOSED**.
 
 ---
 
