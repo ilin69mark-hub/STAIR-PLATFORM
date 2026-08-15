@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -70,6 +71,17 @@ func (r *AuditRepository) ListByTenant(ctx context.Context, tenantID string) ([]
 	}
 	defer rows.Close()
 	return scanAuditEvents(rows)
+}
+
+// DeleteBefore удаляет аудит-события старше before (retention, EDR-0020
+// §3.5) и возвращает число удалённых.
+func (r *AuditRepository) DeleteBefore(ctx context.Context, before time.Time) (int64, error) {
+	tag, err := r.pool.Exec(ctx,
+		`DELETE FROM audit_events WHERE created_at < $1`, before)
+	if err != nil {
+		return 0, fmt.Errorf("audit: delete before: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func scanAuditEvents(rows pgx.Rows) ([]*audit.Event, error) {

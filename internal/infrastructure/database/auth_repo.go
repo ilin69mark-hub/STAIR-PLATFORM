@@ -427,6 +427,26 @@ func scanOAuthAccount(row pgx.Row) (*auth.OAuthAccount, error) {
 	return &a, nil
 }
 
+// DeleteExpiredSessions удаляет сессии, истёкшие до before (EDR-0020 §3.5,
+// очистка), и возвращает число удалённых.
+func (r *AuthRepository) DeleteExpiredSessions(ctx context.Context, before time.Time) (int64, error) {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM sessions WHERE expires_at < $1`, before)
+	if err != nil {
+		return 0, fmt.Errorf("auth: delete expired sessions: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// DeleteExpiredSsoStates удаляет истёкшие одноразовые OIDC-состояния
+// (EDR-0020 §3.5) и возвращает число удалённых.
+func (r *AuthRepository) DeleteExpiredSsoStates(ctx context.Context) (int64, error) {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM sso_states WHERE expires_at < now()`)
+	if err != nil {
+		return 0, fmt.Errorf("auth: delete expired sso states: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // uuidPattern — каноническая форма UUID (8-4-4-4-12 hex).
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
