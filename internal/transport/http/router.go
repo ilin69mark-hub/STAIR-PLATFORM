@@ -21,6 +21,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	integrations := cfg.Integrations
 	readiness := cfg.Readiness
 	storage := cfg.Storage
+	payments := cfg.Payments
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handleHealth)
@@ -101,6 +102,15 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		mux.Handle("POST /api/v1/projects/{id}/order-send", authProtected(handleOrderSend(projects, integrations)))
 	}
 
+	if payments != nil {
+		// Входящий webhook PSP публичный (вызывает внешняя система); публичность
+		// безопасна — подпись верифицируется (EDR-0027 §3.4).
+		mux.HandleFunc("POST /api/v1/payments/webhook", handlePaymentWebhook(payments))
+		mux.Handle("POST /api/v1/projects/{id}/checkout", authMutating(handleCheckout(projects, payments)))
+		mux.Handle("GET /api/v1/projects/{id}/payments", authProtected(handleListPayments(projects, payments)))
+		mux.Handle("GET /api/v1/payments/{id}", authProtected(handleGetPayment(payments)))
+	}
+
 	mux.HandleFunc("GET /", handleNotFound)
 	return withLogging(mux)
 }
@@ -130,12 +140,17 @@ func applyConfig(cfg Config) {
 	instanceLabel = cfg.InstanceID
 	loginLimiter = newRateLimiterStrategy(cfg.RedisAddr, cfg.LoginRateLimit, cfg.LoginRateWindow)
 	registerLimiter = newRateLimiterStrategy(cfg.RedisAddr, cfg.RegisterRateLimit, cfg.RegisterRateWindow)
+	paymentsWebhookSecret = cfg.PaymentsWebhookSecret
 }
 
 var (
 	loginLimiter    RateLimiter
 	registerLimiter RateLimiter
 	region          string
+	// paymentsWebhookSecret — секрет верификации входящего webhook PSP
+	// (EDR-0027 §3.4); глобал из-за единственного публичного маршрута,
+	// применяется один раз при сборке роутера.
+	paymentsWebhookSecret string
 )
 
 func handleHealth(w http.ResponseWriter, _ *http.Request) {

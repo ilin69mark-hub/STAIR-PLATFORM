@@ -46,6 +46,12 @@ type Config struct {
 	// Storage — сервис объектного хранилища (EDR-0026 §3.5); nil — маршруты
 	// storage/export-cad не регистрируются.
 	Storage StorageService
+	// Payments — сервис платежей (EDR-0027 §3.3); nil — маршруты
+	// payments/checkout/webhook не регистрируются.
+	Payments PaymentService
+	// PaymentsWebhookSecret — секрет верификации входящего webhook PSP
+	// (STAIR_PAYMENT_WEBHOOK_SECRET); пусто — webhook отклоняется (401).
+	PaymentsWebhookSecret string
 }
 
 // DefaultConfig возвращает конфигурацию по умолчанию.

@@ -1,0 +1,160 @@
+package payments
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+)
+
+// Service — прикладной сервис платежей (EDR-0027 §3.3). Управляет
+// интентами: создаёт checkout-сессии через Provider и обрабатывает
+// входящие webhook (верификация подписи → переход статуса → журнал событий).
+type Service struct {
+	repo          Repository
+	provider      Provider
+	verifier      WebhookVerifier
+	maxWebhookAge time.Duration
+	now           func() time.Time
+}
+
+// NewService создаёт сервис платежей. maxAge <= 0 — WebhookVerifier решает
+// дефолт (у интеграций MaxTimestampAge).
+func NewService(repo Repository, provider Provider, verifier WebhookVerifier, maxAge time.Duration) *Service {
+	return &Service{
+		repo:          repo,
+		provider:      provider,
+		verifier:      verifier,
+		maxWebhookAge: maxAge,
+		now:           time.Now,
+	}
+}
+
+// CreateCheckout создаёт pending-интент через Provider и возвращает
+// checkout URL (EDR-0027 §3.4). Валидирует сумму и валюту.
+func (s *Service) CreateCheckout(ctx context.Context, tenantID, projectID, userID string, amountMinor int64, currency string) (*PaymentIntent, error) {
+	if tenantID == "" || projectID == "" {
+		return nil, fmt.Errorf("%w: project required", ErrInvalid)
+	}
+	if amountMinor <= 0 {
+		return nil, fmt.Errorf("%w: amount_minor must be positive", ErrInvalid)
+	}
+	currency = strings.ToUpper(strings.TrimSpace(currency))
+	if currency == "" {
+		return nil, fmt.Errorf("%w: currency required", ErrInvalid)
+	}
+
+	checkoutID, checkoutURL, err := s.provider.CreateCheckout(ctx, amountMinor, currency)
+	if err != nil {
+		return nil, err
+	}
+
+	p := &PaymentIntent{
+		TenantID:           tenantID,
+		ProjectID:          projectID,
+		UserID:             userID,
+		AmountMinor:        amountMinor,
+		Currency:           currency,
+		Status:             StatusPending,
+		Provider:           s.provider.Name(),
+		ProviderCheckoutID: checkoutID,
+		CheckoutURL:        checkoutURL,
+		CreatedAt:          s.now().UTC(),
+		UpdatedAt:          s.now().UTC(),
+	}
+	if err := s.repo.CreateIntent(ctx, p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// ListByProject возвращает платежи проекта (tenant-скоуп).
+func (s *Service) ListByProject(ctx context.Context, tenantID, projectID string) ([]*PaymentIntent, error) {
+	return s.repo.ListByProject(ctx, tenantID, projectID)
+}
+
+// Get возвращает интент по ID (tenant-скоуп).
+func (s *Service) Get(ctx context.Context, tenantID, id string) (*PaymentIntent, error) {
+	return s.repo.GetIntent(ctx, tenantID, id)
+}
+
+// webhookPayload — тело входящего события PSP (EDR-0027 §3.4).
+type webhookPayload struct {
+	EventType   string `json:"event_type"`
+	Provider    string `json:"provider"`
+	CheckoutID  string `json:"checkout_id"`
+	Status      string `json:"status"`
+	AmountMinor int64  `json:"amount_minor"`
+	Currency    string `json:"currency"`
+}
+
+// HandleWebhook верифицирует подпись входящего webhook, находит интент по
+// (provider, checkout_id), проверяет сумму/валюту, переводит статус и пишет
+// событие в журнал. Возвращает созданное событие.
+func (s *Service) HandleWebhook(ctx context.Context, secret, tsUnix, sigValue string, body []byte) (*PaymentEvent, error) {
+	if s.verifier == nil {
+		return nil, fmt.Errorf("%w: verifier not configured", ErrInvalid)
+	}
+	if err := s.verifier.Verify(secret, tsUnix, sigValue, body, s.maxWebhookAge); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidSignature, err)
+	}
+
+	var ev webhookPayload
+	if err := json.Unmarshal(body, &ev); err != nil {
+		return nil, fmt.Errorf("%w: invalid webhook body", ErrInvalid)
+	}
+	if ev.Provider == "" || ev.CheckoutID == "" {
+		return nil, fmt.Errorf("%w: provider and checkout_id required", ErrInvalid)
+	}
+
+	intent, err := s.repo.GetIntentByProviderCheckout(ctx, ev.Provider, ev.CheckoutID)
+	if err != nil {
+		return nil, err // ErrNotFound прокидывается.
+	}
+
+	// Проверяем сумму/валюту события против созданного интента.
+	if ev.AmountMinor != intent.AmountMinor || !strings.EqualFold(ev.Currency, intent.Currency) {
+		return nil, fmt.Errorf("%w: amount mismatch", ErrInvalid)
+	}
+
+	status, eventType, err := resolveStatus(ev.Status)
+	if err != nil {
+		return nil, err
+	}
+
+	now := s.now().UTC()
+	var paidAt *time.Time
+	if status == StatusPaid {
+		paidAt = &now
+	}
+	if err := s.repo.UpdateStatus(ctx, intent.TenantID, intent.ID, status, paidAt); err != nil {
+		return nil, err
+	}
+	intent.Status = status
+	intent.PaidAt = paidAt
+
+	event := &PaymentEvent{
+		TenantID:  intent.TenantID,
+		IntentID:  intent.ID,
+		EventType: eventType,
+		Payload:   append(json.RawMessage(nil), body...),
+		CreatedAt: now,
+	}
+	if err := s.repo.AppendEvent(ctx, event); err != nil {
+		return nil, err
+	}
+	return event, nil
+}
+
+// resolveStatus сопоставляет статус события PSP со статусом интента.
+func resolveStatus(raw string) (Status, string, error) {
+	switch strings.ToLower(raw) {
+	case "paid", "succeeded":
+		return StatusPaid, EventTypePaymentSucceeded, nil
+	case "failed", "declined":
+		return StatusFailed, EventTypePaymentFailed, nil
+	default:
+		return "", "", fmt.Errorf("%w: unsupported payment status %q", ErrInvalid, raw)
+	}
+}

@@ -120,7 +120,16 @@ MinIO, `STAIR_S3_*`); прикладной сервис `internal/application/st
 `GET/DELETE /api/v1/storage/{key...}` (скоуп tenant);
 unit-тесты SigV4 (эталон AWS), fs, s3 (httptest), app и транспорта.
 
-Payments
+Payments — **DONE 2026-08-15**: реализовано E6, EDR-0027 — приём платежей
+за проект через внешний PSP (mock-эмулятор на чистой stdlib): checkout-
+сессии (`POST /api/v1/projects/{id}/checkout`, возвращает checkout_url),
+входящий webhook с подтверждением оплаты (`POST /api/v1/payments/webhook`,
+HMAC-SHA256 верификация — та же трубка, что EDR-0023 §3.1/§3.2), модель
+`payment_intents`/`payment_events` (миграция 000015), статусы
+pending/paid/failed/refunded, журнал событий webhook для аудита; список
+платежей и статус интента (`GET .../payments`, `GET /api/v1/payments/{id}`);
+unit/DB/транспорт-тесты + E2E-проверка подписанным webhook. **Phase E —
+полностью CLOSED (E1–E6).**
 
 ---
 

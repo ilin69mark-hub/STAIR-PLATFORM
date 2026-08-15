@@ -15,6 +15,7 @@ import (
 	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/integrations"
+	"stairplatform/internal/application/payments"
 	"stairplatform/internal/application/project"
 
 	"stairplatform/internal/application/stair"
@@ -22,6 +23,7 @@ import (
 	"stairplatform/internal/infrastructure/database"
 	"stairplatform/internal/infrastructure/health"
 	"stairplatform/internal/infrastructure/oidc"
+	paymentsinfra "stairplatform/internal/infrastructure/payments"
 	"stairplatform/internal/infrastructure/queue"
 	infstorage "stairplatform/internal/infrastructure/storage"
 	transporthttp "stairplatform/internal/transport/http"
@@ -88,6 +90,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Payments (EDR-0027 §3.3): платёжные интенты + входящий webhook PSP.
+	// maxAge=0 → верификатор использует MaxTimestampAge (5 мин).
+	paymentSvc := payments.NewService(
+		database.NewPaymentRepository(pool),
+		paymentsinfra.NewMockProvider(envString("STAIR_PAYMENT_BASE_URL", "http://localhost:8080")),
+		paymentsinfra.NewVerifier(),
+		0,
+	)
+	paymentWebhookSecret := os.Getenv("STAIR_PAYMENT_WEBHOOK_SECRET")
+
 	// SSO (EDR-0017 §3.2): OIDC-провайдер из окружения. Пока STAIR_SSO_ISSUER
 	// не задан — SSO выключен (публичный ключ, кнопка на фронте не видна).
 	if issuer := os.Getenv("STAIR_SSO_ISSUER"); issuer != "" {
@@ -101,18 +113,20 @@ func main() {
 	}
 
 	cfg := transporthttp.Config{
-		CookieSecure:       envBool("STAIR_COOKIE_SECURE", false),
-		LoginRateLimit:     envInt("STAIR_LOGIN_RATE_LIMIT", 10),
-		LoginRateWindow:    time.Minute,
-		RegisterRateLimit:  envInt("STAIR_REGISTER_RATE_LIMIT", 5),
-		RegisterRateWindow: time.Minute,
-		RedisAddr:          os.Getenv("STAIR_REDIS_ADDR"),
-		MaxBodyBytes:       1 << 20,
-		InstanceID:         instanceID,
-		ShutdownTimeout:    shutdownTimeout,
-		Region:             region,
-		Integrations:       intSvc,
-		Storage:            storageSvc,
+		CookieSecure:          envBool("STAIR_COOKIE_SECURE", false),
+		LoginRateLimit:        envInt("STAIR_LOGIN_RATE_LIMIT", 10),
+		LoginRateWindow:       time.Minute,
+		RegisterRateLimit:     envInt("STAIR_REGISTER_RATE_LIMIT", 5),
+		RegisterRateWindow:    time.Minute,
+		RedisAddr:             os.Getenv("STAIR_REDIS_ADDR"),
+		MaxBodyBytes:          1 << 20,
+		InstanceID:            instanceID,
+		ShutdownTimeout:       shutdownTimeout,
+		Region:                region,
+		Integrations:          intSvc,
+		Storage:               storageSvc,
+		Payments:              paymentSvc,
+		PaymentsWebhookSecret: paymentWebhookSecret,
 	}
 
 	// Readiness (EDR-0018 §3.2): SELECT 1 + Redis PING.
