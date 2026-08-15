@@ -17,6 +17,7 @@ import (
 	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/integrations"
+	"stairplatform/internal/application/jobs"
 	"stairplatform/internal/application/payments"
 	"stairplatform/internal/application/project"
 
@@ -85,6 +86,9 @@ func main() {
 	)
 	authSvc := auth.NewService(database.NewAuthRepository(pool), sessionTTL(), auditSvc)
 	intSvc := integrations.NewService(database.NewIntegrationRepository(pool), queueBackend.Queue())
+	// Jobs (EDR-0035): асинхронный расчёт — ставим в очередь, выполняет
+	// воркер (calc не нужен API-процессу).
+	jobsSvc := jobs.NewService(database.NewCalcJobRepository(pool), queueBackend.Queue(), nil)
 
 	// Storage (EDR-0026 §3.5): объектное хранилище из окружения. Бэкенд
 	// задаётся STAIR_STORAGE_BACKEND (filesystem|s3); сбой конфигурации —
@@ -133,6 +137,7 @@ func main() {
 		Payments:              paymentSvc,
 		PaymentsWebhookSecret: paymentWebhookSecret,
 		Analytics:             analyticsSvc,
+		Jobs:                  jobsSvc,
 	}
 
 	// Readiness (EDR-0018 §3.2): SELECT 1 + Redis PING.

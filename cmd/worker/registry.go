@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"stairplatform/internal/application/integrations"
+	"stairplatform/internal/application/jobs"
 	"stairplatform/internal/infrastructure/database"
 	infintegrations "stairplatform/internal/infrastructure/integrations"
 	"stairplatform/internal/infrastructure/queue"
@@ -20,6 +21,7 @@ type registry struct {
 	integrationsRepo integrations.Repository
 	webhook          webhookSender
 	integrationsSvc  *integrations.Service
+	jobsSvc          *jobs.Service
 	retentionDays    int
 }
 
@@ -29,9 +31,10 @@ type webhookSender interface {
 	Send(ctx context.Context, url, secret string, payload []byte) error
 }
 
-// newRegistry создаёт реестр с обработчиками очистки и доставки webhook.
+// newRegistry создаёт реестр с обработчиками очистки, доставки webhook и
+// асинхронных расчётов (EDR-0035).
 func newRegistry(authRepo *database.AuthRepository, auditRepo *database.AuditRepository,
-	integrationsRepo integrations.Repository, retentionDays int) *registry {
+	integrationsRepo integrations.Repository, jobsSvc *jobs.Service, retentionDays int) *registry {
 	if retentionDays <= 0 {
 		retentionDays = 90
 	}
@@ -41,6 +44,7 @@ func newRegistry(authRepo *database.AuthRepository, auditRepo *database.AuditRep
 		integrationsRepo: integrationsRepo,
 		webhook:          infintegrations.NewClient(0),
 		integrationsSvc:  integrations.NewService(integrationsRepo, nil),
+		jobsSvc:          jobsSvc,
 		retentionDays:    retentionDays,
 	}
 }
@@ -56,9 +60,33 @@ func (r *registry) Handle(ctx context.Context, job queue.Job) error {
 		return r.cleanupAudit(ctx)
 	case queue.JobQuoteSend, queue.JobProjectSync, queue.JobOrderSend:
 		return r.deliverEvent(ctx, job)
+	case queue.JobCalcCalculate:
+		return r.calcCalculate(ctx, job)
 	default:
 		return fmt.Errorf("worker: unknown job type %q", job.Type)
 	}
+}
+
+// calcCalculate выполняет асинхронный расчёт (EDR-0035): payload задания
+// несёт {job_id, tenant_id}; вход и результат — в calc_jobs.
+func (r *registry) calcCalculate(ctx context.Context, job queue.Job) error {
+	if r.jobsSvc == nil {
+		return fmt.Errorf("worker: jobs service not configured")
+	}
+	var p struct {
+		JobID    string `json:"job_id"`
+		TenantID string `json:"tenant_id"`
+	}
+	if err := json.Unmarshal(job.Payload, &p); err != nil {
+		return fmt.Errorf("worker: calc payload: %w", err)
+	}
+	if p.JobID == "" || p.TenantID == "" {
+		return fmt.Errorf("worker: calc payload: missing job_id/tenant_id")
+	}
+	if err := r.jobsSvc.RunCalculate(ctx, p.TenantID, p.JobID); err != nil {
+		return fmt.Errorf("worker: run calc %s: %w", p.JobID, err)
+	}
+	return nil
 }
 
 // overrideWebhook подменяет клиент webhook в тестах.

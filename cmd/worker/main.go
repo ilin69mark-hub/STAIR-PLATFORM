@@ -16,8 +16,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"stairplatform/internal/application/jobs"
+	"stairplatform/internal/application/stair"
 	"stairplatform/internal/infrastructure/database"
 	"stairplatform/internal/infrastructure/queue"
 )
@@ -50,7 +53,7 @@ func main() {
 	defer backend.Close()
 
 	reg := newRegistry(database.NewAuthRepository(pool), database.NewAuditRepository(pool),
-		database.NewIntegrationRepository(pool), retentionDays)
+		database.NewIntegrationRepository(pool), newJobsService(pool), retentionDays)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
@@ -70,6 +73,12 @@ func main() {
 	// Даём потребителю/таймеру завершить текущее задание (drain).
 	time.Sleep(shutdownTimeout)
 	slog.Info("worker: stopped")
+}
+
+// newJobsService создаёт сервис фоновых заданий (EDR-0035) для воркера:
+// только выполнение (calc не nil), очередь не нужна.
+func newJobsService(pool *pgxpool.Pool) *jobs.Service {
+	return jobs.NewService(database.NewCalcJobRepository(pool), nil, stair.NewService().Calculate)
 }
 
 // queueBackend оборачивает выбранный бэкенд очереди и его Redis-клиент для

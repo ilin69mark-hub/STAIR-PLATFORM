@@ -55,6 +55,9 @@ type Config struct {
 	// Analytics — сервис аналитики (EDR-0028 §3.4, Phase F); nil —
 	// маршруты analytics не регистрируются.
 	Analytics AnalyticsService
+	// Jobs — сервис фоновых заданий (EDR-0035, Phase B B4); nil —
+	// маршруты stairs:calculate/async и jobs/{id} не регистрируются.
+	Jobs JobsService
 }
 
 // DefaultConfig возвращает конфигурацию по умолчанию.

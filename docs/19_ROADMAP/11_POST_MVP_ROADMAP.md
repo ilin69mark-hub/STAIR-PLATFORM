@@ -37,7 +37,7 @@ Performance Optimization — **DONE 2026-08-15**: context.Context через д�
 
 Parallel Execution — **DONE 2026-08-15**: пакет `engine/scheduler` (Scheduler.Execute, result-slot, детерминированная ошибка первого по индексу слота), параллельные build-циклы geometry (BuildStraightFlight), per-material Nest (группы раскладываются независимо), geometry.Generate на Scheduler'е; инвариант «параллельный == последовательный».
 
-Distributed Processing
+Distributed Processing — **DONE 2026-08-15**: асинхронный расчёт через фонновую очередь (B4, EDR-0035) — тип задания `calc.calculate`, таблица `calc_jobs` (миграция 000016), `POST /api/v1/stairs:calculate/async` → 202 + `GET /api/v1/jobs/{id}` (статус + результат в формате синхронного расчёта); eager-валидация входа; воркер исполняет конвейер через прикладной `application/jobs.Service.RunCalculate`; ретраи/backoff — штатная политика EDR-0020. Phase B — **полностью CLOSED**.
 
 ---
 

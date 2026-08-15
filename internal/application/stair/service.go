@@ -218,6 +218,17 @@ func flightLabel(f engineering.FlightType) string {
 
 // buildConfiguration собирает и валидирует параметрическую конфигурацию
 // из исходных параметров пользователя.
+// ValidateConfig — дешёвая валидация конфигурации до постановки в очередь
+// (EDR-0035 §3.4): тот же проверочный шаг, что buildConfiguration в начале
+// Calculate, но без конвейера. Используется async-эндпоинтом, чтобы
+// заведомо невалидный вход отбраковать сразу (422), а не гнать в воркер.
+func ValidateConfig(cfg Config) error {
+	if _, err := buildConfiguration(cfg); err != nil {
+		return fmt.Errorf("stair: %w", err)
+	}
+	return nil
+}
+
 func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 	c := &engineering.StairConfiguration{
 		Width:      cfg.Width,

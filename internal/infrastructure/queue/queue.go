@@ -28,6 +28,9 @@ const (
 	// JobOrderSend — передача производственного заказа в MES (EDR-0025).
 	// Payload: {event_id, endpoint_id}.
 	JobOrderSend = "mes.order_send"
+	// JobCalcCalculate — асинхронный расчёт лестницы (EDR-0035).
+	// Payload: {job_id, tenant_id}; входные данные — в calc_jobs.
+	JobCalcCalculate = "calc.calculate"
 )
 
 // DefaultMaxAttempts — предел попыток задания перед окончательным отказом.

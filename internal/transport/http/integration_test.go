@@ -266,10 +266,15 @@ func TestIntegrationAuthFlow(t *testing.T) {
 }
 
 // TestIntegrationTenantIsolation — SEC-0005: пользователи из разных tenant
-// не видят проекты друг друга.
+// не видят проекты друг друга. MVP single-tenant (общий дефолтный tenant,
+// EDR-0008): доступ к проекту определяется членством, поэтому u1 добавляет
+// u2 как viewer, и u2 видит проект; перекрёстная изоляция проверена на
+// уровне service.
 func TestIntegrationTenantIsolation(t *testing.T) {
 	router := integrationRouter(t)
 	u1 := registerLogin(t, router, testEmail("t1"))
+	u2Email := testEmail("t2")
+	u2 := registerLogin(t, router, u2Email)
 
 	// Создаём проект от имени u1.
 	rec := authedDo(router, http.MethodPost, "/api/v1/projects", u1,
@@ -282,12 +287,22 @@ func TestIntegrationTenantIsolation(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 
-	// Пользователь u2 (дефолтный tenant — MVP: оба в одном tenant, поэтому
-	// видит проект; истинная изоляция проверена на уровне service).
-	u2 := registerLogin(t, router, testEmail("t2"))
+	// u1 добавляет u2 как viewer — оба в дефолтном tenant (EDR-0008);
+	// доступ к проекту определяется членством, а не принадлежностью к tenant.
+	rec = authedDo(router, http.MethodPost, "/api/v1/projects/"+p.ID+"/members", u1,
+		`{"email":"`+u2Email+`","role":"viewer"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add member: expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// u2 (viewer) видит проект; владелец — тоже.
 	rec = authedDo(router, http.MethodGet, "/api/v1/projects/"+p.ID, u2, "")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("get from other user: expected 200 in single-tenant MVP, got %d", rec.Code)
+		t.Fatalf("viewer get: expected 200, got %d", rec.Code)
+	}
+	rec = authedDo(router, http.MethodGet, "/api/v1/projects/"+p.ID, u1, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("owner get: expected 200, got %d", rec.Code)
 	}
 }
 

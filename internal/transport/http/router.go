@@ -23,6 +23,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	storage := cfg.Storage
 	payments := cfg.Payments
 	analytics := cfg.Analytics
+	jobsSvc := cfg.Jobs
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handleHealth)
@@ -65,6 +66,10 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 
 	mux.Handle("POST /api/v1/stairs:calculate", authProtected(handleCalculate(svc)))
 	mux.Handle("POST /api/v1/stairs:optimize", authProtected(handleOptimize(svc)))
+	if jobsSvc != nil {
+		mux.Handle("POST /api/v1/stairs:calculate/async", authMutating(handleCalculateAsync(jobsSvc)))
+		mux.Handle("GET /api/v1/jobs/{id}", authProtected(handleGetJob(jobsSvc)))
+	}
 	mux.Handle("POST /api/v1/projects", authMutating(handleCreateProject(projects)))
 	mux.Handle("GET /api/v1/projects", authProtected(handleListProjects(projects)))
 	mux.Handle("GET /api/v1/projects/{id}", authProtected(handleGetProject(projects)))

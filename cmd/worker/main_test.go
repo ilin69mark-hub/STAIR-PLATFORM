@@ -2,18 +2,21 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"stairplatform/internal/application/integrations"
+	"stairplatform/internal/application/jobs"
+	"stairplatform/internal/application/stair"
 	"stairplatform/internal/infrastructure/queue"
 )
 
 // TestRegistryUnknownJobType: неизвестный тип задания → ошибка (retry).
 func TestRegistryUnknownJobType(t *testing.T) {
-	r := newRegistry(nil, nil, nil, 90)
+	r := newRegistry(nil, nil, nil, nil, 90)
 	job, err := queue.NewJob("unknown.type", nil)
 	if err != nil {
 		t.Fatalf("new job: %v", err)
@@ -62,7 +65,7 @@ func TestProcessJobPermanentFailure(t *testing.T) {
 	// Не должен зависнуть: процесс просто залогирует permanent failure.
 	done := make(chan struct{})
 	go func() {
-		r := newRegistry(nil, nil, nil, 90)
+		r := newRegistry(nil, nil, nil, nil, 90)
 		processJob(ctx, q, r, job)
 		close(done)
 	}()
@@ -80,7 +83,7 @@ func TestConsumeStopsOnCancel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	r := newRegistry(nil, nil, nil, 90)
+	r := newRegistry(nil, nil, nil, nil, 90)
 	done := make(chan struct{})
 	go func() {
 		consume(ctx, q, r)
@@ -91,6 +94,132 @@ func TestConsumeStopsOnCancel(t *testing.T) {
 		// Ок: consume завершился по отмене контекста.
 	case <-time.After(2 * time.Second):
 		t.Fatalf("consume should stop on ctx cancel")
+	}
+}
+
+// ---- calc.calculate (EDR-0035) ----
+
+// memCalcJobRepo — in-memory порт jobs.Repository для воркера.
+type memCalcJobRepo struct {
+	mu   sync.Mutex
+	jobs map[string]*jobs.Job
+}
+
+func newMemCalcJobRepo() *memCalcJobRepo { return &memCalcJobRepo{jobs: map[string]*jobs.Job{}} }
+
+func (m *memCalcJobRepo) Create(_ context.Context, j *jobs.Job) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.jobs[j.ID] = j
+	return nil
+}
+func (m *memCalcJobRepo) GetByID(_ context.Context, tenantID, id string) (*jobs.Job, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	j, ok := m.jobs[id]
+	if !ok || j.TenantID != tenantID {
+		return nil, jobs.ErrNotFound
+	}
+	return j, nil
+}
+func (m *memCalcJobRepo) MarkRunning(_ context.Context, tenantID, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	j, ok := m.jobs[id]
+	if !ok || j.TenantID != tenantID {
+		return jobs.ErrNotFound
+	}
+	j.Status = jobs.StatusRunning
+	return nil
+}
+func (m *memCalcJobRepo) MarkSucceeded(_ context.Context, tenantID, id string, res *stair.Result) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	j, ok := m.jobs[id]
+	if !ok || j.TenantID != tenantID {
+		return jobs.ErrNotFound
+	}
+	j.Status = jobs.StatusSucceeded
+	j.Result = res
+	return nil
+}
+func (m *memCalcJobRepo) MarkFailed(_ context.Context, tenantID, id, errMsg string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	j, ok := m.jobs[id]
+	if !ok || j.TenantID != tenantID {
+		return jobs.ErrNotFound
+	}
+	j.Status = jobs.StatusFailed
+	j.Error = errMsg
+	return nil
+}
+
+// TestRegistryCalcCalculate: задание calc.calculate исполняет конвейер
+// (stub) и фиксирует результат записи; отсутствующая запись → ошибка.
+func TestRegistryCalcCalculate(t *testing.T) {
+	repo := newMemCalcJobRepo()
+	ran := false
+	calc := func(_ context.Context, _ stair.Config, _ stair.Options) (*stair.Result, error) {
+		ran = true
+		return &stair.Result{}, nil
+	}
+	jobsSvc := jobs.NewService(repo, nil, calc)
+	r := newRegistry(nil, nil, nil, jobsSvc, 90)
+
+	jobRec := &jobs.Job{ID: "job-1", TenantID: "t-1", Type: "calc.calculate",
+		Status: jobs.StatusPending, Payload: jobs.Payload{}}
+	if err := repo.Create(context.Background(), jobRec); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	payload, err := json.Marshal(struct {
+		JobID    string `json:"job_id"`
+		TenantID string `json:"tenant_id"`
+	}{JobID: "job-1", TenantID: "t-1"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	job, err := queue.NewJob(queue.JobCalcCalculate, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	if err := r.Handle(context.Background(), job); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if !ran {
+		t.Fatal("calculator not invoked")
+	}
+	got, err := repo.GetByID(context.Background(), "t-1", "job-1")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Status != jobs.StatusSucceeded || got.Result == nil {
+		t.Fatalf("unexpected job: %+v", got)
+	}
+}
+
+// TestRegistryCalcCalculateMissingJob: задание без записи calc_jobs → ошибка
+// (воркер ретраит, затем permanent failure).
+func TestRegistryCalcCalculateMissingJob(t *testing.T) {
+	jobsSvc := jobs.NewService(newMemCalcJobRepo(), nil, func(_ context.Context, _ stair.Config, _ stair.Options) (*stair.Result, error) {
+		t.Fatal("calculator must not run for missing job")
+		return nil, nil
+	})
+	r := newRegistry(nil, nil, nil, jobsSvc, 90)
+	payload, err := json.Marshal(struct {
+		JobID    string `json:"job_id"`
+		TenantID string `json:"tenant_id"`
+	}{JobID: "nope", TenantID: "t-1"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	job, err := queue.NewJob(queue.JobCalcCalculate, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	if err := r.Handle(context.Background(), job); err == nil {
+		t.Fatal("expected error for missing calc_jobs row")
 	}
 }
 
@@ -205,7 +334,7 @@ func quoteSender(t *testing.T) (*registry, *integrations.Service, *memIntegratio
 		t.Fatalf("create endpoint: %v", err)
 	}
 	svc := integrations.NewService(repo, queue.NewMemoryQueue())
-	r := newRegistry(nil, nil, repo, 90)
+	r := newRegistry(nil, nil, repo, nil, 90)
 	s := &stubSender{}
 	r.overrideWebhook(s)
 	return r, svc, repo, s
