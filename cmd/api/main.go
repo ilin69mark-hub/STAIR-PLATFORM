@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
@@ -48,13 +49,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	auditSvc := audit.NewService(database.NewAuditRepository(pool))
+
 	stairSvc := stair.NewService()
 	projectSvc := project.NewService(
 		database.NewProjectRepository(pool),
 		stairSvc,
 		project.DefaultRules(),
+		auditSvc,
 	)
-	authSvc := auth.NewService(database.NewAuthRepository(pool), sessionTTL())
+	authSvc := auth.NewService(database.NewAuthRepository(pool), sessionTTL(), auditSvc)
 
 	cfg := transporthttp.Config{
 		CookieSecure:    envBool("STAIR_COOKIE_SECURE", false),
@@ -65,7 +69,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           transporthttp.NewRouter(stairSvc, projectSvc, authSvc, cfg),
+		Handler:           transporthttp.NewRouter(stairSvc, projectSvc, authSvc, cfg, auditSvc),
 		ReadTimeout:       15 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      30 * time.Second,

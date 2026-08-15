@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"stairplatform/internal/application/audit"
 )
 
 // Ошибки auth (SEC-0003).
@@ -31,15 +33,39 @@ var (
 type Service struct {
 	repo       Repository
 	sessionTTL time.Duration
+	audit      *audit.Service
 }
 
 // NewService создаёт сервис auth. sessionTTL — время жизни сессии
-// (0 → дефолт 24h).
-func NewService(repo Repository, sessionTTL time.Duration) *Service {
+// (0 → дефолт 24h). audit — необязательный журнал событий (EDR-0013);
+// nil — запись аудита отключена.
+func NewService(repo Repository, sessionTTL time.Duration, auditSvc ...*audit.Service) *Service {
 	if sessionTTL <= 0 {
 		sessionTTL = 24 * time.Hour
 	}
-	return &Service{repo: repo, sessionTTL: sessionTTL}
+	s := &Service{repo: repo, sessionTTL: sessionTTL}
+	if len(auditSvc) > 0 {
+		s.audit = auditSvc[0]
+	}
+	return s
+}
+
+// record пишет событие аудита (best-effort, EDR-0013 §4.1). Ошибка
+// журнала не ломает бизнес-операцию: только логируется.
+func (s *Service) record(ctx context.Context, actorID, tenantID string, action audit.Action, result audit.Result, detail string) {
+	if s.audit == nil {
+		return
+	}
+	m := audit.MetaFrom(ctx)
+	_ = s.audit.Record(ctx, &audit.Event{
+		ActorID:   actorID,
+		TenantID:  tenantID,
+		Action:    action,
+		Result:    result,
+		Detail:    detail,
+		RequestID: m.RequestID,
+		IP:        m.IP,
+	})
 }
 
 // EmailPattern — минимальная проверка формата email.
@@ -90,6 +116,7 @@ func (s *Service) Register(ctx context.Context, email, name, password string) (*
 	if err := s.repo.CreateSession(ctx, sess); err != nil {
 		return nil, "", fmt.Errorf("auth: create session: %w", err)
 	}
+	s.record(ctx, u.ID, u.TenantID, audit.ActionAuthRegister, audit.ResultOK, "user registered")
 	return u, token, nil
 }
 
@@ -99,14 +126,17 @@ func (s *Service) Login(ctx context.Context, email, password string) (*User, str
 	u, err := s.repo.GetUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
+			s.record(ctx, "", "", audit.ActionAuthLoginDenied, audit.ResultDenied, "unknown email: "+email)
 			return nil, "", ErrInvalidCreds
 		}
 		return nil, "", err
 	}
 	if u.Status != StatusActive {
+		s.record(ctx, u.ID, u.TenantID, audit.ActionAuthLoginDenied, audit.ResultDenied, "user disabled")
 		return nil, "", ErrUserDisabled
 	}
 	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) != nil {
+		s.record(ctx, u.ID, u.TenantID, audit.ActionAuthLoginDenied, audit.ResultDenied, "invalid password")
 		return nil, "", ErrInvalidCreds
 	}
 	token, err := newToken()
@@ -121,6 +151,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (*User, str
 	if err := s.repo.CreateSession(ctx, sess); err != nil {
 		return nil, "", fmt.Errorf("auth: create session: %w", err)
 	}
+	s.record(ctx, u.ID, u.TenantID, audit.ActionAuthLogin, audit.ResultOK, "login ok")
 	return u, token, nil
 }
 
@@ -156,7 +187,15 @@ func (s *Service) Logout(ctx context.Context, token string) error {
 	if token == "" {
 		return nil
 	}
-	return s.repo.DeleteSessionByTokenHash(ctx, HashToken(token))
+	hash := HashToken(token)
+	sess, err := s.repo.GetSessionByTokenHash(ctx, hash)
+	if err == nil {
+		// Аудит выхода: actor — владелец сессии (EDR-0013).
+		if u, uerr := s.repo.GetUserByID(ctx, sess.UserID); uerr == nil {
+			s.record(ctx, u.ID, u.TenantID, audit.ActionAuthLogout, audit.ResultOK, "logout")
+		}
+	}
+	return s.repo.DeleteSessionByTokenHash(ctx, hash)
 }
 
 // newToken генерирует opaque-токен: 32 случайных байта в hex (64 символа).

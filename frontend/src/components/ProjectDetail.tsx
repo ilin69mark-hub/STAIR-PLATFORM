@@ -20,6 +20,7 @@ import { CommentsPanel } from './CommentsPanel'
 import { ReviewPanel } from './ReviewPanel'
 import { ApprovalsPanel } from './ApprovalsPanel'
 import { VersionsPanel } from './VersionsPanel'
+import { AuditPanel } from './AuditPanel'
 import type { ProjectStatus } from '../api/types'
 
 interface Props {
@@ -131,6 +132,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
         />
         <ApprovalsPanel projectId={projectId} configurationId={calculation?.configuration_id} />
         <VersionsPanel projectId={projectId} />
+        <AuditPanel projectId={projectId} />
         <CommentsPanel projectId={projectId} />
       </div>
 

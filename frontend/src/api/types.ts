@@ -114,6 +114,23 @@ export interface User {
   tenant_id: string
 }
 
+// ---- Аудит (Phase G, EDR-0013): журнал событий безопасности ----
+
+export interface AuditEvent {
+  id: string
+  actor_id?: string
+  tenant_id: string
+  project_id?: string
+  action: string
+  resource_type?: string
+  resource_id?: string
+  result: 'ok' | 'denied' | 'failed'
+  detail?: string
+  request_id?: string
+  ip?: string
+  created_at: string
+}
+
 export interface CreateProjectRequest {
   name: string
   description: string

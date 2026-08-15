@@ -101,7 +101,7 @@ Cost Analytics
 
 Advanced Security
 
-Audit
+Audit — **CLOSED 2026-08-15**: реализовано end-to-end (G1, EDR-0013) — персистентный журнал событий безопасности с записью из auth/project сервисов, API чтения (проект + admin) и панелью «Аудит».
 
 SSO
 

@@ -11,8 +11,13 @@ import (
 // Все /api/v1-маршруты, кроме регистрации и входа, требуют аутентификации
 // (SEC-0003); мутирующие — CSRF (double-submit). Роутер оборачивает все
 // маршруты middleware логгирования/request-id (наблюдаемость).
-func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, cfg Config) http.Handler {
+func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, cfg Config, auditSvc ...AuditService) http.Handler {
 	applyConfig(cfg)
+
+	var auditsvc AuditService
+	if len(auditSvc) > 0 {
+		auditsvc = auditSvc[0]
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handleHealth)
@@ -28,6 +33,11 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 
 	mux.Handle("GET /api/v1/auth/me", authProtected(handleMe()))
 	mux.Handle("POST /api/v1/auth/logout", authMutating(handleLogout(authSvc)))
+
+	if auditsvc != nil {
+		mux.Handle("GET /api/v1/audit", authProtected(handleListTenantAudit(auditsvc)))
+		mux.Handle("GET /api/v1/projects/{id}/audit", authProtected(handleListProjectAudit(projects, auditsvc)))
+	}
 
 	mux.Handle("POST /api/v1/stairs:calculate", authProtected(handleCalculate(svc)))
 	mux.Handle("POST /api/v1/projects", authMutating(handleCreateProject(projects)))

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/stair"
 )
 
@@ -28,6 +29,7 @@ type Service struct {
 	repo  Repository
 	calc  *stair.Service
 	rules RuleSet
+	audit *audit.Service
 }
 
 // RuleSet — бизнес-ограничения проекта (MVP-08): допустимые статусы.
@@ -40,9 +42,32 @@ func DefaultRules() RuleSet {
 	return RuleSet{CreateStatus: "draft"}
 }
 
-// NewService создаёт сервис проектов.
-func NewService(repo Repository, calc *stair.Service, rules RuleSet) *Service {
-	return &Service{repo: repo, calc: calc, rules: rules}
+// NewService создаёт сервис проектов. audit — необязательный журнал
+// событий (EDR-0013); nil — запись аудита отключена.
+func NewService(repo Repository, calc *stair.Service, rules RuleSet, auditSvc ...*audit.Service) *Service {
+	s := &Service{repo: repo, calc: calc, rules: rules}
+	if len(auditSvc) > 0 {
+		s.audit = auditSvc[0]
+	}
+	return s
+}
+
+// record пишет событие аудита (best-effort, EDR-0013 §4.1).
+func (s *Service) record(ctx context.Context, tenantID, userID, projectID string, action audit.Action, result audit.Result, detail string) {
+	if s.audit == nil {
+		return
+	}
+	m := audit.MetaFrom(ctx)
+	_ = s.audit.Record(ctx, &audit.Event{
+		ActorID:   userID,
+		TenantID:  tenantID,
+		ProjectID: projectID,
+		Action:    action,
+		Result:    result,
+		Detail:    detail,
+		RequestID: m.RequestID,
+		IP:        m.IP,
+	})
 }
 
 // CreateProject создаёт проект с именем и описанием в tenant (BC-001)
@@ -58,6 +83,7 @@ func (s *Service) CreateProject(ctx context.Context, tenantID, ownerID, name, de
 	if err := s.repo.CreateProject(ctx, tenantID, ownerID, p); err != nil {
 		return nil, err
 	}
+	s.record(ctx, tenantID, ownerID, p.ID, audit.ActionProjectCreated, audit.ResultOK, "project created")
 	return p, nil
 }
 
@@ -94,9 +120,14 @@ func (s *Service) AddMember(ctx context.Context, tenantID, actorID, projectID, u
 		return ErrNotFound
 	}
 	if !me.Role.CanManage() {
+		s.record(ctx, tenantID, actorID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "add member: owner required")
 		return ErrForbidden
 	}
-	return s.repo.AddMember(ctx, tenantID, projectID, &ProjectMember{ProjectID: projectID, UserID: userID, Role: role})
+	if err := s.repo.AddMember(ctx, tenantID, projectID, &ProjectMember{ProjectID: projectID, UserID: userID, Role: role}); err != nil {
+		return err
+	}
+	s.record(ctx, tenantID, actorID, projectID, audit.ActionMemberAdded, audit.ResultOK, "user="+userID+" role="+string(role))
+	return nil
 }
 
 // AddMemberByEmail приглашает участника по email (C2, EDR-0008).
@@ -111,6 +142,7 @@ func (s *Service) AddMemberByEmail(ctx context.Context, tenantID, actorID, proje
 		return ErrNotFound
 	}
 	if !me.Role.CanManage() {
+		s.record(ctx, tenantID, actorID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "add member by email: owner required")
 		return ErrForbidden
 	}
 	if email == "" {
@@ -130,9 +162,14 @@ func (s *Service) UpdateMemberRole(ctx context.Context, tenantID, actorID, proje
 		return ErrNotFound
 	}
 	if !me.Role.CanManage() {
+		s.record(ctx, tenantID, actorID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "update member role: owner required")
 		return ErrForbidden
 	}
-	return s.repo.UpdateMemberRole(ctx, tenantID, projectID, userID, role)
+	if err := s.repo.UpdateMemberRole(ctx, tenantID, projectID, userID, role); err != nil {
+		return err
+	}
+	s.record(ctx, tenantID, actorID, projectID, audit.ActionMemberRoleChanged, audit.ResultOK, "role="+string(role))
+	return nil
 }
 
 // RemoveMember удаляет участника проекта (EDR-0008). Требуется роль owner;
@@ -146,9 +183,14 @@ func (s *Service) RemoveMember(ctx context.Context, tenantID, actorID, projectID
 		return ErrNotFound
 	}
 	if !me.Role.CanManage() {
+		s.record(ctx, tenantID, actorID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "remove member: owner required")
 		return ErrForbidden
 	}
-	return s.repo.RemoveMember(ctx, tenantID, projectID, userID)
+	if err := s.repo.RemoveMember(ctx, tenantID, projectID, userID); err != nil {
+		return err
+	}
+	s.record(ctx, tenantID, actorID, projectID, audit.ActionMemberRemoved, audit.ResultOK, "member removed")
+	return nil
 }
 
 // member возвращает членство вызывающего в проекте и признак наличия.
@@ -213,6 +255,7 @@ func (s *Service) Calculate(ctx context.Context, tenantID, userID, projectID str
 		return nil, ErrNotFound
 	}
 	if !me.Role.CanEdit() {
+		s.record(ctx, tenantID, userID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "calculate: editor required")
 		return nil, ErrForbidden
 	}
 
@@ -231,7 +274,11 @@ func (s *Service) Calculate(ctx context.Context, tenantID, userID, projectID str
 	}
 	snap := NewSnapshot(projectID, res)
 
-	return s.repo.SaveCalculationWithConfig(ctx, tenantID, toConfigEntity(projectID, cfg, opts), snap)
+	calc, err := s.repo.SaveCalculationWithConfig(ctx, tenantID, toConfigEntity(projectID, cfg, opts), snap)
+	if err == nil {
+		s.record(ctx, tenantID, userID, projectID, audit.ActionProjectModified, audit.ResultOK, "configuration calculated")
+	}
+	return calc, err
 }
 
 // GetResult возвращает последний расчёт проекта внутри tenant. Требуется членство.
@@ -289,6 +336,7 @@ func (s *Service) RestoreConfiguration(ctx context.Context, tenantID, userID, pr
 		return nil, ErrNotFound
 	}
 	if !me.Role.CanEdit() {
+		s.record(ctx, tenantID, userID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "restore configuration: editor required")
 		return nil, ErrForbidden
 	}
 	cfg, err := s.repo.GetConfigurationByID(ctx, tenantID, projectID, configurationID)
@@ -298,6 +346,7 @@ func (s *Service) RestoreConfiguration(ctx context.Context, tenantID, userID, pr
 	if err := s.repo.RestoreConfiguration(ctx, tenantID, projectID, configurationID); err != nil {
 		return nil, err
 	}
+	s.record(ctx, tenantID, userID, projectID, audit.ActionConfigRestored, audit.ResultOK, "revision="+cfg.ID)
 	return cfg, nil
 }
 
@@ -314,9 +363,14 @@ func (s *Service) RequestReview(ctx context.Context, tenantID, userID, projectID
 		return nil, ErrNotFound
 	}
 	if !me.Role.CanEdit() {
+		s.record(ctx, tenantID, userID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "request review: editor required")
 		return nil, ErrForbidden
 	}
-	return s.repo.RequestReview(ctx, tenantID, projectID, userID, comment)
+	rv, err := s.repo.RequestReview(ctx, tenantID, projectID, userID, comment)
+	if err == nil {
+		s.record(ctx, tenantID, userID, projectID, audit.ActionReviewRequested, audit.ResultOK, "review requested")
+	}
+	return rv, err
 }
 
 // SignOffReview подписывает ревью проекта (EDR-0010): переводит проект
@@ -344,9 +398,23 @@ func (s *Service) decideReview(ctx context.Context, tenantID, userID, projectID,
 		return nil, ErrNotFound
 	}
 	if !me.Role.CanManage() {
+		s.record(ctx, tenantID, userID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "decide review: owner required")
 		return nil, ErrForbidden
 	}
-	return s.repo.DecideReview(ctx, tenantID, projectID, reviewID, userID, decision, comment)
+	rv, err := s.repo.DecideReview(ctx, tenantID, projectID, reviewID, userID, decision, comment)
+	if err == nil {
+		var action audit.Action
+		switch decision {
+		case ReviewApproved:
+			action = audit.ActionReviewSigned
+		case ReviewChangesRequest:
+			action = audit.ActionReviewChanges
+		default:
+			action = audit.ActionReviewRequested
+		}
+		s.record(ctx, tenantID, userID, projectID, action, audit.ResultOK, "decision="+decision)
+	}
+	return rv, err
 }
 
 // ListReviews возвращает историю ревью проекта (EDR-0010). Требуется членство.
@@ -372,9 +440,14 @@ func (s *Service) ApproveConfiguration(ctx context.Context, tenantID, userID, pr
 		return nil, ErrNotFound
 	}
 	if !me.Role.CanManage() {
+		s.record(ctx, tenantID, userID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "approve configuration: owner required")
 		return nil, ErrForbidden
 	}
-	return s.repo.ApproveConfiguration(ctx, tenantID, projectID, configurationID, userID, comment)
+	ap, err := s.repo.ApproveConfiguration(ctx, tenantID, projectID, configurationID, userID, comment)
+	if err == nil {
+		s.record(ctx, tenantID, userID, projectID, audit.ActionConfigApproved, audit.ResultOK, "configuration="+configurationID)
+	}
+	return ap, err
 }
 
 // GetConfigurationApproval возвращает утверждение ревизии (EDR-0011).

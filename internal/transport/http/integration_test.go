@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
@@ -36,13 +38,22 @@ func integrationRouter(t *testing.T) http.Handler {
 	if err := database.Migrate(ctx, pool, "../../../migrations", "up"); err != nil {
 		t.Fatalf("migrate up: %v", err)
 	}
+	auditRepo := database.NewAuditRepository(pool)
+	auditSvc := audit.NewService(auditRepo)
 	svc := project.NewService(
 		database.NewProjectRepository(pool),
 		stair.NewService(),
 		project.DefaultRules(),
+		auditSvc,
 	)
-	authSvc := auth.NewService(database.NewAuthRepository(pool), time.Hour)
-	return NewRouter(stair.NewService(), svc, authSvc, DefaultConfig())
+	authSvc := auth.NewService(database.NewAuthRepository(pool), time.Hour, auditSvc)
+	return NewRouter(stair.NewService(), svc, authSvc, DefaultConfig(), auditSvc)
+}
+
+// testEmail возвращает уникальный на запуск адрес, чтобы повторные прогоны
+// против общей БД не конфликтовали (email в users уникален).
+func testEmail(base string) string {
+	return fmt.Sprintf("%s-%d@example.com", base, time.Now().UnixNano())
 }
 
 // registerLogin выполняет регистрацию и вход через HTTP, возвращает cookie.
@@ -106,7 +117,7 @@ func csrfValue(cookie string) string {
 // в /export.
 func TestIntegrationCriticalFlow(t *testing.T) {
 	router := integrationRouter(t)
-	cookie := registerLogin(t, router, "flow@example.com")
+	cookie := registerLogin(t, router, testEmail("flow"))
 
 	// 1. Создание проекта.
 	rec := authedDo(router, http.MethodPost, "/api/v1/projects", cookie,
@@ -206,15 +217,16 @@ func TestIntegrationAuthFlow(t *testing.T) {
 	}
 
 	// Дубликат email → 409.
+	dupEmail := testEmail("dup")
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
-		strings.NewReader(`{"email":"dup@example.com","name":"A","password":"secret123"}`)))
+		strings.NewReader(`{"email":"`+dupEmail+`","name":"A","password":"secret123"}`)))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("register: expected 201, got %d", rec.Code)
 	}
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
-		strings.NewReader(`{"email":"dup@example.com","name":"B","password":"secret123"}`)))
+		strings.NewReader(`{"email":"`+dupEmail+`","name":"B","password":"secret123"}`)))
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("dup register: expected 409, got %d", rec.Code)
 	}
@@ -222,13 +234,14 @@ func TestIntegrationAuthFlow(t *testing.T) {
 	// Неверный пароль → 401.
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
-		strings.NewReader(`{"email":"dup@example.com","password":"wrongpass"}`)))
+		strings.NewReader(`{"email":"`+dupEmail+`","password":"wrongpass"}`)))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("bad login: expected 401, got %d", rec.Code)
 	}
 
 	// me с валидной сессией.
-	cookie := registerLogin(t, router, "auth@example.com")
+	authEmail := testEmail("auth")
+	cookie := registerLogin(t, router, authEmail)
 	rec = authedDo(router, http.MethodGet, "/api/v1/auth/me", cookie, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("me: expected 200, got %d", rec.Code)
@@ -237,8 +250,8 @@ func TestIntegrationAuthFlow(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&u); err != nil {
 		t.Fatalf("me decode: %v", err)
 	}
-	if u.Email != "auth@example.com" {
-		t.Fatalf("me email = %q", u.Email)
+	if u.Email != authEmail {
+		t.Fatalf("me email = %q, want %q", u.Email, authEmail)
 	}
 
 	// logout → последующий me без сессии → 401.
@@ -256,7 +269,7 @@ func TestIntegrationAuthFlow(t *testing.T) {
 // не видят проекты друг друга.
 func TestIntegrationTenantIsolation(t *testing.T) {
 	router := integrationRouter(t)
-	u1 := registerLogin(t, router, "t1@example.com")
+	u1 := registerLogin(t, router, testEmail("t1"))
 
 	// Создаём проект от имени u1.
 	rec := authedDo(router, http.MethodPost, "/api/v1/projects", u1,
@@ -271,9 +284,47 @@ func TestIntegrationTenantIsolation(t *testing.T) {
 
 	// Пользователь u2 (дефолтный tenant — MVP: оба в одном tenant, поэтому
 	// видит проект; истинная изоляция проверена на уровне service).
-	u2 := registerLogin(t, router, "t2@example.com")
+	u2 := registerLogin(t, router, testEmail("t2"))
 	rec = authedDo(router, http.MethodGet, "/api/v1/projects/"+p.ID, u2, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get from other user: expected 200 in single-tenant MVP, got %d", rec.Code)
+	}
+}
+
+// TestIntegrationAuditLog — аудит (EDR-0013): регистрация, вход и создание
+// проекта пишут события; чтение аудита проекта доступно члену.
+func TestIntegrationAuditLog(t *testing.T) {
+	router := integrationRouter(t)
+	cookie := registerLogin(t, router, testEmail("auditlog"))
+
+	rec := authedDo(router, http.MethodPost, "/api/v1/projects", cookie,
+		`{"name": "Аудит-поток", "description": "журнал"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var p projectDTO
+	if err := json.NewDecoder(rec.Body).Decode(&p); err != nil {
+		t.Fatalf("create decode: %v", err)
+	}
+
+	rec = authedDo(router, http.MethodGet, "/api/v1/projects/"+p.ID+"/audit", cookie, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("audit: expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var events []auditEventDTO
+	if err := json.NewDecoder(rec.Body).Decode(&events); err != nil {
+		t.Fatalf("audit decode: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected audit events after register+login+create")
+	}
+	foundCreate := false
+	for _, e := range events {
+		if e.Action == string(audit.ActionProjectCreated) {
+			foundCreate = true
+		}
+	}
+	if !foundCreate {
+		t.Fatalf("expected project.created in audit, got %+v", events)
 	}
 }

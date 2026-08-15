@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"runtime/debug"
 	"time"
+
+	"stairplatform/internal/application/audit"
 )
 
 type ctxKey string
@@ -48,6 +50,8 @@ func withLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		ctx, rid := withRequestID(r.Context(), r.Header.Get(requestIDHeader))
+		// Метаданные запроса для аудита (EDR-0013: Request ID, IP).
+		ctx = audit.WithMeta(ctx, audit.Meta{RequestID: rid, IP: clientIP(r)})
 		r = r.WithContext(ctx)
 
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
