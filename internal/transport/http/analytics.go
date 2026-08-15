@@ -15,6 +15,7 @@ import (
 type AnalyticsService interface {
 	Usage(ctx context.Context, tenantID string, from, to time.Time, g analytics.Granularity) (*analytics.UsageReport, error)
 	Projects(ctx context.Context, tenantID string, from, to time.Time) (*analytics.ProjectReport, error)
+	Manufacturing(ctx context.Context, tenantID string, from, to time.Time, g analytics.Granularity) (*analytics.ManufacturingReport, error)
 }
 
 // ---- DTO ----
@@ -151,6 +152,71 @@ func toProjectReportDTO(rep *analytics.ProjectReport) projectReportDTO {
 	return d
 }
 
+// manufacturingPointDTO — производственные метрики одного бакета
+// (EDR-0030 §3.4).
+type manufacturingPointDTO struct {
+	Bucket       string  `json:"bucket"`
+	Calculations int     `json:"calculations"`
+	Parts        int     `json:"parts"`
+	Sheets       int     `json:"sheets"`
+	Utilization  float64 `json:"utilization"`
+}
+
+// manufacturingTotalsDTO — агрегаты производства tenant (EDR-0030 §3.4).
+type manufacturingTotalsDTO struct {
+	Calculations int            `json:"calculations"`
+	Parts        int            `json:"parts"`
+	BomLines     int            `json:"bom_lines"`
+	CutItems     int            `json:"cut_items"`
+	Sheets       int            `json:"sheets"`
+	PartArea     float64        `json:"part_area"`
+	SheetArea    float64        `json:"sheet_area"`
+	WasteArea    float64        `json:"waste_area"`
+	Utilization  float64        `json:"utilization"`
+	Materials    map[string]int `json:"materials"`
+}
+
+// manufacturingReportDTO — ответ Manufacturing Analytics.
+type manufacturingReportDTO struct {
+	From        string                  `json:"from"`
+	To          string                  `json:"to"`
+	Granularity string                  `json:"granularity"`
+	Totals      manufacturingTotalsDTO  `json:"totals"`
+	Series      []manufacturingPointDTO `json:"series"`
+}
+
+// toManufacturingReportDTO конвертирует отчёт в представление API.
+func toManufacturingReportDTO(rep *analytics.ManufacturingReport) manufacturingReportDTO {
+	d := manufacturingReportDTO{
+		From:        rep.From.Format("2006-01-02"),
+		To:          rep.To.Format("2006-01-02"),
+		Granularity: string(rep.Granularity),
+		Totals: manufacturingTotalsDTO{
+			Calculations: rep.Totals.Calculations,
+			Parts:        rep.Totals.Parts,
+			BomLines:     rep.Totals.BomLines,
+			CutItems:     rep.Totals.CutItems,
+			Sheets:       rep.Totals.Sheets,
+			PartArea:     rep.Totals.PartArea,
+			SheetArea:    rep.Totals.SheetArea,
+			WasteArea:    rep.Totals.WasteArea,
+			Utilization:  rep.Totals.Utilization,
+			Materials:    rep.Totals.Materials,
+		},
+		Series: make([]manufacturingPointDTO, 0, len(rep.Series)),
+	}
+	for _, p := range rep.Series {
+		d.Series = append(d.Series, manufacturingPointDTO{
+			Bucket:       p.Bucket.Format("2006-01-02"),
+			Calculations: p.Calculations,
+			Parts:        p.Parts,
+			Sheets:       p.Sheets,
+			Utilization:  p.Utilization,
+		})
+	}
+	return d
+}
+
 // ---- handlers ----
 
 // handleUsageAnalytics — GET /api/v1/admin/analytics/usage (auth+admin).
@@ -228,6 +294,49 @@ func handleProjectsAnalytics(svc AnalyticsService) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, toProjectReportDTO(rep))
+	}
+}
+
+// handleManufacturingAnalytics — GET /api/v1/admin/analytics/manufacturing
+// (auth+admin). 200 — отчёт Manufacturing Analytics; 403 — нет права
+// analytics.read; 422 — невалидные from/to/granularity; 500 — ошибка.
+func handleManufacturingAnalytics(svc AnalyticsService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !hasPermission(r, auth.PermissionAnalyticsRead) {
+			writeError(w, http.StatusForbidden, "forbidden", "admin required")
+			return
+		}
+
+		from, err := queryTime(r, "from", time.Now().UTC().AddDate(0, 0, -30))
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_from", "from must be YYYY-MM-DD or RFC3339")
+			return
+		}
+		to, err := queryTime(r, "to", time.Now().UTC())
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_to", "to must be YYYY-MM-DD or RFC3339")
+			return
+		}
+		g := analytics.Granularity(r.URL.Query().Get("granularity"))
+		if g == "" {
+			g = analytics.GranularityDay
+		}
+		if !g.Valid() {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_granularity", "granularity must be day, week or month")
+			return
+		}
+
+		rep, err := svc.Manufacturing(r.Context(), tenantID(r.Context()), from, to, g)
+		if err != nil {
+			switch {
+			case errors.Is(err, analytics.ErrInvalidRange):
+				writeError(w, http.StatusUnprocessableEntity, "invalid_range", "from must not be after to")
+			default:
+				writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			}
+			return
+		}
+		writeJSON(w, http.StatusOK, toManufacturingReportDTO(rep))
 	}
 }
 

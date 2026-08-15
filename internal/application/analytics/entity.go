@@ -91,6 +91,11 @@ type Repository interface {
 	ProjectTotals(ctx context.Context, tenantID string, from, to time.Time) (ProjectTotals, error)
 	// ProjectList возвращает сводку по каждому проекту tenant.
 	ProjectList(ctx context.Context, tenantID string) ([]ProjectRow, error)
+	// ManufacturingTotals возвращает агрегаты производства tenant за окно.
+	ManufacturingTotals(ctx context.Context, tenantID string, from, to time.Time) (ManufacturingTotals, error)
+	// ManufacturingSeries возвращает ряд производственных метрик по бакетам
+	// гранулярности g в окне (пустые бакеты заполнены нулями).
+	ManufacturingSeries(ctx context.Context, tenantID string, from, to time.Time, g Granularity) ([]ManufacturingPoint, error)
 }
 
 // ProjectRow — сводка по одному проекту tenant (EDR-0029 §3.1).
@@ -128,4 +133,39 @@ type ProjectReport struct {
 	To       time.Time
 	Totals   ProjectTotals
 	Projects []ProjectRow
+}
+
+// ManufacturingPoint — производственные метрики одного бакета
+// (EDR-0030 §3.1): количество расчётов, деталей, листов и средняя
+// утилизация раскроя.
+type ManufacturingPoint struct {
+	Bucket       time.Time
+	Calculations int
+	Parts        int
+	Sheets       int
+	Utilization  float64 // 0..1, средняя по бакету
+}
+
+// ManufacturingTotals — агрегаты производства tenant за окно
+// (EDR-0030 §3.1): суммы по всем расчётам с полем manufacturing.
+type ManufacturingTotals struct {
+	Calculations int
+	Parts        int
+	BomLines     int
+	CutItems     int
+	Sheets       int
+	PartArea     float64 // мм²
+	SheetArea    float64 // мм²
+	WasteArea    float64 // мм²
+	Utilization  float64 // 0..1, средняя
+	Materials    map[string]int
+}
+
+// ManufacturingReport — полный ответ Manufacturing Analytics.
+type ManufacturingReport struct {
+	From        time.Time
+	To          time.Time
+	Granularity Granularity
+	Totals      ManufacturingTotals
+	Series      []ManufacturingPoint
 }

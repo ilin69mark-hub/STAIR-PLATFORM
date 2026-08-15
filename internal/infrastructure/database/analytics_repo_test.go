@@ -11,6 +11,9 @@ import (
 	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/payments"
 	"stairplatform/internal/application/project"
+	"stairplatform/internal/domain/engineering"
+	"stairplatform/internal/domain/manufacturing"
+	"stairplatform/internal/engine/validation"
 )
 
 func newAnalyticsRepo(t *testing.T) (*AnalyticsRepository, *ProjectRepository) {
@@ -337,5 +340,146 @@ func TestProjectTotalsIsolation(t *testing.T) {
 	}
 	if len(rows) != 0 {
 		t.Fatalf("expected 0 rows for foreign tenant, got %d", len(rows))
+	}
+}
+
+// mfgSnapshot строит снапшот с производственным пакетом: 2 детали
+// STEEL-S235 (тред + стрингер), BOM на 2 строки, карта раскроя и
+// раскрой (PartCount=2, Sheets=1, Utilization=0.5).
+func mfgSnapshot(projectID string) project.Snapshot {
+	return project.Snapshot{
+		ProjectID:  projectID,
+		Validation: validation.Result{Valid: true, Blocking: false},
+		Manufacturing: &manufacturing.ManufacturingPackage{
+			Parts: []manufacturing.Part{
+				{Number: "P-1", Kind: manufacturing.PartTread, Material: "STEEL-S235",
+					Thickness: engineering.Length(40), Length: engineering.Length(800),
+					Width: engineering.Length(270), SolidIndex: 0},
+				{Number: "P-2", Kind: manufacturing.PartStringer, Material: "STEEL-S235",
+					Thickness: engineering.Length(40), Length: engineering.Length(3000),
+					Width: engineering.Length(270), SolidIndex: 1},
+			},
+			BOM: manufacturing.BOM{Lines: []manufacturing.BOMLine{
+				{Number: 1, PartNumber: "P-1", Description: "tread", MaterialCode: "STEEL-S235",
+					Thickness: engineering.Length(40), Quantity: 1,
+					Length: engineering.Length(800), Width: engineering.Length(270)},
+				{Number: 2, PartNumber: "P-2", Description: "stringer", MaterialCode: "STEEL-S235",
+					Thickness: engineering.Length(40), Quantity: 1,
+					Length: engineering.Length(3000), Width: engineering.Length(270)},
+			}},
+			CutList: manufacturing.CutList{Items: []manufacturing.CutItem{{
+				PartNumber: "P-1", MaterialCode: "STEEL-S235",
+				Thickness: engineering.Length(40), Length: engineering.Length(800),
+				Width: engineering.Length(270), Quantity: 1,
+			}}},
+			Nesting: &manufacturing.NestingResult{
+				Sheets: []manufacturing.SheetLayout{{
+					MaterialCode: "STEEL-S235", Thickness: engineering.Length(40),
+					Length: engineering.Length(2500), Width: engineering.Length(1250),
+				}},
+				PartCount: 2, PartArea: 1000, SheetArea: 2000, WasteArea: 1000, Utilization: 0.5,
+			},
+		},
+	}
+}
+
+// seedManufacturing создаёт tenant с двумя расчётами, имеющими
+// производственный пакет (по 2 детали STEEL-S235 каждый). Возвращает tenant.
+func seedManufacturing(t *testing.T, ctx context.Context, pr *ProjectRepository, t0 time.Time) string {
+	t.Helper()
+	tenant := createTestTenant(t, pr, fmt.Sprintf("mfg-%d", time.Now().UnixNano()))
+	for i := 0; i < 2; i++ {
+		projID := testProject(t, ctx, pr, tenant, fmt.Sprintf("Mfg project %d", i))
+		cfg := &project.StairConfiguration{
+			ProjectID: projID, WidthMM: 900, HeightMM: 3000, Flight: "straight",
+			StepHeightMM: 180, StringerThicknessMM: 40, StepThicknessMM: 30,
+			ClearanceMM: 30, RailingHeightMM: 900, ComfortStepMM: 300,
+		}
+		if _, err := pr.SaveCalculationWithConfig(ctx, tenant, cfg, mfgSnapshot(projID)); err != nil {
+			t.Fatalf("SaveCalculationWithConfig: %v", err)
+		}
+	}
+	return tenant
+}
+
+func TestManufacturingTotals(t *testing.T) {
+	repo, pr := newAnalyticsRepo(t)
+	ctx := context.Background()
+	t0 := time.Now().UTC()
+	tenant := seedManufacturing(t, ctx, pr, t0)
+
+	from := t0.Add(-time.Hour)
+	to := t0.Add(time.Hour)
+	totals, err := repo.ManufacturingTotals(ctx, tenant, from, to)
+	if err != nil {
+		t.Fatalf("ManufacturingTotals: %v", err)
+	}
+	if totals.Calculations != 2 {
+		t.Fatalf("expected 2 calculations, got %d", totals.Calculations)
+	}
+	if totals.Parts != 4 {
+		t.Fatalf("expected 4 parts, got %d", totals.Parts)
+	}
+	if totals.BomLines != 4 {
+		t.Fatalf("expected 4 bom lines, got %d", totals.BomLines)
+	}
+	if totals.CutItems != 2 {
+		t.Fatalf("expected 2 cut items, got %d", totals.CutItems)
+	}
+	if totals.Sheets != 2 {
+		t.Fatalf("expected 2 sheets, got %d", totals.Sheets)
+	}
+	if totals.Materials["STEEL-S235"] != 4 {
+		t.Fatalf("expected 4 STEEL-S235 parts, got %+v", totals.Materials)
+	}
+	if totals.Utilization != 0.5 {
+		t.Fatalf("expected utilization 0.5, got %v", totals.Utilization)
+	}
+}
+
+func TestManufacturingSeriesContinuous(t *testing.T) {
+	repo, pr := newAnalyticsRepo(t)
+	ctx := context.Background()
+	t0 := time.Now().UTC()
+	tenant := seedManufacturing(t, ctx, pr, t0)
+
+	from := t0.Add(-48 * time.Hour)
+	to := t0.Add(24 * time.Hour)
+	series, err := repo.ManufacturingSeries(ctx, tenant, from, to, analytics.GranularityDay)
+	if err != nil {
+		t.Fatalf("ManufacturingSeries: %v", err)
+	}
+	if len(series) < 3 {
+		t.Fatalf("expected continuous series >= 3 buckets, got %d", len(series))
+	}
+	found := false
+	for _, p := range series {
+		if p.Calculations > 0 && p.Parts > 0 {
+			found = true
+			if p.Parts != 4 {
+				t.Fatalf("expected 4 parts in active bucket, got %d", p.Parts)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected a bucket with seeded manufacturing: %+v", series)
+	}
+}
+
+func TestManufacturingTotalsIsolation(t *testing.T) {
+	repo, pr := newAnalyticsRepo(t)
+	ctx := context.Background()
+	t0 := time.Now().UTC()
+	seedManufacturing(t, ctx, pr, t0)
+
+	other := createTestTenant(t, pr, fmt.Sprintf("othermfg-%d", time.Now().UnixNano()))
+	from := t0.Add(-time.Hour)
+	to := t0.Add(time.Hour)
+	totals, err := repo.ManufacturingTotals(ctx, other, from, to)
+	if err != nil {
+		t.Fatalf("ManufacturingTotals: %v", err)
+	}
+	if totals.Calculations != 0 || totals.Parts != 0 || len(totals.Materials) != 0 {
+		t.Fatalf("tenant isolation violated: %+v", totals)
 	}
 }

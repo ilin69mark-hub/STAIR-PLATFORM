@@ -9,6 +9,7 @@ import {
   type AdminPolicy,
   type AdminUser,
   type ApiKey,
+  type ManufacturingReport,
   type ProjectReport,
   type UsageReport,
 } from '../api/types'
@@ -97,6 +98,33 @@ const projects: ProjectReport = {
   ],
 }
 
+const manufacturing: ManufacturingReport = {
+  from: '2026-07-16',
+  to: '2026-08-15',
+  granularity: 'day',
+  totals: {
+    calculations: 2,
+    parts: 10,
+    bom_lines: 4,
+    cut_items: 2,
+    sheets: 1,
+    part_area: 1000,
+    sheet_area: 2000,
+    waste_area: 1000,
+    utilization: 0.5,
+    materials: { 'STEEL-S235': 10 },
+  },
+  series: [
+    {
+      bucket: '2026-08-15',
+      calculations: 2,
+      parts: 10,
+      sheets: 1,
+      utilization: 0.5,
+    },
+  ],
+}
+
 function mockApi() {
   vi.spyOn(adminApi, 'overview').mockResolvedValue(overview)
   vi.spyOn(adminApi, 'listUsers').mockResolvedValue(users)
@@ -104,6 +132,7 @@ function mockApi() {
   vi.spyOn(adminApi, 'listApiKeys').mockResolvedValue(keys)
   vi.spyOn(analyticsApi, 'usage').mockResolvedValue(usage)
   vi.spyOn(analyticsApi, 'projects').mockResolvedValue(projects)
+  vi.spyOn(analyticsApi, 'manufacturing').mockResolvedValue(manufacturing)
 }
 
 afterEach(() => {
@@ -130,6 +159,7 @@ describe('AdminPanel', () => {
     vi.spyOn(adminApi, 'overview').mockRejectedValue(new ApiError(403, 'forbidden', 'Нет доступа'))
     vi.spyOn(analyticsApi, 'usage').mockResolvedValue(usage)
     vi.spyOn(analyticsApi, 'projects').mockResolvedValue(projects)
+    vi.spyOn(analyticsApi, 'manufacturing').mockResolvedValue(manufacturing)
     render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
     expect(await screen.findByText('Нет доступа')).toBeInTheDocument()
   })
@@ -236,11 +266,11 @@ describe('AdminPanel', () => {
     expect(await screen.findByText('Пользователи / активные')).toBeInTheDocument()
     expect(screen.getByText('2 / 1')).toBeInTheDocument()
     expect(screen.getByText('4')).toBeInTheDocument()
-    // Серия: бакет 2026-08-15.
-    expect(screen.getByText('2026-08-15')).toBeInTheDocument()
+    // Серия: бакет 2026-08-15 (встречается и в таблице производства).
+    expect(screen.getAllByText('2026-08-15').length).toBeGreaterThan(0)
 
-    // Переключение гранулярности.
-    fireEvent.click(screen.getByRole('button', { name: 'Месяц' }))
+    // Переключение гранулярности (две секции имеют кнопку «Месяц»).
+    fireEvent.click(screen.getAllByRole('button', { name: 'Месяц' })[0])
     await waitFor(() =>
       expect(usageMock).toHaveBeenCalledWith(expect.objectContaining({ granularity: 'month' })),
     )
@@ -255,6 +285,7 @@ describe('AdminPanel', () => {
       new ApiError(403, 'forbidden', 'Нет права analytics.read'),
     )
     vi.spyOn(analyticsApi, 'projects').mockResolvedValue(projects)
+    vi.spyOn(analyticsApi, 'manufacturing').mockResolvedValue(manufacturing)
     render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
 
     expect(await screen.findByText('Нет права analytics.read')).toBeInTheDocument()
@@ -276,6 +307,30 @@ describe('AdminPanel', () => {
       expect(projectsMock).toHaveBeenCalledWith(
         expect.objectContaining({ from: '2026-07-16', to: '2026-08-15' }),
       ),
+    )
+  })
+
+  it('показывает аналитику производства и меняет гранулярность', async () => {
+    mockApi()
+    const mfgMock = vi.spyOn(analyticsApi, 'manufacturing').mockResolvedValue(manufacturing)
+    render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
+
+    expect(await screen.findByText('Производство')).toBeInTheDocument()
+    // Автозагрузка с гранулярностью по умолчанию.
+    await waitFor(() =>
+      expect(mfgMock).toHaveBeenCalledWith(expect.objectContaining({ granularity: 'day' })),
+    )
+    // Агрегаты: 2 / 10 расчётов/деталей, утилизация 50.0%.
+    expect(screen.getByText('2 / 10')).toBeInTheDocument()
+    expect(screen.getAllByText('50.0%').length).toBeGreaterThan(0)
+    // Серия: бакет 2026-08-15.
+    expect(screen.getAllByText('2026-08-15').length).toBeGreaterThan(0)
+    // Материал.
+    expect(screen.getByText('STEEL-S235: 10')).toBeInTheDocument()
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Неделя' })[1])
+    await waitFor(() =>
+      expect(mfgMock).toHaveBeenCalledWith(expect.objectContaining({ granularity: 'week' })),
     )
   })
 })

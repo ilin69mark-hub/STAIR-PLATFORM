@@ -152,7 +152,13 @@ Project Analytics — **DONE 2026-08-15** (F2, EDR-0029): агрегаты tenan
 (та же трубка `analytics.read`/`queryTime`); панель «Проекты» в AdminPanel;
 unit/DB/транспорт-тесты.
 
-Manufacturing Analytics
+Manufacturing Analytics — **DONE 2026-08-15** (F3, EDR-0030): JSONB-агрегаты
+из снапшотов расчётов (`calculations.result->'manufacturing'`) — детали, BOM,
+карта раскроя, листы, площади (детали/листы/отходы), средняя утилизация,
+распределение по материалам; серии по бакетам day/week/month (непрерывные,
+`generate_series`); `GET /api/v1/admin/analytics/manufacturing` (та же трубка
+`analytics.read`/`queryTime`/гранулярности); панель «Производство» в
+AdminPanel; unit/DB/транспорт-тесты.
 
 Cost Analytics
 

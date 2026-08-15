@@ -73,3 +73,33 @@ func (s *Service) Projects(ctx context.Context, tenantID string, from, to time.T
 		Projects: rows,
 	}, nil
 }
+
+// Manufacturing возвращает Manufacturing Analytics за окно [from, to] с
+// гранулярностью g (EDR-0030 §3.2). from/to приведены к UTC; валидация
+// диапазона и гранулярности — как в EDR-0028.
+func (s *Service) Manufacturing(ctx context.Context, tenantID string, from, to time.Time, g Granularity) (*ManufacturingReport, error) {
+	if !g.Valid() {
+		return nil, ErrInvalidGranularity
+	}
+	if from.IsZero() || to.IsZero() || to.Before(from) {
+		return nil, ErrInvalidRange
+	}
+	from = from.UTC()
+	to = to.UTC()
+
+	totals, err := s.repo.ManufacturingTotals(ctx, tenantID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("analytics: manufacturing totals: %w", err)
+	}
+	series, err := s.repo.ManufacturingSeries(ctx, tenantID, from, to, g)
+	if err != nil {
+		return nil, fmt.Errorf("analytics: manufacturing series: %w", err)
+	}
+	return &ManufacturingReport{
+		From:        from,
+		To:          to,
+		Granularity: g,
+		Totals:      totals,
+		Series:      series,
+	}, nil
+}

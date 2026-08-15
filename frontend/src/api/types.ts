@@ -213,6 +213,35 @@ export interface ProjectReport {
   projects: ProjectRow[]
 }
 
+export interface ManufacturingPoint {
+  bucket: string
+  calculations: number
+  parts: number
+  sheets: number
+  utilization: number
+}
+
+export interface ManufacturingTotals {
+  calculations: number
+  parts: number
+  bom_lines: number
+  cut_items: number
+  sheets: number
+  part_area: number
+  sheet_area: number
+  waste_area: number
+  utilization: number
+  materials: Record<string, number>
+}
+
+export interface ManufacturingReport {
+  from: string
+  to: string
+  granularity: UsageGranularity
+  totals: ManufacturingTotals
+  series: ManufacturingPoint[]
+}
+
 // ---- Аудит (Phase G, EDR-0013): журнал событий безопасности ----
 
 export interface AuditEvent {

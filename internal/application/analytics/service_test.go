@@ -21,6 +21,11 @@ type fakeRepo struct {
 	projRows    []ProjectRow
 	projTotErr  error
 	projListErr error
+
+	mfgTotals ManufacturingTotals
+	mfgSeries []ManufacturingPoint
+	mfgTotErr error
+	mfgSerErr error
 }
 
 func (f *fakeRepo) UsageTotals(_ context.Context, _ string, from, to time.Time) (UsageTotals, error) {
@@ -56,6 +61,25 @@ func (f *fakeRepo) ProjectList(_ context.Context, _ string) ([]ProjectRow, error
 		return nil, f.projListErr
 	}
 	return f.projRows, nil
+}
+
+func (f *fakeRepo) ManufacturingTotals(_ context.Context, _ string, from, to time.Time) (ManufacturingTotals, error) {
+	if f.mfgTotErr != nil {
+		return ManufacturingTotals{}, f.mfgTotErr
+	}
+	f.gotFrom = from
+	f.gotTo = to
+	return f.mfgTotals, nil
+}
+
+func (f *fakeRepo) ManufacturingSeries(_ context.Context, _ string, from, to time.Time, g Granularity) ([]ManufacturingPoint, error) {
+	if f.mfgSerErr != nil {
+		return nil, f.mfgSerErr
+	}
+	f.gotFrom = from
+	f.gotTo = to
+	f.gotGran = g
+	return f.mfgSeries, nil
 }
 
 func TestUsage(t *testing.T) {
@@ -169,5 +193,61 @@ func TestProjectsPropagatesRepoErrors(t *testing.T) {
 		time.Now(), time.Now().Add(time.Hour))
 	if err == nil {
 		t.Fatal("expected error from project totals")
+	}
+}
+
+func TestManufacturing(t *testing.T) {
+	repo := &fakeRepo{
+		mfgTotals: ManufacturingTotals{
+			Calculations: 2, Parts: 10, BomLines: 3, CutItems: 2, Sheets: 1,
+			PartArea: 1000, SheetArea: 2000, WasteArea: 1000, Utilization: 0.5,
+			Materials: map[string]int{"STEEL-S235": 10},
+		},
+		mfgSeries: []ManufacturingPoint{
+			{Bucket: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Calculations: 2, Parts: 10, Sheets: 1, Utilization: 0.5},
+		},
+	}
+	svc := NewService(repo)
+	from := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
+	rep, err := svc.Manufacturing(context.Background(), "t-1", from, to, GranularityDay)
+	if err != nil {
+		t.Fatalf("Manufacturing: %v", err)
+	}
+	if rep.Totals.Parts != 10 || rep.Totals.Materials["STEEL-S235"] != 10 {
+		t.Fatalf("unexpected totals: %+v", rep.Totals)
+	}
+	if len(rep.Series) != 1 || rep.Series[0].Sheets != 1 {
+		t.Fatalf("unexpected series: %+v", rep.Series)
+	}
+	if !rep.From.Equal(from.UTC()) || !rep.To.Equal(to.UTC()) {
+		t.Fatalf("from/to not normalized: %v %v", rep.From, rep.To)
+	}
+}
+
+func TestManufacturingInvalidGranularity(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	_, err := svc.Manufacturing(context.Background(), "t-1",
+		time.Now(), time.Now().Add(time.Hour), Granularity("hour"))
+	if !errors.Is(err, ErrInvalidGranularity) {
+		t.Fatalf("expected ErrInvalidGranularity, got %v", err)
+	}
+}
+
+func TestManufacturingInvalidRange(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	_, err := svc.Manufacturing(context.Background(), "t-1",
+		time.Now().Add(time.Hour), time.Now(), GranularityDay)
+	if !errors.Is(err, ErrInvalidRange) {
+		t.Fatalf("expected ErrInvalidRange, got %v", err)
+	}
+}
+
+func TestManufacturingPropagatesRepoErrors(t *testing.T) {
+	svc := NewService(&fakeRepo{mfgTotErr: errors.New("db down")})
+	_, err := svc.Manufacturing(context.Background(), "t-1",
+		time.Now(), time.Now().Add(time.Hour), GranularityDay)
+	if err == nil {
+		t.Fatal("expected error from manufacturing totals")
 	}
 }

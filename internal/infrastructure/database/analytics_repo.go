@@ -228,3 +228,102 @@ func (r *AnalyticsRepository) ProjectList(ctx context.Context, tenantID string) 
 	}
 	return out, nil
 }
+
+// ManufacturingTotals возвращает агрегаты производства tenant за окно
+// (EDR-0030 §3.3): JSONB-суммы по расчётам с полем manufacturing.
+func (r *AnalyticsRepository) ManufacturingTotals(ctx context.Context, tenantID string, from, to time.Time) (analytics.ManufacturingTotals, error) {
+	var t analytics.ManufacturingTotals
+	err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(DISTINCT c.id),
+			COALESCE(SUM(jsonb_array_length(COALESCE(c.result->'manufacturing'->'Parts', '[]'::jsonb))), 0) AS parts,
+			COALESCE(SUM(jsonb_array_length(COALESCE(c.result->'manufacturing'->'BOM'->'Lines', '[]'::jsonb))), 0) AS bom,
+			COALESCE(SUM(jsonb_array_length(COALESCE(c.result->'manufacturing'->'CutList'->'Items', '[]'::jsonb))), 0) AS cut,
+			COALESCE(SUM(jsonb_array_length(COALESCE(c.result->'manufacturing'->'Nesting'->'Sheets', '[]'::jsonb))), 0) AS sheets,
+			COALESCE(SUM(COALESCE((c.result->'manufacturing'->'Nesting'->>'PartArea')::float8, 0)), 0) AS part_area,
+			COALESCE(SUM(COALESCE((c.result->'manufacturing'->'Nesting'->>'SheetArea')::float8, 0)), 0) AS sheet_area,
+			COALESCE(SUM(COALESCE((c.result->'manufacturing'->'Nesting'->>'WasteArea')::float8, 0)), 0) AS waste_area,
+			COALESCE(AVG(COALESCE((c.result->'manufacturing'->'Nesting'->>'Utilization')::float8, 0)), 0) AS util
+		FROM calculations c JOIN public.projects p ON p.id = c.project_id
+		WHERE p.tenant_id = $1 AND c.created_at BETWEEN $2 AND $3
+		  AND c.result ? 'manufacturing'`,
+		tenantID, from, to,
+	).Scan(&t.Calculations, &t.Parts, &t.BomLines, &t.CutItems, &t.Sheets,
+		&t.PartArea, &t.SheetArea, &t.WasteArea, &t.Utilization)
+	if err != nil {
+		return analytics.ManufacturingTotals{}, fmt.Errorf("analytics: manufacturing totals: %w", err)
+	}
+
+	// Распределение по материалам: детали всех расчётов tenant в окне.
+	t.Materials = make(map[string]int)
+	matRows, err := r.pool.Query(ctx,
+		`SELECT m->>'Material' AS material, COUNT(*) AS n
+		FROM calculations c
+		JOIN public.projects p ON p.id = c.project_id,
+		     jsonb_array_elements(c.result->'manufacturing'->'Parts') AS m
+		WHERE p.tenant_id = $1 AND c.created_at BETWEEN $2 AND $3
+		  AND c.result ? 'manufacturing'
+		GROUP BY 1`,
+		tenantID, from, to)
+	if err != nil {
+		return analytics.ManufacturingTotals{}, fmt.Errorf("analytics: manufacturing materials: %w", err)
+	}
+	defer matRows.Close()
+	for matRows.Next() {
+		var mat string
+		var n int
+		if err := matRows.Scan(&mat, &n); err != nil {
+			return analytics.ManufacturingTotals{}, fmt.Errorf("analytics: manufacturing materials scan: %w", err)
+		}
+		t.Materials[mat] = n
+	}
+	if err := matRows.Err(); err != nil {
+		return analytics.ManufacturingTotals{}, fmt.Errorf("analytics: manufacturing materials rows: %w", err)
+	}
+	return t, nil
+}
+
+// ManufacturingSeries возвращает ряд производственных метрик по бакетам
+// гранулярности g (EDR-0030 §3.3). Пустые бакеты заполнены нулями.
+func (r *AnalyticsRepository) ManufacturingSeries(ctx context.Context, tenantID string, from, to time.Time, g analytics.Granularity) ([]analytics.ManufacturingPoint, error) {
+	rows, err := r.pool.Query(ctx,
+		`WITH buckets AS (
+			SELECT generate_series(
+				date_trunc($2, $3::timestamptz),
+				date_trunc($2, $4::timestamptz),
+				$5::interval
+			) AS bucket
+		),
+		manuf AS (
+			SELECT date_trunc($2, c.created_at) AS bucket, c.result
+			FROM calculations c JOIN public.projects p ON p.id = c.project_id
+			WHERE p.tenant_id = $1 AND c.created_at BETWEEN $3 AND $4
+			  AND c.result ? 'manufacturing'
+		)
+		SELECT b.bucket,
+			COUNT(m.result) AS calcs,
+			COALESCE(SUM(jsonb_array_length(COALESCE(m.result->'manufacturing'->'Parts', '[]'::jsonb))), 0) AS parts,
+			COALESCE(SUM(jsonb_array_length(COALESCE(m.result->'manufacturing'->'Nesting'->'Sheets', '[]'::jsonb))), 0) AS sheets,
+			COALESCE(AVG(COALESCE((m.result->'manufacturing'->'Nesting'->>'Utilization')::float8, 0)), 0) AS util
+		FROM buckets b
+		LEFT JOIN manuf m ON m.bucket = b.bucket
+		GROUP BY b.bucket
+		ORDER BY b.bucket`,
+		tenantID, string(g), from, to, g.Interval())
+	if err != nil {
+		return nil, fmt.Errorf("analytics: manufacturing series: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]analytics.ManufacturingPoint, 0)
+	for rows.Next() {
+		var p analytics.ManufacturingPoint
+		if err := rows.Scan(&p.Bucket, &p.Calculations, &p.Parts, &p.Sheets, &p.Utilization); err != nil {
+			return nil, fmt.Errorf("analytics: manufacturing series scan: %w", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("analytics: manufacturing series rows: %w", err)
+	}
+	return out, nil
+}

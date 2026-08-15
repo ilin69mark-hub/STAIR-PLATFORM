@@ -2,7 +2,7 @@
 // Все эндпоинты требуют admin + право analytics.read.
 
 import { get } from './client'
-import type { ProjectReport, UsageReport } from './types'
+import type { ManufacturingReport, ProjectReport, UsageReport } from './types'
 
 export interface UsageQuery {
   from?: string
@@ -30,4 +30,7 @@ export const analyticsApi = {
 
   projects: (query: RangeQuery = {}) =>
     get<ProjectReport>(`/api/v1/admin/analytics/projects${qs(query)}`),
+
+  manufacturing: (query: UsageQuery = {}) =>
+    get<ManufacturingReport>(`/api/v1/admin/analytics/manufacturing${qs(query)}`),
 }

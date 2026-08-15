@@ -6,6 +6,7 @@ import type {
   AdminPolicy,
   AdminUser,
   ApiKey,
+  ManufacturingReport,
   ProjectReport,
   UsageGranularity,
   UsageReport,
@@ -48,6 +49,10 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
   const [projects, setProjects] = useState<ProjectReport | null>(null)
   const [projectsLoading, setProjectsLoading] = useState(false)
 
+  const [mfg, setMfg] = useState<ManufacturingReport | null>(null)
+  const [mfgGranularity, setMfgGranularity] = useState<UsageGranularity>('day')
+  const [mfgLoading, setMfgLoading] = useState(false)
+
   const loadUsage = useCallback(async (granularity: UsageGranularity) => {
     setUsageLoading(true)
     try {
@@ -83,6 +88,24 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
     }
   }, [])
 
+  const loadManufacturing = useCallback(async (granularity: UsageGranularity) => {
+    setMfgLoading(true)
+    try {
+      const now = new Date()
+      const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+      const rep = await analyticsApi.manufacturing({
+        from: from.toISOString().slice(0, 10),
+        to: now.toISOString().slice(0, 10),
+        granularity,
+      })
+      setMfg(rep)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Не удалось загрузить аналитику производства')
+    } finally {
+      setMfgLoading(false)
+    }
+  }, [])
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -108,7 +131,8 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
     void load()
     void loadUsage('day')
     void loadProjects()
-  }, [load, loadUsage, loadProjects])
+    void loadManufacturing('day')
+  }, [load, loadUsage, loadProjects, loadManufacturing])
 
   const clearNotice = () => setNotice(null)
 
@@ -518,6 +542,89 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
                         </td>
                         <td>{p.comments}</td>
                         <td>{p.members}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            ) : null}
+          </section>
+
+          <section className="panel">
+            <h2 className="panel__title">Производство</h2>
+            <p className="muted">Агрегация производственных данных из снапшотов расчётов (EDR-0030).</p>
+            <div className="row--actions">
+              {(['day', 'week', 'month'] as UsageGranularity[]).map((g) => (
+                <button
+                  key={g}
+                  className={g === mfgGranularity ? 'btn btn--primary' : 'btn'}
+                  onClick={() => {
+                    setMfgGranularity(g)
+                    void loadManufacturing(g)
+                  }}
+                >
+                  {g === 'day' ? 'День' : g === 'week' ? 'Неделя' : 'Месяц'}
+                </button>
+              ))}
+            </div>
+            {mfgLoading ? (
+              <p className="muted">Загрузка…</p>
+            ) : mfg ? (
+              <>
+                <dl className="kv">
+                  <div>
+                    <dt>Расчёты / детали</dt>
+                    <dd>
+                      {mfg.totals.calculations} / {mfg.totals.parts}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>BOM / карта раскроя / листы</dt>
+                    <dd>
+                      {mfg.totals.bom_lines} / {mfg.totals.cut_items} / {mfg.totals.sheets}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Утилизация</dt>
+                    <dd>{(mfg.totals.utilization * 100).toFixed(1)}%</dd>
+                  </div>
+                  <div>
+                    <dt>Площади деталей / листов / отходы (м²)</dt>
+                    <dd>
+                      {(mfg.totals.part_area / 1e6).toFixed(2)} /{' '}
+                      {(mfg.totals.sheet_area / 1e6).toFixed(2)} /{' '}
+                      {(mfg.totals.waste_area / 1e6).toFixed(2)}
+                    </dd>
+                  </div>
+                  {Object.keys(mfg.totals.materials).length > 0 && (
+                    <div>
+                      <dt>Материалы</dt>
+                      <dd>
+                        {Object.entries(mfg.totals.materials)
+                          .map(([m, n]) => `${m}: ${n}`)
+                          .join(', ')}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Дата</th>
+                      <th>Расчёты</th>
+                      <th>Детали</th>
+                      <th>Листы</th>
+                      <th>Утилизация</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mfg.series.map((p) => (
+                      <tr key={p.bucket}>
+                        <td>{p.bucket}</td>
+                        <td>{p.calculations}</td>
+                        <td>{p.parts}</td>
+                        <td>{p.sheets}</td>
+                        <td>{(p.utilization * 100).toFixed(1)}%</td>
                       </tr>
                     ))}
                   </tbody>

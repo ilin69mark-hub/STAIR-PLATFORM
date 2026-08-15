@@ -22,6 +22,7 @@ type fakeAnalyticsService struct {
 	gotGran analytics.Granularity
 
 	projRep *analytics.ProjectReport
+	mfgRep  *analytics.ManufacturingReport
 }
 
 func (f *fakeAnalyticsService) Usage(_ context.Context, _ string, from, to time.Time, g analytics.Granularity) (*analytics.UsageReport, error) {
@@ -41,6 +42,16 @@ func (f *fakeAnalyticsService) Projects(_ context.Context, _ string, from, to ti
 	f.gotFrom = from
 	f.gotTo = to
 	return f.projRep, nil
+}
+
+func (f *fakeAnalyticsService) Manufacturing(_ context.Context, _ string, from, to time.Time, g analytics.Granularity) (*analytics.ManufacturingReport, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.gotFrom = from
+	f.gotTo = to
+	f.gotGran = g
+	return f.mfgRep, nil
 }
 
 // testRouterWithAnalytics собирает роутер с fake-аналитикой и admin-auth.
@@ -241,10 +252,86 @@ func TestProjectsAnalyticsServerError(t *testing.T) {
 	}
 }
 
+func TestManufacturingAnalytics(t *testing.T) {
+	svc := &fakeAnalyticsService{mfgRep: &analytics.ManufacturingReport{
+		From:        time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+		To:          time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC),
+		Granularity: analytics.GranularityDay,
+		Totals: analytics.ManufacturingTotals{
+			Calculations: 2, Parts: 10, BomLines: 3, CutItems: 2, Sheets: 1,
+			PartArea: 1000, SheetArea: 2000, WasteArea: 1000, Utilization: 0.5,
+			Materials: map[string]int{"STEEL-S235": 10},
+		},
+		Series: []analytics.ManufacturingPoint{
+			{Bucket: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+				Calculations: 2, Parts: 10, Sheets: 1, Utilization: 0.5},
+		},
+	}}
+	req := authedRequest(http.MethodGet, "/api/v1/admin/analytics/manufacturing?from=2026-08-01&to=2026-08-02&granularity=day", "")
+	rec := httptest.NewRecorder()
+	testRouterWithAnalytics(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var body manufacturingReportDTO
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Totals.Parts != 10 || body.Totals.Materials["STEEL-S235"] != 10 {
+		t.Fatalf("unexpected totals: %+v", body.Totals)
+	}
+	if len(body.Series) != 1 || body.Series[0].Sheets != 1 {
+		t.Fatalf("unexpected series: %+v", body.Series)
+	}
+	if svc.gotGran != analytics.GranularityDay {
+		t.Fatalf("expected day granularity, got %s", svc.gotGran)
+	}
+}
+
+func TestManufacturingAnalyticsRequiresAdmin(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Analytics = &fakeAnalyticsService{}
+	router := NewRouter(stair.NewService(), nil, testAuth{}, cfg)
+	req := authedRequest(http.MethodGet, "/api/v1/admin/analytics/manufacturing", "")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestManufacturingAnalyticsInvalidGranularity(t *testing.T) {
+	svc := &fakeAnalyticsService{}
+	req := authedRequest(http.MethodGet, "/api/v1/admin/analytics/manufacturing?granularity=hour", "")
+	rec := httptest.NewRecorder()
+	testRouterWithAnalytics(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestManufacturingAnalyticsServerError(t *testing.T) {
+	svc := &fakeAnalyticsService{err: context.DeadlineExceeded}
+	req := authedRequest(http.MethodGet, "/api/v1/admin/analytics/manufacturing", "")
+	rec := httptest.NewRecorder()
+	testRouterWithAnalytics(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 // TestAnalyticsNotRegisteredWhenNil — маршруты не регистрируются без сервиса.
 func TestAnalyticsNotRegisteredWhenNil(t *testing.T) {
 	router := NewRouter(stair.NewService(), nil, adminAuth{}, DefaultConfig())
-	for _, path := range []string{"/api/v1/admin/analytics/usage", "/api/v1/admin/analytics/projects"} {
+	for _, path := range []string{
+		"/api/v1/admin/analytics/usage",
+		"/api/v1/admin/analytics/projects",
+		"/api/v1/admin/analytics/manufacturing",
+	} {
 		req := authedRequest(http.MethodGet, path, "")
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
