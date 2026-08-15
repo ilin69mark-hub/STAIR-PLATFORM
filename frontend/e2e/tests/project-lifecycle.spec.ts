@@ -27,9 +27,9 @@ test('полный критический workflow: регистрация → �
 
   // Панели результата конвейера.
   await expect(page.getByText('Марш (Solver)')).toBeVisible()
-  await expect(page.getByText('Геометрия')).toBeVisible()
-  await expect(page.getByText('Производство')).toBeVisible()
-  await expect(page.getByText('Стоимость (RUB)')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Геометрия' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Производство' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Стоимость (RUB)' })).toBeVisible()
   await expect(page.getByText('Итоговая цена')).toBeVisible()
 
   // Экспорт BOM (CSV) — скачивается файл с ожидаемым именем.

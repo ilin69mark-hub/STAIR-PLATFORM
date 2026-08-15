@@ -47,6 +47,12 @@ services:
     environment:
       STAIR_DATABASE_URL: "postgres://stair:stair@postgres:5432/stair_platform?sslmode=disable"
       STAIR_HTTP_ADDR: ":8080"
+      # Файловое хранилище (EDR-0026): корень должен быть доступен appuser.
+      STAIR_STORAGE_DIR: "/tmp/storage"
+      # Лимитеры (EDR-0014) щадящие для dev/e2e: регистрация и вход идут
+      # из одного IP (localhost) параллельно из нескольких тестов.
+      STAIR_REGISTER_RATE_LIMIT: "500"
+      STAIR_LOGIN_RATE_LIMIT: "1000"
     ports:
       - "8080:8080"
     restart: unless-stopped

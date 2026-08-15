@@ -36,5 +36,5 @@ test('blocking-вход останавливает конвейер без па�
     page.getByText('Конвейер остановлен: обнаружены блокирующие нарушения.'),
   ).toBeVisible()
   await expect(page.getByText('Марш (Solver)')).not.toBeVisible()
-  await expect(page.getByText('Стоимость (RUB)')).not.toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Стоимость (RUB)' })).not.toBeVisible()
 })

@@ -32,7 +32,7 @@ test('Спиральный марш: настройка → расчёт → п�
   await expect(page.getByText('Наружный радиус R', { exact: true })).toBeVisible()
 
   // Остальные панели конвейера также присутствуют.
-  await expect(page.getByText('Геометрия')).toBeVisible()
-  await expect(page.getByText('Производство')).toBeVisible()
-  await expect(page.getByText('Стоимость (RUB)')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Геометрия' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Производство' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Стоимость (RUB)' })).toBeVisible()
 })

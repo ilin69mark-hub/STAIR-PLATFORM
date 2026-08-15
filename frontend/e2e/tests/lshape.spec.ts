@@ -32,7 +32,7 @@ test('L-образный марш: настройка → расчёт → па�
   await expect(page.getByText('6 / 9')).toBeVisible()
 
   // Остальные панели конвейера также присутствуют.
-  await expect(page.getByText('Геометрия')).toBeVisible()
-  await expect(page.getByText('Производство')).toBeVisible()
-  await expect(page.getByText('Стоимость (RUB)')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Геометрия' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Производство' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Стоимость (RUB)' })).toBeVisible()
 })

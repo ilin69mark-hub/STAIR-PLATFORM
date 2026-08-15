@@ -553,6 +553,45 @@ export interface OptimizeResult {
 // OptimizeTarget — целевая метрика оптимизации.
 export type OptimizeTarget = 'price' | 'cost' | 'material'
 
+// ---- AI-ассистенты (Phase D, EDR-0036): ответ и входные параметры ----
+
+export type AssistantKind = 'design' | 'engineering' | 'manufacturing' | 'pricing'
+
+export type AssistantPriority = 'price' | 'cost' | 'material' | 'comfort'
+
+export interface AssistantFinding {
+  severity: 'info' | 'warning' | 'error'
+  element?: string
+  message: string
+}
+
+export interface AssistantSuggestion {
+  message: string
+  rationale?: string
+}
+
+export interface AssistantAlternative {
+  title: string
+  rating: number
+  reason?: string
+}
+
+export interface AssistantResponse {
+  recommendation: string
+  rating: number
+  alternatives?: AssistantAlternative[]
+  findings?: AssistantFinding[]
+  suggestions?: AssistantSuggestion[]
+  tradeoffs?: string[]
+  notes?: string[]
+}
+
+export interface AssistantResult {
+  kind: AssistantKind
+  response: AssistantResponse
+  commentary: string
+}
+
 export interface ApiErrorBody {
   error: { code: string; message: string }
 }

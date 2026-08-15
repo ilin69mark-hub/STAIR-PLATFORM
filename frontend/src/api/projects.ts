@@ -4,6 +4,8 @@
 import { del, get, patch, post } from './client'
 import type {
   ApprovalRequest,
+  AssistantKind,
+  AssistantResult,
   Calculation,
   CommentRequest,
   Configuration,
@@ -86,4 +88,8 @@ export const projectsApi = {
 
   restoreConfiguration: (id: string, configurationID: string) =>
     post<Configuration>(`/api/v1/projects/${id}/configurations/${configurationID}/restore`, {}),
+
+  // ---- AI-ассистенты (Phase D, EDR-0036): запрос к ассистенту kind ----
+  assistant: (kind: AssistantKind, body: unknown) =>
+    post<AssistantResult>(`/api/v1/assistant/${kind}`, body),
 }

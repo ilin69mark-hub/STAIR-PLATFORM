@@ -95,6 +95,16 @@ intent при блокировке), `POST /api/v1/assistant/pricing` (auth), un
 (сбалансированная/материалоёмкая/тонкая маржа/blocked) + транспортный
 тест. **Phase D — полностью CLOSED.**
 
+AssistantPanel (frontend) — **DONE 2026-08-15**: панель AI-ассистента с
+четырьмя вкладками (design/engineering/manufacturing/pricing) в ProjectDetail:
+запрос на `POST /api/v1/assistant/{kind}` с текущей конфигурацией и ставками,
+приоритет для design (price/cost/material/comfort), отображение структурного
+ответа (рекомендация, рейтинг, замечания, действия, альтернативы,
+компромиссы, заметки) и комментария модели; unit-тесты панели (7) + E2E
+(assistant.spec, 2 теста). В ходе e2e исправлены: CSRF Origin-проверка при
+проксировании через Vite (changeOrigin=false, EDR-0014 §3.3) и rate-limit
+регистрации/входа для dev/e2e (STAIR_REGISTER_RATE_LIMIT/STAIR_LOGIN_RATE_LIMIT).
+
 ---
 
 # Phase E — Integrations

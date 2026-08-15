@@ -27,7 +27,7 @@ export default defineConfig({
     },
     {
       command:
-        'STAIR_DATABASE_URL=postgres://stair:stair@localhost:5432/stair_platform?sslmode=disable go run ./cmd/api',
+        'STAIR_DATABASE_URL=postgres://stair:stair@localhost:5432/stair_platform?sslmode=disable STAIR_REGISTER_RATE_LIMIT=500 STAIR_LOGIN_RATE_LIMIT=1000 go run ./cmd/api',
       url: 'http://localhost:8080/health',
       cwd: '..',
       reuseExistingServer: !process.env.CI,
