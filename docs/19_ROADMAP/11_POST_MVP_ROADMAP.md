@@ -31,7 +31,7 @@ Advanced Pricing — **CLOSED 2026-08-14**: полный ценовой конв
 
 # Phase B — Engineering Expansion
 
-Advanced Optimization
+Advanced Optimization — **DONE 2026-08-15**: детерминированный поиск оптимальной конфигурации (EDR-0032) — `POST /api/v1/stairs:optimize` и `POST /api/v1/projects/{id}/optimize`; цели цена/себестоимость/материал; UI «Оптимизировать» в редакторе проекта.
 
 Performance Optimization
 

@@ -544,6 +544,114 @@ func TestCalculateProjectNotFound(t *testing.T) {
 	}
 }
 
+func TestOptimizeSavesBestConfig(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Оптимизация", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	out, err := svc.Optimize(context.Background(), testTenant, testOwner, p.ID, testConfig(), stair.Options{},
+		stair.OptimizeRequest{Target: stair.TargetPrice})
+	if err != nil {
+		t.Fatalf("Optimize: %v", err)
+	}
+	if !out.Result.Valid {
+		t.Fatal("expected valid optimization")
+	}
+	if out.Calculation == nil {
+		t.Fatal("expected saved calculation")
+	}
+	if !out.Calculation.Valid || out.Calculation.Blocking {
+		t.Fatalf("unexpected saved calculation: %+v", out.Calculation)
+	}
+
+	cfg, err := svc.GetLatestConfig(context.Background(), testTenant, testOwner, p.ID)
+	if err != nil {
+		t.Fatalf("GetLatestConfig: %v", err)
+	}
+	// Лучшая конфигурация сохранена как текущая ревизия.
+	if cfg.StepHeightMM != out.Result.BestConfig.StepHeight.Millimeters() {
+		t.Fatalf("saved step height %v, want %v", cfg.StepHeightMM, out.Result.BestConfig.StepHeight.Millimeters())
+	}
+	if cfg.ComfortStepMM != out.Result.ComfortStep {
+		t.Fatalf("saved comfort step %v, want %v", cfg.ComfortStepMM, out.Result.ComfortStep)
+	}
+	// Сохранённый расчёт связан с конфигурацией.
+	got, err := svc.GetResult(context.Background(), testTenant, testOwner, p.ID)
+	if err != nil {
+		t.Fatalf("GetResult: %v", err)
+	}
+	if got.ConfigurationID != out.Calculation.ConfigurationID {
+		t.Fatalf("calculation not linked: %s vs %s", got.ConfigurationID, out.Calculation.ConfigurationID)
+	}
+}
+
+func TestOptimizeNoValidCandidate(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Оптимизация", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	// n=18 → угол < 30° → допустимых конфигураций нет.
+	out, err := svc.Optimize(context.Background(), testTenant, testOwner, p.ID, testConfig(), stair.Options{},
+		stair.OptimizeRequest{Target: stair.TargetCost, StepCountMin: 18, StepCountMax: 18})
+	if err != nil {
+		t.Fatalf("Optimize: %v", err)
+	}
+	if out.Result.Valid {
+		t.Fatal("expected no valid candidate")
+	}
+	if out.Calculation != nil {
+		t.Fatal("expected no saved calculation")
+	}
+}
+
+func TestOptimizeProjectNotFound(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+	if _, err := svc.Optimize(context.Background(), testTenant, testOwner, "missing", testConfig(), stair.Options{},
+		stair.OptimizeRequest{Target: stair.TargetPrice}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestOptimizeViewerForbidden(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Оптимизация", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if err := svc.AddMember(context.Background(), testTenant, testOwner, p.ID, "u-viewer", RoleViewer); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	if _, err := svc.Optimize(context.Background(), testTenant, "u-viewer", p.ID, testConfig(), stair.Options{},
+		stair.OptimizeRequest{Target: stair.TargetPrice}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected ErrForbidden for viewer, got %v", err)
+	}
+}
+
+func TestOptimizeUnknownTarget(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+
+	p, err := svc.CreateProject(context.Background(), testTenant, testOwner, "Оптимизация", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if _, err := svc.Optimize(context.Background(), testTenant, testOwner, p.ID, testConfig(), stair.Options{},
+		stair.OptimizeRequest{Target: "weight"}); err == nil {
+		t.Fatal("expected error for unknown target")
+	}
+}
+
 // TestExportCAD — CAD-экспорт (EDR-0022): сетка детерминированно
 // пересчитывается из сохранённой конфигурации.
 func TestExportCAD(t *testing.T) {

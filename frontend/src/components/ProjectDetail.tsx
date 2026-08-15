@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Calculation, Project } from '../api/types'
+import type { Calculation, OptimizeTarget, Project } from '../api/types'
 import { ApiError } from '../api/types'
 import { projectsApi } from '../api/projects'
 import {
@@ -37,6 +37,8 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
   const [savedAt, setSavedAt] = useState<Date | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [optimizeTarget, setOptimizeTarget] = useState<OptimizeTarget>('price')
+  const [optimizeMsg, setOptimizeMsg] = useState<string | null>(null)
 
   const errors = validateForm(config)
   const hasHardErrors = Object.values(errors).some(
@@ -59,6 +61,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
   const handleCalculate = async () => {
     setBusy(true)
     setError(null)
+    setOptimizeMsg(null)
     try {
       const body = { ...toRequest(config) }
       const ratesReq = toRatesRequest(rates)
@@ -69,6 +72,57 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
       onChanged()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Не удалось выполнить расчёт')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // handleOptimize — поиск оптимальной конфигурации (EDR-0032): лучшая
+  // конфигурация применяется к форме и сохраняется как расчёт проекта.
+  const handleOptimize = async () => {
+    setBusy(true)
+    setError(null)
+    setOptimizeMsg(null)
+    try {
+      const body: Record<string, unknown> = { ...toRequest(config), target: optimizeTarget }
+      const ratesReq = toRatesRequest(rates)
+      if (ratesReq) body.rates = ratesReq
+      const resp = await projectsApi.optimize(projectId, body)
+      if (!resp.valid || !resp.best) {
+        setOptimizeMsg(
+          `Оптимизация не нашла допустимую конфигурацию (проверено ${resp.evaluated} вариантов).`,
+        )
+        return
+      }
+      const best = resp.best
+      setConfig((c) => ({
+        ...c,
+        stepHeightMM: String(best.step_height_mm),
+        lowerStepCountMM:
+          best.lower_step_count !== undefined ? String(best.lower_step_count) : c.lowerStepCountMM,
+        comfortStepMM: best.comfort_step_mm ? String(best.comfort_step_mm) : c.comfortStepMM,
+      }))
+      if (resp.saved && resp.calculation_id) {
+        setCalculation({
+          project_id: projectId,
+          calculation_id: resp.calculation_id,
+          configuration_id: resp.configuration_id ?? '',
+          valid: true,
+          blocking: false,
+          created_at: new Date().toISOString(),
+          result: best.result,
+        })
+      }
+      setSavedAt(new Date())
+      const objective = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 }).format(
+        resp.objective,
+      )
+      setOptimizeMsg(
+        `Оптимум найден: ${best.step_count} ступ. · ${objective} ₽ · проверено ${resp.evaluated} вариантов.`,
+      )
+      onChanged()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Не удалось выполнить оптимизацию')
     } finally {
       setBusy(false)
     }
@@ -107,8 +161,21 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
           <ConfigForm fields={config} errors={errors} onChange={setField} />
           <RatesFormSection rates={rates} onChange={setRate} />
           <div className="row row--actions">
+            <select
+              className="field__input field__input--inline"
+              aria-label="Цель оптимизации"
+              value={optimizeTarget}
+              onChange={(e) => setOptimizeTarget(e.target.value as OptimizeTarget)}
+            >
+              <option value="price">Оптимизировать цену</option>
+              <option value="cost">Оптимизировать себестоимость</option>
+              <option value="material">Оптимизировать материал</option>
+            </select>
             <button className="btn btn--primary" onClick={handleCalculate} disabled={busy || hasHardErrors}>
               {busy ? 'Расчёт…' : 'Рассчитать'}
+            </button>
+            <button className="btn" onClick={handleOptimize} disabled={busy || hasHardErrors}>
+              {busy ? 'Поиск…' : 'Оптимизировать'}
             </button>
             <button className="btn" onClick={handleExport} disabled={!calculation}>
               Экспорт JSON
@@ -117,6 +184,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
           {hasHardErrors && (
             <p className="muted">Исправьте нечисловые или пустые поля перед расчётом.</p>
           )}
+          {optimizeMsg && <p className="muted">{optimizeMsg}</p>}
           {calculation && (
             <p className="muted">
               Расчёт {calculation.valid ? 'успешен' : 'с ошибками'} ·{' '}

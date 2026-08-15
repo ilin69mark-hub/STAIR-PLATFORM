@@ -193,3 +193,136 @@ func TestCalculateCustomRates(t *testing.T) {
 		t.Fatalf("final price with doubled steel must exceed default, got %v", resp.Pricing.FinalPriceRub)
 	}
 }
+
+func TestOptimizeReference(t *testing.T) {
+	// Полный поиск по H=2700: n ∈ [14, 18]; лучший — валидная конфигурация
+	// с минимальной ценой.
+	req := authedRequest(http.MethodPost, "/api/v1/stairs:optimize", referenceJSON)
+	rec := httptest.NewRecorder()
+	testRouter().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp optimizeResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("invalid response: %v", err)
+	}
+	if !resp.Valid {
+		t.Fatal("expected valid optimization")
+	}
+	if resp.Best == nil {
+		t.Fatal("expected best candidate")
+	}
+	if resp.Best.StepCount < 14 || resp.Best.StepCount > 18 {
+		t.Fatalf("best step count %d outside [14, 18]", resp.Best.StepCount)
+	}
+	if resp.Best.StepHeightMM < 150 || resp.Best.StepHeightMM > 200 {
+		t.Fatalf("best step height %v outside [150, 200]", resp.Best.StepHeightMM)
+	}
+	if resp.Best.Result.Pricing.FinalPriceRub <= 0 {
+		t.Fatal("best result must include pricing")
+	}
+	if resp.Best.Result.Validation.Blocking {
+		t.Fatal("best result must not be blocking")
+	}
+	if resp.Target != "price" {
+		t.Fatalf("target = %q, want price", resp.Target)
+	}
+}
+
+func TestOptimizeTargetCost(t *testing.T) {
+	body := `{
+		"width_mm": 900,
+		"height_mm": 2700,
+		"flight": "straight",
+		"step_height_mm": 180,
+		"stringer_thickness_mm": 50,
+		"step_thickness_mm": 40,
+		"clearance_mm": 2500,
+		"railing_height_mm": 1000,
+		"target": "cost"
+	}`
+	req := authedRequest(http.MethodPost, "/api/v1/stairs:optimize", body)
+	rec := httptest.NewRecorder()
+	testRouter().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp optimizeResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("invalid response: %v", err)
+	}
+	if !resp.Valid || resp.Target != "cost" {
+		t.Fatalf("expected valid cost optimization, got valid=%v target=%q", resp.Valid, resp.Target)
+	}
+	if resp.Best.Result.Pricing.ProductionCostRub <= 0 {
+		t.Fatal("best result must include production cost")
+	}
+}
+
+func TestOptimizeNoValidCandidate(t *testing.T) {
+	// n=18 → угол ≈ 26.6° < 30° → все кандидаты блокируются → valid:false.
+	body := `{
+		"width_mm": 900,
+		"height_mm": 2700,
+		"flight": "straight",
+		"step_height_mm": 180,
+		"stringer_thickness_mm": 50,
+		"step_thickness_mm": 40,
+		"clearance_mm": 2500,
+		"railing_height_mm": 1000,
+		"step_count_min": 18,
+		"step_count_max": 18
+	}`
+	req := authedRequest(http.MethodPost, "/api/v1/stairs:optimize", body)
+	rec := httptest.NewRecorder()
+	testRouter().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp optimizeResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("invalid response: %v", err)
+	}
+	if resp.Valid {
+		t.Fatal("expected valid=false for empty feasible set")
+	}
+	if resp.Best != nil {
+		t.Fatal("expected no best for empty feasible set")
+	}
+}
+
+func TestOptimizeUnknownTarget(t *testing.T) {
+	body := `{
+		"width_mm": 900,
+		"height_mm": 2700,
+		"flight": "straight",
+		"step_height_mm": 180,
+		"stringer_thickness_mm": 50,
+		"step_thickness_mm": 40,
+		"clearance_mm": 2500,
+		"railing_height_mm": 1000,
+		"target": "weight"
+	}`
+	req := authedRequest(http.MethodPost, "/api/v1/stairs:optimize", body)
+	rec := httptest.NewRecorder()
+	testRouter().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected status 422, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestOptimizeInvalidJSON(t *testing.T) {
+	req := authedRequest(http.MethodPost, "/api/v1/stairs:optimize", "{not json")
+	rec := httptest.NewRecorder()
+	testRouter().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rec.Code)
+	}
+}

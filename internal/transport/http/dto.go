@@ -47,6 +47,39 @@ type ratesDTO struct {
 	TaxPercent      float64 `json:"tax_percent,omitempty"`
 }
 
+// optimizeRequest — запрос оптимизации конфигурации (POST /api/v1/stairs:optimize).
+// Поля конфигурации совпадают с calculateRequest; дополнение — целевая
+// метрика и опциональные границы поиска (0/не указано → авто).
+type optimizeRequest struct {
+	calculateRequest
+	Target            string   `json:"target,omitempty"`         // price|cost|material
+	Maximize          bool     `json:"maximize,omitempty"`       // true → максимум цели
+	StepCountMin      *int     `json:"step_count_min,omitempty"` // границы числа ступеней
+	StepCountMax      *int     `json:"step_count_max,omitempty"`
+	ComfortStepMinMM  *float64 `json:"comfort_step_min_mm,omitempty"` // границы шага комфорта
+	ComfortStepMaxMM  *float64 `json:"comfort_step_max_mm,omitempty"`
+	ComfortStepGridMM *float64 `json:"comfort_step_grid_mm,omitempty"` // шаг сетки (мм)
+}
+
+// optimizeResponse — итог оптимизации (EDR-0032 §3.4).
+type optimizeResponse struct {
+	Valid     bool             `json:"valid"`
+	Evaluated int              `json:"evaluated"`
+	Target    string           `json:"target"`
+	Objective float64          `json:"objective"`
+	Best      *optimizeBestDTO `json:"best,omitempty"`
+}
+
+// optimizeBestDTO — лучшая найденная конфигурация и её полный расчёт.
+type optimizeBestDTO struct {
+	StepCount      int               `json:"step_count"`
+	StepHeightMM   float64           `json:"step_height_mm"`
+	TreadDepthMM   float64           `json:"tread_depth_mm"`
+	LowerStepCount int               `json:"lower_step_count,omitempty"`
+	ComfortStepMM  float64           `json:"comfort_step_mm"`
+	Result         calculateResponse `json:"result"`
+}
+
 // validationIssueDTO — запись отчёта валидации (EDR-0003).
 type validationIssueDTO struct {
 	ID       string  `json:"id,omitempty"`
@@ -489,4 +522,82 @@ func toOptions(req calculateRequest) (stair.Options, error) {
 	}
 	opts.Rates = &rates
 	return opts, nil
+}
+
+// toOptimizeRequest собирает параметры поиска из DTO. Не указанные границы
+// (nil) остаются нулевыми — app-слой выводит их автоматически.
+func toOptimizeRequest(req optimizeRequest) stair.OptimizeRequest {
+	oreq := stair.OptimizeRequest{Target: stair.OptimizeTarget(req.Target), Maximize: req.Maximize}
+	if req.StepCountMin != nil {
+		oreq.StepCountMin = *req.StepCountMin
+	}
+	if req.StepCountMax != nil {
+		oreq.StepCountMax = *req.StepCountMax
+	}
+	if req.ComfortStepMinMM != nil {
+		oreq.ComfortStepMin = *req.ComfortStepMinMM
+	}
+	if req.ComfortStepMaxMM != nil {
+		oreq.ComfortStepMax = *req.ComfortStepMaxMM
+	}
+	if req.ComfortStepGridMM != nil {
+		oreq.ComfortStepGrid = *req.ComfortStepGridMM
+	}
+	return oreq
+}
+
+// toOptimizeResponse собирает итог оптимизации для ответа (EDR-0032 §3.4).
+func toOptimizeResponse(out *stair.OptimizeResult) optimizeResponse {
+	resp := optimizeResponse{
+		Valid:     out.Valid,
+		Evaluated: out.Evaluated,
+		Target:    string(out.Target),
+		Objective: out.Objective,
+	}
+	if !out.Valid || out.BestResult == nil {
+		return resp
+	}
+	m := stepMetrics(out.BestResult)
+	resp.Best = &optimizeBestDTO{
+		StepCount:      m.stepCount,
+		StepHeightMM:   m.stepHeight,
+		TreadDepthMM:   m.treadDepth,
+		LowerStepCount: m.lowerStepCount,
+		ComfortStepMM:  out.ComfortStep,
+		Result:         toResponse(out.BestResult),
+	}
+	return resp
+}
+
+// stepMetrics — (n, h, b, n1) результата расчёта по типу марша.
+type stepMetricsResult struct {
+	stepCount      int
+	stepHeight     float64
+	treadDepth     float64
+	lowerStepCount int
+}
+
+func stepMetrics(res *stair.Result) stepMetricsResult {
+	var m stepMetricsResult
+	switch {
+	case res.LShape != nil:
+		m.stepCount = res.LShape.StepCount
+		m.stepHeight = res.LShape.StepHeight.Millimeters()
+		m.treadDepth = res.LShape.TreadDepth.Millimeters()
+		m.lowerStepCount = res.LShape.LowerStepCount
+	case res.UShape != nil:
+		m.stepCount = res.UShape.StepCount
+		m.stepHeight = res.UShape.StepHeight.Millimeters()
+		m.treadDepth = res.UShape.TreadDepth.Millimeters()
+		m.lowerStepCount = res.UShape.LowerStepCount
+	case res.Spiral != nil:
+		m.stepCount = res.Spiral.StepCount
+		m.stepHeight = res.Spiral.StepHeight.Millimeters()
+		m.treadDepth = res.Spiral.WalkTread.Millimeters()
+	default:
+		m.stepCount = res.Flight.StepCount
+		m.stepHeight = res.Flight.StepHeight.Millimeters()
+		m.treadDepth = res.Flight.TreadDepth.Millimeters()
+	}
+	return m
 }

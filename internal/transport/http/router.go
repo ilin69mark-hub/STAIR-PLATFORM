@@ -64,6 +64,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	}
 
 	mux.Handle("POST /api/v1/stairs:calculate", authProtected(handleCalculate(svc)))
+	mux.Handle("POST /api/v1/stairs:optimize", authProtected(handleOptimize(svc)))
 	mux.Handle("POST /api/v1/projects", authMutating(handleCreateProject(projects)))
 	mux.Handle("GET /api/v1/projects", authProtected(handleListProjects(projects)))
 	mux.Handle("GET /api/v1/projects/{id}", authProtected(handleGetProject(projects)))
@@ -85,6 +86,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	mux.Handle("GET /api/v1/projects/{id}/configurations/{configID}", authProtected(handleGetConfiguration(projects)))
 	mux.Handle("POST /api/v1/projects/{id}/configurations/{configID}/restore", authMutating(handleRestoreConfiguration(projects)))
 	mux.Handle("POST /api/v1/projects/{id}/calculate", authMutating(handleCalculateProject(projects)))
+	mux.Handle("POST /api/v1/projects/{id}/optimize", authMutating(handleOptimizeProject(projects)))
 	mux.Handle("GET /api/v1/projects/{id}/export", authProtected(handleExportProject(projects)))
 	mux.Handle("GET /api/v1/projects/{id}/export/cad", authProtected(handleExportCAD(projects)))
 

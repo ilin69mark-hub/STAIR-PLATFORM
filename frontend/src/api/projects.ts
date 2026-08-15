@@ -10,6 +10,7 @@ import type {
   ConfigurationApproval,
   CreateProjectRequest,
   MemberRequest,
+  OptimizeResult,
   Project,
   ProjectComment,
   ProjectMember,
@@ -26,6 +27,9 @@ export const projectsApi = {
 
   calculate: (id: string, body: unknown) =>
     post<Calculation>(`/api/v1/projects/${id}/calculate`, body),
+
+  optimize: (id: string, body: unknown) =>
+    post<OptimizeResult>(`/api/v1/projects/${id}/optimize`, body),
 
   exportUrl: (id: string) => `/api/v1/projects/${id}/export`,
 

@@ -199,6 +199,28 @@ func (f *fakeProjectService) Calculate(ctx context.Context, tenantID, userID, pr
 	}, nil
 }
 
+func (f *fakeProjectService) Optimize(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options, oreq stair.OptimizeRequest) (*project.OptimizeOutcome, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, project.ErrNotFound
+	}
+	if f.calculateErr != nil {
+		return nil, f.calculateErr
+	}
+	out := &stair.OptimizeResult{
+		Valid:      true,
+		Target:     oreq.Target,
+		Objective:  1000,
+		BestConfig: cfg,
+		BestResult: &stair.Result{},
+	}
+	calc := &project.Calculation{
+		ID: "c-opt", ProjectID: projectID, ConfigurationID: "cfg-opt",
+		Valid: true, Result: []byte(`{"project_id":"` + projectID + `"}`),
+		CreatedAt: time.Now(),
+	}
+	return &project.OptimizeOutcome{Result: out, Calculation: calc}, nil
+}
+
 func (f *fakeProjectService) GetResult(ctx context.Context, tenantID, userID, projectID string) (*project.Calculation, error) {
 	if f.getErr != nil {
 		return nil, f.getErr
@@ -464,6 +486,79 @@ func TestCalculateProjectInvalidJSON(t *testing.T) {
 	svc := newFakeProjectService()
 	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
 	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/calculate",
+		"{bad")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestOptimizeProject(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+
+	body := `{
+		"width_mm": 900,
+		"height_mm": 2700,
+		"flight": "straight",
+		"step_height_mm": 180,
+		"stringer_thickness_mm": 50,
+		"step_thickness_mm": 40,
+		"clearance_mm": 2500,
+		"railing_height_mm": 1000,
+		"target": "cost"
+	}`
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/optimize", body)
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp projectOptimizeResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !resp.Valid || !resp.Saved {
+		t.Fatalf("expected valid+saved, got %+v", resp)
+	}
+	if resp.CalculationID != "c-opt" || resp.ConfigurationID != "cfg-opt" {
+		t.Fatalf("unexpected saved refs: %+v", resp)
+	}
+	if resp.Target != "cost" {
+		t.Fatalf("target = %q, want cost", resp.Target)
+	}
+}
+
+func TestOptimizeProjectNotFound(t *testing.T) {
+	svc := newFakeProjectService()
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-404/optimize",
+		referenceJSON)
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestOptimizeProjectForbidden(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+	svc.calculateErr = project.ErrForbidden
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/optimize",
+		referenceJSON)
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(svc).ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
+	}
+}
+
+func TestOptimizeProjectInvalidJSON(t *testing.T) {
+	svc := newFakeProjectService()
+	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/optimize",
 		"{bad")
 	rec := httptest.NewRecorder()
 	testRouterWithProjects(svc).ServeHTTP(rec, req)

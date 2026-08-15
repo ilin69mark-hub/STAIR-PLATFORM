@@ -41,6 +41,7 @@ type ProjectService interface {
 	GetConfigurationApproval(ctx context.Context, tenantID, userID, projectID, configurationID string) (*project.ConfigurationApproval, error)
 	ListApprovals(ctx context.Context, tenantID, userID, projectID string) ([]*project.ConfigurationApproval, error)
 	Calculate(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options) (*project.Calculation, error)
+	Optimize(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options, oreq stair.OptimizeRequest) (*project.OptimizeOutcome, error)
 	GetResult(ctx context.Context, tenantID, userID, projectID string) (*project.Calculation, error)
 	ExportCAD(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, error)
 	ListConfigurations(ctx context.Context, tenantID, userID, projectID string) ([]*project.StairConfiguration, error)
@@ -678,6 +679,66 @@ func handleCalculateProject(svc ProjectService) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, toCalculationDTO(calc))
 	}
+}
+
+// handleOptimizeProject — POST /api/v1/projects/{id}/optimize (auth+CSRF).
+// Находит оптимальную конфигурацию проекта и сохраняет её с расчётом
+// (EDR-0032). 200 — итог поиска (+ сохранённый расчёт при valid:true);
+// 400 — битый JSON; 404 — нет проекта; 403 — viewer; 422 — невалидный
+// вход/цель; 500 — сбой.
+func handleOptimizeProject(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		projectID := r.PathValue("id")
+
+		var req optimizeRequest
+		if err := decodeJSON(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			return
+		}
+		cfg, err := toConfig(req.calculateRequest)
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
+			return
+		}
+		opts, err := toOptions(req.calculateRequest)
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_rates", err.Error())
+			return
+		}
+
+		out, err := svc.Optimize(r.Context(), tenantID(r.Context()), userID(r.Context()), projectID, cfg, opts, toOptimizeRequest(req))
+		switch {
+		case errors.Is(err, project.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "project not found")
+			return
+		case errors.Is(err, project.ErrForbidden):
+			writeError(w, http.StatusForbidden, "forbidden", "viewer cannot modify project")
+			return
+		case err != nil:
+			writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, toProjectOptimizeResponse(out))
+	}
+}
+
+// toProjectOptimizeResponse — итог оптимизации проекта: результат поиска
+// плюс ID сохранённого расчёта/конфигурации (когда найден).
+func toProjectOptimizeResponse(out *project.OptimizeOutcome) projectOptimizeResponse {
+	resp := projectOptimizeResponse{optimizeResponse: toOptimizeResponse(out.Result)}
+	if out.Calculation != nil {
+		resp.CalculationID = out.Calculation.ID
+		resp.ConfigurationID = out.Calculation.ConfigurationID
+		resp.Saved = true
+	}
+	return resp
+}
+
+type projectOptimizeResponse struct {
+	optimizeResponse
+	Saved           bool   `json:"saved"`
+	CalculationID   string `json:"calculation_id,omitempty"`
+	ConfigurationID string `json:"configuration_id,omitempty"`
 }
 
 // handleExportProject — GET /api/v1/projects/{id}/export (auth).

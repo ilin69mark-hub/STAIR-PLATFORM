@@ -528,6 +528,31 @@ export interface Calculation {
   result: Snapshot
 }
 
+// OptimizeBest — лучшая конфигурация из оптимизации (EDR-0032).
+export interface OptimizeBest {
+  step_count: number
+  step_height_mm: number
+  tread_depth_mm: number
+  lower_step_count?: number
+  comfort_step_mm: number
+  result: Snapshot
+}
+
+// OptimizeResult — итог оптимизации конфигурации (EDR-0032).
+export interface OptimizeResult {
+  valid: boolean
+  evaluated: number
+  target: string
+  objective: number
+  best?: OptimizeBest
+  saved: boolean
+  calculation_id?: string
+  configuration_id?: string
+}
+
+// OptimizeTarget — целевая метрика оптимизации.
+export type OptimizeTarget = 'price' | 'cost' | 'material'
+
 export interface ApiErrorBody {
   error: { code: string; message: string }
 }

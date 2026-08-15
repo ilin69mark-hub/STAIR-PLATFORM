@@ -20,6 +20,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 // транспортным слоем (инверсия зависимостей, DOM-0008).
 type StairService interface {
 	Calculate(cfg stair.Config, opts stair.Options) (*stair.Result, error)
+	Optimize(cfg stair.Config, opts stair.Options, req stair.OptimizeRequest) (*stair.OptimizeResult, error)
 }
 
 // handleCalculate — POST /api/v1/stairs:calculate.
@@ -53,6 +54,39 @@ func handleCalculate(svc StairService) http.HandlerFunc {
 		}
 
 		writeJSON(w, http.StatusOK, toResponse(res))
+	}
+}
+
+// handleOptimize — POST /api/v1/stairs:optimize (EDR-0032).
+// 200 — итог поиска (valid:false — нет допустимой конфигурации в диапазоне);
+// 400 — некорректный JSON;
+// 422 — невалидный вход или неизвестная целевая метрика;
+// 500 — внутренняя ошибка конвейера.
+func handleOptimize(svc StairService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req optimizeRequest
+		if err := decodeJSON(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			return
+		}
+
+		cfg, err := toConfig(req.calculateRequest)
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
+			return
+		}
+		opts, err := toOptions(req.calculateRequest)
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_rates", err.Error())
+			return
+		}
+
+		out, err := svc.Optimize(cfg, opts, toOptimizeRequest(req))
+		if err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, toOptimizeResponse(out))
 	}
 }
 

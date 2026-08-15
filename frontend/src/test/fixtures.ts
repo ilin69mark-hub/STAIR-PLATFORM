@@ -7,6 +7,7 @@ import type {
   LShapeResult,
   Manufacturing,
   Measurement,
+  OptimizeResult,
   Pricing,
   Project,
   Snapshot,
@@ -199,6 +200,26 @@ export function makeProject(overrides: Partial<Project> = {}): Project {
     owner_id: 'u-owner',
     created_at: '2026-08-14T10:00:00Z',
     updated_at: '2026-08-14T10:00:00Z',
+    ...overrides,
+  }
+}
+
+export function makeOptimize(overrides: Partial<OptimizeResult> = {}): OptimizeResult {
+  return {
+    valid: true,
+    evaluated: 21,
+    target: 'price',
+    objective: 2500000,
+    saved: true,
+    calculation_id: 'c-opt',
+    configuration_id: 'cfg-opt',
+    best: {
+      step_count: 16,
+      step_height_mm: 168.75,
+      tread_depth_mm: 292.5,
+      comfort_step_mm: 630,
+      result: makeSnapshot(),
+    },
     ...overrides,
   }
 }
