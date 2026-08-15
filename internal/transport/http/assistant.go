@@ -49,8 +49,8 @@ func handleAssistantAsk(svc AssistantService) http.HandlerFunc {
 			return
 		}
 
-		// На D1 прикладной слой умеет только design; прочие kind вернут
-		// ErrInvalid из прикладного слоя → 422 (добавляются в D2–D4).
+		// На D2 прикладной слой умеет design и engineering; прочие kind
+		// вернут ErrInvalid из прикладного слоя → 422 (добавляются в D3–D4).
 		var areq appast.Request
 		switch kind {
 		case appast.KindDesign:
@@ -59,6 +59,16 @@ func handleAssistantAsk(svc AssistantService) http.HandlerFunc {
 				Preferences: appast.DesignPreferences{
 					Priority: appast.DesignPriority(req.Priority),
 				},
+			}
+		case appast.KindEngineering:
+			opts, oerr := toOptions(req.calculateRequest)
+			if oerr != nil {
+				writeError(w, http.StatusUnprocessableEntity, "invalid_rates", oerr.Error())
+				return
+			}
+			areq = appast.AnalysisRequest{
+				Config:  cfg,
+				Options: opts,
 			}
 		default:
 			areq = cfg

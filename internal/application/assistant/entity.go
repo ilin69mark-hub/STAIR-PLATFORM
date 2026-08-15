@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"stairplatform/internal/application/audit"
+	"stairplatform/internal/application/stair"
 )
 
 // ErrInvalid — некорректный вход (неизвестный kind, невалидная конфигурация).
@@ -98,6 +99,13 @@ type Result struct {
 // Request — общий интерфейс входных данных ассистента (реализуется
 // DesignRequest/AnalysisRequest и др.).
 type Request interface{}
+
+// AnalysisRequest — запрос инженерного/производственного/ценового анализа:
+// конкретная конфигурация + опциональные расчётные параметры (D2–D4).
+type AnalysisRequest struct {
+	Config  stair.Config
+	Options stair.Options
+}
 
 // Service — прикладной сервис AI-ассистентов. Инверсия зависимостей:
 // получает stairCalculator (обычно *stair.Service) и опционально
@@ -208,8 +216,10 @@ func (s *Service) expert(kind Kind) (expert, error) {
 	switch kind {
 	case KindDesign:
 		return designExpert{}, nil
-	// D2–D4 (engineering/manufacturing/pricing) подключаются в следующих
-	// фичах Phase D (EDR-0037..0039); до этого kind неизвестен.
+	case KindEngineering:
+		return engineeringExpert{}, nil
+	// D3–D4 (manufacturing/pricing) подключаются в следующих фичах Phase D
+	// (EDR-0038..0039); до этого kind неизвестен.
 	default:
 		return nil, fmt.Errorf("%w: unknown assistant kind %q", ErrInvalid, kind)
 	}

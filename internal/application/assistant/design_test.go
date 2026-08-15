@@ -13,6 +13,7 @@ import (
 	"stairplatform/internal/domain/engineering"
 	domprc "stairplatform/internal/domain/pricing"
 	"stairplatform/internal/engine/solver"
+	"stairplatform/internal/engine/validation"
 )
 
 // fakeCalc — in-memory реализация порта stairCalculator для юнит-тестов.
@@ -184,7 +185,82 @@ func TestAskRejectsEmptyTenant(t *testing.T) {
 	}
 }
 
-// ---- ModelRouter ----
+// --- Engineering assistant (D2) ----
+
+// engResult конструирует полный результат расчёта (реализует Calculate).
+func engResult(flight engineering.FlightType, h, b float64, blocking bool) *stair.Result {
+	res := &stair.Result{
+		Price: &domprc.PriceBreakdown{
+			Currency:   domprc.CurrencyRUB,
+			FinalPrice: domprc.NewMoney(int64(100 * 100)),
+		},
+		Validation: validation.Result{Blocking: blocking},
+	}
+	switch flight {
+	case engineering.FlightLShape:
+		res.LShape = &solver.LShapeResult{StepCount: 15, StepHeight: engineering.Length(h), TreadDepth: engineering.Length(b)}
+	case engineering.FlightUShape:
+		res.UShape = &solver.UShapeResult{StepCount: 16, StepHeight: engineering.Length(h), TreadDepth: engineering.Length(b)}
+	case engineering.FlightSpiral:
+		res.Spiral = &solver.SpiralResult{StepCount: 14, StepHeight: engineering.Length(h), ComfortStep: 630}
+	default:
+		res.Flight = solver.FlightResult{StepCount: 15, StepHeight: engineering.Length(h), TreadDepth: engineering.Length(b)}
+	}
+	return res
+}
+
+// engCalc — порт, у которого Calculate возвращает фиксированный результат,
+// а Optimize не используется engineering-экспертом.
+type engCalc struct {
+	res *stair.Result
+	err error
+}
+
+func (f *engCalc) Calculate(context.Context, stair.Config, stair.Options) (*stair.Result, error) {
+	return f.res, f.err
+}
+func (f *engCalc) Optimize(context.Context, stair.Config, stair.Options, stair.OptimizeRequest) (*stair.OptimizeResult, error) {
+	return nil, errors.New("not used")
+}
+func (f *engCalc) ValidateConfig(stair.Config) error { return nil }
+
+func TestEngineeringAnalysis(t *testing.T) {
+	svc := NewService(&engCalc{res: engResult(engineering.FlightStraight, 180, 270, false)}, nil)
+	res, err := svc.Ask(context.Background(), "t1", "u1", KindEngineering, AnalysisRequest{
+		Config: stair.Config{Width: 900, Height: 2700, Flight: engineering.FlightStraight},
+	})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if res.Kind != KindEngineering {
+		t.Fatalf("kind = %q", res.Kind)
+	}
+	if res.Response.Rating != 1 {
+		t.Fatalf("rating = %v, want 1 for compliant config", res.Response.Rating)
+	}
+	if len(res.Response.Findings) != 0 {
+		t.Fatalf("findings = %v, want none", res.Response.Findings)
+	}
+	if res.Commentary == "" {
+		t.Fatal("commentary must be non-empty")
+	}
+}
+
+func TestEngineeringBlockingValidation(t *testing.T) {
+	svc := NewService(&engCalc{res: &stair.Result{Validation: validation.Result{Blocking: true}}}, nil)
+	res, err := svc.Ask(context.Background(), "t1", "u1", KindEngineering, AnalysisRequest{
+		Config: stair.Config{Width: 900, Height: 2700, Flight: engineering.FlightStraight},
+	})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if res.Response.Rating != 0 {
+		t.Fatalf("rating = %v, want 0 on blocking", res.Response.Rating)
+	}
+	if !strings.Contains(res.Response.Recommendation, "блокирующ") {
+		t.Fatalf("recommendation should mention blocking validation, got %q", res.Response.Recommendation)
+	}
+}
 
 type stubBackend struct {
 	text string

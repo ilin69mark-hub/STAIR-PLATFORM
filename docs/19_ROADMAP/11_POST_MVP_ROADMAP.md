@@ -68,7 +68,13 @@ OpenAI-совместимый первичный бэкенд с фолбэко�
 `POST /api/v1/assistant/design` (auth), проводка в cmd/api;
 unit-тесты эксперта/роутера/OpenAI + транспортные тесты.
 
-AI Engineering Assistant
+AI Engineering Assistant — **DONE 2026-08-15**: реализован D2, EDR-0037 —
+Engineering Assistant: `engineeringExpert` в `internal/application/assistant/engineering.go`
+(нормативы STANDARD по данным конвейера: h 150–200, проступь 260–320, шаг
+комфорта 2h+b 600–640, угол 30–45°, просвет/косоур/ограждение; blocking-
+ветка с Rating 0 и подсказками по правкам), общий `AnalysisRequest`,
+`POST /api/v1/assistant/engineering` (auth), unit-тесты (соответствие/
+blocking) + транспортный тест.
 
 AI Manufacturing Assistant
 
