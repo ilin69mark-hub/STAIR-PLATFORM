@@ -105,6 +105,7 @@ func applyConfig(cfg Config) {
 		cfg.MaxBodyBytes = DefaultConfig().MaxBodyBytes
 	}
 	maxBodyBytes = cfg.MaxBodyBytes
+	region = cfg.Region
 	loginLimiter = newRateLimiterStrategy(cfg.RedisAddr, cfg.LoginRateLimit, cfg.LoginRateWindow)
 	registerLimiter = newRateLimiterStrategy(cfg.RedisAddr, cfg.RegisterRateLimit, cfg.RegisterRateWindow)
 }
@@ -112,13 +113,18 @@ func applyConfig(cfg Config) {
 var (
 	loginLimiter    RateLimiter
 	registerLimiter RateLimiter
+	region          string
 )
 
 func handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{
+	resp := map[string]string{
 		"status":  "ok",
 		"service": "stair-platform-api",
-	})
+	}
+	if region != "" {
+		resp["region"] = region
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func handleNotFound(w http.ResponseWriter, _ *http.Request) {

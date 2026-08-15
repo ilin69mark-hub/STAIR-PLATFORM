@@ -95,3 +95,26 @@ func TestHealthAlwaysOKEvenIfReadyFails(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 }
+
+// TestHealthIncludesRegion: region из конфига отражается в /health
+// (EDR-0019 §6).
+func TestHealthIncludesRegion(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Region = "eu-central-1"
+	r := NewRouter(stair.NewService(), nil, testAuth{}, cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid response: %v", err)
+	}
+	if body["region"] != "eu-central-1" {
+		t.Fatalf(`expected region "eu-central-1", got %v`, body["region"])
+	}
+}

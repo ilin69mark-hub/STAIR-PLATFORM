@@ -29,6 +29,7 @@ func main() {
 
 	instanceID := os.Getenv("STAIR_INSTANCE_ID")
 	shutdownTimeout := envDuration("STAIR_SHUTDOWN_TIMEOUT", 10*time.Second)
+	region := os.Getenv("STAIR_REGION")
 
 	addr := os.Getenv("STAIR_HTTP_ADDR")
 	if addr == "" {
@@ -89,6 +90,7 @@ func main() {
 		MaxBodyBytes:       1 << 20,
 		InstanceID:         instanceID,
 		ShutdownTimeout:    shutdownTimeout,
+		Region:             region,
 	}
 
 	// Readiness (EDR-0018 §3.2): SELECT 1 + Redis PING.
@@ -113,7 +115,7 @@ func main() {
 
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("api server starting", "addr", addr, "instance_id", instanceID)
+		slog.Info("api server starting", "addr", addr, "instance_id", instanceID, "region", region)
 		errCh <- srv.ListenAndServe()
 	}()
 

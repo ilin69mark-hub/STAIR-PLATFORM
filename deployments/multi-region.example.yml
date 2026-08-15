@@ -1,0 +1,74 @@
+# STAIR PLATFORM — Multi-Region Deployment Example (H2, EDR-0019)
+# Пример горизонтального/регионального развёртывания: несколько инстансов
+# API за балансировщиком, общий PostgreSQL (PRIMARY) и общий Redis.
+#
+# Каждый api-инстанс задаёт STAIR_REGION (для меток/логов) и STAIR_INSTANCE_ID
+# (идентификация реплики). /health — liveness, /ready — readiness (EDR-0018):
+# LB выводит реплику из ротации, пока /ready != 200.
+#
+# Secrets НЕ хранятся в репозитории. Для продакшена используйте .env / secrets.
+
+name: stair-platform-multi
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: stair
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in env}
+      POSTGRES_DB: stair_platform
+    volumes:
+      - stair-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stair -d stair_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    volumes:
+      - stair-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Реплики API (stateless, EDR-0018). Add more as needed; a load balancer
+  # sits in front of api-1..api-N using /health (liveness) and /ready (readiness).
+  api-1:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    image: stair-platform-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      STAIR_DATABASE_URL: "postgres://stair:${POSTGRES_PASSWORD}@postgres:5432/stair_platform?sslmode=disable"
+      STAIR_REDIS_ADDR: "redis:6379"
+      STAIR_HTTP_ADDR: ":8080"
+      STAIR_REGION: "${STAIR_REGION:-eu-central-1}"
+      STAIR_INSTANCE_ID: "api-1"
+    restart: unless-stopped
+
+  api-2:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    image: stair-platform-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      STAIR_DATABASE_URL: "postgres://stair:${POSTGRES_PASSWORD}@postgres:5432/stair_platform?sslmode=disable"
+      STAIR_REDIS_ADDR: "redis:6379"
+      STAIR_HTTP_ADDR: ":8080"
+      STAIR_REGION: "${STAIR_REGION:-eu-central-1}"
+      STAIR_INSTANCE_ID: "api-2"
+    restart: unless-stopped
+
+volumes:
+  stair-postgres-data:
+  stair-redis-data:

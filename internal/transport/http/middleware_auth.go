@@ -37,6 +37,9 @@ type Config struct {
 	// Readiness — пробы готовности (EDR-0018 §3.2); nil — /ready не
 	// регистрируется (инстанс всегда «не проверяем»).
 	Readiness ReadinessChecker
+	// Region — идентификатор региона инстанса (STAIR_REGION, EDR-0019 §3.1);
+	// отражается в /health. Пусто — регион не задан.
+	Region string
 }
 
 // DefaultConfig возвращает конфигурацию по умолчанию.
