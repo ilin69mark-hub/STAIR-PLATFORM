@@ -3,11 +3,9 @@ package geometry
 import (
 	"context"
 	"fmt"
-	"runtime"
-
-	"golang.org/x/sync/errgroup"
 
 	"stairplatform/internal/domain/engineering"
+	"stairplatform/internal/engine/scheduler"
 	kerngeo "stairplatform/internal/geometry"
 )
 
@@ -72,8 +70,10 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 	// Каждая грань принадлежит ровно одному телу, поэтому кеш на тело даёт
 	// тот же эффект дедупликации, что и общий кеш на весь вызов (EM-06,
 	// B2.2), но позволяет обрабатывать тела параллельно без разделяемого
-	// состояния. Тела неизменяемы — параллелизм внутри стадии безопасен,
-	// результат собирается в порядке индексов (result-slot, B3.1).
+	// состояния. Тела неизменяемы — параллелизм внутри стадии безопасен.
+	// Обработка выполняется Scheduler'ом (B3, EDR-0034 §3.4): результат
+	// собирается по слотам индексов (детерминизм ADR-0003), ошибка —
+	// первый по индексу сбой либо отмена контекста.
 	solids := model.Solids()
 	caches := make([]*kerngeo.TessellationCache, len(solids))
 	for i := range caches {
@@ -90,40 +90,23 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 	}
 	outs := make([]solidOut, len(solids))
 
-	// Ограниченный пул: не больше числа логических ядер (B3.1). Отмена
-	// контекста глобальна: при отмене воркеры выходят через ctx-ошибку.
-	g, gctx := errgroup.WithContext(ctx)
-	limit := runtime.GOMAXPROCS(0)
-	if limit > len(solids) {
-		limit = len(solids)
-	}
-	g.SetLimit(limit)
-	for i, solid := range solids {
-		i, solid := i, solid
-		g.Go(func() error {
-			if err := gctx.Err(); err != nil {
-				return err
-			}
-			o := solidOut{}
-			for _, issue := range kerngeo.ValidateCached(solid, caches[i]) {
-				issue.Element = fmt.Sprintf("solid:%d/%s", i, issue.Element)
-				o.issues = append(o.issues, issue)
-			}
-			o.vol, o.err = kerngeo.VolumeCached(solid, caches[i])
-			if o.err == nil {
-				o.area, o.err = kerngeo.SurfaceAreaCached(solid, caches[i])
-			}
-			if o.err == nil {
-				o.verts, o.tris, o.err = meshSolid(solid, caches[i])
-			}
-			outs[i] = o
-			return o.err
-		})
-	}
-	if err := g.Wait(); err != nil {
-		if gctx.Err() != nil {
-			return nil, fmt.Errorf("geometry: %w", gctx.Err())
+	if err := scheduler.New(0).Execute(ctx, len(solids), func(i int) error {
+		solid := solids[i]
+		o := solidOut{}
+		for _, issue := range kerngeo.ValidateCached(solid, caches[i]) {
+			issue.Element = fmt.Sprintf("solid:%d/%s", i, issue.Element)
+			o.issues = append(o.issues, issue)
 		}
+		o.vol, o.err = kerngeo.VolumeCached(solid, caches[i])
+		if o.err == nil {
+			o.area, o.err = kerngeo.SurfaceAreaCached(solid, caches[i])
+		}
+		if o.err == nil {
+			o.verts, o.tris, o.err = meshSolid(solid, caches[i])
+		}
+		outs[i] = o
+		return o.err
+	}); err != nil {
 		return nil, fmt.Errorf("geometry: solid processing: %w", err)
 	}
 

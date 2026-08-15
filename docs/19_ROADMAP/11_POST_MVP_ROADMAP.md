@@ -35,7 +35,7 @@ Advanced Optimization — **DONE 2026-08-15**: детерминированны�
 
 Performance Optimization — **DONE 2026-08-15**: context.Context через движки (отмена поиска/конвейера, EDR-0033), latency-метрики `stair_calculate_duration_seconds`/`stair_optimize_duration_seconds` в /metrics, pprof на `/debug/pprof/*` по `STAIR_PPROF_ENABLED`, триангуляция ear clipping до O(n²) через reflex-список.
 
-Parallel Execution
+Parallel Execution — **DONE 2026-08-15**: пакет `engine/scheduler` (Scheduler.Execute, result-slot, детерминированная ошибка первого по индексу слота), параллельные build-циклы geometry (BuildStraightFlight), per-material Nest (группы раскладываются независимо), geometry.Generate на Scheduler'е; инвариант «параллельный == последовательный».
 
 Distributed Processing
 

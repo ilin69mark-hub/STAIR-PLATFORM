@@ -5,10 +5,12 @@
 package geometry
 
 import (
+	"context"
 	"fmt"
 	"math"
 
 	"stairplatform/internal/domain/engineering"
+	"stairplatform/internal/engine/scheduler"
 	kerngeo "stairplatform/internal/geometry"
 )
 
@@ -35,56 +37,88 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 	t := cfg.StringerThickness.Millimeters()
 	st := cfg.StepThickness.Millimeters()
 
-	solids := make([]*kerngeo.Solid, 0, 2*n+2)
+	// Build-циклы параллелятся (B3, EDR-0034 §3.2): каждое тело строится
+	// независимо (Extrude чистый), порядок в Compound фиксирован индексами
+	// слотов (косоуры → проступи → подступенки) — детерминизм ADR-0003.
+	builds := make([]func() (*kerngeo.Solid, error), 0, 2*n+2)
 
 	// косоуры: левый на y∈[0,t], правый на y∈[w-t,w].
-	for _, y := range []float64{0, w - t} {
-		profile := stringerProfile(n, b, h, y)
-		solid, err := kerngeo.Extrude(profile, kerngeo.NewVector3(0, 1, 0), t)
-		if err != nil {
-			return nil, fmt.Errorf("geometry: stringer: %w", err)
-		}
-		solids = append(solids, solid.WithRole("stringer"))
+	for i, y := range []float64{0, w - t} {
+		i, y := i, y
+		builds = append(builds, func() (*kerngeo.Solid, error) {
+			profile := stringerProfile(n, b, h, y)
+			solid, err := kerngeo.Extrude(profile, kerngeo.NewVector3(0, 1, 0), t)
+			if err != nil {
+				return nil, fmt.Errorf("geometry: stringer %d: %w", i, err)
+			}
+			return solid.WithRole("stringer"), nil
+		})
 	}
 
 	if st <= kerngeo.Precision {
-		return kerngeo.NewCompound(solids...), nil
+		return buildCompound(builds)
 	}
 
 	// проступи: горизонтальные боксы между косоурами, толщина по Z.
 	for k := 0; k < n; k++ {
-		x0, x1 := float64(k)*b, float64(k+1)*b
-		z := float64(k+1) * h
-		profile := []kerngeo.Point3{
-			kerngeo.NewPoint3(x0, t, z),
-			kerngeo.NewPoint3(x1, t, z),
-			kerngeo.NewPoint3(x1, w-t, z),
-			kerngeo.NewPoint3(x0, w-t, z),
-		}
-		solid, err := kerngeo.Extrude(profile, kerngeo.NewVector3(0, 0, 1), st)
-		if err != nil {
-			return nil, fmt.Errorf("geometry: tread %d: %w", k, err)
-		}
-		solids = append(solids, solid.WithRole("tread"))
+		k := k
+		builds = append(builds, func() (*kerngeo.Solid, error) {
+			x0, x1 := float64(k)*b, float64(k+1)*b
+			z := float64(k+1) * h
+			profile := []kerngeo.Point3{
+				kerngeo.NewPoint3(x0, t, z),
+				kerngeo.NewPoint3(x1, t, z),
+				kerngeo.NewPoint3(x1, w-t, z),
+				kerngeo.NewPoint3(x0, w-t, z),
+			}
+			solid, err := kerngeo.Extrude(profile, kerngeo.NewVector3(0, 0, 1), st)
+			if err != nil {
+				return nil, fmt.Errorf("geometry: tread %d: %w", k, err)
+			}
+			return solid.WithRole("tread"), nil
+		})
 	}
 
 	// подступенки: вертикальные боксы между косоурами, толщина по X.
 	for k := 0; k < n; k++ {
-		x := float64(k) * b
-		z0, z1 := float64(k)*h, float64(k+1)*h
-		profile := []kerngeo.Point3{
-			kerngeo.NewPoint3(x, t, z0),
-			kerngeo.NewPoint3(x, t, z1),
-			kerngeo.NewPoint3(x, w-t, z1),
-			kerngeo.NewPoint3(x, w-t, z0),
-		}
-		solid, err := kerngeo.Extrude(profile, kerngeo.NewVector3(1, 0, 0), st)
-		if err != nil {
-			return nil, fmt.Errorf("geometry: riser %d: %w", k, err)
-		}
-		solids = append(solids, solid.WithRole("riser"))
+		k := k
+		builds = append(builds, func() (*kerngeo.Solid, error) {
+			x := float64(k) * b
+			z0, z1 := float64(k)*h, float64(k+1)*h
+			profile := []kerngeo.Point3{
+				kerngeo.NewPoint3(x, t, z0),
+				kerngeo.NewPoint3(x, t, z1),
+				kerngeo.NewPoint3(x, w-t, z1),
+				kerngeo.NewPoint3(x, w-t, z0),
+			}
+			solid, err := kerngeo.Extrude(profile, kerngeo.NewVector3(1, 0, 0), st)
+			if err != nil {
+				return nil, fmt.Errorf("geometry: riser %d: %w", k, err)
+			}
+			return solid.WithRole("riser"), nil
+		})
 	}
 
+	return buildCompound(builds)
+}
+
+// buildCompound выполняет все build-замыкания параллельно через Scheduler
+// (B3, EDR-0034) и собирает Compound в порядке слотов. Ошибка — первый по
+// индексу сбой либо отмена контекста (внутренний Background: отмена не
+// требуется на стадии построения).
+func buildCompound(builds []func() (*kerngeo.Solid, error)) (*kerngeo.Compound, error) {
+	solids := make([]*kerngeo.Solid, len(builds))
+	err := scheduler.New(0).Execute(context.Background(), len(builds), func(i int) error {
+		s, e := builds[i]()
+		if e != nil {
+			return e
+		}
+		solids[i] = s
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
 	return kerngeo.NewCompound(solids...), nil
 }
 

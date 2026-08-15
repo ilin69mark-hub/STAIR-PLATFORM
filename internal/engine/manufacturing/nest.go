@@ -1,6 +1,7 @@
 package manufacturing
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sort"
@@ -8,6 +9,7 @@ import (
 
 	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
+	"stairplatform/internal/engine/scheduler"
 )
 
 // DefaultKerf — ширина реза по умолчанию (MFG-0006): 3 мм между деталями.
@@ -91,17 +93,34 @@ func Nest(cut dommfg.CutList, registry *dommfg.StockSheetRegistry, kerf float64)
 	}
 
 	result := &dommfg.NestingResult{}
-	for _, k := range order {
+	if len(order) == 0 {
+		return result, nil
+	}
+
+	// Per-material Nest (B3, EDR-0034 §3.3): группы (материал, толщина)
+	// раскладываются независимо (pickSheet + nestGroup), листы каждой группы
+	// записываются в слот i; сборка идёт в порядке order — тот же результат,
+	// что и последовательный обход (детерминизм ADR-0003).
+	groupLayouts := make([][]dommfg.SheetLayout, len(order))
+	err := scheduler.New(0).Execute(context.Background(), len(order), func(i int) error {
+		k := order[i]
 		rects := groups[k]
 		sheet, err := pickSheet(registry, k.material, rects, kerf)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		layouts := nestGroup(rects, sheet, k.thickness, kerf)
-		for _, l := range layouts {
+		groupLayouts[i] = nestGroup(rects, sheet, k.thickness, kerf)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range order {
+		for _, l := range groupLayouts[i] {
 			result.Sheets = append(result.Sheets, l)
 			result.PartCount += dommfg.Quantity(len(l.Placed))
-			result.SheetArea += sheet.Length.Millimeters() * sheet.Width.Millimeters()
+			result.SheetArea += l.Length.Millimeters() * l.Width.Millimeters()
 			for _, p := range l.Placed {
 				result.PartArea += p.Length.Millimeters() * p.Width.Millimeters()
 			}
