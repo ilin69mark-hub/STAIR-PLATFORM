@@ -22,6 +22,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	readiness := cfg.Readiness
 	storage := cfg.Storage
 	payments := cfg.Payments
+	analytics := cfg.Analytics
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handleHealth)
@@ -109,6 +110,10 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		mux.Handle("POST /api/v1/projects/{id}/checkout", authMutating(handleCheckout(projects, payments)))
 		mux.Handle("GET /api/v1/projects/{id}/payments", authProtected(handleListPayments(projects, payments)))
 		mux.Handle("GET /api/v1/payments/{id}", authProtected(handleGetPayment(payments)))
+	}
+
+	if analytics != nil {
+		mux.Handle("GET /api/v1/admin/analytics/usage", authProtected(handleUsageAnalytics(analytics)))
 	}
 
 	mux.HandleFunc("GET /", handleNotFound)

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"stairplatform/internal/application/analytics"
 	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/integrations"
@@ -64,6 +65,9 @@ func main() {
 	}
 
 	auditSvc := audit.NewService(database.NewAuditRepository(pool))
+
+	// Analytics (EDR-0028, Phase F): read-only агрегации Usage Analytics.
+	analyticsSvc := analytics.NewService(database.NewAnalyticsRepository(pool))
 
 	// Readyness/честная очередь заданий (EDR-0020): Redis-бэкенд при наличии
 	// STAIR_REDIS_ADDR, иначе in-memory (single-instance). Queue нужна
@@ -127,6 +131,7 @@ func main() {
 		Storage:               storageSvc,
 		Payments:              paymentSvc,
 		PaymentsWebhookSecret: paymentWebhookSecret,
+		Analytics:             analyticsSvc,
 	}
 
 	// Readiness (EDR-0018 §3.2): SELECT 1 + Redis PING.

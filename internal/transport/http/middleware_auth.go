@@ -52,6 +52,9 @@ type Config struct {
 	// PaymentsWebhookSecret — секрет верификации входящего webhook PSP
 	// (STAIR_PAYMENT_WEBHOOK_SECRET); пусто — webhook отклоняется (401).
 	PaymentsWebhookSecret string
+	// Analytics — сервис аналитики (EDR-0028 §3.4, Phase F); nil —
+	// маршруты analytics не регистрируются.
+	Analytics AnalyticsService
 }
 
 // DefaultConfig возвращает конфигурацию по умолчанию.

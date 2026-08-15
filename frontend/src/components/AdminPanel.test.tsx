@@ -2,7 +2,15 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AdminPanel } from './AdminPanel'
 import { adminApi } from '../api/admin'
-import { ApiError, type AdminOverview, type AdminPolicy, type AdminUser, type ApiKey } from '../api/types'
+import { analyticsApi } from '../api/analytics'
+import {
+  ApiError,
+  type AdminOverview,
+  type AdminPolicy,
+  type AdminUser,
+  type ApiKey,
+  type UsageReport,
+} from '../api/types'
 
 const overview: AdminOverview = {
   tenant_id: 't-1',
@@ -32,11 +40,38 @@ const keys: ApiKey[] = [
   { id: 'key-1', name: 'CI', scopes: ['users.list'], created_at: '2026-08-15T10:00:00Z' },
 ]
 
+const usage: UsageReport = {
+  from: '2026-07-16',
+  to: '2026-08-15',
+  granularity: 'day',
+  totals: {
+    users: 2,
+    active_users: 1,
+    projects: 3,
+    calculations: 4,
+    logins: 5,
+    exports: 1,
+    payments: 2,
+  },
+  series: [
+    {
+      bucket: '2026-08-15',
+      logins: 2,
+      active_users: 1,
+      projects_created: 1,
+      calculations: 2,
+      exports: 1,
+      payments: 1,
+    },
+  ],
+}
+
 function mockApi() {
   vi.spyOn(adminApi, 'overview').mockResolvedValue(overview)
   vi.spyOn(adminApi, 'listUsers').mockResolvedValue(users)
   vi.spyOn(adminApi, 'getSettings').mockResolvedValue(policy)
   vi.spyOn(adminApi, 'listApiKeys').mockResolvedValue(keys)
+  vi.spyOn(analyticsApi, 'usage').mockResolvedValue(usage)
 }
 
 afterEach(() => {
@@ -54,13 +89,14 @@ describe('AdminPanel', () => {
     expect(screen.getByLabelText('Роль admin@example.com')).toBeInTheDocument()
     expect(screen.getByLabelText('Роль user@example.com')).toBeInTheDocument()
     expect(screen.getByText((_, el) => el?.textContent === 'CI · users.list')).toBeInTheDocument()
-    // Обзор: счётчик проектов = 3, активных ключей = 1.
-    expect(screen.getByText('3')).toBeInTheDocument()
+    // Обзор: счётчик проектов = 3 (встречается и в аналитике).
+    expect(screen.getAllByText('3').length).toBeGreaterThan(0)
     expect(screen.getByText('API-ключи (активных)')).toBeInTheDocument()
   })
 
   it('показывает ошибку API', async () => {
     vi.spyOn(adminApi, 'overview').mockRejectedValue(new ApiError(403, 'forbidden', 'Нет доступа'))
+    vi.spyOn(analyticsApi, 'usage').mockResolvedValue(usage)
     render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
     expect(await screen.findByText('Нет доступа')).toBeInTheDocument()
   })
@@ -151,5 +187,42 @@ describe('AdminPanel', () => {
     await waitFor(() =>
       expect(hrefs).toContain('/api/v1/admin/export?scope=users&format=csv'),
     )
+  })
+
+  it('показывает аналитику использования и меняет гранулярность', async () => {
+    mockApi()
+    const usageMock = vi.spyOn(analyticsApi, 'usage').mockResolvedValue(usage)
+    render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
+
+    expect(await screen.findByText('Аналитика использования')).toBeInTheDocument()
+    // Автозагрузка с гранулярностью по умолчанию.
+    await waitFor(() =>
+      expect(usageMock).toHaveBeenCalledWith(expect.objectContaining({ granularity: 'day' })),
+    )
+    // Итоги отчёта: пользователи/активные = 2 / 1.
+    expect(await screen.findByText('Пользователи / активные')).toBeInTheDocument()
+    expect(screen.getByText('2 / 1')).toBeInTheDocument()
+    expect(screen.getByText('4')).toBeInTheDocument()
+    // Серия: бакет 2026-08-15.
+    expect(screen.getByText('2026-08-15')).toBeInTheDocument()
+
+    // Переключение гранулярности.
+    fireEvent.click(screen.getByRole('button', { name: 'Месяц' }))
+    await waitFor(() =>
+      expect(usageMock).toHaveBeenCalledWith(expect.objectContaining({ granularity: 'month' })),
+    )
+  })
+
+  it('показывает ошибку аналитики', async () => {
+    vi.spyOn(adminApi, 'overview').mockResolvedValue(overview)
+    vi.spyOn(adminApi, 'listUsers').mockResolvedValue(users)
+    vi.spyOn(adminApi, 'getSettings').mockResolvedValue(policy)
+    vi.spyOn(adminApi, 'listApiKeys').mockResolvedValue(keys)
+    vi.spyOn(analyticsApi, 'usage').mockRejectedValue(
+      new ApiError(403, 'forbidden', 'Нет права analytics.read'),
+    )
+    render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
+
+    expect(await screen.findByText('Нет права analytics.read')).toBeInTheDocument()
   })
 })

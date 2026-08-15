@@ -44,6 +44,8 @@ const (
 	// PermissionIntegrationsManage — управление интеграционными эндпоинтами
 	// (EDR-0023 §3.5, Phase E).
 	PermissionIntegrationsManage Permission = "integrations.manage"
+	// PermissionAnalyticsRead — чтение аналитики tenant (EDR-0028, Phase F).
+	PermissionAnalyticsRead Permission = "analytics.read"
 )
 
 // Permissions возвращает набор прав роли (матрица EDR-0015 §3.2,
@@ -55,6 +57,7 @@ func (r Role) Permissions() []Permission {
 			PermissionAuditReadAll, PermissionUsersList, PermissionUsersUpdateRole,
 			PermissionUsersManage, PermissionSettingsRead, PermissionSettingsWrite,
 			PermissionDataExport, PermissionApiKeysManage, PermissionIntegrationsManage,
+			PermissionAnalyticsRead,
 		}
 	default:
 		return nil

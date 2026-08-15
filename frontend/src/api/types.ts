@@ -149,6 +149,38 @@ export interface ApiKey {
   last_used_at?: string
 }
 
+// ---- Аналитика (Phase F, EDR-0028): метрики использования ----
+
+export type UsageGranularity = 'day' | 'week' | 'month'
+
+export interface UsageTotals {
+  users: number
+  active_users: number
+  projects: number
+  calculations: number
+  logins: number
+  exports: number
+  payments: number
+}
+
+export interface UsagePoint {
+  bucket: string
+  logins: number
+  active_users: number
+  projects_created: number
+  calculations: number
+  exports: number
+  payments: number
+}
+
+export interface UsageReport {
+  from: string
+  to: string
+  granularity: UsageGranularity
+  totals: UsageTotals
+  series: UsagePoint[]
+}
+
 // ---- Аудит (Phase G, EDR-0013): журнал событий безопасности ----
 
 export interface AuditEvent {

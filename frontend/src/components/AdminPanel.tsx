@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { adminApi } from '../api/admin'
-import type { AdminOverview, AdminPolicy, AdminUser, ApiKey } from '../api/types'
+import { analyticsApi } from '../api/analytics'
+import type {
+  AdminOverview,
+  AdminPolicy,
+  AdminUser,
+  ApiKey,
+  UsageGranularity,
+  UsageReport,
+} from '../api/types'
 import { ApiError } from '../api/types'
 
 interface Props {
@@ -32,6 +40,28 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
   const [keyScopes, setKeyScopes] = useState('users.list')
   const [newToken, setNewToken] = useState<string | null>(null)
 
+  const [usage, setUsage] = useState<UsageReport | null>(null)
+  const [usageGranularity, setUsageGranularity] = useState<UsageGranularity>('day')
+  const [usageLoading, setUsageLoading] = useState(false)
+
+  const loadUsage = useCallback(async (granularity: UsageGranularity) => {
+    setUsageLoading(true)
+    try {
+      const now = new Date()
+      const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+      const rep = await analyticsApi.usage({
+        from: from.toISOString().slice(0, 10),
+        to: now.toISOString().slice(0, 10),
+        granularity,
+      })
+      setUsage(rep)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Не удалось загрузить аналитику')
+    } finally {
+      setUsageLoading(false)
+    }
+  }, [])
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -55,7 +85,8 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
 
   useEffect(() => {
     void load()
-  }, [load])
+    void loadUsage('day')
+  }, [load, loadUsage])
 
   const clearNotice = () => setNotice(null)
 
@@ -320,6 +351,82 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
                 </span>
               ))}
             </div>
+          </section>
+
+          <section className="panel">
+            <h2 className="panel__title">Аналитика использования</h2>
+            <p className="muted">Активность tenant за выбранное окно (право analytics.read, EDR-0028).</p>
+            <div className="row--actions">
+              {(['day', 'week', 'month'] as UsageGranularity[]).map((g) => (
+                <button
+                  key={g}
+                  className={g === usageGranularity ? 'btn btn--primary' : 'btn'}
+                  onClick={() => {
+                    setUsageGranularity(g)
+                    void loadUsage(g)
+                  }}
+                >
+                  {g === 'day' ? 'День' : g === 'week' ? 'Неделя' : 'Месяц'}
+                </button>
+              ))}
+            </div>
+            {usageLoading ? (
+              <p className="muted">Загрузка…</p>
+            ) : usage ? (
+              <>
+                <dl className="kv">
+                  <div>
+                    <dt>Пользователи / активные</dt>
+                    <dd>
+                      {usage.totals.users} / {usage.totals.active_users}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Проекты</dt>
+                    <dd>{usage.totals.projects}</dd>
+                  </div>
+                  <div>
+                    <dt>Расчёты</dt>
+                    <dd>{usage.totals.calculations}</dd>
+                  </div>
+                  <div>
+                    <dt>Входы / экспорты / оплаты</dt>
+                    <dd>
+                      {usage.totals.logins} / {usage.totals.exports} / {usage.totals.payments}
+                    </dd>
+                  </div>
+                </dl>
+                <p className="muted">
+                  Период: {usage.from} — {usage.to}
+                </p>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Дата</th>
+                      <th>Входы</th>
+                      <th>Активные</th>
+                      <th>Проекты</th>
+                      <th>Расчёты</th>
+                      <th>Экспорты</th>
+                      <th>Оплаты</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {usage.series.map((p) => (
+                      <tr key={p.bucket}>
+                        <td>{p.bucket}</td>
+                        <td>{p.logins}</td>
+                        <td>{p.active_users}</td>
+                        <td>{p.projects_created}</td>
+                        <td>{p.calculations}</td>
+                        <td>{p.exports}</td>
+                        <td>{p.payments}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            ) : null}
           </section>
 
           <section className="panel">

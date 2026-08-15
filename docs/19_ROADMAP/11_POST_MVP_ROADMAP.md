@@ -135,7 +135,14 @@ unit/DB/транспорт-тесты + E2E-проверка подписанн�
 
 # Phase F — Analytics
 
-Usage Analytics
+Usage Analytics — **DONE 2026-08-15** (F1, EDR-0028): агрегация метрик tenant по
+существующим таблицам без новой миграции — пользователи, проекты, расчёты
+(`calculations ⋈ projects` по tenant), аудит-события (входы/экспорты) и оплаченные
+интенты; право `analytics.read` (RBAC, RoleAdmin); `GET /api/v1/admin/analytics/usage`
+с `from`/`to` (YYYY-MM-DD | RFC3339) и `granularity` (day/week/month, серия
+непрерывная через `generate_series`); панель «Аналитика использования» в
+AdminPanel (итоги + таблица по бакетам, переключатель гранулярности);
+unit/DB/транспорт-тесты.
 
 Project Analytics
 
