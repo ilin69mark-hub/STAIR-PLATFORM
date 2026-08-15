@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -120,6 +121,9 @@ func (r *AuthRepository) ListUsers(ctx context.Context, tenantID string) ([]*aut
 // UpdateUserRole меняет роль пользователя tenant (EDR-0015 §3.4).
 // ErrNotFound — пользователь не найден в tenant.
 func (r *AuthRepository) UpdateUserRole(ctx context.Context, tenantID, userID string, role auth.Role) error {
+	if !isUUID(userID) {
+		return auth.ErrNotFound
+	}
 	tag, err := r.pool.Exec(ctx,
 		`UPDATE users SET role = $1, updated_at = now()
 		 WHERE id = $2 AND tenant_id = $3`, role, userID, tenantID)
@@ -135,6 +139,9 @@ func (r *AuthRepository) UpdateUserRole(ctx context.Context, tenantID, userID st
 // UpdateUserStatus меняет статус пользователя tenant (EDR-0016 §3.1).
 // ErrNotFound — пользователь не найден в tenant.
 func (r *AuthRepository) UpdateUserStatus(ctx context.Context, tenantID, userID string, status auth.Status) error {
+	if !isUUID(userID) {
+		return auth.ErrNotFound
+	}
 	tag, err := r.pool.Exec(ctx,
 		`UPDATE users SET status = $1, updated_at = now()
 		 WHERE id = $2 AND tenant_id = $3`, status, userID, tenantID)
@@ -418,4 +425,14 @@ func scanOAuthAccount(row pgx.Row) (*auth.OAuthAccount, error) {
 		return nil, err
 	}
 	return &a, nil
+}
+
+// uuidPattern — каноническая форма UUID (8-4-4-4-12 hex).
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// isUUID возвращает true, если s — валидный UUID. Используется перед
+// сравнением id против UUID-колонки: невалидный ввод должен давать
+// ErrNotFound, а не SQL-ошибку 22P02 (invalid input syntax for type uuid).
+func isUUID(s string) bool {
+	return uuidPattern.MatchString(s)
 }

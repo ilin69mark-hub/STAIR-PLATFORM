@@ -65,7 +65,7 @@ func sampleSnapshot(projectID string) project.Snapshot {
 func testOwnerID(t *testing.T, repo *ProjectRepository, tenantID string) string {
 	t.Helper()
 	ctx := context.Background()
-	u := &auth.User{Name: "Owner", Email: fmt.Sprintf("owner-%d@test.dev", time.Now().UnixNano()%100000)}
+	u := &auth.User{Name: "Owner", Email: fmt.Sprintf("owner-%d@test.dev", time.Now().UnixNano())}
 	u.TenantID = tenantID
 	u.Role = auth.RoleUser
 	u.Status = auth.StatusActive
@@ -203,7 +203,7 @@ func TestProjectRepositoryMembers(t *testing.T) {
 	owner := testOwnerID(t, repo, tenant)
 
 	// Второй пользователь того же tenant.
-	u2 := &auth.User{Name: "Editor", Email: fmt.Sprintf("ed-%d@test.dev", time.Now().UnixNano()%100000),
+	u2 := &auth.User{Name: "Editor", Email: fmt.Sprintf("ed-%d@test.dev", time.Now().UnixNano()),
 		TenantID: tenant, Role: auth.RoleUser, Status: auth.StatusActive}
 	if err := ar.CreateUser(ctx, u2); err != nil {
 		t.Fatalf("CreateUser: %v", err)
@@ -289,7 +289,7 @@ func TestProjectRepositoryAddMemberByEmail(t *testing.T) {
 	tenant := testTenantID(t, repo)
 	owner := testOwnerID(t, repo, tenant)
 
-	email := fmt.Sprintf("invitee-%d@test.dev", time.Now().UnixNano()%100000)
+	email := fmt.Sprintf("invitee-%d@test.dev", time.Now().UnixNano())
 	u2 := &auth.User{Name: "Invitee", Email: email, TenantID: tenant, Role: auth.RoleUser, Status: auth.StatusActive}
 	if err := ar.CreateUser(ctx, u2); err != nil {
 		t.Fatalf("CreateUser: %v", err)
@@ -328,7 +328,7 @@ func TestProjectRepositoryComments(t *testing.T) {
 	owner := testOwnerID(t, repo, tenant)
 
 	// Второй пользователь для комментария.
-	u2 := &auth.User{Name: "Editor", Email: fmt.Sprintf("cmt-%d@test.dev", time.Now().UnixNano()%100000),
+	u2 := &auth.User{Name: "Editor", Email: fmt.Sprintf("cmt-%d@test.dev", time.Now().UnixNano()),
 		TenantID: tenant, Role: auth.RoleUser, Status: auth.StatusActive}
 	if err := ar.CreateUser(ctx, u2); err != nil {
 		t.Fatalf("CreateUser: %v", err)
@@ -445,7 +445,7 @@ func TestProjectRepositoryReviews(t *testing.T) {
 	tenant := testTenantID(t, repo)
 	owner := testOwnerID(t, repo, tenant)
 
-	u2 := &auth.User{Name: "Editor", Email: fmt.Sprintf("rv-%d@test.dev", time.Now().UnixNano()%100000),
+	u2 := &auth.User{Name: "Editor", Email: fmt.Sprintf("rv-%d@test.dev", time.Now().UnixNano()),
 		TenantID: tenant, Role: auth.RoleUser, Status: auth.StatusActive}
 	if err := ar.CreateUser(ctx, u2); err != nil {
 		t.Fatalf("CreateUser: %v", err)

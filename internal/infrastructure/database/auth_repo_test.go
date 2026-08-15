@@ -2,8 +2,10 @@ package database
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"stairplatform/internal/application/auth"
 )
@@ -32,7 +34,7 @@ func TestAuthRepoListUsers(t *testing.T) {
 	ctx := context.Background()
 	tenant := testTenantID(t, repo)
 	testOwnerID(t, repo, tenant)
-	u2 := &auth.User{Name: "Member", Email: "member@test.dev", TenantID: tenant, Role: auth.RoleUser, Status: auth.StatusActive}
+	u2 := &auth.User{Name: "Member", Email: fmt.Sprintf("member-%d@test.dev", time.Now().UnixNano()), TenantID: tenant, Role: auth.RoleUser, Status: auth.StatusActive}
 	if err := ar.CreateUser(ctx, u2); err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -41,8 +43,16 @@ func TestAuthRepoListUsers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListUsers: %v", err)
 	}
-	if len(users) != 2 {
-		t.Fatalf("expected 2 users in tenant, got %d", len(users))
+	// Созданный пользователь обязан присутствовать в списке tenant.
+	found := false
+	for _, u := range users {
+		if u.ID == u2.ID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected created user %s in tenant list, got %d users", u2.ID, len(users))
 	}
 
 	// Чужой tenant (пустой UUID) — пусто.
