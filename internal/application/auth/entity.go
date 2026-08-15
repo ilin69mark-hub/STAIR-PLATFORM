@@ -41,6 +41,9 @@ const (
 	PermissionDataExport Permission = "data.export"
 	// PermissionApiKeysManage — управление API-ключами (EDR-0016).
 	PermissionApiKeysManage Permission = "api_keys.manage"
+	// PermissionIntegrationsManage — управление интеграционными эндпоинтами
+	// (EDR-0023 §3.5, Phase E).
+	PermissionIntegrationsManage Permission = "integrations.manage"
 )
 
 // Permissions возвращает набор прав роли (матрица EDR-0015 §3.2,
@@ -51,7 +54,7 @@ func (r Role) Permissions() []Permission {
 		return []Permission{
 			PermissionAuditReadAll, PermissionUsersList, PermissionUsersUpdateRole,
 			PermissionUsersManage, PermissionSettingsRead, PermissionSettingsWrite,
-			PermissionDataExport, PermissionApiKeysManage,
+			PermissionDataExport, PermissionApiKeysManage, PermissionIntegrationsManage,
 		}
 	default:
 		return nil

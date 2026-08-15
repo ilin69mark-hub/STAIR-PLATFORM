@@ -49,7 +49,8 @@ func main() {
 	jobq := backend.Queue()
 	defer backend.Close()
 
-	reg := newRegistry(database.NewAuthRepository(pool), database.NewAuditRepository(pool), retentionDays)
+	reg := newRegistry(database.NewAuthRepository(pool), database.NewAuditRepository(pool),
+		database.NewIntegrationRepository(pool), retentionDays)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)

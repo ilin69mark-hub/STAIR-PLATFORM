@@ -19,6 +19,9 @@ const (
 	JobCleanupSessions  = "sys.cleanup_sessions"
 	JobCleanupSsoStates = "sys.cleanup_sso_states"
 	JobCleanupAudit     = "sys.cleanup_audit"
+	// JobQuoteSend — доставка коммерческого предложения в ERP (EDR-0023).
+	// Payload: {event_id, endpoint_id}.
+	JobQuoteSend = "erp.quote_send"
 )
 
 // DefaultMaxAttempts — предел попыток задания перед окончательным отказом.

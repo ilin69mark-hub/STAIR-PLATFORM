@@ -78,7 +78,17 @@ CAD — **DONE 2026-08-15**: реализовано E1, EDR-0022 — CAD-экс�
 конфигурации), `GET /api/v1/projects/{id}/export/cad?format=dxf|stl|svg`,
 unit-тесты writers и endpoint (ADR-0006/DEV-0009).
 
-ERP
+ERP — **DONE 2026-08-15**: реализовано E2, EDR-0023 — webhook-платформа
+deliveries (HMAC-SHA256 `X-Stair-Signature`, replay-защита по timestamp) +
+интеграция ERP: таблицы `integration_endpoints`/`integration_events`
+(миграция 000014), `internal/infrastructure/integrations` (pure client +
+verify, stdlib-only), `internal/application/integrations` (service с
+регистрацией эндпоинтов и постановкой событий в очередь),
+`internal/infrastructure/database/integration_repo.go`,
+worker-обработчик `erp.quote_send` (доставка + статусы
+pending/delivered/failed/dlq), админ-эндпоинты
+`/api/v1/integrations/endpoints` и `POST /api/v1/projects/{id}/quote-send`
+(привилегия `integration.manage`, wire-тесты + DB-интеграционные тесты).
 
 CRM
 

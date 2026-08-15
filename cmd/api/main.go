@@ -14,12 +14,14 @@ import (
 	"github.com/redis/go-redis/v9"
 	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/auth"
+	"stairplatform/internal/application/integrations"
 	"stairplatform/internal/application/project"
 
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/infrastructure/database"
 	"stairplatform/internal/infrastructure/health"
 	"stairplatform/internal/infrastructure/oidc"
+	"stairplatform/internal/infrastructure/queue"
 	transporthttp "stairplatform/internal/transport/http"
 )
 
@@ -59,6 +61,12 @@ func main() {
 
 	auditSvc := audit.NewService(database.NewAuditRepository(pool))
 
+	// Readyness/честная очередь заданий (EDR-0020): Redis-бэкенд при наличии
+	// STAIR_REDIS_ADDR, иначе in-memory (single-instance). Queue нужна
+	// интеграциям (ERP quote, EDR-0023) и воркеру.
+	queueBackend := newAPIQueueBackend(os.Getenv("STAIR_REDIS_ADDR"))
+	defer queueBackend.Close()
+
 	stairSvc := stair.NewService()
 	projectSvc := project.NewService(
 		database.NewProjectRepository(pool),
@@ -67,6 +75,7 @@ func main() {
 		auditSvc,
 	)
 	authSvc := auth.NewService(database.NewAuthRepository(pool), sessionTTL(), auditSvc)
+	intSvc := integrations.NewService(database.NewIntegrationRepository(pool), queueBackend.Queue())
 
 	// SSO (EDR-0017 §3.2): OIDC-провайдер из окружения. Пока STAIR_SSO_ISSUER
 	// не задан — SSO выключен (публичный ключ, кнопка на фронте не видна).
@@ -91,6 +100,7 @@ func main() {
 		InstanceID:         instanceID,
 		ShutdownTimeout:    shutdownTimeout,
 		Region:             region,
+		Integrations:       intSvc,
 	}
 
 	// Readiness (EDR-0018 §3.2): SELECT 1 + Redis PING.
@@ -190,4 +200,36 @@ func envString(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// apiQueueBackend оборачивает выбранный бэкенд очереди заданий (EDR-0020):
+// Redis List при доступном STAIR_REDIS_ADDR, иначе in-memory fallback.
+// Используется интеграциями (ERP quote-send, EDR-0023) для постановки
+// заданий, которые выполняет отдельный процесс worker.
+type apiQueueBackend struct {
+	jobq queue.JobQueue
+	rl   *redis.Client
+}
+
+func newAPIQueueBackend(addr string) *apiQueueBackend {
+	if addr == "" {
+		return &apiQueueBackend{jobq: queue.NewMemoryQueue()}
+	}
+	client := redis.NewClient(&redis.Options{Addr: addr})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := client.Ping(ctx).Err(); err != nil {
+		slog.Warn("api: redis unavailable, using memory queue", "addr", addr, "error", err)
+		_ = client.Close()
+		return &apiQueueBackend{jobq: queue.NewMemoryQueue()}
+	}
+	return &apiQueueBackend{jobq: queue.NewRedisQueue(client, "stair-jobs", 2*time.Second), rl: client}
+}
+
+func (b *apiQueueBackend) Queue() queue.JobQueue { return b.jobq }
+
+func (b *apiQueueBackend) Close() {
+	if b.rl != nil {
+		_ = b.rl.Close()
+	}
 }

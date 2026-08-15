@@ -2,30 +2,46 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
 
+	"stairplatform/internal/application/integrations"
 	"stairplatform/internal/infrastructure/database"
+	infintegrations "stairplatform/internal/infrastructure/integrations"
 	"stairplatform/internal/infrastructure/queue"
 )
 
 // registry — реестр обработчиков заданий по типу (EDR-0020 §3.4).
 type registry struct {
-	authRepo      *database.AuthRepository
-	auditRepo     *database.AuditRepository
-	retentionDays int
+	authRepo         *database.AuthRepository
+	auditRepo        *database.AuditRepository
+	integrationsRepo integrations.Repository
+	webhook          webhookSender
+	integrationsSvc  *integrations.Service
+	retentionDays    int
 }
 
-// newRegistry создаёт реестр с обработчиками очистки.
-func newRegistry(authRepo *database.AuthRepository, auditRepo *database.AuditRepository, retentionDays int) *registry {
+// webhookSender — минимальный порт для доставки webhook (EDR-0023 §3.1),
+// реализуется infrastructure/integrations.Client; стубится в тестах.
+type webhookSender interface {
+	Send(ctx context.Context, url, secret string, payload []byte) error
+}
+
+// newRegistry создаёт реестр с обработчиками очистки и доставки webhook.
+func newRegistry(authRepo *database.AuthRepository, auditRepo *database.AuditRepository,
+	integrationsRepo integrations.Repository, retentionDays int) *registry {
 	if retentionDays <= 0 {
 		retentionDays = 90
 	}
 	return &registry{
-		authRepo:      authRepo,
-		auditRepo:     auditRepo,
-		retentionDays: retentionDays,
+		authRepo:         authRepo,
+		auditRepo:        auditRepo,
+		integrationsRepo: integrationsRepo,
+		webhook:          infintegrations.NewClient(0),
+		integrationsSvc:  integrations.NewService(integrationsRepo, nil),
+		retentionDays:    retentionDays,
 	}
 }
 
@@ -38,9 +54,47 @@ func (r *registry) Handle(ctx context.Context, job queue.Job) error {
 		return r.cleanupSsoStates(ctx)
 	case queue.JobCleanupAudit:
 		return r.cleanupAudit(ctx)
+	case queue.JobQuoteSend:
+		return r.quoteSend(ctx, job)
 	default:
 		return fmt.Errorf("worker: unknown job type %q", job.Type)
 	}
+}
+
+// overrideWebhook подменяет клиент webhook в тестах.
+func (r *registry) overrideWebhook(s webhookSender) { r.webhook = s }
+
+// quoteSend доставляет коммерческое предложение в ERP (EDR-0023 §3.4):
+// читает событие доставки и эндпоинт, отправляет webhook с HMAC-подписью,
+// отмечает delivered; при ошибке — failed/DLQ по политике воркера.
+func (r *registry) quoteSend(ctx context.Context, job queue.Job) error {
+	var p struct {
+		EventID    string `json:"event_id"`
+		EndpointID string `json:"endpoint_id"`
+		TenantID   string `json:"tenant_id"`
+	}
+	if err := json.Unmarshal(job.Payload, &p); err != nil {
+		return fmt.Errorf("worker: quote_send payload: %w", err)
+	}
+	d, err := r.integrationsRepo.GetDelivery(ctx, p.TenantID, p.EventID)
+	if err != nil {
+		return fmt.Errorf("worker: get delivery: %w", err)
+	}
+	ep, err := r.integrationsRepo.GetEndpoint(ctx, p.TenantID, p.EndpointID)
+	if err != nil {
+		return fmt.Errorf("worker: get endpoint: %w", err)
+	}
+
+	if err := r.webhook.Send(ctx, ep.URL, ep.SecretEnc, d.Payload); err != nil {
+		if serr := r.integrationsSvc.MarkFailed(ctx, p.TenantID, p.EventID, d.Attempts+1, err.Error()); serr != nil {
+			slog.Error("worker: mark delivery failed", "event_id", p.EventID, "error", serr)
+		}
+		return err
+	}
+	if err := r.integrationsSvc.MarkDelivered(ctx, p.TenantID, p.EventID); err != nil {
+		return fmt.Errorf("worker: mark delivered: %w", err)
+	}
+	return nil
 }
 
 // cleanupSessions удаляет истёкшие к текущему моменту сессии

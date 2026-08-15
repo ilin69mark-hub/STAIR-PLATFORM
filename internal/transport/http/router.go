@@ -18,6 +18,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	if len(auditSvc) > 0 {
 		auditsvc = auditSvc[0]
 	}
+	integrations := cfg.Integrations
 	readiness := cfg.Readiness
 
 	mux := http.NewServeMux()
@@ -83,6 +84,14 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	mux.Handle("POST /api/v1/projects/{id}/calculate", authMutating(handleCalculateProject(projects)))
 	mux.Handle("GET /api/v1/projects/{id}/export", authProtected(handleExportProject(projects)))
 	mux.Handle("GET /api/v1/projects/{id}/export/cad", authProtected(handleExportCAD(projects)))
+
+	if integrations != nil {
+		mux.Handle("GET /api/v1/integrations/endpoints", authProtected(handleListEndpoints(integrations)))
+		mux.Handle("POST /api/v1/integrations/endpoints", authMutating(handleCreateEndpoint(integrations)))
+		mux.Handle("DELETE /api/v1/integrations/endpoints/{id}", authProtected(handleDeleteEndpoint(integrations)))
+		mux.Handle("POST /api/v1/projects/{id}/quote-send", authProtected(handleQuoteSend(projects, integrations)))
+	}
+
 	mux.HandleFunc("GET /", handleNotFound)
 	return withLogging(mux)
 }
