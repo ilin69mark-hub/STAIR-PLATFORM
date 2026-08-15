@@ -11,6 +11,7 @@ import (
 
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/domain/engineering"
+	dommfg "stairplatform/internal/domain/manufacturing"
 	domprc "stairplatform/internal/domain/pricing"
 	"stairplatform/internal/engine/solver"
 	"stairplatform/internal/engine/validation"
@@ -272,6 +273,121 @@ func (s stubBackend) Infer(context.Context, Prompt) (*Answer, error) {
 		return nil, s.err
 	}
 	return &Answer{Text: s.text}, nil
+}
+
+// --- Manufacturing assistant (D3) ----
+
+// mfgCalc — порт с фиксированным производственным пакетом.
+type mfgCalc struct {
+	res *stair.Result
+	err error
+}
+
+func (f *mfgCalc) Calculate(context.Context, stair.Config, stair.Options) (*stair.Result, error) {
+	return f.res, f.err
+}
+func (f *mfgCalc) Optimize(context.Context, stair.Config, stair.Options, stair.OptimizeRequest) (*stair.OptimizeResult, error) {
+	return nil, errors.New("not used")
+}
+func (f *mfgCalc) ValidateConfig(stair.Config) error { return nil }
+
+func mfgResult(util, waste float64) *stair.Result {
+	return &stair.Result{
+		Flight: solver.FlightResult{StepCount: 15, StepHeight: engineering.Length(180), TreadDepth: engineering.Length(270)},
+		Price: &domprc.PriceBreakdown{
+			Currency:   domprc.CurrencyRUB,
+			FinalPrice: domprc.NewMoney(int64(100 * 100)),
+		},
+		Package: &dommfg.ManufacturingPackage{
+			Parts: []dommfg.Part{
+				{Number: "P-01", Material: "STEEL-S235"},
+				{Number: "P-02", Material: "STEEL-S235"},
+			},
+			BOM:     dommfg.BOM{Lines: []dommfg.BOMLine{{Number: 1}}},
+			CutList: dommfg.CutList{Items: []dommfg.CutItem{{PartNumber: "P-01"}}},
+			Nesting: &dommfg.NestingResult{
+				Sheets:      []dommfg.SheetLayout{{}},
+				PartCount:   2,
+				PartArea:    1e6,
+				SheetArea:   1e6 / util,
+				WasteArea:   1e6 / util * waste,
+				Utilization: util,
+			},
+		},
+		Cost: &dommfg.ManufacturingCostDataset{
+			PartCount: 2, EstimatedMachineTime: 60, EstimatedLaborTime: 40,
+			EstimatedProductionTime: 100,
+		},
+	}
+}
+
+func TestManufacturingAnalysis(t *testing.T) {
+	svc := NewService(&mfgCalc{res: mfgResult(0.9, 0.08)}, nil)
+	res, err := svc.Ask(context.Background(), "t1", "u1", KindManufacturing, AnalysisRequest{
+		Config: stair.Config{Width: 900, Height: 2700, Flight: engineering.FlightStraight},
+	})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if res.Kind != KindManufacturing {
+		t.Fatalf("kind = %q", res.Kind)
+	}
+	for _, f := range res.Response.Findings {
+		if f.Severity == "warning" {
+			t.Fatalf("unexpected warning for good config: %+v", f)
+		}
+	}
+	if res.Response.Rating < 0.9 {
+		t.Fatalf("rating = %v, want ≥ 0.9", res.Response.Rating)
+	}
+	if !strings.Contains(res.Response.Recommendation, "готова") {
+		t.Fatalf("recommendation should say ready, got %q", res.Response.Recommendation)
+	}
+}
+
+func TestManufacturingLowUtilization(t *testing.T) {
+	svc := NewService(&mfgCalc{res: mfgResult(0.5, 0.45)}, nil)
+	res, err := svc.Ask(context.Background(), "t1", "u1", KindManufacturing, AnalysisRequest{
+		Config: stair.Config{Width: 900, Height: 2700, Flight: engineering.FlightStraight},
+	})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if !hasWarning(res.Response.Findings, "раскрой") {
+		t.Fatalf("expected utilization warning, got %+v", res.Response.Findings)
+	}
+	if res.Response.Rating >= 0.7 {
+		t.Fatalf("rating = %v, want low for bad utilization", res.Response.Rating)
+	}
+	if len(res.Response.Suggestions) == 0 {
+		t.Fatal("expected suggestions for low utilization")
+	}
+}
+
+func TestManufacturingBlocked(t *testing.T) {
+	res := &stair.Result{
+		Validation: validation.Result{Blocking: true},
+		Flight:     solver.FlightResult{StepCount: 15, StepHeight: engineering.Length(180), TreadDepth: engineering.Length(270)},
+	}
+	svc := NewService(&mfgCalc{res: res}, nil)
+	out, err := svc.Ask(context.Background(), "t1", "u1", KindManufacturing, AnalysisRequest{
+		Config: stair.Config{Width: 900, Height: 2700, Flight: engineering.FlightStraight},
+	})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if out.Response.Rating != 0 {
+		t.Fatalf("rating = %v, want 0 on blocked", out.Response.Rating)
+	}
+}
+
+func hasWarning(findings []Finding, element string) bool {
+	for _, f := range findings {
+		if f.Element == element && f.Severity == "warning" {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRouterPrimaryUsed(t *testing.T) {

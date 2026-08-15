@@ -218,8 +218,9 @@ func (s *Service) expert(kind Kind) (expert, error) {
 		return designExpert{}, nil
 	case KindEngineering:
 		return engineeringExpert{}, nil
-	// D3–D4 (manufacturing/pricing) подключаются в следующих фичах Phase D
-	// (EDR-0038..0039); до этого kind неизвестен.
+	case KindManufacturing:
+		return manufacturingExpert{}, nil
+	// D4 (pricing) подключается в следующей фиче Phase D (EDR-0039).
 	default:
 		return nil, fmt.Errorf("%w: unknown assistant kind %q", ErrInvalid, kind)
 	}

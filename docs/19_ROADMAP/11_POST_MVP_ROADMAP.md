@@ -76,7 +76,15 @@ Engineering Assistant: `engineeringExpert` в `internal/application/assistant/en
 `POST /api/v1/assistant/engineering` (auth), unit-тесты (соответствие/
 blocking) + транспортный тест.
 
-AI Manufacturing Assistant
+AI Manufacturing Assistant — **DONE 2026-08-15**: реализован D3, EDR-0038 —
+Manufacturing Assistant: `manufacturingExpert` в
+`internal/application/assistant/manufacturing.go` (анализ готовности по
+данным конвейера: порог утилизации листа 70%, отходы 25%, консолидация
+марок >2, пустой БОМ, доминирование машинного времени; rating
+0.4+util·0.6−0.15·warnings; blocking-ветка с Rating 0; подсказки по
+раскрою/материалам; ключевые метрики в Notes),
+`POST /api/v1/assistant/manufacturing` (auth), unit-тесты (готовность/
+низкая утилизация/blocking) + транспортный тест.
 
 AI Pricing Assistant
 

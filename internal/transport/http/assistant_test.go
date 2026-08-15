@@ -94,6 +94,31 @@ func TestAssistantEngineeringHandler(t *testing.T) {
 	}
 }
 
+func TestAssistantManufacturingHandler(t *testing.T) {
+	ast := &fakeAssistant{res: &appast.Result{
+		Kind: appast.KindManufacturing,
+		Response: appast.Response{
+			Recommendation: "Конфигурация готова к производству",
+			Rating:         1,
+		},
+		Commentary: "Раскрой полноценный.",
+	}}
+	router := assistantTestRouter(newFakeAuth(), ast)
+
+	body := `{"width_mm":900,"height_mm":2700,"flight":"straight"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/manufacturing", strings.NewReader(body))
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "token-1"})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if ast.kind != appast.KindManufacturing {
+		t.Fatalf("kind = %q, want manufacturing", ast.kind)
+	}
+}
+
 func TestAssistantUnauthorized(t *testing.T) {
 	router := assistantTestRouter(newFakeAuth(), &fakeAssistant{res: &appast.Result{}})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/design",
