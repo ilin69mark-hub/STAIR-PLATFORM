@@ -21,6 +21,8 @@ type IntegrationService interface {
 	SendQuote(ctx context.Context, tenantID, projectID string, payload []byte) (*integrations.Delivery, error)
 	// SyncProject ставит задание crm.project_sync для проекта (EDR-0024).
 	SyncProject(ctx context.Context, tenantID, projectID string, payload []byte) (*integrations.Delivery, error)
+	// SendManufacturingOrder ставит задание mes.order_send для проекта (EDR-0025).
+	SendManufacturingOrder(ctx context.Context, tenantID, projectID string, payload []byte) (*integrations.Delivery, error)
 }
 
 // ---- DTO ----
@@ -218,6 +220,131 @@ func handleProjectSync(projects ProjectService, svc IntegrationService) http.Han
 		d, err := svc.SyncProject(ctx, tenant, projectID, payload)
 		if errors.Is(err, integrations.ErrNoEndpoint) {
 			writeError(w, http.StatusUnprocessableEntity, "no_endpoint", "no crm endpoint configured")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			return
+		}
+		writeJSON(w, http.StatusAccepted, toDeliveryDTO(d))
+	}
+}
+
+// ---- MES order document (EDR-0025 §3.3) ----
+
+type mesPartDoc struct {
+	Number    string  `json:"number"`
+	Kind      string  `json:"kind"`
+	Material  string  `json:"material"`
+	Thickness float64 `json:"thickness_mm"`
+	Length    float64 `json:"length_mm"`
+	Width     float64 `json:"width_mm"`
+}
+
+type mesBOMLineDoc struct {
+	Number      int     `json:"line"`
+	PartNumber  string  `json:"part_number"`
+	Description string  `json:"description"`
+	Material    string  `json:"material"`
+	Thickness   float64 `json:"thickness_mm"`
+	Quantity    int     `json:"quantity"`
+	Length      float64 `json:"length_mm"`
+	Width       float64 `json:"width_mm"`
+}
+
+type mesCutItemDoc struct {
+	PartNumber string  `json:"part_number"`
+	Material   string  `json:"material"`
+	Thickness  float64 `json:"thickness_mm"`
+	Length     float64 `json:"length_mm"`
+	Width      float64 `json:"width_mm"`
+	Quantity   int     `json:"quantity"`
+}
+
+type mesNestingDoc struct {
+	Sheets      int     `json:"sheets"`
+	PartCount   int     `json:"part_count"`
+	Utilization float64 `json:"utilization"`
+}
+
+type mesOrderDocument struct {
+	ProjectID string          `json:"project_id"`
+	Parts     []mesPartDoc    `json:"parts"`
+	BOM       []mesBOMLineDoc `json:"bom"`
+	CutList   []mesCutItemDoc `json:"cut_list"`
+	Nesting   *mesNestingDoc  `json:"nesting,omitempty"`
+}
+
+// handleOrderSend — POST /api/v1/projects/{id}/order-send (auth, член проекта).
+// Передаёт производственный заказ в MES (EDR-0025 §3.5). 202 — событие
+// поставлено в очередь; 403 — нет прав; 404 — нет проекта/расчёта;
+// 422 — нет MES-эндпоинта (no_endpoint) или manufacturing package
+// (no_manufacturing).
+func handleOrderSend(projects ProjectService, svc IntegrationService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		projectID := r.PathValue("id")
+		ctx := r.Context()
+		user := userID(ctx)
+		tenant := tenantID(ctx)
+
+		calc, err := projects.GetResult(ctx, tenant, user, projectID)
+		if errors.Is(err, project.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "no calculation for project")
+			return
+		}
+		if errors.Is(err, project.ErrForbidden) {
+			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			return
+		}
+
+		var snap project.Snapshot
+		if err := json.Unmarshal(calc.Result, &snap); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			return
+		}
+		if snap.Manufacturing == nil {
+			writeError(w, http.StatusUnprocessableEntity, "no_manufacturing", "no manufacturing package for project")
+			return
+		}
+
+		doc := mesOrderDocument{ProjectID: projectID}
+		for _, part := range snap.Manufacturing.Parts {
+			doc.Parts = append(doc.Parts, mesPartDoc{
+				Number: string(part.Number), Kind: string(part.Kind), Material: string(part.Material),
+				Thickness: part.Thickness.Millimeters(), Length: part.Length.Millimeters(), Width: part.Width.Millimeters(),
+			})
+		}
+		for _, line := range snap.Manufacturing.BOM.Lines {
+			doc.BOM = append(doc.BOM, mesBOMLineDoc{
+				Number: line.Number, PartNumber: string(line.PartNumber), Description: line.Description,
+				Material: string(line.MaterialCode), Thickness: line.Thickness.Millimeters(),
+				Quantity: int(line.Quantity), Length: line.Length.Millimeters(), Width: line.Width.Millimeters(),
+			})
+		}
+		for _, item := range snap.Manufacturing.CutList.Items {
+			doc.CutList = append(doc.CutList, mesCutItemDoc{
+				PartNumber: string(item.PartNumber), Material: string(item.MaterialCode),
+				Thickness: item.Thickness.Millimeters(), Length: item.Length.Millimeters(),
+				Width: item.Width.Millimeters(), Quantity: int(item.Quantity),
+			})
+		}
+		if n := snap.Manufacturing.Nesting; n != nil {
+			doc.Nesting = &mesNestingDoc{Sheets: len(n.Sheets), PartCount: int(n.PartCount), Utilization: n.Utilization}
+		}
+
+		payload, err := json.Marshal(doc)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			return
+		}
+
+		d, err := svc.SendManufacturingOrder(ctx, tenant, projectID, payload)
+		if errors.Is(err, integrations.ErrNoEndpoint) {
+			writeError(w, http.StatusUnprocessableEntity, "no_endpoint", "no mes endpoint configured")
 			return
 		}
 		if err != nil {

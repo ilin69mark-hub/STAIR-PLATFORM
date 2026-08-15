@@ -236,6 +236,51 @@ func TestSyncProjectNoQueue(t *testing.T) {
 	}
 }
 
+func TestSendManufacturingOrderHappyPath(t *testing.T) {
+	svc, _, q := newTestService()
+	if _, err := svc.RegisterEndpoint(context.Background(), testTenant, "mes", "mes", "https://mes.example.com/hook", "s"); err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte(`{"project_id":"p-1","parts":[]}`)
+	d, err := svc.SendManufacturingOrder(context.Background(), testTenant, "p-1", payload)
+	if err != nil {
+		t.Fatalf("SendManufacturingOrder: %v", err)
+	}
+	if d.Status != StatusPending || d.EventType != EventTypeOrderSend || d.ProjectID != "p-1" {
+		t.Fatalf("unexpected delivery: %+v", d)
+	}
+	if len(q.jobs) != 1 || q.jobs[0].Type != queue.JobOrderSend {
+		t.Fatalf("expected one order_send job, got %+v", q.jobs)
+	}
+	var jp struct {
+		EventID string `json:"event_id"`
+	}
+	if err := json.Unmarshal(q.jobs[0].Payload, &jp); err != nil || jp.EventID != d.ID {
+		t.Fatalf("job payload mismatch: %+v", q.jobs[0].Payload)
+	}
+}
+
+func TestSendManufacturingOrderNoEndpoint(t *testing.T) {
+	svc, _, q := newTestService()
+	if _, err := svc.SendManufacturingOrder(context.Background(), testTenant, "p-1", []byte("{}")); !errors.Is(err, ErrNoEndpoint) {
+		t.Fatalf("err = %v, want ErrNoEndpoint", err)
+	}
+	if len(q.jobs) != 0 {
+		t.Fatal("no job should be enqueued without endpoint")
+	}
+}
+
+func TestSendManufacturingOrderNoQueue(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, nil)
+	if _, err := svc.RegisterEndpoint(context.Background(), testTenant, "mes", "mes", "https://mes.example.com", "s"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SendManufacturingOrder(context.Background(), testTenant, "p-1", []byte("{}")); err == nil {
+		t.Fatal("expected error without queue")
+	}
+}
+
 func TestDeleteEndpoint(t *testing.T) {
 	svc, _, _ := newTestService()
 	ep, _ := svc.RegisterEndpoint(context.Background(), testTenant, "erp", "erp", "https://erp.example.com", "s")

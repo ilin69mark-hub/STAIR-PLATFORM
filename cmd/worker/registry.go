@@ -54,7 +54,7 @@ func (r *registry) Handle(ctx context.Context, job queue.Job) error {
 		return r.cleanupSsoStates(ctx)
 	case queue.JobCleanupAudit:
 		return r.cleanupAudit(ctx)
-	case queue.JobQuoteSend, queue.JobProjectSync:
+	case queue.JobQuoteSend, queue.JobProjectSync, queue.JobOrderSend:
 		return r.deliverEvent(ctx, job)
 	default:
 		return fmt.Errorf("worker: unknown job type %q", job.Type)

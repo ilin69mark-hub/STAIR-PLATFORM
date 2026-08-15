@@ -320,3 +320,57 @@ func TestRegistryProjectSyncFailed(t *testing.T) {
 		t.Fatalf("expected failed status, got %+v", got)
 	}
 }
+
+func TestRegistryOrderSendDelivered(t *testing.T) {
+	r, svc, repo, s := quoteSender(t)
+	ep := &integrations.Endpoint{ID: "e3", Kind: integrations.KindMES, URL: "https://mes.example.com/hook", SecretEnc: "secret"}
+	if err := repo.CreateEndpoint(context.Background(), ep); err != nil {
+		t.Fatalf("create mes endpoint: %v", err)
+	}
+	d, err := svc.SendManufacturingOrder(context.Background(), "t-1", "p-1", []byte(`{"project_id":"p-1"}`))
+	if err != nil {
+		t.Fatalf("SendManufacturingOrder: %v", err)
+	}
+	job, err := queue.NewJob(queue.JobOrderSend, map[string]string{
+		"event_id": d.ID, "endpoint_id": ep.ID, "tenant_id": "t-1",
+	})
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	if err := r.Handle(context.Background(), job); err != nil {
+		t.Fatalf("Handle mes.order_send: %v", err)
+	}
+	got := repo.get(d.ID)
+	if got.Status != integrations.StatusDelivered || got.DeliveredAt == nil {
+		t.Fatalf("expected delivered, got %+v", got)
+	}
+	if len(s.urls) != 1 || s.urls[0] != "https://mes.example.com/hook" {
+		t.Fatalf("webhook not sent to mes endpoint: %+v", s.urls)
+	}
+}
+
+func TestRegistryOrderSendFailed(t *testing.T) {
+	r, svc, repo, s := quoteSender(t)
+	ep := &integrations.Endpoint{ID: "e3", Kind: integrations.KindMES, URL: "https://mes.example.com/hook", SecretEnc: "secret"}
+	if err := repo.CreateEndpoint(context.Background(), ep); err != nil {
+		t.Fatalf("create mes endpoint: %v", err)
+	}
+	d, err := svc.SendManufacturingOrder(context.Background(), "t-1", "p-1", []byte(`{}`))
+	if err != nil {
+		t.Fatalf("SendManufacturingOrder: %v", err)
+	}
+	s.fail = true
+	job, err := queue.NewJob(queue.JobOrderSend, map[string]string{
+		"event_id": d.ID, "endpoint_id": ep.ID, "tenant_id": "t-1",
+	})
+	if err != nil {
+		t.Fatalf("new job: %v", err)
+	}
+	if err := r.Handle(context.Background(), job); err == nil {
+		t.Fatal("expected error from failed webhook")
+	}
+	got := repo.get(d.ID)
+	if got.Status != integrations.StatusFailed || got.LastError == "" {
+		t.Fatalf("expected failed status, got %+v", got)
+	}
+}

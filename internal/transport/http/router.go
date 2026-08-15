@@ -91,6 +91,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		mux.Handle("DELETE /api/v1/integrations/endpoints/{id}", authProtected(handleDeleteEndpoint(integrations)))
 		mux.Handle("POST /api/v1/projects/{id}/quote-send", authProtected(handleQuoteSend(projects, integrations)))
 		mux.Handle("POST /api/v1/projects/{id}/crm-sync", authProtected(handleProjectSync(projects, integrations)))
+		mux.Handle("POST /api/v1/projects/{id}/order-send", authProtected(handleOrderSend(projects, integrations)))
 	}
 
 	mux.HandleFunc("GET /", handleNotFound)

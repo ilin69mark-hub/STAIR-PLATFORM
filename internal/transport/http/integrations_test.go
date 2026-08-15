@@ -13,6 +13,8 @@ import (
 	"stairplatform/internal/application/integrations"
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
+	"stairplatform/internal/domain/engineering"
+	"stairplatform/internal/domain/manufacturing"
 )
 
 // fakeIntegrationService — тестовая реализация IntegrationService.
@@ -75,6 +77,16 @@ func (f *fakeIntegrationService) SyncProject(_ context.Context, _, projectID str
 	}
 	d := &integrations.Delivery{ID: "del-2", EndpointID: "ep-crm", ProjectID: projectID,
 		EventType: integrations.EventTypeProjectSync, Status: integrations.StatusPending, Payload: payload}
+	f.sent = d
+	return d, nil
+}
+
+func (f *fakeIntegrationService) SendManufacturingOrder(_ context.Context, _, projectID string, payload []byte) (*integrations.Delivery, error) {
+	if f.sendErr != nil {
+		return nil, f.sendErr
+	}
+	d := &integrations.Delivery{ID: "del-3", EndpointID: "ep-mes", ProjectID: projectID,
+		EventType: integrations.EventTypeOrderSend, Status: integrations.StatusPending, Payload: payload}
 	f.sent = d
 	return d, nil
 }
@@ -252,6 +264,94 @@ func TestProjectSyncNoEndpoint(t *testing.T) {
 	i.sendErr = integrations.ErrNoEndpoint
 	router := testRouterWithIntegrations(projects, i)
 	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/crm-sync", "")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "no_endpoint") {
+		t.Fatalf("expected error code no_endpoint: %s", rec.Body.String())
+	}
+}
+
+func mesSnapshotResult(t *testing.T) []byte {
+	t.Helper()
+	snap := project.Snapshot{
+		ProjectID: "p-1",
+		Manufacturing: &manufacturing.ManufacturingPackage{
+			Parts: []manufacturing.Part{{
+				Number: "P-01", Kind: manufacturing.PartStringer, Material: "Q235",
+				Thickness: engineering.Length(3), Length: engineering.Length(3000), Width: engineering.Length(200),
+			}},
+			BOM: manufacturing.BOM{Lines: []manufacturing.BOMLine{{
+				Number: 1, PartNumber: "P-01", Description: "Косоур", MaterialCode: "Q235",
+				Thickness: engineering.Length(3), Quantity: 1, Length: engineering.Length(3000), Width: engineering.Length(200),
+			}}},
+			CutList: manufacturing.CutList{Items: []manufacturing.CutItem{{
+				PartNumber: "P-01", MaterialCode: "Q235", Thickness: engineering.Length(3),
+				Length: engineering.Length(3000), Width: engineering.Length(200), Quantity: 1,
+			}}},
+			Nesting: &manufacturing.NestingResult{Sheets: []manufacturing.SheetLayout{{}}, PartCount: 1, Utilization: 0.5},
+		},
+	}
+	raw, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatalf("marshal snapshot: %v", err)
+	}
+	return raw
+}
+
+func TestOrderSend(t *testing.T) {
+	i, projects := integrationsTestSetup()
+	projects.calc = &project.Calculation{ID: "c-1", ProjectID: "p-1", Result: mesSnapshotResult(t)}
+	router := testRouterWithIntegrations(projects, i)
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/order-send", "")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var out deliveryDTO
+	if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.ID != "del-3" || out.EventType != "mes.order_send" {
+		t.Fatalf("unexpected delivery DTO: %+v", out)
+	}
+	var doc mesOrderDocument
+	if err := json.Unmarshal(i.sent.Payload, &doc); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if doc.ProjectID != "p-1" || len(doc.Parts) != 1 || doc.Parts[0].Number != "P-01" {
+		t.Fatalf("unexpected MES document: %+v", doc)
+	}
+	if len(doc.BOM) != 1 || len(doc.CutList) != 1 || doc.Nesting == nil || doc.Nesting.PartCount != 1 {
+		t.Fatalf("unexpected MES document: %+v", doc)
+	}
+}
+
+func TestOrderSendNoManufacturing(t *testing.T) {
+	i, projects := integrationsTestSetup()
+	projects.calc = &project.Calculation{ID: "c-1", ProjectID: "p-1",
+		Result: []byte(`{"project_id":"p-1","manufacturing":null}`)}
+	router := testRouterWithIntegrations(projects, i)
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/order-send", "")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "no_manufacturing") {
+		t.Fatalf("expected error code no_manufacturing: %s", rec.Body.String())
+	}
+}
+
+func TestOrderSendNoEndpoint(t *testing.T) {
+	i, projects := integrationsTestSetup()
+	projects.calc = &project.Calculation{ID: "c-1", ProjectID: "p-1", Result: mesSnapshotResult(t)}
+	i.sendErr = integrations.ErrNoEndpoint
+	router := testRouterWithIntegrations(projects, i)
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/order-send", "")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnprocessableEntity {

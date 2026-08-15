@@ -100,7 +100,14 @@ description, status, owner_id, created/updated_at), эндпоинт
 (диспетчер реестра выведен на обе ветки), unit/worker/transport-тесты.
 Без новой миграции (таблицы 000014 поддерживают kind=crm).
 
-Manufacturing
+Manufacturing — **DONE 2026-08-15**: реализовано E4, EDR-0025 — передача
+производственного заказа в MES на webhook-каркасе E2/E3 (kind `mes`):
+событие `mes.order_send` (канонический документ заказа: parts/bom/cut_list/
+nesting в snake_case), эндпоинт `POST /api/v1/projects/{id}/order-send`
+(owner/editor, 202/403/404/422 no_endpoint/no_manufacturing), сервисный
+`SendManufacturingOrder` через общий `enqueue`, доставка через общий
+`deliverEvent` (JobOrderSend на ту же ветку), unit/worker/transport-тесты.
+Без новой миграции.
 
 Storage
 

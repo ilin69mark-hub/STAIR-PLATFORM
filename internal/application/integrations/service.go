@@ -90,6 +90,14 @@ func (s *Service) SyncProject(ctx context.Context, tenantID, projectID string, p
 	return s.enqueue(ctx, tenantID, projectID, KindCRM, EventTypeProjectSync, payload)
 }
 
+// SendManufacturingOrder ставит задание mes.order_send для проекта
+// (EDR-0025 §3.2): создаёт событие доставки (status=pending) и enqueue
+// задания в TaskQueue. payload — канонический документ производственного
+// заказа (EDR-0025 §3.3).
+func (s *Service) SendManufacturingOrder(ctx context.Context, tenantID, projectID string, payload []byte) (*Delivery, error) {
+	return s.enqueue(ctx, tenantID, projectID, KindMES, EventTypeOrderSend, payload)
+}
+
 // enqueue — общая постановка события доставки в очередь (EDR-0024 §3.2):
 // находит единственный активный эндпоинт нужного kind, создаёт событие
 // (pending) и ставит задание {event_id, endpoint_id, tenant_id}.

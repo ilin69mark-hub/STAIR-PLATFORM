@@ -25,6 +25,9 @@ const (
 	// JobProjectSync — синхронизация проекта в CRM (EDR-0024).
 	// Payload: {event_id, endpoint_id}.
 	JobProjectSync = "crm.project_sync"
+	// JobOrderSend — передача производственного заказа в MES (EDR-0025).
+	// Payload: {event_id, endpoint_id}.
+	JobOrderSend = "mes.order_send"
 )
 
 // DefaultMaxAttempts — предел попыток задания перед окончательным отказом.

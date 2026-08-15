@@ -29,6 +29,7 @@ var validKinds = map[Kind]bool{KindERP: true, KindCRM: true, KindMES: true, Kind
 const (
 	EventTypeQuoteSend   = "erp.quote_send"
 	EventTypeProjectSync = "crm.project_sync" // EDR-0024
+	EventTypeOrderSend   = "mes.order_send"   // EDR-0025
 )
 
 // Status — статус события доставки (EDR-0023 §3.3).
