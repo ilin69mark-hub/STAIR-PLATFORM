@@ -9,6 +9,7 @@ import {
   type AdminPolicy,
   type AdminUser,
   type ApiKey,
+  type ProjectReport,
   type UsageReport,
 } from '../api/types'
 
@@ -66,12 +67,43 @@ const usage: UsageReport = {
   ],
 }
 
+const projects: ProjectReport = {
+  from: '2026-07-16',
+  to: '2026-08-15',
+  totals: {
+    projects: 2,
+    projects_created: 1,
+    by_status: { draft: 1, approved: 1 },
+    projects_with_calculation: 1,
+    valid_projects: 1,
+    configurations: 2,
+    calculations: 1,
+    comments: 3,
+  },
+  projects: [
+    {
+      id: 'p-1',
+      name: 'Approved project',
+      status: 'approved',
+      owner_email: 'owner@example.com',
+      created_at: '2026-08-01T00:00:00Z',
+      updated_at: '2026-08-10T00:00:00Z',
+      configurations: 2,
+      calculations: 1,
+      latest_calculation_valid: true,
+      comments: 3,
+      members: 2,
+    },
+  ],
+}
+
 function mockApi() {
   vi.spyOn(adminApi, 'overview').mockResolvedValue(overview)
   vi.spyOn(adminApi, 'listUsers').mockResolvedValue(users)
   vi.spyOn(adminApi, 'getSettings').mockResolvedValue(policy)
   vi.spyOn(adminApi, 'listApiKeys').mockResolvedValue(keys)
   vi.spyOn(analyticsApi, 'usage').mockResolvedValue(usage)
+  vi.spyOn(analyticsApi, 'projects').mockResolvedValue(projects)
 }
 
 afterEach(() => {
@@ -97,6 +129,7 @@ describe('AdminPanel', () => {
   it('показывает ошибку API', async () => {
     vi.spyOn(adminApi, 'overview').mockRejectedValue(new ApiError(403, 'forbidden', 'Нет доступа'))
     vi.spyOn(analyticsApi, 'usage').mockResolvedValue(usage)
+    vi.spyOn(analyticsApi, 'projects').mockResolvedValue(projects)
     render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
     expect(await screen.findByText('Нет доступа')).toBeInTheDocument()
   })
@@ -221,8 +254,28 @@ describe('AdminPanel', () => {
     vi.spyOn(analyticsApi, 'usage').mockRejectedValue(
       new ApiError(403, 'forbidden', 'Нет права analytics.read'),
     )
+    vi.spyOn(analyticsApi, 'projects').mockResolvedValue(projects)
     render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
 
     expect(await screen.findByText('Нет права analytics.read')).toBeInTheDocument()
+  })
+
+  it('показывает сводку по проектам', async () => {
+    mockApi()
+    const projectsMock = vi.spyOn(analyticsApi, 'projects').mockResolvedValue(projects)
+    render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
+
+    expect(await screen.findByText('Проекты (в окне)')).toBeInTheDocument()
+    // Агрегаты: 2 проекта, 1 черновик, 1 утверждён.
+    expect(screen.getByText('2 (1)')).toBeInTheDocument()
+    expect(screen.getAllByText('1 / 1').length).toBeGreaterThan(0)
+    // Таблица: проект Approved project, последний расчёт валиден.
+    expect(screen.getByText('Approved project')).toBeInTheDocument()
+    expect(screen.getByText('валиден')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(projectsMock).toHaveBeenCalledWith(
+        expect.objectContaining({ from: '2026-07-16', to: '2026-08-15' }),
+      ),
+    )
   })
 })

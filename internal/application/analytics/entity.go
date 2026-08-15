@@ -87,4 +87,45 @@ type Repository interface {
 	// UsageSeries возвращает непрерывный ряд счётчиков по бакетам
 	// гранулярности g в окне [from, to] (пустые бакеты заполнены нулями).
 	UsageSeries(ctx context.Context, tenantID string, from, to time.Time, g Granularity) ([]UsagePoint, error)
+	// ProjectTotals возвращает агрегаты по проектам tenant за окно [from, to].
+	ProjectTotals(ctx context.Context, tenantID string, from, to time.Time) (ProjectTotals, error)
+	// ProjectList возвращает сводку по каждому проекту tenant.
+	ProjectList(ctx context.Context, tenantID string) ([]ProjectRow, error)
+}
+
+// ProjectRow — сводка по одному проекту tenant (EDR-0029 §3.1).
+type ProjectRow struct {
+	ID             string
+	Name           string
+	Status         string
+	OwnerEmail     string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	Configurations int
+	Calculations   int
+	// LatestCalculationValid — валидность последнего расчёта; nil, если
+	// у проекта нет ни одного расчёта.
+	LatestCalculationValid *bool
+	Comments               int
+	Members                int
+}
+
+// ProjectTotals — агрегаты по проектам tenant (EDR-0029 §3.1).
+type ProjectTotals struct {
+	Projects                int
+	ProjectsCreated         int
+	ByStatus                map[string]int
+	ProjectsWithCalculation int
+	ValidProjects           int
+	Configurations          int
+	Calculations            int
+	Comments                int
+}
+
+// ProjectReport — полный ответ Project Analytics: агрегаты + сводки.
+type ProjectReport struct {
+	From     time.Time
+	To       time.Time
+	Totals   ProjectTotals
+	Projects []ProjectRow
 }

@@ -181,6 +181,38 @@ export interface UsageReport {
   series: UsagePoint[]
 }
 
+export interface ProjectRow {
+  id: string
+  name: string
+  status: string
+  owner_email: string
+  created_at: string
+  updated_at: string
+  configurations: number
+  calculations: number
+  latest_calculation_valid: boolean | null
+  comments: number
+  members: number
+}
+
+export interface ProjectTotals {
+  projects: number
+  projects_created: number
+  by_status: Record<string, number>
+  projects_with_calculation: number
+  valid_projects: number
+  configurations: number
+  calculations: number
+  comments: number
+}
+
+export interface ProjectReport {
+  from: string
+  to: string
+  totals: ProjectTotals
+  projects: ProjectRow[]
+}
+
 // ---- Аудит (Phase G, EDR-0013): журнал событий безопасности ----
 
 export interface AuditEvent {

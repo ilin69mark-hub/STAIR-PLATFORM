@@ -47,3 +47,29 @@ func (s *Service) Usage(ctx context.Context, tenantID string, from, to time.Time
 		Series:      series,
 	}, nil
 }
+
+// Projects возвращает Project Analytics: агрегаты tenant за окно
+// [from, to] и сводку по каждому проекту (EDR-0029 §3.2). from/to
+// приведены к UTC; если to раньше from — ErrInvalidRange.
+func (s *Service) Projects(ctx context.Context, tenantID string, from, to time.Time) (*ProjectReport, error) {
+	if from.IsZero() || to.IsZero() || to.Before(from) {
+		return nil, ErrInvalidRange
+	}
+	from = from.UTC()
+	to = to.UTC()
+
+	totals, err := s.repo.ProjectTotals(ctx, tenantID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("analytics: project totals: %w", err)
+	}
+	rows, err := s.repo.ProjectList(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("analytics: project list: %w", err)
+	}
+	return &ProjectReport{
+		From:     from,
+		To:       to,
+		Totals:   totals,
+		Projects: rows,
+	}, nil
+}

@@ -137,3 +137,94 @@ func (r *AnalyticsRepository) UsageSeries(ctx context.Context, tenantID string, 
 	}
 	return out, nil
 }
+
+// ProjectTotals возвращает агрегаты по проектам tenant за окно [from, to]
+// (EDR-0029 §3.3): подзапросы в одной строке + распределение по статусам.
+func (r *AnalyticsRepository) ProjectTotals(ctx context.Context, tenantID string, from, to time.Time) (analytics.ProjectTotals, error) {
+	var t analytics.ProjectTotals
+	err := r.pool.QueryRow(ctx,
+		`SELECT
+			(SELECT COUNT(*) FROM projects WHERE tenant_id = $1) AS projects,
+			(SELECT COUNT(*) FROM projects WHERE tenant_id = $1 AND created_at BETWEEN $2 AND $3) AS created,
+			(SELECT COUNT(DISTINCT p.id) FROM projects p JOIN calculations c ON c.project_id = p.id
+			  WHERE p.tenant_id = $1) AS with_calc,
+			(SELECT COUNT(*) FROM (
+			  SELECT DISTINCT ON (c.project_id) c.project_id, c.valid
+			  FROM calculations c JOIN projects p ON p.id = c.project_id
+			  WHERE p.tenant_id = $1
+			  ORDER BY c.project_id, c.created_at DESC
+			) latest WHERE latest.valid) AS valid_projects,
+			(SELECT COUNT(*) FROM stair_configurations sc JOIN projects p ON p.id = sc.project_id
+			  WHERE p.tenant_id = $1) AS configurations,
+			(SELECT COUNT(*) FROM calculations c JOIN projects p ON p.id = c.project_id
+			  WHERE p.tenant_id = $1) AS calculations,
+			(SELECT COUNT(*) FROM project_comments pc JOIN projects p ON p.id = pc.project_id
+			  WHERE p.tenant_id = $1) AS comments`,
+		tenantID, from, to,
+	).Scan(&t.Projects, &t.ProjectsCreated, &t.ProjectsWithCalculation,
+		&t.ValidProjects, &t.Configurations, &t.Calculations, &t.Comments)
+	if err != nil {
+		return analytics.ProjectTotals{}, fmt.Errorf("analytics: project totals: %w", err)
+	}
+
+	t.ByStatus = make(map[string]int)
+	statusRows, err := r.pool.Query(ctx,
+		`SELECT status, COUNT(*) FROM projects WHERE tenant_id = $1 GROUP BY status`,
+		tenantID)
+	if err != nil {
+		return analytics.ProjectTotals{}, fmt.Errorf("analytics: project totals by_status: %w", err)
+	}
+	defer statusRows.Close()
+	for statusRows.Next() {
+		var st string
+		var n int
+		if err := statusRows.Scan(&st, &n); err != nil {
+			return analytics.ProjectTotals{}, fmt.Errorf("analytics: project totals by_status scan: %w", err)
+		}
+		t.ByStatus[st] = n
+	}
+	if err := statusRows.Err(); err != nil {
+		return analytics.ProjectTotals{}, fmt.Errorf("analytics: project totals by_status rows: %w", err)
+	}
+	return t, nil
+}
+
+// ProjectList возвращает сводку по каждому проекту tenant (EDR-0029 §3.3).
+// Агрегаты — подзапросы на строку; сортировка по updated_at DESC.
+func (r *AnalyticsRepository) ProjectList(ctx context.Context, tenantID string) ([]analytics.ProjectRow, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT p.id, p.name, p.status, COALESCE(u.email, ''),
+			p.created_at, p.updated_at,
+			(SELECT COUNT(*) FROM stair_configurations sc WHERE sc.project_id = p.id) AS configs,
+			(SELECT COUNT(*) FROM calculations c WHERE c.project_id = p.id) AS calcs,
+			(SELECT c.valid FROM calculations c WHERE c.project_id = p.id
+			  ORDER BY c.created_at DESC LIMIT 1) AS latest_valid,
+			(SELECT COUNT(*) FROM project_comments pc WHERE pc.project_id = p.id) AS comments,
+			(SELECT COUNT(*) FROM project_members pm WHERE pm.project_id = p.id) AS members
+		FROM projects p
+		LEFT JOIN users u ON u.id = p.owner_id
+		WHERE p.tenant_id = $1
+		ORDER BY p.updated_at DESC`,
+		tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("analytics: project list: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]analytics.ProjectRow, 0)
+	for rows.Next() {
+		var r analytics.ProjectRow
+		var latestValid *bool
+		if err := rows.Scan(&r.ID, &r.Name, &r.Status, &r.OwnerEmail,
+			&r.CreatedAt, &r.UpdatedAt, &r.Configurations, &r.Calculations,
+			&latestValid, &r.Comments, &r.Members); err != nil {
+			return nil, fmt.Errorf("analytics: project list scan: %w", err)
+		}
+		r.LatestCalculationValid = latestValid
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("analytics: project list rows: %w", err)
+	}
+	return out, nil
+}

@@ -2,7 +2,7 @@
 // Все эндпоинты требуют admin + право analytics.read.
 
 import { get } from './client'
-import type { UsageReport } from './types'
+import type { ProjectReport, UsageReport } from './types'
 
 export interface UsageQuery {
   from?: string
@@ -10,13 +10,24 @@ export interface UsageQuery {
   granularity?: 'day' | 'week' | 'month'
 }
 
+export interface RangeQuery {
+  from?: string
+  to?: string
+}
+
+function qs(params: object): string {
+  const url = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (v) url.set(k, String(v))
+  }
+  const s = url.toString()
+  return s ? `?${s}` : ''
+}
+
 export const analyticsApi = {
-  usage: (query: UsageQuery = {}) => {
-    const params = new URLSearchParams()
-    if (query.from) params.set('from', query.from)
-    if (query.to) params.set('to', query.to)
-    if (query.granularity) params.set('granularity', query.granularity)
-    const qs = params.toString()
-    return get<UsageReport>(`/api/v1/admin/analytics/usage${qs ? `?${qs}` : ''}`)
-  },
+  usage: (query: UsageQuery = {}) =>
+    get<UsageReport>(`/api/v1/admin/analytics/usage${qs(query)}`),
+
+  projects: (query: RangeQuery = {}) =>
+    get<ProjectReport>(`/api/v1/admin/analytics/projects${qs(query)}`),
 }

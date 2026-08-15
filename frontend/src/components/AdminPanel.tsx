@@ -6,6 +6,7 @@ import type {
   AdminPolicy,
   AdminUser,
   ApiKey,
+  ProjectReport,
   UsageGranularity,
   UsageReport,
 } from '../api/types'
@@ -44,6 +45,9 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
   const [usageGranularity, setUsageGranularity] = useState<UsageGranularity>('day')
   const [usageLoading, setUsageLoading] = useState(false)
 
+  const [projects, setProjects] = useState<ProjectReport | null>(null)
+  const [projectsLoading, setProjectsLoading] = useState(false)
+
   const loadUsage = useCallback(async (granularity: UsageGranularity) => {
     setUsageLoading(true)
     try {
@@ -59,6 +63,23 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
       setError(e instanceof ApiError ? e.message : 'Не удалось загрузить аналитику')
     } finally {
       setUsageLoading(false)
+    }
+  }, [])
+
+  const loadProjects = useCallback(async () => {
+    setProjectsLoading(true)
+    try {
+      const now = new Date()
+      const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+      const rep = await analyticsApi.projects({
+        from: from.toISOString().slice(0, 10),
+        to: now.toISOString().slice(0, 10),
+      })
+      setProjects(rep)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Не удалось загрузить аналитику проектов')
+    } finally {
+      setProjectsLoading(false)
     }
   }, [])
 
@@ -86,7 +107,8 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
   useEffect(() => {
     void load()
     void loadUsage('day')
-  }, [load, loadUsage])
+    void loadProjects()
+  }, [load, loadUsage, loadProjects])
 
   const clearNotice = () => setNotice(null)
 
@@ -421,6 +443,81 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
                         <td>{p.calculations}</td>
                         <td>{p.exports}</td>
                         <td>{p.payments}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            ) : null}
+          </section>
+
+          <section className="panel">
+            <h2 className="panel__title">Проекты</h2>
+            <p className="muted">Сводка по проектам tenant (EDR-0029).</p>
+            {projectsLoading ? (
+              <p className="muted">Загрузка…</p>
+            ) : projects ? (
+              <>
+                <dl className="kv">
+                  <div>
+                    <dt>Проекты (в окне)</dt>
+                    <dd>
+                      {projects.totals.projects} ({projects.totals.projects_created})
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Статусы</dt>
+                    <dd>
+                      {projects.totals.by_status.draft ?? 0} черновиков ·{' '}
+                      {projects.totals.by_status.in_review ?? 0} на ревью ·{' '}
+                      {projects.totals.by_status.approved ?? 0} утверждено
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>С расчётом / валидных</dt>
+                    <dd>
+                      {projects.totals.projects_with_calculation} / {projects.totals.valid_projects}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Конфигурации / расчёты / комментарии</dt>
+                    <dd>
+                      {projects.totals.configurations} / {projects.totals.calculations} /{' '}
+                      {projects.totals.comments}
+                    </dd>
+                  </div>
+                </dl>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Проект</th>
+                      <th>Статус</th>
+                      <th>Конфигурации</th>
+                      <th>Расчёты</th>
+                      <th>Последний расчёт</th>
+                      <th>Комментарии</th>
+                      <th>Участники</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {projects.projects.map((p) => (
+                      <tr key={p.id}>
+                        <td>
+                          <strong>{p.name}</strong>
+                          <span className="muted"> · {p.status}</span>
+                        </td>
+                        <td>{p.status}</td>
+                        <td>{p.configurations}</td>
+                        <td>{p.calculations}</td>
+                        <td>
+                          {p.latest_calculation_valid === null
+                            ? '—'
+                            : p.latest_calculation_valid
+                              ? 'валиден'
+                              : 'ошибки'}
+                        </td>
+                        <td>{p.comments}</td>
+                        <td>{p.members}</td>
                       </tr>
                     ))}
                   </tbody>
