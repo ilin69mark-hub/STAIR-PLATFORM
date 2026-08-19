@@ -33,19 +33,19 @@ func handleAssistantAsk(svc AssistantService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		kind := appast.Kind(r.PathValue("kind"))
 		if !kind.Valid() {
-			writeError(w, http.StatusNotFound, "not_found", "unknown assistant kind")
+			writeError(w, http.StatusNotFound, "not_found", "Неизвестный тип ассистента")
 			return
 		}
 
 		var req assistantRequest
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
 
 		cfg, err := toConfig(req.calculateRequest)
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
+			writeInputError(w, "invalid_input", err)
 			return
 		}
 
@@ -63,7 +63,7 @@ func handleAssistantAsk(svc AssistantService) http.HandlerFunc {
 		case appast.KindEngineering, appast.KindManufacturing, appast.KindPricing:
 			opts, oerr := toOptions(req.calculateRequest)
 			if oerr != nil {
-				writeError(w, http.StatusUnprocessableEntity, "invalid_rates", oerr.Error())
+				writeInputError(w, "invalid_rates", oerr)
 				return
 			}
 			areq = appast.AnalysisRequest{
@@ -75,10 +75,10 @@ func handleAssistantAsk(svc AssistantService) http.HandlerFunc {
 		res, err := svc.Ask(r.Context(), tenantID(r.Context()), userID(r.Context()), kind, areq)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				writeError(w, 499, "cancelled", "operation cancelled")
+				writeError(w, 499, "cancelled", "Операция отменена")
 				return
 			}
-			writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
+			writeInputError(w, "invalid_input", err)
 			return
 		}
 

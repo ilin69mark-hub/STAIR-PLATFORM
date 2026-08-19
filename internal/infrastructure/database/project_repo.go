@@ -252,13 +252,13 @@ func (r *ProjectRepository) RemoveMember(ctx context.Context, tenantID, projectI
 }
 
 const configCols = `id, project_id, revision, width_mm, height_mm, flight, step_height_mm,
-	stringer_thickness_mm, step_thickness_mm, clearance_mm, railing_height_mm,
+	stringer_thickness_mm, step_thickness_mm, riser, clearance_mm, railing_height_mm,
 	comfort_step_mm, landing_width_mm, lower_step_count, outer_radius_mm, created_at, updated_at`
 
 func scanConfig(row pgx.Row) (*project.StairConfiguration, error) {
 	var c project.StairConfiguration
 	if err := row.Scan(&c.ID, &c.ProjectID, &c.Revision, &c.WidthMM, &c.HeightMM, &c.Flight,
-		&c.StepHeightMM, &c.StringerThicknessMM, &c.StepThicknessMM, &c.ClearanceMM,
+		&c.StepHeightMM, &c.StringerThicknessMM, &c.StepThicknessMM, &c.Riser, &c.ClearanceMM,
 		&c.RailingHeightMM, &c.ComfortStepMM, &c.LandingWidthMM, &c.LowerStepCount,
 		&c.OuterRadiusMM, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return nil, err
@@ -269,13 +269,13 @@ func scanConfig(row pgx.Row) (*project.StairConfiguration, error) {
 func (r *ProjectRepository) SaveConfiguration(ctx context.Context, c *project.StairConfiguration) error {
 	if err := r.pool.QueryRow(ctx,
 		`INSERT INTO stair_configurations (project_id, width_mm, height_mm, flight,
-			step_height_mm, stringer_thickness_mm, step_thickness_mm, clearance_mm,
+			step_height_mm, stringer_thickness_mm, step_thickness_mm, riser, clearance_mm,
 			railing_height_mm, comfort_step_mm, landing_width_mm, lower_step_count, outer_radius_mm, revision)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
 		   (SELECT COALESCE(MAX(s.revision),0)+1 FROM stair_configurations s WHERE s.project_id = $1))
 		 RETURNING id, created_at, updated_at, revision`,
 		c.ProjectID, c.WidthMM, c.HeightMM, c.Flight, c.StepHeightMM,
-		c.StringerThicknessMM, c.StepThicknessMM, c.ClearanceMM, c.RailingHeightMM,
+		c.StringerThicknessMM, c.StepThicknessMM, c.Riser, c.ClearanceMM, c.RailingHeightMM,
 		c.ComfortStepMM, c.LandingWidthMM, c.LowerStepCount, c.OuterRadiusMM,
 	).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt, &c.Revision); err != nil {
 		return fmt.Errorf("project: save config: %w", err)
@@ -419,13 +419,13 @@ func (r *ProjectRepository) SaveCalculationWithConfig(ctx context.Context, tenan
 
 	if err := tx.QueryRow(ctx,
 		`INSERT INTO stair_configurations (project_id, width_mm, height_mm, flight,
-			step_height_mm, stringer_thickness_mm, step_thickness_mm, clearance_mm,
+			step_height_mm, stringer_thickness_mm, step_thickness_mm, riser, clearance_mm,
 			railing_height_mm, comfort_step_mm, landing_width_mm, lower_step_count, outer_radius_mm, revision)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
 		   (SELECT COALESCE(MAX(s.revision),0)+1 FROM stair_configurations s WHERE s.project_id = $1))
 		 RETURNING id, created_at, updated_at, revision`,
 		cfg.ProjectID, cfg.WidthMM, cfg.HeightMM, cfg.Flight, cfg.StepHeightMM,
-		cfg.StringerThicknessMM, cfg.StepThicknessMM, cfg.ClearanceMM, cfg.RailingHeightMM,
+		cfg.StringerThicknessMM, cfg.StepThicknessMM, cfg.Riser, cfg.ClearanceMM, cfg.RailingHeightMM,
 		cfg.ComfortStepMM, cfg.LandingWidthMM, cfg.LowerStepCount, cfg.OuterRadiusMM,
 	).Scan(&cfg.ID, &cfg.CreatedAt, &cfg.UpdatedAt, &cfg.Revision); err != nil {
 		return nil, fmt.Errorf("project: save config: %w", err)

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import './App.css'
 import { projectsApi } from './api/projects'
-import type { Project } from './api/types'
+import type { Project } from '@shared/types'
 import { ProjectList } from './components/ProjectList'
 import { ProjectDetail } from './components/ProjectDetail'
 import { AdminPanel } from './components/AdminPanel'
 import { AuthPage } from './components/AuthPage'
 import { useAuth } from './auth/context'
-import { ApiError } from './api/types'
+import { ApiError } from '@shared/types'
 
 function App() {
   const { user, loading, logout } = useAuth()

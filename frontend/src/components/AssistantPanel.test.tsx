@@ -2,8 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AssistantPanel } from './AssistantPanel'
 import { projectsApi } from '../api/projects'
-import { ApiError, type AssistantResult } from '../api/types'
-import { defaultConfig, defaultRates } from '../lib/config'
+import { ApiError, type AssistantResult } from '@shared/types'
+import { defaultConfig, defaultRates } from '@shared/config'
 
 const makeResult = (overrides: Partial<AssistantResult> = {}): AssistantResult => ({
   kind: 'design',

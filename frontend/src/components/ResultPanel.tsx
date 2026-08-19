@@ -1,12 +1,14 @@
-import { lazy, Suspense } from 'react'
-import type { Pricing, Snapshot } from '../api/types'
-import { fmt } from '../lib/format'
+import { lazy, Suspense, useState } from 'react'
+import type { Pricing, Snapshot } from '@shared/types'
+import { fmt } from '@shared/format'
 import { exportCsv } from '../lib/export'
-import { StairProfile } from './schemes/StairProfile'
-import { NestingMap } from './schemes/NestingMap'
+import { StairProfile } from '@shared/schemes/StairProfile'
+import { StairPlan } from '@shared/schemes/StairPlan'
+import { NestingMap } from '@shared/schemes/NestingMap'
+import { schematicOf } from './snapshotView'
 
 const GeometryViewer = lazy(() =>
-  import('./viewer/GeometryViewer').then((m) => ({ default: m.GeometryViewer })),
+  import('@shared/viewer/GeometryViewer').then((m) => ({ default: m.GeometryViewer })),
 )
 
 interface Props {
@@ -52,6 +54,54 @@ export function ResultPanel({ snapshot }: Props) {
   )
 }
 
+// SolverDrawings — чертёжная секция результата Solver: вкладки «Профиль»
+// (боковой вид), «План» (вид сверху, все типы маршей) и «3D» (меш, если есть).
+function SolverDrawings({ snapshot }: { snapshot: Snapshot }) {
+  const [tab, setTab] = useState<'profile' | 'plan' | 'threed'>('profile')
+  const sch = schematicOf(snapshot)
+  if (!sch) return null
+
+  return (
+    <div className="draw">
+      <div className="draw__tabs" role="tablist">
+        {(
+          [
+            ['profile', 'Профиль'],
+            ['plan', 'План'],
+            ['threed', '3D'],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            className={`draw__tab${tab === key ? ' draw__tab--active' : ''}`}
+            onClick={() => setTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === 'profile' && (
+        <StairProfile flight={sch.flight} />
+      )}
+      {tab === 'plan' && (
+        <StairPlan flight={sch.flight} kind={sch.kind} solver={sch.solver} />
+      )}
+      {tab === 'threed' && (
+        snapshot.mesh ? (
+          <Suspense fallback={<p className="muted">Загрузка 3D…</p>}>
+            <GeometryViewer mesh={snapshot.mesh} />
+          </Suspense>
+        ) : (
+          <p className="muted">Модель 3D недоступна для этого снапшота.</p>
+        )
+      )}
+    </div>
+  )
+}
+
 function ValidationPanel({ issues }: { issues: Snapshot['validation']['Issues'] }) {
   if (!issues || issues.length === 0) {
     return (
@@ -71,6 +121,7 @@ function ValidationPanel({ issues }: { issues: Snapshot['validation']['Issues'] 
             <th>Severity</th>
             <th>Элемент</th>
             <th>Сообщение</th>
+            <th>Что поправить</th>
             <th>Рекомендация</th>
           </tr>
         </thead>
@@ -80,12 +131,30 @@ function ValidationPanel({ issues }: { issues: Snapshot['validation']['Issues'] 
               <td>{i.Code}</td>
               <td>{i.Severity}</td>
               <td>{i.Element}</td>
-              <td>{i.Message}</td>
+              <td>{i.Guide ?? i.Message}</td>
+              <td>{i.Param ?? '—'}</td>
               <td>{i.Fix ?? '—'}</td>
             </tr>
           ))}
         </tbody>
       </table>
+      {issues.some((i) => i.Suggestions && i.Suggestions.length > 0) && (
+        <h3 className="panel__sub">Подходящие варианты конфигурации</h3>
+      )}
+      {issues
+        .filter((i) => i.Suggestions && i.Suggestions.length > 0)
+        .map((i, idx) => (
+          <div className="issue-suggestions" key={idx}>
+            {i.Suggestions!.map((s, si) => (
+              <div className="suggestion" key={si}>
+                <span>
+                  {s.StepCount} ступ. · h {fmt.mm(s.StepHeightMm)} · проступь{' '}
+                  {fmt.mm(s.TreadDepthMm)} · угол {s.AngleDeg.toFixed(1)}°
+                </span>
+              </div>
+            ))}
+          </div>
+        ))}
     </section>
   )
 }
@@ -121,7 +190,7 @@ function FlightPanel({ snapshot }: { snapshot: Snapshot }) {
           <dd>{fmt.deg(f.Angle)}</dd>
         </div>
       </dl>
-      <StairProfile flight={f} />
+      <SolverDrawings snapshot={snapshot} />
     </section>
   )
 }
@@ -181,10 +250,10 @@ function LShapePanel({ snapshot }: { snapshot: Snapshot }) {
           <dd>{fmt.mm(l.UpperHeight)}</dd>
         </div>
       </dl>
+      <SolverDrawings snapshot={snapshot} />
     </section>
   )
 }
-
 // UShapePanel — результат Solver П-образной лестницы (EDR-0006):
 // два параллельных марша, площадка между ними на высоте H1.
 function UShapePanel({ snapshot }: { snapshot: Snapshot }) {
@@ -240,6 +309,7 @@ function UShapePanel({ snapshot }: { snapshot: Snapshot }) {
           <dd>{fmt.mm(u.UpperHeight)}</dd>
         </div>
       </dl>
+      <SolverDrawings snapshot={snapshot} />
     </section>
   )
 }
@@ -297,6 +367,7 @@ function SpiralPanel({ snapshot }: { snapshot: Snapshot }) {
           <dd>{fmt.mm(sp.ComfortStep)}</dd>
         </div>
       </dl>
+      <SolverDrawings snapshot={snapshot} />
     </section>
   )
 }
@@ -308,16 +379,16 @@ function GeometryPanel({ snapshot }: { snapshot: Snapshot }) {
       <h2 className="panel__title">Геометрия</h2>
       <dl className="kv">
         <div>
-          <dt>Твёрдых тел</dt>
+          <dt>Деталей</dt>
           <dd>{m.SolidCount}</dd>
         </div>
         <div>
           <dt>Объём</dt>
-          <dd>{fmt.mm3(m.Volume)}</dd>
+          <dd>{fmt.m3(m.Volume)}</dd>
         </div>
         <div>
           <dt>Площадь поверхности</dt>
-          <dd>{fmt.mm2(m.SurfaceArea)}</dd>
+          <dd>{fmt.m2(m.SurfaceArea)}</dd>
         </div>
         <div>
           <dt>Габаритный бокс</dt>
@@ -408,15 +479,15 @@ function ManufacturingPanel({ snapshot }: { snapshot: Snapshot }) {
         </div>
         <div>
           <dt>Площадь деталей</dt>
-          <dd>{fmt.mm2(nesting.PartArea)}</dd>
+          <dd>{fmt.m2(nesting.PartArea)}</dd>
         </div>
         <div>
           <dt>Площадь листов</dt>
-          <dd>{fmt.mm2(nesting.SheetArea)}</dd>
+          <dd>{fmt.m2(nesting.SheetArea)}</dd>
         </div>
         <div>
           <dt>Отходы</dt>
-          <dd>{fmt.mm2(nesting.WasteArea)}</dd>
+          <dd>{fmt.m2(nesting.WasteArea)}</dd>
         </div>
         <div>
           <dt>Использование</dt>

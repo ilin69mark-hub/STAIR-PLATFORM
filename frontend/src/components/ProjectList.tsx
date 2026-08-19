@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import type { Project } from '../api/types'
+import type { Project } from '@shared/types'
 import { projectsApi } from '../api/projects'
-import { ApiError } from '../api/types'
+import { ApiError } from '@shared/types'
 
 interface Props {
   projects: Project[]

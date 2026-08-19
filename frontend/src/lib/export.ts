@@ -1,7 +1,7 @@
 // Экспорт результатов в CSV (FE-0011): BOM, детали, раскрой, цены.
 // Генерация полностью клиентская — через Blob + скачивание файла.
 
-import type { Manufacturing, Pricing, Snapshot } from '../api/types'
+import type { Manufacturing, Pricing, Snapshot } from '@shared/types'
 
 const RUB_DECIMALS = 2
 

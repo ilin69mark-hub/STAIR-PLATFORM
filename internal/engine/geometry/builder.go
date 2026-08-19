@@ -14,16 +14,18 @@ import (
 	kerngeo "stairplatform/internal/geometry"
 )
 
-// stringerHeel — материал под нижней гранью выреза косоура (мм).
+// StringerHeel — материал под нижней гранью выреза косоура (мм).
 // STAIR-DOC не задаёт значение; heel делает профиль косоура строго
 // простым полигоном (нижняя кромка не проходит через впадины пилы),
-// что гарантирует корректную триангуляцию.
-const stringerHeel = 50.0
+// что гарантирует корректную триангуляцию. Экспортируется, чтобы
+// советник и раскрой использовали единый габарит косоура.
+const StringerHeel = 50.0
 
 // BuildStraightFlight строит параметрическую B-Rep модель прямого марша
-// (ENG-GEO-0007). Модель состоит из 2 косоуров и n проступей + n
-// подступенков (всего 2n+2 твёрдых тел) при StepThickness > 0; при
-// StepThickness == 0 ступени не строятся (EDR-0004).
+// (ENG-GEO-0007). Модель состоит из 2 косоуров и n проступей при
+// StepThickness > 0 (EDR-0004); подступенки (n тел) добавляются только при
+// cfg.Riser — при false лестница имеет открытые ступени. Итого при
+// StepThickness > 0 и Riser: 2n+2 тела.
 // Координаты: X — направление подъёма, Y — ширина, Z — высота (ADR-0008).
 // Геометрия всегда вычисляется заново из параметров (BC-002).
 func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, error) {
@@ -79,7 +81,11 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 		})
 	}
 
-	// подступенки: вертикальные боксы между косоурами, толщина по X.
+	// подступенки (только при cfg.Riser, ENG-GEO-0007): вертикальные боксы
+	// между косоурами, толщина по X. При выключенном флаге ступени открытые.
+	if !cfg.Riser {
+		return buildCompound(builds)
+	}
 	for k := 0; k < n; k++ {
 		k := k
 		builds = append(builds, func() (*kerngeo.Solid, error) {
@@ -201,6 +207,7 @@ func subFlight(cfg *engineering.StairConfiguration, height float64, steps int) *
 		StringerLength:    engineering.Length(float64(steps) * cfg.TreadDepth.Millimeters()),
 		StringerThickness: cfg.StringerThickness,
 		StepThickness:     cfg.StepThickness,
+		Riser:             cfg.Riser,
 	}
 }
 
@@ -306,7 +313,7 @@ func validateFlight(cfg *engineering.StairConfiguration) error {
 // stringerProfile строит строго простой профиль косоура в плоскости XZ
 // при y = yOff: пилообразный верх (впадины на уровне (k·b, k·h), выступы
 // на уровне (k·b, (k+1)·h)) и прямая нижняя кромка, отстоящая от впадин
-// на stringerHeel. Вершины: (0,0), выступ, впадина, ..., (n·b, n·h),
+// на StringerHeel. Вершины: (0,0), выступ, впадина, ..., (n·b, n·h),
 // (n·b, n·h−heel), (0, −heel).
 func stringerProfile(n int, b, h, yOff float64) []kerngeo.Point3 {
 	pts := make([]kerngeo.Point3, 0, 2*n+3)
@@ -319,8 +326,8 @@ func stringerProfile(n int, b, h, yOff float64) []kerngeo.Point3 {
 	}
 	L := float64(n) * b
 	pts = append(pts,
-		kerngeo.NewPoint3(L, yOff, float64(n)*h-stringerHeel),
-		kerngeo.NewPoint3(0, yOff, -stringerHeel),
+		kerngeo.NewPoint3(L, yOff, float64(n)*h-StringerHeel),
+		kerngeo.NewPoint3(0, yOff, -StringerHeel),
 	)
 	return pts
 }

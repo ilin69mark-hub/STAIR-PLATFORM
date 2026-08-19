@@ -57,6 +57,19 @@ services:
       - "8080:8080"
     restart: unless-stopped
 
+  store:
+    build:
+      context: ..
+      dockerfile: deployments/store.Dockerfile
+    image: stair-platform-store
+    container_name: stair-platform-store
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+
 volumes:
   stair-postgres-data:
   stair-redis-data:

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ReviewPanel } from './ReviewPanel'
 import { projectsApi } from '../api/projects'
-import { ApiError, type ProjectMember, type ProjectReview, type User } from '../api/types'
+import { ApiError, type ProjectMember, type ProjectReview, type User } from '@shared/types'
 import { AuthContext, type AuthContextValue } from '../auth/context'
 
 const authCtx = (user: Partial<User>): AuthContextValue => ({

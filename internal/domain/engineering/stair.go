@@ -29,6 +29,9 @@ type StairConfiguration struct {
 	StringerLength    Length
 	StringerThickness Length
 	StepThickness     Length
+	// Riser — строить ли подступенки (вертикальные грани под проступями).
+	// При false модель имеет открытые ступени; по умолчанию — с подступенками.
+	Riser bool
 	// Марш с площадкой (L-образный EDR-0005, П-образный EDR-0006): число
 	// ступеней нижнего марша и ширина площадки. Используются только при
 	// Flight == FlightLShape || Flight == FlightUShape.
@@ -37,6 +40,9 @@ type StairConfiguration struct {
 	// Спиральная лестница (EDR-0007): наружный радиус марша R. Радиус
 	// колонны r = R − Width. Используется только при Flight == FlightSpiral.
 	OuterRadius Length
+	// Material — выбранный конструктором материал (код каталога MFG-0005,
+	// например "STEEL-S235"); пустое значение — автоназначение по толщине.
+	Material string
 }
 
 // Validate проверяет конфигурацию лестницы.
@@ -103,6 +109,7 @@ func NewStairConfiguration(width, height Length, flight FlightType) (*StairConfi
 		Flight:     flight,
 		StepCount:  1,
 		StepHeight: height,
+		Riser:      true, // подступенки по умолчанию (продуктовый дефолт конструктора)
 	}
 	return cfg, cfg.Validate()
 }

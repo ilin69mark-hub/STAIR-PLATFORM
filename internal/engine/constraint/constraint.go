@@ -36,6 +36,17 @@ func (r Range) Contains(value float64) bool {
 	return true
 }
 
+// ConstraintAdvice — данные советника (BC-003): чем и как исправить
+// нарушение правила. Param — поле конструктора для правки; Guide —
+// шаблон подсказки с плейсхолдерами {value}, {angle}, {min}, {max},
+// {height} (значения подставляет Advisor Engine); Suggest — если true,
+// советник перебирает готовые проходящие нормы варианты.
+type ConstraintAdvice struct {
+	Param   string
+	Guide   string
+	Suggest bool
+}
+
 // Constraint — ограничение с кодом, категорией, диапазоном и версией.
 type Constraint struct {
 	Code     RuleCode
@@ -46,6 +57,8 @@ type Constraint struct {
 	Active   bool
 	Message  string
 	Fix      string
+	// Advice — подсказка для советника исправлений (nil = без подсказок).
+	Advice *ConstraintAdvice
 }
 
 // ConstraintSet — агрегат (BC-003): полный набор ограничений проекта.

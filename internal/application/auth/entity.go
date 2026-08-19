@@ -46,6 +46,14 @@ const (
 	PermissionIntegrationsManage Permission = "integrations.manage"
 	// PermissionAnalyticsRead — чтение аналитики tenant (EDR-0028, Phase F).
 	PermissionAnalyticsRead Permission = "analytics.read"
+	// PermissionOrdersList — просмотр заказов розничных клиентов (Store).
+	PermissionOrdersList Permission = "orders.list"
+	// PermissionOrdersManage — смена статуса заказа (Store).
+	PermissionOrdersManage Permission = "orders.manage"
+	// PermissionTestimonialsList — просмотр отзывов клиентов (Store).
+	PermissionTestimonialsList Permission = "testimonials.list"
+	// PermissionTestimonialsManage — создание/редактирование отзывов (Store).
+	PermissionTestimonialsManage Permission = "testimonials.manage"
 )
 
 // Permissions возвращает набор прав роли (матрица EDR-0015 §3.2,
@@ -57,7 +65,8 @@ func (r Role) Permissions() []Permission {
 			PermissionAuditReadAll, PermissionUsersList, PermissionUsersUpdateRole,
 			PermissionUsersManage, PermissionSettingsRead, PermissionSettingsWrite,
 			PermissionDataExport, PermissionApiKeysManage, PermissionIntegrationsManage,
-			PermissionAnalyticsRead,
+			PermissionAnalyticsRead, PermissionOrdersList, PermissionOrdersManage,
+			PermissionTestimonialsList, PermissionTestimonialsManage,
 		}
 	default:
 		return nil

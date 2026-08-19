@@ -355,6 +355,10 @@ func (testAuth) SsoCallback(_ context.Context, code, state string) (*auth.User, 
 
 func (testAuth) SsoEnabled() auth.SsoConfig { return auth.SsoConfig{} }
 
+func (testAuth) DefaultTenant(_ context.Context) (*auth.Tenant, error) {
+	return &auth.Tenant{ID: "t-1", Slug: "default"}, nil
+}
+
 func testRouterWithProjects(p ProjectService) http.Handler {
 	return NewRouter(stair.NewService(), p, testAuth{}, DefaultConfig())
 }

@@ -1,0 +1,5 @@
+.field input,
+.field select {
+  border: 1px solid #d8e0db;
+  border-radius: 8px;
+}

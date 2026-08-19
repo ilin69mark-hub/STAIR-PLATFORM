@@ -4,12 +4,16 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
 	domprc "stairplatform/internal/domain/pricing"
+	"stairplatform/internal/engine/constraint"
 	engprc "stairplatform/internal/engine/pricing"
+	"stairplatform/internal/engine/solver"
+	"stairplatform/internal/engine/validation"
 )
 
 func mustLengthHelper(mm float64) engineering.Length {
@@ -30,6 +34,7 @@ func referenceConfig() Config {
 		StepHeight:        mustLengthHelper(180),
 		StringerThickness: mustLengthHelper(50),
 		StepThickness:     mustLengthHelper(40),
+		Riser:             true,
 		Clearance:         mustLengthHelper(2500),
 		RailingHeight:     mustLengthHelper(1000),
 	}
@@ -146,13 +151,92 @@ func TestCalculateBlockingValidation(t *testing.T) {
 	}
 }
 
+// TestCalculateTallFlightSucceeds — прямая лестница на пределе энвелопа
+// H=6000 (максимально поддерживаемая высота) должна проходить весь конвейер:
+// косоур (≈10200×6050) помещается на добавленный лист стали 10400×6200,
+// поэтому выдаётся валидный результат с ценой, а не блокировка MFG-0012.
+func TestCalculateTallFlightSucceeds(t *testing.T) {
+	s := NewService()
+	cfg := referenceConfig()
+	cfg.Height = mustLengthHelper(6000)
+	res, err := s.Calculate(context.Background(), cfg, Options{})
+	if err != nil {
+		t.Fatalf("tall flight within envelope must calculate: %v", err)
+	}
+	if !res.Validation.Valid || res.Validation.Blocking {
+		t.Fatalf("expected valid configuration, got %+v", res.Validation)
+	}
+	if res.Price == nil || res.Price.FinalPrice.Minor() <= 0 {
+		t.Fatal("tall flight must produce price")
+	}
+	if res.Package == nil || len(res.Package.Parts) == 0 {
+		t.Fatal("tall flight must produce nesting package")
+	}
+}
+
+// assertBlockingInput проверяет, что результат блокирующий (advisory) с
+// русским объяснением и указанным кодом — вместо технической ошибки.
+func assertBlockingInput(t *testing.T, res *Result, wantCode constraint.RuleCode, wantSubstring string) {
+	t.Helper()
+	if res == nil {
+		t.Fatal("expected advisory result, got nil")
+	}
+	if !res.Validation.Blocking || res.Validation.Valid {
+		t.Fatalf("expected blocking result, got %+v", res.Validation)
+	}
+	if len(res.Validation.Issues) == 0 {
+		t.Fatalf("expected an issue, got none")
+	}
+	it := res.Validation.Issues[0]
+	if string(it.Code) != string(wantCode) {
+		t.Fatalf("issue code = %q, want %q", it.Code, wantCode)
+	}
+	if it.Param == "" || it.Guide == "" {
+		t.Fatalf("issue must carry Param and Guide: %+v", it)
+	}
+	if wantSubstring != "" && !strings.Contains(it.Guide, wantSubstring) {
+		t.Fatalf("guide %q does not contain %q", it.Guide, wantSubstring)
+	}
+	if res.Price != nil || res.Package != nil {
+		t.Fatal("blocked result must not carry price/package")
+	}
+}
+
+// TestCalculateExceedsMaxHeight — высота за пределами поддерживаемого
+// энелопа (6000 мм) возвращается как блокирующая подсказка, а не ошибка.
+func TestCalculateExceedsMaxHeight(t *testing.T) {
+	s := NewService()
+	cfg := referenceConfig()
+	cfg.Height = mustLengthHelper(7000)
+	res, err := s.Calculate(context.Background(), cfg, Options{})
+	if err != nil {
+		t.Fatalf("input issues must not be hard errors: %v", err)
+	}
+	assertBlockingInput(t, res, constraint.GEO_HEIGHT, "6000 мм")
+}
+
+// TestCalculateSpiralExceedsMaxRadius — наружный радиус спирали за пределами
+// поддерживаемого максимума (5000 мм) возвращается как блокирующая подсказка.
+func TestCalculateSpiralExceedsMaxRadius(t *testing.T) {
+	s := NewService()
+	cfg := referenceSpiralConfig()
+	cfg.OuterRadius = mustLengthHelper(6000)
+	res, err := s.Calculate(context.Background(), cfg, Options{})
+	if err != nil {
+		t.Fatalf("input issues must not be hard errors: %v", err)
+	}
+	assertBlockingInput(t, res, constraint.GEO_SPIRAL_RADIUS, "5000 мм")
+}
+
 func TestCalculateInvalidInput(t *testing.T) {
 	s := NewService()
 	cfg := referenceConfig()
 	cfg.Height = mustLengthHelper(0)
-	if _, err := s.Calculate(context.Background(), cfg, Options{}); err == nil {
-		t.Fatal("zero rise height must be rejected")
+	res, err := s.Calculate(context.Background(), cfg, Options{})
+	if err != nil {
+		t.Fatalf("input issues must not be hard errors: %v", err)
 	}
+	assertBlockingInput(t, res, constraint.GEO_HEIGHT, "больше 0 мм")
 }
 
 func TestCalculateComfortStepBoundary(t *testing.T) {
@@ -221,12 +305,15 @@ func TestCalculateLShapePipeline(t *testing.T) {
 
 func TestCalculateLShapeLandingTooNarrow(t *testing.T) {
 	s := NewService()
-	// Wp=500 < W=900 → ошибка (EDR-0005 §7): невозможно выполнить расчёт.
+	// Wp=500 < W=900 → блокирующая подсказка (EDR-0005 §7): площадка
+	// должна быть не уже марша.
 	cfg := referenceLShapeConfig()
 	cfg.LandingWidth = mustLengthHelper(500)
-	if _, err := s.Calculate(context.Background(), cfg, Options{}); err == nil {
-		t.Fatal("landing width below stair width must be rejected")
+	res, err := s.Calculate(context.Background(), cfg, Options{})
+	if err != nil {
+		t.Fatalf("input issues must not be hard errors: %v", err)
 	}
+	assertBlockingInput(t, res, constraint.GEO_LANDING_WIDTH, "меньше ширины марша 900 мм")
 }
 
 // referenceUShapeConfig — эталонная П-образная конфигурация (EDR-0006):
@@ -285,12 +372,14 @@ func TestCalculateUShapePipeline(t *testing.T) {
 
 func TestCalculateUShapeLandingTooNarrow(t *testing.T) {
 	s := NewService()
-	// Wp=500 < W=900 → ошибка (EDR-0006 §7): невозможно выполнить расчёт.
+	// Wp=500 < W=900 → блокирующая подсказка (EDR-0006 §7).
 	cfg := referenceUShapeConfig()
 	cfg.LandingWidth = mustLengthHelper(500)
-	if _, err := s.Calculate(context.Background(), cfg, Options{}); err == nil {
-		t.Fatal("landing width below stair width must be rejected")
+	res, err := s.Calculate(context.Background(), cfg, Options{})
+	if err != nil {
+		t.Fatalf("input issues must not be hard errors: %v", err)
 	}
+	assertBlockingInput(t, res, constraint.GEO_LANDING_WIDTH, "меньше ширины марша 900 мм")
 }
 
 // referenceSpiralConfig — эталонная спиральная конфигурация (EDR-0007):
@@ -342,11 +431,59 @@ func TestCalculateSpiralPipeline(t *testing.T) {
 
 func TestCalculateSpiralOuterRadiusTooSmall(t *testing.T) {
 	s := NewService()
-	// R=400 ≤ W=500 → ошибка (EDR-0007 §7): радиус должен превышать ширину.
+	// R=400 ≤ W=500 → блокирующая подсказка (EDR-0007 §7): радиус должен
+	// превышать ширину марша.
 	cfg := referenceSpiralConfig()
 	cfg.OuterRadius = mustLengthHelper(400)
-	if _, err := s.Calculate(context.Background(), cfg, Options{}); err == nil {
-		t.Fatal("outer radius below stair width must be rejected")
+	res, err := s.Calculate(context.Background(), cfg, Options{})
+	if err != nil {
+		t.Fatalf("input issues must not be hard errors: %v", err)
+	}
+	assertBlockingInput(t, res, constraint.GEO_SPIRAL_RADIUS, "больше ширины марша 500 мм")
+}
+
+func TestCalculateSpiralBlockedCarriesSuggestions(t *testing.T) {
+	s := NewService()
+	// W=3000 при H=6000: проступь у колонны < 100 мм — блокирующая
+	// подсказка. Советник должен прикрепить варианты с уменьшенной шириной,
+	// каждый из которых решается без ошибок.
+	cfg := referenceSpiralConfig()
+	cfg.Height = mustLengthHelper(6000)
+	cfg.Width = mustLengthHelper(3000)
+	cfg.OuterRadius = mustLengthHelper(3100)
+	cfg.StepHeight = mustLengthHelper(190)
+	res, err := s.Calculate(context.Background(), cfg, Options{})
+	if err != nil {
+		t.Fatalf("input issues must not be hard errors: %v", err)
+	}
+	if !res.Validation.Blocking {
+		t.Fatalf("expected blocking result, got %+v", res.Validation)
+	}
+	var issue *validation.Issue
+	for i := range res.Validation.Issues {
+		if res.Validation.Issues[i].Code == constraint.GEO_SPIRAL_TREAD {
+			issue = &res.Validation.Issues[i]
+			break
+		}
+	}
+	if issue == nil {
+		t.Fatalf("missing GEO_SPIRAL_TREAD issue: %+v", res.Validation.Issues)
+	}
+	if len(issue.Suggestions) == 0 {
+		t.Fatalf("spiral blocking must carry width-reduced suggestions")
+	}
+	for _, s := range issue.Suggestions {
+		if s.WidthMm >= 3000 || s.OuterRadiusMm <= 0 {
+			t.Fatalf("suggestion %+v must reduce width and carry radius", s)
+		}
+		if _, err := solver.SolveSpiral(
+			engineering.Length(s.StepHeightMm*float64(s.StepCount)),
+			engineering.Length(s.StepHeightMm),
+			engineering.Length(s.WidthMm),
+			engineering.Length(s.OuterRadiusMm),
+		); err != nil {
+			t.Fatalf("suggestion %+v must solve without errors: %v", s, err)
+		}
 	}
 }
 
@@ -372,5 +509,100 @@ func TestCalculateCancelled(t *testing.T) {
 		t.Fatal("expected cancellation error, got nil")
 	} else if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestCalculateMaterialSelection(t *testing.T) {
+	s := NewService()
+	materials := []dommfg.MaterialCode{"STEEL-S235", "ALUM-5083", "WOOD-OAK"}
+	prices := make(map[dommfg.MaterialCode]int64)
+	for _, m := range materials {
+		cfg := referenceConfig()
+		cfg.Material = m
+		res, err := s.Calculate(context.Background(), cfg, Options{})
+		if err != nil {
+			t.Fatalf("%s: %v", m, err)
+		}
+		if !res.Validation.Valid || res.Validation.Blocking {
+			t.Fatalf("%s: validation %+v", m, res.Validation)
+		}
+		if res.Package == nil || len(res.Package.Parts) == 0 {
+			t.Fatalf("%s: no parts in package", m)
+		}
+		for _, p := range res.Package.Parts {
+			if p.Material != m {
+				t.Fatalf("%s: part %s material = %s, want %s", m, p.Number, p.Material, m)
+			}
+		}
+		// Материалы имеют разные плотность/ставку → финальная цена различается.
+		prices[m] = res.Price.FinalPrice.Minor()
+		if res.Price == nil {
+			t.Fatalf("%s: price missing", m)
+		}
+		// Раскрой выполнен (дерево покрыто крупными листами каталога).
+		if res.Package.Nesting == nil || len(res.Package.Nesting.Sheets) == 0 {
+			t.Fatalf("%s: nesting missing", m)
+		}
+	}
+	if prices["STEEL-S235"] == prices["ALUM-5083"] || prices["STEEL-S235"] == prices["WOOD-OAK"] {
+		t.Fatalf("prices must differ across materials, got %v", prices)
+	}
+}
+
+func TestCalculateMaterialValidation(t *testing.T) {
+	s := NewService()
+
+	// Неизвестный материал — блокирующий MFG-MATERIAL.
+	cfg := referenceConfig()
+	cfg.Material = "TITANIUM-X"
+	res, err := s.Calculate(context.Background(), cfg, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Validation.Blocking || res.Validation.Valid {
+		t.Fatalf("unknown material must block, got %+v", res.Validation)
+	}
+	iss := res.Validation.Issues[0]
+	if iss.Code != constraint.MFG_MATERIAL || !strings.Contains(iss.Message, "не найден") {
+		t.Fatalf("unexpected issue %+v", iss)
+	}
+
+	// Дуб не поддерживает косоур 150 мм — блокирующий MFG-MATERIAL.
+	cfg = referenceConfig()
+	cfg.Material = "WOOD-OAK"
+	cfg.StringerThickness = mustLengthHelper(150)
+	res, err = s.Calculate(context.Background(), cfg, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Validation.Blocking || res.Validation.Valid {
+		t.Fatalf("wood+150mm stringer must block, got %+v", res.Validation)
+	}
+	iss = res.Validation.Issues[0]
+	if iss.Code != constraint.MFG_MATERIAL {
+		t.Fatalf("code = %s, want %s", iss.Code, constraint.MFG_MATERIAL)
+	}
+	if !strings.Contains(iss.Guide, "20–60") {
+		t.Fatalf("guide must mention wood thickness range, got %q", iss.Guide)
+	}
+
+	// Дуб при большом подъёме (косоур не влезает на плиту) — MFG-SHEET
+	// с максимальным листом дуба в подсказке (не стали).
+	cfg = referenceConfig()
+	cfg.Material = "WOOD-OAK"
+	cfg.Height = mustLengthHelper(5000)
+	res, err = s.Calculate(context.Background(), cfg, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Validation.Blocking || res.Validation.Valid {
+		t.Fatalf("wood + H=5000 must block, got %+v", res.Validation)
+	}
+	iss = res.Validation.Issues[0]
+	if iss.Code != constraint.MFG_SHEET {
+		t.Fatalf("code = %s, want %s", iss.Code, constraint.MFG_SHEET)
+	}
+	if !strings.Contains(iss.Guide, "9000×4600") {
+		t.Fatalf("guide must reference largest oak sheet, got %q", iss.Guide)
 	}
 }

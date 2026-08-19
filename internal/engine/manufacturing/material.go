@@ -54,3 +54,10 @@ func assignMaterial(registry *dommfg.MaterialRegistry, thickness float64) (dommf
 	}
 	return "", fmt.Errorf("manufacturing: no material supports thickness %v mm", thickness)
 }
+
+// DefaultMaterialForThickness назначает материал из встроенного каталога
+// (MFG-0005) по толщине детали — та же политика, что в Manufacture.
+// Используется советником для оценки раскроя кандидатов.
+func DefaultMaterialForThickness(thickness float64) (dommfg.MaterialCode, error) {
+	return assignMaterial(DefaultMaterialRegistry(), thickness)
+}

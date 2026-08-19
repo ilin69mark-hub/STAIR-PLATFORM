@@ -51,6 +51,7 @@ const referenceJSON = `{
 	"step_height_mm": 180,
 	"stringer_thickness_mm": 50,
 	"step_thickness_mm": 40,
+	"riser": true,
 	"clearance_mm": 2500,
 	"railing_height_mm": 1000
 }`
@@ -74,6 +75,9 @@ func TestCalculateReference(t *testing.T) {
 	}
 	if resp.Flight.StepCount != 15 {
 		t.Fatalf("step count = %d, want 15", resp.Flight.StepCount)
+	}
+	if resp.Flight.StepThicknessMm != 40 || resp.Flight.RailingHeightMm != 1000 || !resp.Flight.Riser || resp.Flight.StringerThicknessMm != 50 {
+		t.Fatalf("flight echo mismatch: %+v", resp.Flight)
 	}
 	if resp.Pricing.FinalPriceRub != 2868282.74 {
 		t.Fatalf("final price = %v, want 2868282.74", resp.Pricing.FinalPriceRub)
@@ -141,15 +145,21 @@ func TestCalculateInvalidInput(t *testing.T) {
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected status 422, got %d: %s", rec.Code, rec.Body.String())
+	// Пользовательская проблема возвращается как блокирующий результат
+	// (200) с русской подсказкой, а не как техническая ошибка 422.
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 with advisory result, got %d: %s", rec.Code, rec.Body.String())
 	}
 	var payload map[string]any
 	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
-		t.Fatalf("invalid error body: %v", err)
+		t.Fatalf("invalid body: %v", err)
 	}
-	if _, ok := payload["error"]; !ok {
-		t.Fatal("error body must contain error object")
+	val, ok := payload["validation"].(map[string]any)
+	if !ok {
+		t.Fatalf("validation section expected: %v", payload)
+	}
+	if blocking, _ := val["blocking"].(bool); !blocking {
+		t.Fatalf("expected blocking advisory, got %v", val)
 	}
 }
 

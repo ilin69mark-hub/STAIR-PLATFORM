@@ -294,18 +294,18 @@ func toCostReportDTO(rep *analytics.CostReport) costReportDTO {
 func handleUsageAnalytics(svc AnalyticsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !hasPermission(r, auth.PermissionAnalyticsRead) {
-			writeError(w, http.StatusForbidden, "forbidden", "admin required")
+			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
 
 		from, err := queryTime(r, "from", time.Now().UTC().AddDate(0, 0, -30))
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_from", "from must be YYYY-MM-DD or RFC3339")
+			writeError(w, http.StatusUnprocessableEntity, "invalid_from", "Параметр from должен быть в формате YYYY-MM-DD или RFC3339.")
 			return
 		}
 		to, err := queryTime(r, "to", time.Now().UTC())
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_to", "to must be YYYY-MM-DD or RFC3339")
+			writeError(w, http.StatusUnprocessableEntity, "invalid_to", "Параметр to должен быть в формате YYYY-MM-DD или RFC3339.")
 			return
 		}
 		g := analytics.Granularity(r.URL.Query().Get("granularity"))
@@ -313,7 +313,7 @@ func handleUsageAnalytics(svc AnalyticsService) http.HandlerFunc {
 			g = analytics.GranularityDay
 		}
 		if !g.Valid() {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_granularity", "granularity must be day, week or month")
+			writeError(w, http.StatusUnprocessableEntity, "invalid_granularity", "Гранулярность должна быть day, week или month.")
 			return
 		}
 
@@ -321,9 +321,9 @@ func handleUsageAnalytics(svc AnalyticsService) http.HandlerFunc {
 		if err != nil {
 			switch {
 			case errors.Is(err, analytics.ErrInvalidRange):
-				writeError(w, http.StatusUnprocessableEntity, "invalid_range", "from must not be after to")
+				writeError(w, http.StatusUnprocessableEntity, "invalid_range", "Параметр from не может быть позже to.")
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			}
 			return
 		}
@@ -337,18 +337,18 @@ func handleUsageAnalytics(svc AnalyticsService) http.HandlerFunc {
 func handleProjectsAnalytics(svc AnalyticsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !hasPermission(r, auth.PermissionAnalyticsRead) {
-			writeError(w, http.StatusForbidden, "forbidden", "admin required")
+			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
 
 		from, err := queryTime(r, "from", time.Now().UTC().AddDate(0, 0, -30))
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_from", "from must be YYYY-MM-DD or RFC3339")
+			writeError(w, http.StatusUnprocessableEntity, "invalid_from", "Параметр from должен быть в формате YYYY-MM-DD или RFC3339.")
 			return
 		}
 		to, err := queryTime(r, "to", time.Now().UTC())
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_to", "to must be YYYY-MM-DD or RFC3339")
+			writeError(w, http.StatusUnprocessableEntity, "invalid_to", "Параметр to должен быть в формате YYYY-MM-DD или RFC3339.")
 			return
 		}
 
@@ -356,9 +356,9 @@ func handleProjectsAnalytics(svc AnalyticsService) http.HandlerFunc {
 		if err != nil {
 			switch {
 			case errors.Is(err, analytics.ErrInvalidRange):
-				writeError(w, http.StatusUnprocessableEntity, "invalid_range", "from must not be after to")
+				writeError(w, http.StatusUnprocessableEntity, "invalid_range", "Параметр from не может быть позже to.")
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			}
 			return
 		}
@@ -372,18 +372,18 @@ func handleProjectsAnalytics(svc AnalyticsService) http.HandlerFunc {
 func handleManufacturingAnalytics(svc AnalyticsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !hasPermission(r, auth.PermissionAnalyticsRead) {
-			writeError(w, http.StatusForbidden, "forbidden", "admin required")
+			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
 
 		from, err := queryTime(r, "from", time.Now().UTC().AddDate(0, 0, -30))
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_from", "from must be YYYY-MM-DD or RFC3339")
+			writeError(w, http.StatusUnprocessableEntity, "invalid_from", "Параметр from должен быть в формате YYYY-MM-DD или RFC3339.")
 			return
 		}
 		to, err := queryTime(r, "to", time.Now().UTC())
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_to", "to must be YYYY-MM-DD or RFC3339")
+			writeError(w, http.StatusUnprocessableEntity, "invalid_to", "Параметр to должен быть в формате YYYY-MM-DD или RFC3339.")
 			return
 		}
 		g := analytics.Granularity(r.URL.Query().Get("granularity"))
@@ -391,7 +391,7 @@ func handleManufacturingAnalytics(svc AnalyticsService) http.HandlerFunc {
 			g = analytics.GranularityDay
 		}
 		if !g.Valid() {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_granularity", "granularity must be day, week or month")
+			writeError(w, http.StatusUnprocessableEntity, "invalid_granularity", "Гранулярность должна быть day, week или month.")
 			return
 		}
 
@@ -399,9 +399,9 @@ func handleManufacturingAnalytics(svc AnalyticsService) http.HandlerFunc {
 		if err != nil {
 			switch {
 			case errors.Is(err, analytics.ErrInvalidRange):
-				writeError(w, http.StatusUnprocessableEntity, "invalid_range", "from must not be after to")
+				writeError(w, http.StatusUnprocessableEntity, "invalid_range", "Параметр from не может быть позже to.")
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			}
 			return
 		}
@@ -415,18 +415,18 @@ func handleManufacturingAnalytics(svc AnalyticsService) http.HandlerFunc {
 func handleCostAnalytics(svc AnalyticsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !hasPermission(r, auth.PermissionAnalyticsRead) {
-			writeError(w, http.StatusForbidden, "forbidden", "admin required")
+			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
 
 		from, err := queryTime(r, "from", time.Now().UTC().AddDate(0, 0, -30))
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_from", "from must be YYYY-MM-DD or RFC3339")
+			writeError(w, http.StatusUnprocessableEntity, "invalid_from", "Параметр from должен быть в формате YYYY-MM-DD или RFC3339.")
 			return
 		}
 		to, err := queryTime(r, "to", time.Now().UTC())
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_to", "to must be YYYY-MM-DD or RFC3339")
+			writeError(w, http.StatusUnprocessableEntity, "invalid_to", "Параметр to должен быть в формате YYYY-MM-DD или RFC3339.")
 			return
 		}
 		g := analytics.Granularity(r.URL.Query().Get("granularity"))
@@ -434,7 +434,7 @@ func handleCostAnalytics(svc AnalyticsService) http.HandlerFunc {
 			g = analytics.GranularityDay
 		}
 		if !g.Valid() {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_granularity", "granularity must be day, week or month")
+			writeError(w, http.StatusUnprocessableEntity, "invalid_granularity", "Гранулярность должна быть day, week или month.")
 			return
 		}
 
@@ -442,9 +442,9 @@ func handleCostAnalytics(svc AnalyticsService) http.HandlerFunc {
 		if err != nil {
 			switch {
 			case errors.Is(err, analytics.ErrInvalidRange):
-				writeError(w, http.StatusUnprocessableEntity, "invalid_range", "from must not be after to")
+				writeError(w, http.StatusUnprocessableEntity, "invalid_range", "Параметр from не может быть позже to.")
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			}
 			return
 		}

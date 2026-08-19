@@ -22,12 +22,14 @@ type calculateRequest struct {
 	StepHeightMM        float64   `json:"step_height_mm"`
 	StringerThicknessMM float64   `json:"stringer_thickness_mm"`
 	StepThicknessMM     float64   `json:"step_thickness_mm"`
+	Riser               bool      `json:"riser,omitempty"`
 	ClearanceMM         float64   `json:"clearance_mm"`
 	RailingHeightMM     float64   `json:"railing_height_mm"`
 	ComfortStepMM       float64   `json:"comfort_step_mm,omitempty"`
 	LandingWidthMM      float64   `json:"landing_width_mm,omitempty"`
 	LowerStepCount      int       `json:"lower_step_count,omitempty"`
 	OuterRadiusMM       float64   `json:"outer_radius_mm,omitempty"`
+	Material            string    `json:"material,omitempty"`
 	Rates               *ratesDTO `json:"rates,omitempty"`
 }
 
@@ -91,6 +93,26 @@ type validationIssueDTO struct {
 	Min      float64 `json:"min,omitempty"`
 	Max      float64 `json:"max,omitempty"`
 	Fix      string  `json:"fix,omitempty"`
+	// Param — поле конструктора, которое надо поправить; Guide — понятное
+	// описание блокировки и решения; Suggestions — готовые проходящие
+	// нормы варианты (заполняются советником advisor).
+	Param       string          `json:"param,omitempty"`
+	Guide       string          `json:"guide,omitempty"`
+	Suggestions []suggestionDTO `json:"suggestions,omitempty"`
+}
+
+// suggestionDTO — готовый вариант конфигурации, проходящий нормы
+// (советник advisor). По нему фронтенд собирает параметры и повторяет
+// расчёт (кнопка «Применить»).
+type suggestionDTO struct {
+	StepCount      int     `json:"step_count"`
+	LowerStepCount int     `json:"lower_step_count,omitempty"`
+	StepHeightMm   float64 `json:"step_height_mm"`
+	TreadDepthMm   float64 `json:"tread_depth_mm"`
+	AngleDeg       float64 `json:"angle_deg"`
+	// OuterRadiusMm и WidthMm — для спиральных вариантов (EDR-0007).
+	OuterRadiusMm float64 `json:"outer_radius_mm,omitempty"`
+	WidthMm       float64 `json:"width_mm,omitempty"`
 }
 
 // validationDTO — итог валидации конфигурации.
@@ -100,14 +122,39 @@ type validationDTO struct {
 	Issues   []validationIssueDTO `json:"issues"`
 }
 
-// flightDTO — результат Solver (EDR-0001).
+// flightDTO — результат Solver (EDR-0001). Производственные параметры
+// (StepThicknessMm, RailingHeightMm, Riser) — эхо конфигурации, по которому
+// фронтенд рисует 2D-профиль «как посчитано» (BC-002).
 type flightDTO struct {
-	StepCount    int     `json:"step_count"`
-	StepHeightMm float64 `json:"step_height_mm"`
-	TreadDepthMm float64 `json:"tread_depth_mm"`
-	RunMm        float64 `json:"run_mm"`
-	StringerMm   float64 `json:"stringer_mm"`
-	AngleDeg     float64 `json:"angle_deg"`
+	StepCount       int     `json:"step_count"`
+	StepHeightMm    float64 `json:"step_height_mm"`
+	TreadDepthMm    float64 `json:"tread_depth_mm"`
+	RunMm           float64 `json:"run_mm"`
+	StringerMm      float64 `json:"stringer_mm"`
+	AngleDeg        float64 `json:"angle_deg"`
+	WidthMm         float64 `json:"width_mm"`
+	StepThicknessMm float64 `json:"step_thickness_mm"`
+	RailingHeightMm float64 `json:"railing_height_mm"`
+	Riser           bool    `json:"riser"`
+	StringerThicknessMm float64 `json:"stringer_thickness_mm"`
+}
+
+// configEcho — производственные параметры конфигурации, дублируемые в
+// flight-ответы для 2D-рендера (BC-002).
+type configEcho struct {
+	StepThicknessMm   float64
+	RailingHeightMm   float64
+	Riser             bool
+	StringerThicknessMm float64
+}
+
+func flightEcho(r stair.Result) configEcho {
+	return configEcho{
+		StepThicknessMm:   r.StepThickness.Millimeters(),
+		RailingHeightMm:   r.RailingHeight.Millimeters(),
+		Riser:             r.Riser,
+		StringerThicknessMm: r.StringerThickness.Millimeters(),
+	}
 }
 
 // lshapeDTO — результат Solver для L-образной лестницы (EDR-0005).
@@ -125,6 +172,11 @@ type lshapeDTO struct {
 	LowerStringerMm float64 `json:"lower_stringer_mm"`
 	UpperStringerMm float64 `json:"upper_stringer_mm"`
 	LandingWidthMm  float64 `json:"landing_width_mm"`
+	WidthMm         float64 `json:"width_mm"`
+	StepThicknessMm float64 `json:"step_thickness_mm"`
+	RailingHeightMm float64 `json:"railing_height_mm"`
+	Riser           bool    `json:"riser"`
+	StringerThicknessMm float64 `json:"stringer_thickness_mm"`
 }
 
 // ushapeDTO — результат Solver для П-образной лестницы (EDR-0006).
@@ -142,6 +194,11 @@ type ushapeDTO struct {
 	LowerStringerMm float64 `json:"lower_stringer_mm"`
 	UpperStringerMm float64 `json:"upper_stringer_mm"`
 	LandingWidthMm  float64 `json:"landing_width_mm"`
+	WidthMm         float64 `json:"width_mm"`
+	StepThicknessMm float64 `json:"step_thickness_mm"`
+	RailingHeightMm float64 `json:"railing_height_mm"`
+	Riser           bool    `json:"riser"`
+	StringerThicknessMm float64 `json:"stringer_thickness_mm"`
 }
 
 // spiralDTO — результат Solver для спиральной лестницы (EDR-0007).
@@ -159,6 +216,11 @@ type spiralDTO struct {
 	ArcLengthMm     float64 `json:"arc_length_mm"`
 	ComfortStepMm   float64 `json:"comfort_step_mm"`
 	AngularTotalDeg float64 `json:"angular_total_deg"`
+	WidthMm         float64 `json:"width_mm"`
+	StepThicknessMm float64 `json:"step_thickness_mm"`
+	RailingHeightMm float64 `json:"railing_height_mm"`
+	Riser           bool    `json:"riser"`
+	StringerThicknessMm float64 `json:"stringer_thickness_mm"`
 }
 
 // geometryIssueDTO — запись валидации геометрии (ENG-GEO-0018).
@@ -299,24 +361,39 @@ type calculateResponse struct {
 func toValidationResult(r *stair.Result) validationDTO {
 	issues := make([]validationIssueDTO, 0, len(r.Validation.Issues))
 	for _, i := range r.Validation.Issues {
-		issues = append(issues, validationIssueDTO{
+		dto := validationIssueDTO{
 			ID: i.ID, Code: string(i.Code), Severity: string(i.Severity),
 			Element: i.Element, Message: i.Message, Value: i.Value,
 			Min: i.Min, Max: i.Max, Fix: i.Fix,
-		})
+			Param: i.Param, Guide: i.Guide,
+		}
+		if len(i.Suggestions) > 0 {
+			dto.Suggestions = make([]suggestionDTO, 0, len(i.Suggestions))
+			for _, s := range i.Suggestions {
+				dto.Suggestions = append(dto.Suggestions, suggestionDTO{
+					StepCount: s.StepCount, LowerStepCount: s.LowerStepCount,
+					StepHeightMm: s.StepHeightMm, TreadDepthMm: s.TreadDepthMm,
+					AngleDeg: s.AngleDeg, OuterRadiusMm: s.OuterRadiusMm, WidthMm: s.WidthMm,
+				})
+			}
+		}
+		issues = append(issues, dto)
 	}
 	return validationDTO{Valid: r.Validation.Valid, Blocking: r.Validation.Blocking, Issues: issues}
 }
 
 func toFlight(r stair.Result) flightDTO {
+	e := flightEcho(r)
 	return flightDTO{
 		StepCount: r.Flight.StepCount, StepHeightMm: r.Flight.StepHeight.Millimeters(),
 		TreadDepthMm: r.Flight.TreadDepth.Millimeters(), RunMm: r.Flight.Run.Millimeters(),
 		StringerMm: r.Flight.Stringer.Millimeters(), AngleDeg: r.Flight.Angle.Degrees(),
+		StepThicknessMm: e.StepThicknessMm, RailingHeightMm: e.RailingHeightMm, Riser: e.Riser,
+		StringerThicknessMm: e.StringerThicknessMm,
 	}
 }
 
-func toLShape(l *solver.LShapeResult) *lshapeDTO {
+func toLShape(l *solver.LShapeResult, e configEcho) *lshapeDTO {
 	if l == nil {
 		return nil
 	}
@@ -327,10 +404,12 @@ func toLShape(l *solver.LShapeResult) *lshapeDTO {
 		UpperHeightMm: l.UpperHeight.Millimeters(), LowerRunMm: l.LowerRun.Millimeters(),
 		UpperRunMm: l.UpperRun.Millimeters(), LowerStringerMm: l.LowerStringer.Millimeters(),
 		UpperStringerMm: l.UpperStringer.Millimeters(), LandingWidthMm: l.LandingWidth.Millimeters(),
+		StepThicknessMm: e.StepThicknessMm, RailingHeightMm: e.RailingHeightMm, Riser: e.Riser,
+		StringerThicknessMm: e.StringerThicknessMm,
 	}
 }
 
-func toUShape(u *solver.UShapeResult) *ushapeDTO {
+func toUShape(u *solver.UShapeResult, e configEcho) *ushapeDTO {
 	if u == nil {
 		return nil
 	}
@@ -341,10 +420,12 @@ func toUShape(u *solver.UShapeResult) *ushapeDTO {
 		UpperHeightMm: u.UpperHeight.Millimeters(), LowerRunMm: u.LowerRun.Millimeters(),
 		UpperRunMm: u.UpperRun.Millimeters(), LowerStringerMm: u.LowerStringer.Millimeters(),
 		UpperStringerMm: u.UpperStringer.Millimeters(), LandingWidthMm: u.LandingWidth.Millimeters(),
+		StepThicknessMm: e.StepThicknessMm, RailingHeightMm: e.RailingHeightMm, Riser: e.Riser,
+		StringerThicknessMm: e.StringerThicknessMm,
 	}
 }
 
-func toSpiral(s *solver.SpiralResult) *spiralDTO {
+func toSpiral(s *solver.SpiralResult, e configEcho) *spiralDTO {
 	if s == nil {
 		return nil
 	}
@@ -362,6 +443,8 @@ func toSpiral(s *solver.SpiralResult) *spiralDTO {
 		ArcLengthMm:     s.ArcLength.Millimeters(),
 		ComfortStepMm:   s.ComfortStep,
 		AngularTotalDeg: s.AngularTotal * 180 / math.Pi,
+		StepThicknessMm: e.StepThicknessMm, RailingHeightMm: e.RailingHeightMm, Riser: e.Riser,
+		StringerThicknessMm: e.StringerThicknessMm,
 	}
 }
 
@@ -460,11 +543,13 @@ func toConfig(req calculateRequest) (stair.Config, error) {
 		StepHeight:        engineering.Length(req.StepHeightMM),
 		StringerThickness: engineering.Length(req.StringerThicknessMM),
 		StepThickness:     engineering.Length(req.StepThicknessMM),
+		Riser:             req.Riser,
 		Clearance:         engineering.Length(req.ClearanceMM),
 		RailingHeight:     engineering.Length(req.RailingHeightMM),
 		LandingWidth:      engineering.Length(req.LandingWidthMM),
 		LowerStepCount:    req.LowerStepCount,
 		OuterRadius:       engineering.Length(req.OuterRadiusMM),
+		Material:          dommfg.MaterialCode(req.Material),
 	}
 	return cfg, nil
 }

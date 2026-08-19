@@ -1,7 +1,6 @@
 package solver
 
 import (
-	"fmt"
 	"math"
 
 	"stairplatform/internal/domain/engineering"
@@ -64,25 +63,25 @@ type spiralValues struct {
 func solveSpiral(H, h0, W, R engineering.Length) (spiralValues, error) {
 	hm := H.Millimeters()
 	if hm <= 0 {
-		return spiralValues{}, fmt.Errorf("solver: rise height must be positive")
+		return spiralValues{}, riseInputError()
 	}
 	h0m := h0.Millimeters()
 	if h0m <= 0 {
-		return spiralValues{}, fmt.Errorf("solver: target riser must be positive")
+		return spiralValues{}, riserInputError()
 	}
 	wm := W.Millimeters()
 	if wm <= 0 {
-		return spiralValues{}, fmt.Errorf("solver: stair width must be positive")
+		return spiralValues{}, widthInputError()
 	}
 	rm := R.Millimeters()
 	if rm <= wm {
-		return spiralValues{}, fmt.Errorf("solver: outer radius %v must exceed stair width %v", rm, wm)
+		return spiralValues{}, radiusNarrowError(rm, wm)
 	}
 
 	// §4.1 число ступеней; §7 edge case: высота без участка.
 	n := int(math.Round(hm / h0m))
 	if n < 1 {
-		return spiralValues{}, fmt.Errorf("solver: no flight (n < 1) for rise %v", hm)
+		return spiralValues{}, noFlightInputError(hm)
 	}
 
 	// §4.2 уточнённая высота ступени.
@@ -102,19 +101,19 @@ func solveSpiral(H, h0, W, R engineering.Length) (spiralValues, error) {
 
 	// §7 edge cases: проступи не могут быть бессмысленно малы/велики.
 	if bIn < 100 {
-		return spiralValues{}, fmt.Errorf("solver: inner tread %v below 100mm", bIn)
+		return spiralValues{}, spiralTreadInputError("inner", bIn, 100, 0)
 	}
 	if bOut < 250 {
-		return spiralValues{}, fmt.Errorf("solver: outer tread %v below 250mm", bOut)
+		return spiralValues{}, spiralTreadInputError("outer", bOut, 250, 0)
 	}
 	if bWalk < 260 || bWalk > 320 {
-		return spiralValues{}, fmt.Errorf("solver: walk-line tread %v out of range 260-320", bWalk)
+		return spiralValues{}, spiralTreadInputError("walk", bWalk, 260, 320)
 	}
 
 	// §4.6 шаг комфорта по линии хода S = 2h + b_walk (600–640, EDR-0001).
 	s := 2*h + bWalk
 	if s < ComfortStepMin || s > ComfortStepMax {
-		return spiralValues{}, fmt.Errorf("solver: comfort step %v out of range %v-%v", s, ComfortStepMin, ComfortStepMax)
+		return spiralValues{}, comfortInputError(s)
 	}
 
 	// §4.6 угол подъёма винтовой линии (по линии хода).

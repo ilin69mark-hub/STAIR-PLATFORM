@@ -7,7 +7,10 @@ import type {
   AdminPolicy,
   AdminUser,
   ApiKey,
-} from './types'
+  CreateTestimonialRequest,
+  OrderDTO,
+  TestimonialDTO,
+} from '@shared/types'
 
 export interface UpdateUserRequest {
   role?: 'user' | 'admin'
@@ -46,4 +49,22 @@ export const adminApi = {
 
   revokeApiKey: (id: string) =>
     del(`/api/v1/admin/api-keys/${id}`),
+
+  // Заказы клиентского сайта (store): лиды для менеджера.
+  listOrders: () => get<OrderDTO[]>('/api/v1/admin/orders'),
+
+  updateOrderStatus: (id: string, status: string) =>
+    patch<OrderDTO>(`/api/v1/admin/orders/${id}/status`, { status }),
+
+  // Отзывы клиентов (store): CRUD в админке.
+  listTestimonials: () => get<TestimonialDTO[]>('/api/v1/admin/testimonials'),
+
+  createTestimonial: (body: CreateTestimonialRequest) =>
+    post<TestimonialDTO>('/api/v1/admin/testimonials', body),
+
+  updateTestimonial: (id: string, body: CreateTestimonialRequest) =>
+    patch<TestimonialDTO>(`/api/v1/admin/testimonials/${id}`, body),
+
+  deleteTestimonial: (id: string) =>
+    del(`/api/v1/admin/testimonials/${id}`),
 }

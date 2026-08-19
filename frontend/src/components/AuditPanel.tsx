@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { auditApi } from '../api/audit'
-import type { AuditEvent } from '../api/types'
-import { ApiError } from '../api/types'
+import type { AuditEvent } from '@shared/types'
+import { ApiError } from '@shared/types'
 
 interface Props {
   projectId: string

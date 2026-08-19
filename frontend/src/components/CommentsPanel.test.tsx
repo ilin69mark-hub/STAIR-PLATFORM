@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CommentsPanel } from './CommentsPanel'
 import { projectsApi } from '../api/projects'
-import { ApiError, type ProjectComment, type User } from '../api/types'
+import { ApiError, type ProjectComment, type User } from '@shared/types'
 import { AuthContext, type AuthContextValue } from '../auth/context'
 
 const authCtx: AuthContextValue = {

@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { VersionsPanel } from './VersionsPanel'
 import { projectsApi } from '../api/projects'
-import { ApiError, type Configuration, type ProjectMember, type User } from '../api/types'
+import { ApiError, type Configuration, type ProjectMember, type User } from '@shared/types'
 import { AuthContext, type AuthContextValue } from '../auth/context'
 
 const authCtx: AuthContextValue = {
@@ -31,6 +31,7 @@ const makeConfig = (overrides: Partial<Configuration>): Configuration => ({
   step_height_mm: 170,
   stringer_thickness_mm: 5,
   step_thickness_mm: 4,
+  riser: true,
   clearance_mm: 3,
   railing_height_mm: 900,
   comfort_step_mm: 630,

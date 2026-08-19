@@ -68,12 +68,12 @@ func toDeliveryDTO(d *integrations.Delivery) deliveryDTO {
 func handleListEndpoints(svc IntegrationService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !hasPermission(r, auth.PermissionIntegrationsManage) {
-			writeError(w, http.StatusForbidden, "forbidden", "integrations.manage required")
+			writeError(w, http.StatusForbidden, "forbidden", "Требуется право integrations.manage.")
 			return
 		}
 		eps, err := svc.ListEndpoints(r.Context(), tenantID(r.Context()))
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		out := make([]endpointDTO, 0, len(eps))
@@ -90,21 +90,21 @@ func handleListEndpoints(svc IntegrationService) http.HandlerFunc {
 func handleCreateEndpoint(svc IntegrationService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !hasPermission(r, auth.PermissionIntegrationsManage) {
-			writeError(w, http.StatusForbidden, "forbidden", "integrations.manage required")
+			writeError(w, http.StatusForbidden, "forbidden", "Требуется право integrations.manage.")
 			return
 		}
 		var req createEndpointRequest
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_input", err.Error())
+			writeError(w, http.StatusBadRequest, "invalid_input", userInputMessage(err))
 			return
 		}
 		ep, err := svc.RegisterEndpoint(r.Context(), tenantID(r.Context()), req.Name, req.Kind, req.URL, req.Secret)
 		if errors.Is(err, integrations.ErrInvalid) {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
+			writeInputError(w, "invalid_input", err)
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusCreated, toEndpointDTO(ep))
@@ -116,16 +116,16 @@ func handleCreateEndpoint(svc IntegrationService) http.HandlerFunc {
 func handleDeleteEndpoint(svc IntegrationService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !hasPermission(r, auth.PermissionIntegrationsManage) {
-			writeError(w, http.StatusForbidden, "forbidden", "integrations.manage required")
+			writeError(w, http.StatusForbidden, "forbidden", "Требуется право integrations.manage.")
 			return
 		}
 		err := svc.DeleteEndpoint(r.Context(), tenantID(r.Context()), r.PathValue("id"))
 		if errors.Is(err, integrations.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "not_found", "endpoint not found")
+			writeError(w, http.StatusNotFound, "not_found", "Конечная точка не найдена.")
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -146,25 +146,25 @@ func handleQuoteSend(projects ProjectService, svc IntegrationService) http.Handl
 		// Актуальный результат: требует членства и актуального расчёта.
 		calc, err := projects.GetResult(ctx, tenant, user, projectID)
 		if errors.Is(err, project.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "not_found", "no calculation for project")
+			writeError(w, http.StatusNotFound, "not_found", "Для проекта нет расчёта")
 			return
 		}
 		if errors.Is(err, project.ErrForbidden) {
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 
 		d, err := svc.SendQuote(ctx, tenant, projectID, calc.Result)
 		if errors.Is(err, integrations.ErrNoEndpoint) {
-			writeError(w, http.StatusUnprocessableEntity, "no_endpoint", "no erp endpoint configured")
+			writeError(w, http.StatusUnprocessableEntity, "no_endpoint", "ERP-эндпоинт не настроен.")
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusAccepted, toDeliveryDTO(d))
@@ -195,15 +195,15 @@ func handleProjectSync(projects ProjectService, svc IntegrationService) http.Han
 
 		p, err := projects.GetProject(ctx, tenant, user, projectID)
 		if errors.Is(err, project.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "not_found", "no such project")
+			writeError(w, http.StatusNotFound, "not_found", "Проект не найден.")
 			return
 		}
 		if errors.Is(err, project.ErrForbidden) {
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 
@@ -213,17 +213,17 @@ func handleProjectSync(projects ProjectService, svc IntegrationService) http.Han
 			UpdatedAt: p.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z")}
 		payload, err := json.Marshal(doc)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 
 		d, err := svc.SyncProject(ctx, tenant, projectID, payload)
 		if errors.Is(err, integrations.ErrNoEndpoint) {
-			writeError(w, http.StatusUnprocessableEntity, "no_endpoint", "no crm endpoint configured")
+			writeError(w, http.StatusUnprocessableEntity, "no_endpoint", "CRM-эндпоинт не настроен.")
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusAccepted, toDeliveryDTO(d))
@@ -289,25 +289,25 @@ func handleOrderSend(projects ProjectService, svc IntegrationService) http.Handl
 
 		calc, err := projects.GetResult(ctx, tenant, user, projectID)
 		if errors.Is(err, project.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "not_found", "no calculation for project")
+			writeError(w, http.StatusNotFound, "not_found", "Для проекта нет расчёта")
 			return
 		}
 		if errors.Is(err, project.ErrForbidden) {
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 
 		var snap project.Snapshot
 		if err := json.Unmarshal(calc.Result, &snap); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		if snap.Manufacturing == nil {
-			writeError(w, http.StatusUnprocessableEntity, "no_manufacturing", "no manufacturing package for project")
+			writeError(w, http.StatusUnprocessableEntity, "no_manufacturing", "Для проекта не сформирован производственный пакет.")
 			return
 		}
 
@@ -338,17 +338,17 @@ func handleOrderSend(projects ProjectService, svc IntegrationService) http.Handl
 
 		payload, err := json.Marshal(doc)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 
 		d, err := svc.SendManufacturingOrder(ctx, tenant, projectID, payload)
 		if errors.Is(err, integrations.ErrNoEndpoint) {
-			writeError(w, http.StatusUnprocessableEntity, "no_endpoint", "no mes endpoint configured")
+			writeError(w, http.StatusUnprocessableEntity, "no_endpoint", "MES-эндпоинт не настроен.")
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusAccepted, toDeliveryDTO(d))

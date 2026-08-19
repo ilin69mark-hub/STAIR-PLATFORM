@@ -2,7 +2,7 @@
 // Все эндпоинты требуют admin + право analytics.read.
 
 import { get } from './client'
-import type { CostReport, ManufacturingReport, ProjectReport, UsageReport } from './types'
+import type { CostReport, ManufacturingReport, ProjectReport, UsageReport } from '@shared/types'
 
 export interface UsageQuery {
   from?: string

@@ -31,10 +31,10 @@ func handleSsoBegin(svc AuthService) http.HandlerFunc {
 		authURL, err := svc.SsoAuthorizeURL(r.Context(), redirect)
 		if err != nil {
 			if errors.Is(err, auth.ErrSsoNotConfigured) {
-				writeError(w, http.StatusServiceUnavailable, "sso_disabled", "single sign-on not configured")
+				writeError(w, http.StatusServiceUnavailable, "sso_disabled", "Единый вход не настроен.")
 				return
 			}
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		w.Header().Set("Location", authURL)

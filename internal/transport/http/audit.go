@@ -61,17 +61,17 @@ func handleListProjectAudit(projects ProjectService, auditSvc AuditService) http
 		if _, err := projects.GetProject(r.Context(), tenantID(r.Context()), userID(r.Context()), projectID); err != nil {
 			switch {
 			case errors.Is(err, project.ErrNotFound):
-				writeError(w, http.StatusNotFound, "not_found", "project not found")
+				writeError(w, http.StatusNotFound, "not_found", "Проект не найден")
 			case errors.Is(err, project.ErrForbidden):
-				writeError(w, http.StatusForbidden, "forbidden", "insufficient permissions")
+				writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав.")
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			}
 			return
 		}
 		events, err := auditSvc.ListProjectAudit(r.Context(), tenantID(r.Context()), projectID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		out := make([]auditEventDTO, 0, len(events))
@@ -87,12 +87,12 @@ func handleListProjectAudit(projects ProjectService, auditSvc AuditService) http
 func handleListTenantAudit(auditSvc AuditService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if u := authUser(r.Context()); u == nil || !u.Role.HasPermission(auth.PermissionAuditReadAll) {
-			writeError(w, http.StatusForbidden, "forbidden", "admin required")
+			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
 		events, err := auditSvc.ListTenantAudit(r.Context(), tenantID(r.Context()))
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		out := make([]auditEventDTO, 0, len(events))

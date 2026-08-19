@@ -67,7 +67,7 @@ func withLogging(next http.Handler) http.Handler {
 				)
 				sw.status = http.StatusInternalServerError
 				writeJSON(sw, http.StatusInternalServerError, map[string]any{
-					"error": map[string]string{"code": "internal", "message": "internal server error"},
+					"error": map[string]string{"code": "internal", "message": "Внутренняя ошибка сервера"},
 				})
 			}
 			slog.Info("http request",

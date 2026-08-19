@@ -50,6 +50,24 @@ func TestBuildStraightFlightCount(t *testing.T) {
 	}
 }
 
+func TestBuildStraightFlightOpenRiser(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Riser = false
+	model, err := BuildStraightFlight(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 2 косоура + 15 проступей = 17 тел; подступенки не строятся.
+	if len(model.Solids()) != 17 {
+		t.Fatalf("solids = %d, want 17", len(model.Solids()))
+	}
+	for _, s := range model.Solids() {
+		if s.Role() == "riser" {
+			t.Fatal("open-riser model must not contain riser solids")
+		}
+	}
+}
+
 func TestBuildStraightFlightNoStepsWhenZeroThickness(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.StepThickness = mustLength(t, 0)

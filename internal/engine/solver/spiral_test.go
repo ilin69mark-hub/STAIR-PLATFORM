@@ -1,6 +1,7 @@
 package solver
 
 import (
+	"errors"
 	"math"
 	"strings"
 	"testing"
@@ -77,15 +78,15 @@ func TestSolveSpiralEdgeCases(t *testing.T) {
 		H, h0, W, R      float64
 		wantErrSubstring string
 	}{
-		{"zero rise", 0, 180, 500, 800, "rise height"},
-		{"zero target riser", 2700, 0, 500, 800, "target riser"},
-		{"zero width", 2700, 180, 0, 800, "stair width"},
-		{"R equals W", 2700, 180, 800, 800, "must exceed stair width"},
-		{"R below W", 2700, 180, 900, 800, "must exceed stair width"},
-		{"tiny rise", 50, 180, 500, 800, "no flight"},
-		{"inner tread collapse", 2700, 180, 300, 400, "inner tread"},
-		{"outer tread collapse", 5400, 180, 500, 1000, "outer tread"},
-		{"walk tread collapse", 2700, 180, 500, 3000, "walk-line tread"},
+		{"zero rise", 0, 180, 500, 800, "Высота подъёма"},
+		{"zero target riser", 2700, 0, 500, 800, "Высота ступени"},
+		{"zero width", 2700, 180, 0, 800, "Ширина марша"},
+		{"R equals W", 2700, 180, 800, 800, "Радиус спирали"},
+		{"R below W", 2700, 180, 900, 800, "Радиус спирали"},
+		{"tiny rise", 50, 180, 500, 800, "не содержит ступеней"},
+		{"inner tread collapse", 2700, 180, 300, 400, "Проступь у колонны"},
+		{"outer tread collapse", 5400, 180, 500, 1000, "Проступь у наружной кромки"},
+		{"walk tread collapse", 2700, 180, 500, 3000, "Проступь по линии хода"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -97,6 +98,10 @@ func TestSolveSpiralEdgeCases(t *testing.T) {
 			)
 			if err == nil {
 				t.Fatalf("expected error, got nil")
+			}
+			var inp *InputError
+			if !errors.As(err, &inp) {
+				t.Fatalf("expected *InputError, got %T", err)
 			}
 			if !strings.Contains(err.Error(), tc.wantErrSubstring) {
 				t.Errorf("error %q does not contain %q", err.Error(), tc.wantErrSubstring)

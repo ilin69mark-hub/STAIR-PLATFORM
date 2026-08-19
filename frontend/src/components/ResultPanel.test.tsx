@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { ResultPanel } from './ResultPanel'
 import {
@@ -120,5 +120,36 @@ describe('ResultPanel', () => {
     expect(screen.queryByText('Производство')).not.toBeInTheDocument()
     expect(screen.queryByText('Стоимость (RUB)')).not.toBeInTheDocument()
     expect(screen.getByText('блокер')).toBeInTheDocument()
+  })
+
+  it('переключает вкладки чертёжной секции: профиль, план, 3D', () => {
+    render(<ResultPanel snapshot={makeSnapshot()} />)
+
+    expect(screen.getByText('Профиль')).toBeInTheDocument()
+    expect(screen.getByText('План')).toBeInTheDocument()
+    expect(screen.getByText('3D')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'План' }))
+    expect(screen.getByText('План: вид сверху, размеры в мм.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: '3D' }))
+    expect(screen.getByText('Модель 3D недоступна для этого снапшота.')).toBeInTheDocument()
+  })
+
+  it('рендерит вкладки чертежей для спирального марша', () => {
+    render(
+      <ResultPanel
+        snapshot={makeSnapshot({
+          flight: undefined,
+          lshape: undefined,
+          ushape: undefined,
+          spiral: spiralFixture,
+        })}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('tab', { name: 'План' }))
+    expect(screen.getByText('План: вид сверху, размеры в мм.')).toBeInTheDocument()
+    expect(screen.getByText(/ступ\./)).toBeInTheDocument()
   })
 })

@@ -3,7 +3,7 @@
 // SSO (EDR-0017): OIDC Authorization Code flow.
 
 import { get, post } from './client'
-import type { User } from './types'
+import type { User } from '@shared/types'
 
 export interface RegisterRequest {
   email: string

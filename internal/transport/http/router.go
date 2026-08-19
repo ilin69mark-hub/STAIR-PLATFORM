@@ -25,6 +25,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	analytics := cfg.Analytics
 	jobsSvc := cfg.Jobs
 	assistantSvc := cfg.Assistant
+	ordersSvc := cfg.Orders
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handleHealth)
@@ -34,6 +35,13 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	}
 	mux.Handle("POST /api/v1/auth/register", limitRate(registerLimiter, handleRegister(authSvc)))
 	mux.Handle("POST /api/v1/auth/login", limitRate(loginLimiter, handleLogin(authSvc)))
+
+	// Публичный расчёт предварительной цены для клиентского сайта (store).
+	// Без аутентификации; rate-limiter защищает от злоупотреблений.
+	mux.Handle("POST /api/v1/public/stairs:quote", limitRate(quoteLimiter, handlePublicQuote(svc)))
+	// Публичная консультация (store): анонимный запрос обратной связи.
+	// Создаёт заказ-лид kind=consultation без пользователя и цены.
+	mux.Handle("POST /api/v1/public/orders", limitRate(quoteLimiter, handleCreateConsultation(ordersSvc, authSvc)))
 
 	authProtected := func(next http.Handler) http.Handler {
 		return requireAuth(authSvc)(next)
@@ -70,6 +78,22 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	if assistantSvc != nil {
 		// AI-ассистенты (Phase D, D1–D4): design/engineering/manufacturing/pricing.
 		mux.Handle("POST /api/v1/assistant/{kind}", authProtected(handleAssistantAsk(assistantSvc)))
+	}
+	if ordersSvc != nil {
+		// Розничные заказы (клиентский сайт, Store). Клиентский кабинет и
+		// админ-раздел для менеджера.
+		mux.Handle("POST /api/v1/orders", authMutating(handleCreateOrder(ordersSvc)))
+		mux.Handle("GET /api/v1/orders", authProtected(handleListMyOrders(ordersSvc)))
+		mux.Handle("GET /api/v1/admin/orders", authProtected(handleAdminListOrders(ordersSvc)))
+		mux.Handle("PATCH /api/v1/admin/orders/{id}/status", authMutating(handleAdminUpdateOrderStatus(ordersSvc)))
+	}
+	if testimonials := cfg.Testimonials; testimonials != nil {
+		// Отзывы клиентов (Store): публичные — для лендинга, admin — для менеджера.
+		mux.Handle("GET /api/v1/public/testimonials", handlePublicListTestimonials(testimonials, authSvc))
+		mux.Handle("GET /api/v1/admin/testimonials", authProtected(handleAdminListTestimonials(testimonials)))
+		mux.Handle("POST /api/v1/admin/testimonials", authMutating(handleAdminCreateTestimonial(testimonials)))
+		mux.Handle("PATCH /api/v1/admin/testimonials/{id}", authMutating(handleAdminUpdateTestimonial(testimonials)))
+		mux.Handle("DELETE /api/v1/admin/testimonials/{id}", authMutating(handleAdminDeleteTestimonial(testimonials)))
 	}
 	if jobsSvc != nil {
 		mux.Handle("POST /api/v1/stairs:calculate/async", authMutating(handleCalculateAsync(jobsSvc)))
@@ -151,6 +175,12 @@ func applyConfig(cfg Config) {
 	if cfg.RegisterRateWindow <= 0 {
 		cfg.RegisterRateWindow = DefaultConfig().RegisterRateWindow
 	}
+	if cfg.QuoteRateLimit <= 0 {
+		cfg.QuoteRateLimit = DefaultConfig().QuoteRateLimit
+	}
+	if cfg.QuoteRateWindow <= 0 {
+		cfg.QuoteRateWindow = DefaultConfig().QuoteRateWindow
+	}
 	if cfg.MaxBodyBytes <= 0 {
 		cfg.MaxBodyBytes = DefaultConfig().MaxBodyBytes
 	}
@@ -160,12 +190,14 @@ func applyConfig(cfg Config) {
 	instanceLabel = cfg.InstanceID
 	loginLimiter = newRateLimiterStrategy(cfg.RedisAddr, cfg.LoginRateLimit, cfg.LoginRateWindow)
 	registerLimiter = newRateLimiterStrategy(cfg.RedisAddr, cfg.RegisterRateLimit, cfg.RegisterRateWindow)
+	quoteLimiter = newRateLimiterStrategy(cfg.RedisAddr, cfg.QuoteRateLimit, cfg.QuoteRateWindow)
 	paymentsWebhookSecret = cfg.PaymentsWebhookSecret
 }
 
 var (
 	loginLimiter    RateLimiter
 	registerLimiter RateLimiter
+	quoteLimiter    RateLimiter
 	region          string
 	// paymentsWebhookSecret — секрет верификации входящего webhook PSP
 	// (EDR-0027 §3.4); глобал из-за единственного публичного маршрута,

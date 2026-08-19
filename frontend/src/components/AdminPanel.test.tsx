@@ -11,9 +11,11 @@ import {
   type ApiKey,
   type CostReport,
   type ManufacturingReport,
+  type OrderDTO,
   type ProjectReport,
+  type TestimonialDTO,
   type UsageReport,
-} from '../api/types'
+} from '@shared/types'
 
 const overview: AdminOverview = {
   tenant_id: 't-1',
@@ -155,11 +157,46 @@ const cost: CostReport = {
   ],
 }
 
+const orders: OrderDTO[] = [
+  {
+    id: 'order-1',
+    kind: 'order',
+    status: 'new',
+    contact: { name: 'Иван Клиент', email: 'buyer@example.com', phone: '+7 900 000-00-00' },
+    config: { width_mm: 900, height_mm: 2700 },
+    price: { final_price_rub: 180000 },
+    created_at: '2026-08-17T10:00:00Z',
+    updated_at: '2026-08-17T10:00:00Z',
+  },
+  {
+    id: 'order-2',
+    kind: 'consultation',
+    status: 'new',
+    contact: { name: 'Анна Клиент', email: 'anna@example.com', phone: '' },
+    config: { question: 'Какая минимальная ширина лестницы?' },
+    created_at: '2026-08-17T11:00:00Z',
+    updated_at: '2026-08-17T11:00:00Z',
+  },
+]
+
+const testimonials: TestimonialDTO[] = [
+  {
+    id: 't-1',
+    author: 'Мария',
+    text: 'Отличная лестница, очень довольны!',
+    rating: 5,
+    published: true,
+    created_at: '2026-08-17T10:00:00Z',
+  },
+]
+
 function mockApi() {
   vi.spyOn(adminApi, 'overview').mockResolvedValue(overview)
   vi.spyOn(adminApi, 'listUsers').mockResolvedValue(users)
   vi.spyOn(adminApi, 'getSettings').mockResolvedValue(policy)
   vi.spyOn(adminApi, 'listApiKeys').mockResolvedValue(keys)
+  vi.spyOn(adminApi, 'listOrders').mockResolvedValue(orders)
+  vi.spyOn(adminApi, 'listTestimonials').mockResolvedValue(testimonials)
   vi.spyOn(analyticsApi, 'usage').mockResolvedValue(usage)
   vi.spyOn(analyticsApi, 'projects').mockResolvedValue(projects)
   vi.spyOn(analyticsApi, 'manufacturing').mockResolvedValue(manufacturing)
@@ -313,6 +350,8 @@ describe('AdminPanel', () => {
     vi.spyOn(adminApi, 'listUsers').mockResolvedValue(users)
     vi.spyOn(adminApi, 'getSettings').mockResolvedValue(policy)
     vi.spyOn(adminApi, 'listApiKeys').mockResolvedValue(keys)
+    vi.spyOn(adminApi, 'listOrders').mockResolvedValue([])
+    vi.spyOn(adminApi, 'listTestimonials').mockResolvedValue([])
     vi.spyOn(analyticsApi, 'usage').mockRejectedValue(
       new ApiError(403, 'forbidden', 'Нет права analytics.read'),
     )
@@ -335,9 +374,15 @@ describe('AdminPanel', () => {
     // Таблица: проект Approved project, последний расчёт валиден.
     expect(screen.getByText('Approved project')).toBeInTheDocument()
     expect(screen.getByText('валиден')).toBeInTheDocument()
+    // Окно отчёта: последние 30 дней от текущей даты (логика компонента).
+    const now = new Date()
+    const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
     await waitFor(() =>
       expect(projectsMock).toHaveBeenCalledWith(
-        expect.objectContaining({ from: '2026-07-16', to: '2026-08-15' }),
+        expect.objectContaining({
+          from: from.toISOString().slice(0, 10),
+          to: now.toISOString().slice(0, 10),
+        }),
       ),
     )
   })
@@ -383,6 +428,87 @@ describe('AdminPanel', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Месяц' })[2])
     await waitFor(() =>
       expect(costMock).toHaveBeenCalledWith(expect.objectContaining({ granularity: 'month' })),
+    )
+  })
+
+  it('показывает заказы store и меняет статус', async () => {
+    mockApi()
+    const statusMock = vi.spyOn(adminApi, 'updateOrderStatus').mockResolvedValue({
+      ...orders[0],
+      status: 'confirmed',
+    })
+    render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
+
+    expect(await screen.findByText('Заказы (store)')).toBeInTheDocument()
+    expect(screen.getByText('Иван Клиент')).toBeInTheDocument()
+    expect(screen.getByText(/buyer@example.com/)).toBeInTheDocument()
+    expect(screen.getByText(/900 000-00-00/)).toBeInTheDocument()
+    expect(screen.getByText(/900 × 2700 мм/)).toBeInTheDocument()
+    // Консультация: метка + вопрос вместо размеров/цены.
+    expect(screen.getByText('Консультация')).toBeInTheDocument()
+    expect(screen.getByText('Какая минимальная ширина лестницы?')).toBeInTheDocument()
+
+    // Смена статуса через select заказа.
+    fireEvent.change(screen.getByLabelText('Статус заказа order-1'), {
+      target: { value: 'confirmed' },
+    })
+    await waitFor(() =>
+      expect(statusMock).toHaveBeenCalledWith('order-1', 'confirmed'),
+    )
+    expect(screen.getByText('Статус заказа обновлён')).toBeInTheDocument()
+  })
+
+  it('показывает отзывы, публикует/скрывает и удаляет', async () => {
+    mockApi()
+    const publish = vi.spyOn(adminApi, 'updateTestimonial').mockResolvedValue({
+      ...testimonials[0],
+      published: false,
+    })
+    const remove = vi.spyOn(adminApi, 'deleteTestimonial').mockResolvedValue(undefined)
+    render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
+
+    expect(await screen.findByText('Отзывы (store)')).toBeInTheDocument()
+    expect(screen.getByText(/Мария/)).toBeInTheDocument()
+    expect(screen.getByText('Отличная лестница, очень довольны!')).toBeInTheDocument()
+    expect(screen.getByText('Опубликован')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Скрыть' }))
+    await waitFor(() =>
+      expect(publish).toHaveBeenCalledWith('t-1', {
+        author: 'Мария',
+        text: 'Отличная лестница, очень довольны!',
+        rating: 5,
+        published: false,
+      }),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Удалить' }))
+    await waitFor(() => expect(remove).toHaveBeenCalledWith('t-1'))
+  })
+
+  it('добавляет отзыв через форму', async () => {
+    mockApi()
+    const create = vi.spyOn(adminApi, 'createTestimonial').mockResolvedValue(testimonials[0])
+    render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
+
+    await screen.findByText('Отзывы (store)')
+    fireEvent.change(screen.getByPlaceholderText('Автор (имя клиента)'), {
+      target: { value: 'Пётр' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Текст отзыва'), {
+      target: { value: 'Всё понравилось' },
+    })
+    fireEvent.change(screen.getByLabelText('Оценка отзыва'), {
+      target: { value: '4' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить отзыв' }))
+
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith({
+        author: 'Пётр',
+        text: 'Всё понравилось',
+        rating: 4,
+      }),
     )
   })
 })

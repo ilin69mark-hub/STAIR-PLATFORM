@@ -1,8 +1,6 @@
 package solver
 
 import (
-	"fmt"
-
 	"stairplatform/internal/domain/engineering"
 	"stairplatform/internal/engine/constraint"
 	"stairplatform/internal/engine/validation"
@@ -83,8 +81,8 @@ func SolveCheckedUShape(cfg *engineering.StairConfiguration, set *constraint.Con
 	}
 	// §4.8 инвариант площадки: Wp ≥ W.
 	if res.LandingWidth.Millimeters() < cfg.Width.Millimeters() {
-		return UShapeResult{}, validation.Result{}, fmt.Errorf(
-			"solver: landing width %v must be at least stair width %v", res.LandingWidth.Millimeters(), cfg.Width.Millimeters())
+		return UShapeResult{}, validation.Result{}, landingNarrowError(
+			res.LandingWidth.Millimeters(), cfg.Width.Millimeters())
 	}
 	res.Apply(cfg)
 	vr := validation.Validate(cfg, set)

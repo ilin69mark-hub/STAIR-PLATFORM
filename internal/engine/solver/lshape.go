@@ -1,7 +1,6 @@
 package solver
 
 import (
-	"fmt"
 	"math"
 
 	"stairplatform/internal/domain/engineering"
@@ -68,29 +67,29 @@ func solveTwoFlight(H, h0 engineering.Length, n1 int, wp engineering.Length, s .
 
 	hm := H.Millimeters()
 	if hm <= 0 {
-		return twoFlightValues{}, fmt.Errorf("solver: rise height must be positive")
+		return twoFlightValues{}, riseInputError()
 	}
 	h0m := h0.Millimeters()
 	if h0m <= 0 {
-		return twoFlightValues{}, fmt.Errorf("solver: target riser must be positive")
+		return twoFlightValues{}, riserInputError()
 	}
 	wpm := wp.Millimeters()
 	if wpm <= 0 {
-		return twoFlightValues{}, fmt.Errorf("solver: landing width must be positive")
+		return twoFlightValues{}, landingPositiveError()
 	}
 	if step < ComfortStepMin || step > ComfortStepMax {
-		return twoFlightValues{}, fmt.Errorf("solver: comfort step %v out of range %v-%v", step, ComfortStepMin, ComfortStepMax)
+		return twoFlightValues{}, comfortInputError(step)
 	}
 
 	// §4.1 число ступеней; §7 edge case: высота без участка.
 	n := int(math.Round(hm / h0m))
 	if n < 1 {
-		return twoFlightValues{}, fmt.Errorf("solver: no flight (n < 1) for rise %v", hm)
+		return twoFlightValues{}, noFlightInputError(hm)
 	}
 
 	// §4.5 разбивка по маршам: 1 ≤ n1 ≤ n−1, n2 ≥ 1.
 	if n1 < 1 || n1 > n-1 {
-		return twoFlightValues{}, fmt.Errorf("solver: lower step count %d out of range [1, %d]", n1, n-1)
+		return twoFlightValues{}, lowerStepInputError(n1, n)
 	}
 
 	// §4.2 уточнённая высота ступени (общая).
@@ -98,7 +97,7 @@ func solveTwoFlight(H, h0 engineering.Length, n1 int, wp engineering.Length, s .
 	// §4.3 проступь (общая).
 	b := step - 2*h
 	if b <= 0 {
-		return twoFlightValues{}, fmt.Errorf("solver: tread depth must be positive, got %v", b)
+		return twoFlightValues{}, treadPositiveError(b)
 	}
 	// §4.4 угол наклона (общий).
 	alpha := math.Atan(h / b)
@@ -162,8 +161,8 @@ func SolveCheckedLShape(cfg *engineering.StairConfiguration, set *constraint.Con
 	}
 	// §4.8 инвариант площадки: Wp ≥ W.
 	if res.LandingWidth.Millimeters() < cfg.Width.Millimeters() {
-		return LShapeResult{}, validation.Result{}, fmt.Errorf(
-			"solver: landing width %v must be at least stair width %v", res.LandingWidth.Millimeters(), cfg.Width.Millimeters())
+		return LShapeResult{}, validation.Result{}, landingNarrowError(
+			res.LandingWidth.Millimeters(), cfg.Width.Millimeters())
 	}
 	res.Apply(cfg)
 	vr := validation.Validate(cfg, set)

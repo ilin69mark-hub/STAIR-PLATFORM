@@ -8,10 +8,10 @@ import type {
   AssistantKind,
   AssistantPriority,
   AssistantResult,
-} from '../api/types'
-import { ApiError } from '../api/types'
-import { toRequest, toRatesRequest, type ConfigForm, type RatesForm } from '../lib/config'
-import { fmt } from '../lib/format'
+} from '@shared/types'
+import { ApiError } from '@shared/types'
+import { toRequest, toRatesRequest, type ConfigForm, type RatesForm } from '@shared/config'
+import { fmt } from '@shared/format'
 
 interface Props {
   config: ConfigForm

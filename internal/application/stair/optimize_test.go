@@ -140,6 +140,7 @@ func TestOptimizeLShape(t *testing.T) {
 		StepHeight:        mustLengthHelper(180),
 		StringerThickness: mustLengthHelper(50),
 		StepThickness:     mustLengthHelper(40),
+		Riser:             true,
 		Clearance:         mustLengthHelper(2500),
 		RailingHeight:     mustLengthHelper(1000),
 		LandingWidth:      mustLengthHelper(900),

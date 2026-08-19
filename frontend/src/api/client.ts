@@ -3,8 +3,8 @@
 // Сессионная cookie передаётся автоматически (same-origin через vite proxy);
 // на мутирующие запросы добавляется X-CSRF-Token (double-submit, SEC-0003).
 
-import type { ApiErrorBody } from './types'
-import { ApiError } from './types'
+import type { ApiErrorBody } from '@shared/types'
+import { ApiError } from '@shared/types'
 
 const CSRF_COOKIE = 'csrf'
 

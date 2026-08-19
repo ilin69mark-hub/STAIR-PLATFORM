@@ -1,9 +1,17 @@
+import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      // Общий модуль (shared): типы, форматтеры, схемы, 3D-вьювер —
+      // переиспользуются панелью и клиентским сайтом (store).
+      '@shared': fileURLToPath(new URL('./shared/src', import.meta.url)),
+    },
+  },
   server: {
     port: 5173,
     proxy: {

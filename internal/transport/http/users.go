@@ -31,7 +31,7 @@ type updateUserRequest struct {
 // (EDR-0015 §3.4, EDR-0016 §3.1): 403 без права.
 func requireUsersPermission(w http.ResponseWriter, r *http.Request, perm auth.Permission) bool {
 	if !hasPermission(r, perm) {
-		writeError(w, http.StatusForbidden, "forbidden", "admin required")
+		writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 		return false
 	}
 	return true
@@ -46,7 +46,7 @@ func handleListUsers(svc AuthService) http.HandlerFunc {
 		}
 		users, err := svc.ListUsers(r.Context(), tenantID(r.Context()))
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		out := make([]userListDTO, 0, len(users))
@@ -68,18 +68,18 @@ func handleUpdateUser(svc AuthService) http.HandlerFunc {
 		}
 		var req updateUserRequest
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
 		if req.Role == nil && req.Status == nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_input", "role or status required")
+			writeError(w, http.StatusUnprocessableEntity, "invalid_input", "Укажите роль или статус")
 			return
 		}
 		var role *auth.Role
 		if req.Role != nil {
 			parsed, err := auth.ParseRole(*req.Role)
 			if err != nil {
-				writeError(w, http.StatusUnprocessableEntity, "invalid_role", "role must be user or admin")
+				writeError(w, http.StatusUnprocessableEntity, "invalid_role", "Роль должна быть user или admin.")
 				return
 			}
 			role = &parsed
@@ -88,7 +88,7 @@ func handleUpdateUser(svc AuthService) http.HandlerFunc {
 		if req.Status != nil {
 			parsed, err := auth.ParseStatus(*req.Status)
 			if err != nil {
-				writeError(w, http.StatusUnprocessableEntity, "invalid_status", "status must be active or disabled")
+				writeError(w, http.StatusUnprocessableEntity, "invalid_status", "Статус должен быть active или disabled.")
 				return
 			}
 			status = &parsed
@@ -96,11 +96,11 @@ func handleUpdateUser(svc AuthService) http.HandlerFunc {
 		if err := svc.UpdateUser(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"), role, status); err != nil {
 			switch {
 			case errors.Is(err, auth.ErrForbidden):
-				writeError(w, http.StatusForbidden, "forbidden", "cannot change your own role or status")
+				writeError(w, http.StatusForbidden, "forbidden", "Нельзя менять собственную роль или статус.")
 			case errors.Is(err, auth.ErrNotFound):
-				writeError(w, http.StatusNotFound, "not_found", "user not found")
+				writeError(w, http.StatusNotFound, "not_found", "Пользователь не найден.")
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			}
 			return
 		}
@@ -119,17 +119,17 @@ func handleAdminOverview(svc AuthService, projects ProjectService) http.HandlerF
 		tenant := tenantID(r.Context())
 		users, err := svc.ListUsers(r.Context(), tenant)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		projectsList, err := projects.ListTenantProjects(r.Context(), tenant)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		keys, err := svc.ListApiKeys(r.Context(), tenant)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		var activeUsers, disabledUsers, admins int

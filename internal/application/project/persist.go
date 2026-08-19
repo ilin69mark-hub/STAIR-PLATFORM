@@ -25,6 +25,12 @@ type Snapshot struct {
 	LShape        *solver.LShapeResult                    `json:"lshape,omitempty"`
 	UShape        *solver.UShapeResult                    `json:"ushape,omitempty"`
 	Spiral        *solver.SpiralResult                    `json:"spiral,omitempty"`
+	// Производственные параметры конфигурации (эхо, BC-002): толщина
+	// проступи, высота перил, наличие подступенков — для 2D-рендера.
+	StepThickness float64                                 `json:"step_thickness"`
+	RailingHeight float64                                 `json:"railing_height"`
+	Riser         bool                                    `json:"riser"`
+	StringerThickness float64                             `json:"stringer_thickness"`
 	Measurement   geometry.Measurement                    `json:"measurement"`
 	Mesh          *kerngeo.Mesh                           `json:"mesh,omitempty"`
 	IssueCount    int                                     `json:"issue_count"`
@@ -42,6 +48,10 @@ func NewSnapshot(projectID string, res *stair.Result) Snapshot {
 		LShape:        res.LShape,
 		UShape:        res.UShape,
 		Spiral:        res.Spiral,
+		StepThickness: res.StepThickness.Millimeters(),
+		RailingHeight: res.RailingHeight.Millimeters(),
+		Riser:         res.Riser,
+		StringerThickness: res.StringerThickness.Millimeters(),
 		Measurement:   res.Measurement,
 		Mesh:          res.Mesh,
 		IssueCount:    len(res.GeometryIssues),
@@ -61,6 +71,7 @@ func toConfigEntity(projectID string, cfg stair.Config, opts stair.Options) *Sta
 		StepHeightMM:        cfg.StepHeight.Millimeters(),
 		StringerThicknessMM: cfg.StringerThickness.Millimeters(),
 		StepThicknessMM:     cfg.StepThickness.Millimeters(),
+		Riser:               cfg.Riser,
 		ClearanceMM:         cfg.Clearance.Millimeters(),
 		RailingHeightMM:     cfg.RailingHeight.Millimeters(),
 		ComfortStepMM:       opts.ComfortStep,
@@ -124,6 +135,7 @@ func fromConfigEntity(e *StairConfiguration) (stair.Config, stair.Options, error
 		StepHeight:        step,
 		StringerThickness: stringer,
 		StepThickness:     thick,
+		Riser:             e.Riser,
 		Clearance:         clearance,
 		RailingHeight:     railing,
 		LandingWidth:      landing,

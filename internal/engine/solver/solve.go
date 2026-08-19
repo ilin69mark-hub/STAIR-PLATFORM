@@ -1,7 +1,6 @@
 package solver
 
 import (
-	"fmt"
 	"math"
 
 	"stairplatform/internal/domain/engineering"
@@ -29,20 +28,20 @@ func Solve(H, h0 engineering.Length, s ...float64) (FlightResult, error) {
 
 	hm := H.Millimeters()
 	if hm <= 0 {
-		return FlightResult{}, fmt.Errorf("solver: rise height must be positive")
+		return FlightResult{}, riseInputError()
 	}
 	h0m := h0.Millimeters()
 	if h0m <= 0 {
-		return FlightResult{}, fmt.Errorf("solver: target riser must be positive")
+		return FlightResult{}, riserInputError()
 	}
 	if step < ComfortStepMin || step > ComfortStepMax {
-		return FlightResult{}, fmt.Errorf("solver: comfort step %v out of range %v-%v", step, ComfortStepMin, ComfortStepMax)
+		return FlightResult{}, comfortInputError(step)
 	}
 
 	// §4.1 число ступеней; §7 edge case: высота без участка.
 	n := int(math.Round(hm / h0m))
 	if n < 1 {
-		return FlightResult{}, fmt.Errorf("solver: no flight (n < 1) for rise %v", hm)
+		return FlightResult{}, noFlightInputError(hm)
 	}
 
 	// §4.2 уточнённая высота ступени.
@@ -50,7 +49,7 @@ func Solve(H, h0 engineering.Length, s ...float64) (FlightResult, error) {
 	// §4.3 проступь (невалидная геометрия при b <= 0).
 	b := step - 2*h
 	if b <= 0 {
-		return FlightResult{}, fmt.Errorf("solver: tread depth must be positive, got %v", b)
+		return FlightResult{}, treadPositiveError(b)
 	}
 	// §4.4 угол наклона.
 	alpha := math.Atan(h / b)

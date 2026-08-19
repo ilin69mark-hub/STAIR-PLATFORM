@@ -25,8 +25,25 @@ func DefaultStockSheetRegistry() *dommfg.StockSheetRegistry {
 		reg, err := dommfg.NewStockSheetRegistry(
 			&dommfg.StockSheet{MaterialCode: "STEEL-S235", Length: sheetLength(6000), Width: sheetLength(3000)},
 			&dommfg.StockSheet{MaterialCode: "STEEL-S235", Length: sheetLength(2500), Width: sheetLength(1250)},
+			// Крупные листы (энвелоп H ≤ 6000 мм, MFG-0012): худший косоур
+			// прямого марша = прогон ≈1.732·H × (H+heel 50). Для H=6000 это
+			// ≈10200×6050 → покрывается листом 10400×6200; средний 8000×4600
+			// дешевле для H до ~4550 (pickSheet берёт наименьший по площади).
+			&dommfg.StockSheet{MaterialCode: "STEEL-S235", Length: sheetLength(8000), Width: sheetLength(4600)},
+			&dommfg.StockSheet{MaterialCode: "STEEL-S235", Length: sheetLength(10400), Width: sheetLength(6200)},
 			&dommfg.StockSheet{MaterialCode: "ALUM-5083", Length: sheetLength(3000), Width: sheetLength(1500)},
+			// Крупные алюминиевые листы (выбор материала конструктора, MFG-0012):
+			// 6000×3000 — типовые марши (H ≤ ~2950 мм), 9000×4600 — до H ≈ 4550 мм.
+			&dommfg.StockSheet{MaterialCode: "ALUM-5083", Length: sheetLength(6000), Width: sheetLength(3000)},
+			&dommfg.StockSheet{MaterialCode: "ALUM-5083", Length: sheetLength(9000), Width: sheetLength(4600)},
+			// Дуб (выбор материала конструктора, MFG-0012): стандартный лист
+			// 2500×600 — для проступей/подступенков; крупные плиты 6000×3000
+			// покрывают типовые марши (H ≤ ~2950 мм), 9000×4600 — до H ≈ 4550 мм
+			// (ширина листа ≥ H+heel). pickSheet берёт наименьший по площади.
 			&dommfg.StockSheet{MaterialCode: "WOOD-OAK", Length: sheetLength(2500), Width: sheetLength(600)},
+			&dommfg.StockSheet{MaterialCode: "WOOD-OAK", Length: sheetLength(2500), Width: sheetLength(1250)},
+			&dommfg.StockSheet{MaterialCode: "WOOD-OAK", Length: sheetLength(6000), Width: sheetLength(3000)},
+			&dommfg.StockSheet{MaterialCode: "WOOD-OAK", Length: sheetLength(9000), Width: sheetLength(4600)},
 		)
 		if err != nil {
 			panic(fmt.Sprintf("manufacturing: default stock sheet registry: %v", err))
@@ -47,6 +64,63 @@ func sheetLength(mm float64) engineering.Length {
 		panic(fmt.Sprintf("manufacturing: stock sheet length %v: %v", mm, err))
 	}
 	return l
+}
+
+// Rect — прямоугольник детали в плоскости раскроя (мм). Length ≥ Width
+// нормализуется внутри функций раскроя.
+type Rect struct {
+	Length float64
+	Width  float64
+}
+
+// FeasibilityError — ошибка раскроя: в каталоге листов (MFG-0012) нет
+// листа, вмещающего самую крупную деталь группы с учётом kerf. Параметры
+// позволяют прикладному слою построить понятное пользователю сообщение.
+type FeasibilityError struct {
+	PartLen float64
+	PartWid float64
+	Kerf    float64
+}
+
+func (e *FeasibilityError) Error() string {
+	return fmt.Sprintf("manufacturing: no stock sheet fits %v×%v mm (kerf %v)", e.PartLen, e.PartWid, e.Kerf)
+}
+
+// SheetFeasible проверяет, что хотя бы один лист каталога для материала
+// вмещает все прямоугольники с учётом kerf. Предикат не раскладывает
+// детали (упрощение для советника): достаточно, чтобы самый крупный
+// прямоугольник помещался на какой-либо лист реестра.
+func SheetFeasible(registry *dommfg.StockSheetRegistry, material dommfg.MaterialCode, kerf float64, rects ...Rect) bool {
+	cut := make([]cutRect, 0, len(rects))
+	for _, r := range rects {
+		l, w := r.Length, r.Width
+		if l < w {
+			l, w = w, l
+		}
+		cut = append(cut, cutRect{length: l, width: w})
+	}
+	_, ok := pickSheetFit(registry, material, cut, kerf)
+	return ok
+}
+
+// LargestStockSheet возвращает габариты самого крупного листа каталога
+// для материала (максимумы по длине и ширине в отдельности). Используется
+// для человекочитаемых сообщений советника.
+func LargestStockSheet(registry *dommfg.StockSheetRegistry, material dommfg.MaterialCode) (length, width float64, ok bool) {
+	if registry == nil {
+		return 0, 0, false
+	}
+	for _, s := range registry.SheetsFor(material) {
+		l, w := s.Length.Millimeters(), s.Width.Millimeters()
+		if l > length {
+			length = l
+		}
+		if w > width {
+			width = w
+		}
+		ok = true
+	}
+	return length, width, ok
 }
 
 // cutRect — прямоугольник раскроя: деталь с длиной length ≥ width (мм).
@@ -136,9 +210,28 @@ func Nest(cut dommfg.CutList, registry *dommfg.StockSheetRegistry, kerf float64)
 // pickSheet выбирает наименьший лист каталога (по площади, при равенстве —
 // первый в порядке реестра), вмещающий самую крупную деталь с учётом kerf.
 func pickSheet(registry *dommfg.StockSheetRegistry, material dommfg.MaterialCode, rects []cutRect, kerf float64) (*dommfg.StockSheet, error) {
+	best, ok := pickSheetFit(registry, material, rects, kerf)
+	if !ok {
+		maxLen, maxWid := 0.0, 0.0
+		for _, r := range rects {
+			if r.length > maxLen {
+				maxLen = r.length
+			}
+			if r.width > maxWid {
+				maxWid = r.width
+			}
+		}
+		return nil, &FeasibilityError{PartLen: maxLen, PartWid: maxWid, Kerf: kerf}
+	}
+	return best, nil
+}
+
+// pickSheetFit возвращает наименьший подходящий лист и признак наличия
+// такого листа. Общая логика для pickSheet и SheetFeasible.
+func pickSheetFit(registry *dommfg.StockSheetRegistry, material dommfg.MaterialCode, rects []cutRect, kerf float64) (*dommfg.StockSheet, bool) {
 	sheets := registry.SheetsFor(material)
 	if len(sheets) == 0 {
-		return nil, fmt.Errorf("manufacturing: no stock sheets for material %q", material)
+		return nil, false
 	}
 	maxLen, maxWid := 0.0, 0.0
 	for _, r := range rects {
@@ -161,10 +254,7 @@ func pickSheet(registry *dommfg.StockSheetRegistry, material dommfg.MaterialCode
 			best = s
 		}
 	}
-	if best == nil {
-		return nil, fmt.Errorf("manufacturing: no stock sheet fits %v×%v mm (kerf %v)", maxLen, maxWid, kerf)
-	}
-	return best, nil
+	return best, best != nil
 }
 
 // shelf — открытая полоса листа: детали кладутся слева направо на высоте y.

@@ -71,30 +71,30 @@ func handleCheckout(projects ProjectService, svc PaymentService) http.HandlerFun
 
 		if _, err := projects.GetProject(ctx, tenant, user, projectID); err != nil {
 			if errors.Is(err, project.ErrNotFound) {
-				writeError(w, http.StatusNotFound, "not_found", "no such project")
+				writeError(w, http.StatusNotFound, "not_found", "Проект не найден.")
 				return
 			}
 			if errors.Is(err, project.ErrForbidden) {
-				writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+				writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 				return
 			}
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 
 		var req checkoutRequest
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
 
 		p, err := svc.CreateCheckout(ctx, tenant, projectID, user, req.AmountMinor, req.Currency)
 		if errors.Is(err, payments.ErrInvalid) {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
+			writeInputError(w, "invalid_input", err)
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusCreated, toPaymentIntentDTO(p))
@@ -112,20 +112,20 @@ func handleListPayments(projects ProjectService, svc PaymentService) http.Handle
 
 		if _, err := projects.GetProject(ctx, tenant, user, projectID); err != nil {
 			if errors.Is(err, project.ErrNotFound) {
-				writeError(w, http.StatusNotFound, "not_found", "no such project")
+				writeError(w, http.StatusNotFound, "not_found", "Проект не найден.")
 				return
 			}
 			if errors.Is(err, project.ErrForbidden) {
-				writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+				writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 				return
 			}
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 
 		list, err := svc.ListByProject(ctx, tenant, projectID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		out := make([]paymentIntentDTO, 0, len(list))
@@ -142,11 +142,11 @@ func handleGetPayment(svc PaymentService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		p, err := svc.Get(r.Context(), tenantID(r.Context()), r.PathValue("id"))
 		if errors.Is(err, payments.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "not_found", "payment intent not found")
+			writeError(w, http.StatusNotFound, "not_found", "Платёж не найден.")
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusOK, toPaymentIntentDTO(p))
@@ -161,7 +161,7 @@ func handlePaymentWebhook(svc PaymentService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_body", "could not read request body")
+			writeError(w, http.StatusBadRequest, "invalid_body", "Не удалось прочитать тело запроса.")
 			return
 		}
 		_, err = svc.HandleWebhook(r.Context(),
@@ -171,13 +171,13 @@ func handlePaymentWebhook(svc PaymentService) http.HandlerFunc {
 			body)
 		switch {
 		case errors.Is(err, payments.ErrInvalidSignature):
-			writeError(w, http.StatusUnauthorized, "invalid_signature", "webhook signature verification failed")
+			writeError(w, http.StatusUnauthorized, "invalid_signature", "Не удалось проверить подпись webhook.")
 		case errors.Is(err, payments.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "payment intent not found")
+			writeError(w, http.StatusNotFound, "not_found", "Платёж не найден.")
 		case errors.Is(err, payments.ErrInvalid):
-			writeError(w, http.StatusConflict, "invalid_input", err.Error())
+			writeError(w, http.StatusConflict, "invalid_input", userInputMessage(err))
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 		default:
 			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 		}

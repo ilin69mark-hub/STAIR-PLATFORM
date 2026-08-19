@@ -6,12 +6,14 @@ package stair
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
 	domprc "stairplatform/internal/domain/pricing"
+	"stairplatform/internal/engine/advisor"
 	"stairplatform/internal/engine/constraint"
 	"stairplatform/internal/engine/geometry"
 	engmfg "stairplatform/internal/engine/manufacturing"
@@ -30,6 +32,9 @@ type Config struct {
 	StepHeight        engineering.Length // мм — целевая высота ступени h0
 	StringerThickness engineering.Length // мм
 	StepThickness     engineering.Length // мм
+	// Riser — строить подступенки (вертикальные грани под проступями).
+	// false — открытые ступени.
+	Riser             bool
 	Clearance         engineering.Length // мм
 	RailingHeight     engineering.Length // мм
 	// LandingWidth и LowerStepCount — специфичны для маршей с площадкой
@@ -39,6 +44,9 @@ type Config struct {
 	// OuterRadius — специфичен для спиральной лестницы (EDR-0007):
 	// наружный радиус марша R (радиус колонны r = R − W).
 	OuterRadius engineering.Length
+	// Material — выбранный материал (код каталога MFG-0005); пустое
+	// значение — автоназначение по толщине (текущая политика).
+	Material dommfg.MaterialCode
 }
 
 // Options — опциональные настройки расчёта; нулевое значение даёт дефолты.
@@ -64,6 +72,13 @@ type Result struct {
 	Package        *dommfg.ManufacturingPackage // полные Parts/BOM/CutList/Nesting
 	Cost           *dommfg.ManufacturingCostDataset
 	Price          *domprc.PriceBreakdown
+	// Эхо производственных параметров конфигурации (для 2D-рендера и
+	// публичного ответа): толщина проступи, высота перил, наличие
+	// подступенков (BC-002 — рендер рисует «как посчитано»).
+	StepThickness   engineering.Length
+	RailingHeight   engineering.Length
+	Riser           bool
+	StringerThickness engineering.Length
 }
 
 // Service — прикладной сервис расчёта лестницы. Является единственной
@@ -108,6 +123,9 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	}
 	c, err := buildConfiguration(cfg)
 	if err != nil {
+		if vr, ok := inputIssue(err); ok {
+			return &Result{Validation: vr}, nil
+		}
 		return nil, err
 	}
 
@@ -116,45 +134,77 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 		comfort = solver.DefaultComfortStep
 	}
 
+	// Вход советника собирается из исходной конфигурации: checked-функции
+	// зануляют поля при blocking-валидации, а они нужны для подбора вариантов.
+	advIn := advisor.Input{
+		Flight:          cfg.Flight,
+		HeightMm:        cfg.Height.Millimeters(),
+		TargetStepMm:    cfg.StepHeight.Millimeters(),
+		ComfortMm:       comfort,
+		LowerStepCount:  cfg.LowerStepCount,
+		LandingMm:       cfg.LandingWidth.Millimeters(),
+		WidthMm:         cfg.Width.Millimeters(),
+		OuterRadiusMm:   cfg.OuterRadius.Millimeters(),
+		ClearanceMm:     cfg.Clearance.Millimeters(),
+		RailingMm:       cfg.RailingHeight.Millimeters(),
+		StringerThickMm: cfg.StringerThickness.Millimeters(),
+		Material:       cfg.Material,
+	}
+	advise := func(vr validation.Result) validation.Result {
+		return advisor.Advise(advIn, s.constraints, vr)
+	}
+
 	res := &Result{}
 	switch cfg.Flight {
 	case engineering.FlightLShape:
 		lres, vr, err := solver.SolveCheckedLShape(c, s.constraints, comfort)
 		if err != nil {
+			if vr, ok := inputIssue(err); ok {
+				return &Result{Validation: advise(vr)}, nil
+			}
 			return nil, err
 		}
 		if vr.Blocking {
-			return &Result{Validation: vr}, nil
+			return &Result{Validation: advise(vr)}, nil
 		}
 		res.Validation = vr
 		res.LShape = &lres
 	case engineering.FlightUShape:
 		ures, vr, err := solver.SolveCheckedUShape(c, s.constraints, comfort)
 		if err != nil {
+			if vr, ok := inputIssue(err); ok {
+				return &Result{Validation: advise(vr)}, nil
+			}
 			return nil, err
 		}
 		if vr.Blocking {
-			return &Result{Validation: vr}, nil
+			return &Result{Validation: advise(vr)}, nil
 		}
 		res.Validation = vr
 		res.UShape = &ures
 	case engineering.FlightSpiral:
 		sres, vr, err := solver.SolveCheckedSpiral(c, s.constraints)
 		if err != nil {
+			if vr, ok := inputIssue(err); ok {
+				return &Result{Validation: advise(vr)}, nil
+			}
 			return nil, err
 		}
 		if vr.Blocking {
-			return &Result{Validation: vr}, nil
+			return &Result{Validation: advise(vr)}, nil
 		}
 		res.Validation = vr
 		res.Spiral = &sres
 	default:
 		flight, vr, err := solver.SolveChecked(c, s.constraints, comfort)
 		if err != nil {
+			if vr, ok := inputIssue(err); ok {
+				return &Result{Validation: advise(vr)}, nil
+			}
 			return nil, err
 		}
 		if vr.Blocking {
-			return &Result{Validation: vr}, nil
+			return &Result{Validation: advise(vr)}, nil
 		}
 		res.Validation = vr
 		res.Flight = flight
@@ -165,6 +215,9 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	}
 	gen, err := geometry.Generate(ctx, c)
 	if err != nil {
+		if vr, ok := inputIssue(err); ok {
+			return &Result{Validation: advise(vr)}, nil
+		}
 		return nil, fmt.Errorf("stair: geometry: %w", err)
 	}
 
@@ -173,6 +226,16 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	}
 	pkg, err := engmfg.Manufacture(c, gen)
 	if err != nil {
+		var feas *engmfg.FeasibilityError
+		if errors.As(err, &feas) {
+			// Изготовление невозможно (MFG-0012): деталь не помещается на
+			// стандартный лист. Возвращаем понятное blocking-сообщение вместо
+			// технической ошибки — клиент показывает его в секции валидации.
+			return &Result{Validation: manufacturingBlocked(feas, c.StringerThickness, dommfg.MaterialCode(c.Material))}, nil
+		}
+		if vr, ok := inputIssue(err); ok {
+			return &Result{Validation: advise(vr)}, nil
+		}
 		return nil, fmt.Errorf("stair: manufacturing: %w", err)
 	}
 
@@ -204,6 +267,10 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	res.Package = pkg
 	res.Cost = ds
 	res.Price = price
+	res.StepThickness = c.StepThickness
+	res.RailingHeight = c.RailingHeight
+	res.Riser = c.Riser
+	res.StringerThickness = c.StringerThickness
 	return res, nil
 }
 
@@ -214,6 +281,40 @@ func flightLabel(f engineering.FlightType) string {
 		return string(engineering.FlightStraight)
 	}
 	return string(f)
+}
+
+// manufacturingBlocked собирает blocking-результат для конфигурации,
+// которую нельзя изготовить (MFG-0012): деталь не помещается на
+// стандартный лист. Советник не имеет для неё вариантов — выпускаем
+// только понятное описание причины.
+func manufacturingBlocked(feas *engmfg.FeasibilityError, stringerThick engineering.Length, material dommfg.MaterialCode) validation.Result {
+	maxLen, maxWid := 6000.0, 3000.0
+	if material == "" {
+		var err error
+		material, err = engmfg.DefaultMaterialForThickness(stringerThick.Millimeters())
+		if err != nil {
+			material = dommfg.MaterialCode("STEEL-S235")
+		}
+	}
+	if l, w, ok := engmfg.LargestStockSheet(engmfg.DefaultStockSheetRegistry(), material); ok {
+		maxLen, maxWid = l, w
+	}
+	return validation.Result{
+		Valid:    false,
+		Blocking: true,
+		Issues: []validation.Issue{{
+			ID:       "ISSUE-MFG",
+			Code:     constraint.MFG_SHEET,
+			Severity: constraint.SeverityError,
+			Element:  "stringer",
+			Message:  "косоур не помещается на стандартный лист",
+			Param:    "Изготовление",
+			Guide: fmt.Sprintf(
+				"Косоур %.0f×%.0f мм (рез %d мм) не помещается на стандартный лист (макс. %.0f×%.0f мм). Изготовление при текущем каталоге листов невозможно — уменьшите высоту подъёма или измените число ступеней, чтобы косоур влез на лист.",
+				feas.PartLen, feas.PartWid, int(feas.Kerf), maxLen, maxWid),
+			Fix: "Уменьшите высоту подъёма или измените число ступеней",
+		}},
+	}
 }
 
 // buildConfiguration собирает и валидирует параметрическую конфигурацию
@@ -246,13 +347,79 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 	c.StepHeight = cfg.StepHeight
 	c.StringerThickness = cfg.StringerThickness
 	c.StepThickness = cfg.StepThickness
+	c.Riser = cfg.Riser
 	c.Clearance = cfg.Clearance
 	c.RailingHeight = cfg.RailingHeight
 	c.LandingWidth = cfg.LandingWidth
 	c.LowerStepCount = cfg.LowerStepCount
 	c.OuterRadius = cfg.OuterRadius
+	c.Material = string(cfg.Material)
+	// Выбранный материал (MFG-0005): должен быть в каталоге и поддерживать
+	// толщины косоура и ступени. Пустой материал — автоназначение по толщине.
+	if cfg.Material != "" {
+		mat, ok := engmfg.DefaultMaterialRegistry().Find(cfg.Material)
+		if !ok {
+			return nil, configInputError(fmt.Errorf(
+				"stair: material %q not found in catalog", cfg.Material))
+		}
+		for _, tk := range []struct {
+			t    float64
+			name string
+		}{
+			{cfg.StringerThickness.Millimeters(), "косоура"},
+			{cfg.StepThickness.Millimeters(), "ступени"},
+		} {
+			if !mat.SupportsThickness(tk.t) {
+				return nil, configInputError(fmt.Errorf(
+					"stair: material %q does not support thickness %v mm of %s",
+					cfg.Material, tk.t, tk.name))
+			}
+		}
+	}
+	// Энвелоп платформы (MFG-0012): гарантия изготовления только до этих
+	// пределов (совпадают с лимитами конструкторов). Вход сверх них
+	// отклоняется понятной ошибкой вместо прогона конвейера.
+	if c.Height.Millimeters() > maxSupportedHeightMM {
+		return nil, configInputError(fmt.Errorf(
+			"stair: rise height %v mm exceeds supported maximum %v mm",
+			c.Height.Millimeters(), maxSupportedHeightMM))
+	}
+	if c.Flight == engineering.FlightSpiral && c.OuterRadius.Millimeters() > maxSupportedRadiusMM {
+		return nil, configInputError(fmt.Errorf(
+			"stair: spiral outer radius %v mm exceeds supported maximum %v mm",
+			c.OuterRadius.Millimeters(), maxSupportedRadiusMM))
+	}
+	// EDR-0007 §4.4: колонна имеет положительный радиус (R > W). Проверяется
+	// здесь с цифрами, чтобы подсказка была конкретной (c.Validate() даёт
+	// общий текст без значений).
+	if c.Flight == engineering.FlightSpiral && c.OuterRadius.Millimeters() <= c.Width.Millimeters() {
+		return nil, &solver.InputError{
+			Code:    constraint.GEO_SPIRAL_RADIUS,
+			Field:   "Радиус спирали",
+			Value:   c.OuterRadius.Millimeters(),
+			Min:     c.Width.Millimeters(),
+			HasMin:  true,
+			Message: "Радиус спирали не превышает ширину марша",
+			Guide: fmt.Sprintf(
+				"Наружный радиус спирали %.0f мм должен быть больше ширины марша %.0f мм (радиус колонны должен оставаться положительным).",
+				c.OuterRadius.Millimeters(), c.Width.Millimeters()),
+			Fix: fmt.Sprintf("Увеличьте радиус спирали минимум до %.0f мм", c.Width.Millimeters()+1),
+		}
+	}
 	if err := c.Validate(); err != nil {
+		if inp := configInputError(err); inp != nil {
+			return nil, inp
+		}
 		return nil, fmt.Errorf("stair: %w", err)
 	}
 	return c, nil
 }
+
+const (
+	// maxSupportedHeightMM — максимальная высота подъёма, гарантируемая
+	// каталогом листов (лимит конструкторов 6000 мм).
+	maxSupportedHeightMM = 6000.0
+	// maxSupportedRadiusMM — максимальный наружный радиус спирали
+	// (лимит конструкторов 5000 мм).
+	maxSupportedRadiusMM = 5000.0
+)

@@ -24,6 +24,11 @@ type Config struct {
 	RegisterRateLimit int
 	// RegisterRateWindow — окно rate-limit регистрации.
 	RegisterRateWindow time.Duration
+	// QuoteRateLimit — максимум публичных расчётов цены с одного IP за окно
+	// (STAIR_QUOTE_RATE_LIMIT); защищает публичный quote-эндпоинт от спама.
+	QuoteRateLimit int
+	// QuoteRateWindow — окно rate-limit публичного расчёта.
+	QuoteRateWindow time.Duration
 	// RedisAddr — адрес Redis для распределённого лимитера; пусто — memory.
 	RedisAddr string
 	// MaxBodyBytes — предельный размер тела запроса (защита от DoS).
@@ -61,6 +66,12 @@ type Config struct {
 	// Assistant — сервис AI-ассистентов (EDR-0036, Phase D D1); nil —
 	// маршруты assistant/{kind} не регистрируются.
 	Assistant AssistantService
+	// Orders — сервис розничных заказов (клиентский сайт); nil — маршруты
+	// orders и admin/orders не регистрируются.
+	Orders OrderService
+	// Testimonials — сервис отзывов клиентов (клиентский сайт); nil —
+	// маршруты testimonials и admin/testimonials не регистрируются.
+	Testimonials TestimonialService
 }
 
 // DefaultConfig возвращает конфигурацию по умолчанию.
@@ -71,6 +82,8 @@ func DefaultConfig() Config {
 		LoginRateWindow:    time.Minute,
 		RegisterRateLimit:  5,
 		RegisterRateWindow: time.Minute,
+		QuoteRateLimit:     30,
+		QuoteRateWindow:    time.Minute,
 		MaxBodyBytes:       1 << 20, // 1 MiB
 	}
 }
@@ -87,7 +100,7 @@ func requireAuth(svc AuthService) func(http.Handler) http.Handler {
 			if bearer := bearerToken(r); bearer != "" {
 				key, err := svc.AuthenticateApiKey(r.Context(), bearer)
 				if err != nil {
-					writeError(w, http.StatusUnauthorized, "unauthorized", "invalid api key")
+					writeError(w, http.StatusUnauthorized, "unauthorized", "Неверный API-ключ.")
 					return
 				}
 				next.ServeHTTP(w, r.WithContext(withApiKey(r.Context(), key)))
@@ -95,13 +108,13 @@ func requireAuth(svc AuthService) func(http.Handler) http.Handler {
 			}
 			token := sessionToken(r)
 			if token == "" {
-				writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+				writeError(w, http.StatusUnauthorized, "unauthorized", "Требуется авторизация")
 				return
 			}
 			u, rotatedToken, err := svc.Authenticate(r.Context(), token)
 			if err != nil {
 				clearSessionCookies(w)
-				writeError(w, http.StatusUnauthorized, "unauthorized", "session expired or invalid")
+				writeError(w, http.StatusUnauthorized, "unauthorized", "Сессия истекла или недействительна.")
 				return
 			}
 			if rotatedToken != "" {
@@ -129,15 +142,15 @@ func requireCSRF(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(csrfCookieName)
 		if err != nil || cookie.Value == "" {
-			writeError(w, http.StatusForbidden, "csrf", "csrf token required")
+			writeError(w, http.StatusForbidden, "csrf", "Требуется CSRF-токен.")
 			return
 		}
 		if r.Header.Get(csrfHeader) != cookie.Value {
-			writeError(w, http.StatusForbidden, "csrf", "csrf token mismatch")
+			writeError(w, http.StatusForbidden, "csrf", "CSRF-токен не совпадает.")
 			return
 		}
 		if !csrfOriginAllowed(r) {
-			writeError(w, http.StatusForbidden, "csrf", "cross-origin request rejected")
+			writeError(w, http.StatusForbidden, "csrf", "Запрос с другого источника отклонён.")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -213,7 +226,7 @@ func (l *rateLimiter) Allow(ip string) bool { return l.allow(ip) }
 func limitRate(l RateLimiter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !l.Allow(clientIP(r)) {
-			writeError(w, http.StatusTooManyRequests, "rate_limited", "too many requests")
+			writeError(w, http.StatusTooManyRequests, "rate_limited", "Слишком много запросов, попробуйте позже")
 			return
 		}
 		next.ServeHTTP(w, r)

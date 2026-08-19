@@ -2,7 +2,11 @@
 .github
 .opencode
 docs
-frontend
+frontend/*
+!frontend/shared
+frontend/shared/*
+!frontend/shared/src
+!frontend/shared/src/*
 configs
 coverage.out
 coverage.html

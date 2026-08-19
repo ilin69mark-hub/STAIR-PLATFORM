@@ -139,6 +139,7 @@ type configurationDTO struct {
 	StepHeightMM        float64   `json:"step_height_mm"`
 	StringerThicknessMM float64   `json:"stringer_thickness_mm"`
 	StepThicknessMM     float64   `json:"step_thickness_mm"`
+	Riser               bool      `json:"riser"`
 	ClearanceMM         float64   `json:"clearance_mm"`
 	RailingHeightMM     float64   `json:"railing_height_mm"`
 	ComfortStepMM       float64   `json:"comfort_step_mm"`
@@ -168,17 +169,17 @@ func handleCreateProject(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createProjectRequest
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
 		u := authUser(r.Context())
 		if u == nil {
-			writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+			writeError(w, http.StatusUnauthorized, "unauthorized", "Требуется авторизация")
 			return
 		}
 		p, err := svc.CreateProject(r.Context(), tenantID(r.Context()), u.ID, req.Name, req.Description)
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
+			writeInputError(w, "invalid_input", err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, toProjectDTO(p))
@@ -191,15 +192,15 @@ func handleGetProject(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		p, err := svc.GetProject(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
 		if errors.Is(err, project.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "not_found", "project not found")
+			writeError(w, http.StatusNotFound, "not_found", "Проект не найден")
 			return
 		}
 		if errors.Is(err, project.ErrForbidden) {
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusOK, toProjectDTO(p))
@@ -212,7 +213,7 @@ func handleListProjects(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		list, err := svc.ListProjects(r.Context(), tenantID(r.Context()), userID(r.Context()))
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		out := make([]projectDTO, 0, len(list))
@@ -229,15 +230,15 @@ func handleListMembers(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		members, err := svc.ListMembers(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
 		if errors.Is(err, project.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "not_found", "project not found")
+			writeError(w, http.StatusNotFound, "not_found", "Проект не найден")
 			return
 		}
 		if errors.Is(err, project.ErrForbidden) {
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		out := make([]memberDTO, 0, len(members))
@@ -255,12 +256,12 @@ func handleAddMember(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req memberRequest
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
 		role, err := project.ParseProjectRole(req.Role)
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_role", err.Error())
+			writeError(w, http.StatusUnprocessableEntity, "invalid_role", userInputMessage(err))
 			return
 		}
 		var merr error
@@ -274,11 +275,11 @@ func handleAddMember(svc ProjectService) http.HandlerFunc {
 		err = merr
 		switch {
 		case errors.Is(err, project.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "project not found")
+			writeError(w, http.StatusNotFound, "not_found", "Проект не найден")
 		case errors.Is(err, project.ErrForbidden):
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case err != nil:
-			writeError(w, http.StatusConflict, "conflict", err.Error())
+			writeError(w, http.StatusConflict, "conflict", userInputMessage(err))
 		default:
 			writeJSON(w, http.StatusCreated, map[string]string{"status": "ok"})
 		}
@@ -292,23 +293,23 @@ func handleUpdateMemberRole(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req memberRequest
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
 		role, err := project.ParseProjectRole(req.Role)
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_role", err.Error())
+			writeError(w, http.StatusUnprocessableEntity, "invalid_role", userInputMessage(err))
 			return
 		}
 		err = svc.UpdateMemberRole(r.Context(), tenantID(r.Context()), userID(r.Context()),
 			r.PathValue("id"), r.PathValue("userID"), role)
 		switch {
 		case errors.Is(err, project.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "project or member not found")
+			writeError(w, http.StatusNotFound, "not_found", "Проект или участник не найдены.")
 		case errors.Is(err, project.ErrForbidden):
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case err != nil:
-			writeError(w, http.StatusConflict, "conflict", err.Error())
+			writeError(w, http.StatusConflict, "conflict", userInputMessage(err))
 		default:
 			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 		}
@@ -323,11 +324,11 @@ func handleRemoveMember(svc ProjectService) http.HandlerFunc {
 			r.PathValue("id"), r.PathValue("userID"))
 		switch {
 		case errors.Is(err, project.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "project or member not found")
+			writeError(w, http.StatusNotFound, "not_found", "Проект или участник не найдены.")
 		case errors.Is(err, project.ErrForbidden):
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case err != nil:
-			writeError(w, http.StatusConflict, "conflict", err.Error())
+			writeError(w, http.StatusConflict, "conflict", userInputMessage(err))
 		default:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -341,20 +342,20 @@ func handleAddComment(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req commentRequest
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
 		c, err := svc.AddComment(r.Context(), tenantID(r.Context()), userID(r.Context()),
 			r.PathValue("id"), req.Body)
 		switch {
 		case errors.Is(err, project.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "project not found")
+			writeError(w, http.StatusNotFound, "not_found", "Проект не найден")
 		case errors.Is(err, project.ErrForbidden):
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case errors.Is(err, project.ErrConflict):
-			writeError(w, http.StatusUnprocessableEntity, "invalid_body", err.Error())
+			writeError(w, http.StatusUnprocessableEntity, "invalid_body", userInputMessage(err))
 		case err != nil:
-			writeError(w, http.StatusConflict, "conflict", err.Error())
+			writeError(w, http.StatusConflict, "conflict", userInputMessage(err))
 		default:
 			writeJSON(w, http.StatusCreated, toCommentDTO(c))
 		}
@@ -368,11 +369,11 @@ func handleListComments(svc ProjectService) http.HandlerFunc {
 		comments, err := svc.ListComments(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
 		switch {
 		case errors.Is(err, project.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "project not found")
+			writeError(w, http.StatusNotFound, "not_found", "Проект не найден")
 		case errors.Is(err, project.ErrForbidden):
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 		default:
 			out := make([]commentDTO, 0, len(comments))
 			for _, c := range comments {
@@ -391,11 +392,11 @@ func handleDeleteComment(svc ProjectService) http.HandlerFunc {
 			r.PathValue("id"), r.PathValue("commentID"))
 		switch {
 		case errors.Is(err, project.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "comment not found")
+			writeError(w, http.StatusNotFound, "not_found", "Комментарий не найден.")
 		case errors.Is(err, project.ErrForbidden):
-			writeError(w, http.StatusForbidden, "forbidden", "no permission to delete comment")
+			writeError(w, http.StatusForbidden, "forbidden", "Нет прав на удаление комментария.")
 		case err != nil:
-			writeError(w, http.StatusConflict, "conflict", err.Error())
+			writeError(w, http.StatusConflict, "conflict", userInputMessage(err))
 		default:
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -409,20 +410,20 @@ func handleRequestReview(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req reviewCommentRequest
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
 		rv, err := svc.RequestReview(r.Context(), tenantID(r.Context()), userID(r.Context()),
 			r.PathValue("id"), req.Comment)
 		switch {
 		case errors.Is(err, project.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "project not found")
+			writeError(w, http.StatusNotFound, "not_found", "Проект не найден")
 		case errors.Is(err, project.ErrForbidden):
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case errors.Is(err, project.ErrConflict):
-			writeError(w, http.StatusUnprocessableEntity, "invalid_status", err.Error())
+			writeError(w, http.StatusUnprocessableEntity, "invalid_status", userInputMessage(err))
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 		default:
 			writeJSON(w, http.StatusCreated, toReviewDTO(rv))
 		}
@@ -436,7 +437,7 @@ func handleSignOffReview(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req reviewCommentRequest
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
 		rv, err := svc.SignOffReview(r.Context(), tenantID(r.Context()), userID(r.Context()),
@@ -453,7 +454,7 @@ func handleRequestChanges(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req reviewCommentRequest
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
 		rv, err := svc.RequestChanges(r.Context(), tenantID(r.Context()), userID(r.Context()),
@@ -469,11 +470,11 @@ func handleListReviews(svc ProjectService) http.HandlerFunc {
 		reviews, err := svc.ListReviews(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
 		switch {
 		case errors.Is(err, project.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "project not found")
+			writeError(w, http.StatusNotFound, "not_found", "Проект не найден")
 		case errors.Is(err, project.ErrForbidden):
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 		default:
 			out := make([]reviewDTO, 0, len(reviews))
 			for _, rv := range reviews {
@@ -488,13 +489,13 @@ func handleListReviews(svc ProjectService) http.HandlerFunc {
 func writeReviewDecision(w http.ResponseWriter, rv *project.ProjectReview, err error) {
 	switch {
 	case errors.Is(err, project.ErrNotFound):
-		writeError(w, http.StatusNotFound, "not_found", "review or project not found")
+		writeError(w, http.StatusNotFound, "not_found", "Отзыв или проект не найден.")
 	case errors.Is(err, project.ErrForbidden):
-		writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+		writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 	case errors.Is(err, project.ErrConflict):
-		writeError(w, http.StatusUnprocessableEntity, "invalid_status", err.Error())
+		writeError(w, http.StatusUnprocessableEntity, "invalid_status", userInputMessage(err))
 	case err != nil:
-		writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+		writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 	default:
 		writeJSON(w, http.StatusOK, toReviewDTO(rv))
 	}
@@ -507,20 +508,20 @@ func handleApproveConfiguration(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req reviewCommentRequest
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
 		a, err := svc.ApproveConfiguration(r.Context(), tenantID(r.Context()), userID(r.Context()),
 			r.PathValue("id"), r.PathValue("configID"), req.Comment)
 		switch {
 		case errors.Is(err, project.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "project or configuration not found")
+			writeError(w, http.StatusNotFound, "not_found", "Проект или конфигурация не найдены.")
 		case errors.Is(err, project.ErrForbidden):
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case errors.Is(err, project.ErrConflict):
-			writeError(w, http.StatusUnprocessableEntity, "already_approved", err.Error())
+			writeInputError(w, "already_approved", err)
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 		default:
 			writeJSON(w, http.StatusCreated, toApprovalDTO(a))
 		}
@@ -535,11 +536,11 @@ func handleGetConfigurationApproval(svc ProjectService) http.HandlerFunc {
 			r.PathValue("id"), r.PathValue("configID"))
 		switch {
 		case errors.Is(err, project.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "configuration not approved")
+			writeError(w, http.StatusNotFound, "not_found", "Конфигурация не согласована.")
 		case errors.Is(err, project.ErrForbidden):
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 		default:
 			writeJSON(w, http.StatusOK, toApprovalDTO(a))
 		}
@@ -553,11 +554,11 @@ func handleListApprovals(svc ProjectService) http.HandlerFunc {
 		approvals, err := svc.ListApprovals(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
 		switch {
 		case errors.Is(err, project.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "project not found")
+			writeError(w, http.StatusNotFound, "not_found", "Проект не найден")
 		case errors.Is(err, project.ErrForbidden):
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 		default:
 			out := make([]approvalDTO, 0, len(approvals))
 			for _, a := range approvals {
@@ -576,11 +577,11 @@ func handleListConfigurations(svc ProjectService) http.HandlerFunc {
 		configs, err := svc.ListConfigurations(r.Context(), tenantID(r.Context()), userID(r.Context()), projectID)
 		switch {
 		case errors.Is(err, project.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "project not found")
+			writeError(w, http.StatusNotFound, "not_found", "Проект не найден")
 		case errors.Is(err, project.ErrForbidden):
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 		default:
 			current := currentConfigID(r, svc, projectID)
 			out := make([]configurationDTO, 0, len(configs))
@@ -601,11 +602,11 @@ func handleGetConfiguration(svc ProjectService) http.HandlerFunc {
 			projectID, r.PathValue("configID"))
 		switch {
 		case errors.Is(err, project.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "configuration not found")
+			writeError(w, http.StatusNotFound, "not_found", "Конфигурация не найдена.")
 		case errors.Is(err, project.ErrForbidden):
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 		default:
 			writeJSON(w, http.StatusOK, toConfigurationDTO(c, currentConfigID(r, svc, projectID)))
 		}
@@ -621,11 +622,11 @@ func handleRestoreConfiguration(svc ProjectService) http.HandlerFunc {
 			projectID, r.PathValue("configID"))
 		switch {
 		case errors.Is(err, project.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "configuration not found")
+			writeError(w, http.StatusNotFound, "not_found", "Конфигурация не найдена.")
 		case errors.Is(err, project.ErrForbidden):
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 		default:
 			writeJSON(w, http.StatusOK, toConfigurationDTO(c, c.ID))
 		}
@@ -650,31 +651,31 @@ func handleCalculateProject(svc ProjectService) http.HandlerFunc {
 
 		var req calculateRequest
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
 		cfg, err := toConfig(req)
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
+			writeInputError(w, "invalid_input", err)
 			return
 		}
 		opts, err := toOptions(req)
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_rates", err.Error())
+			writeInputError(w, "invalid_rates", err)
 			return
 		}
 
 		calc, err := svc.Calculate(r.Context(), tenantID(r.Context()), userID(r.Context()), projectID, cfg, opts)
 		if errors.Is(err, project.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "not_found", "project not found")
+			writeError(w, http.StatusNotFound, "not_found", "Проект не найден")
 			return
 		}
 		if errors.Is(err, project.ErrForbidden) {
-			writeError(w, http.StatusForbidden, "forbidden", "viewer cannot modify project")
+			writeError(w, http.StatusForbidden, "forbidden", "Просмотрщик не может изменять проект")
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
+			writeInputError(w, "invalid_input", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, toCalculationDTO(calc))
@@ -692,30 +693,30 @@ func handleOptimizeProject(svc ProjectService) http.HandlerFunc {
 
 		var req optimizeRequest
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
 		cfg, err := toConfig(req.calculateRequest)
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
+			writeInputError(w, "invalid_input", err)
 			return
 		}
 		opts, err := toOptions(req.calculateRequest)
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_rates", err.Error())
+			writeInputError(w, "invalid_rates", err)
 			return
 		}
 
 		out, err := svc.Optimize(r.Context(), tenantID(r.Context()), userID(r.Context()), projectID, cfg, opts, toOptimizeRequest(req))
 		switch {
 		case errors.Is(err, project.ErrNotFound):
-			writeError(w, http.StatusNotFound, "not_found", "project not found")
+			writeError(w, http.StatusNotFound, "not_found", "Проект не найден")
 			return
 		case errors.Is(err, project.ErrForbidden):
-			writeError(w, http.StatusForbidden, "forbidden", "viewer cannot modify project")
+			writeError(w, http.StatusForbidden, "forbidden", "Просмотрщик не может изменять проект")
 			return
 		case err != nil:
-			writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
+			writeInputError(w, "invalid_input", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, toProjectOptimizeResponse(out))
@@ -748,15 +749,15 @@ func handleExportProject(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		calc, err := svc.GetResult(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
 		if errors.Is(err, project.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "not_found", "no calculation for project")
+			writeError(w, http.StatusNotFound, "not_found", "Для проекта нет расчёта")
 			return
 		}
 		if errors.Is(err, project.ErrForbidden) {
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -774,25 +775,25 @@ func handleExportCAD(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		format, err := cad.ParseFormat(r.URL.Query().Get("format"))
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_input", err.Error())
+			writeError(w, http.StatusBadRequest, "invalid_input", userInputMessage(err))
 			return
 		}
 		mesh, err := svc.ExportCAD(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
 		if errors.Is(err, project.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "not_found", "no configuration for project")
+			writeError(w, http.StatusNotFound, "not_found", "Для проекта нет конфигурации")
 			return
 		}
 		if errors.Is(err, project.ErrForbidden) {
-			writeError(w, http.StatusForbidden, "forbidden", "insufficient project role")
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		var buf bytes.Buffer
 		if err := cad.Write(&buf, mesh, format); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "cad export failed")
+			writeError(w, http.StatusInternalServerError, "internal", "Не удалось выполнить экспорт чертежа")
 			return
 		}
 		w.Header().Set("Content-Type", format.MIME())
@@ -853,6 +854,7 @@ func toConfigurationDTO(c *project.StairConfiguration, current string) configura
 		StepHeightMM:        c.StepHeightMM,
 		StringerThicknessMM: c.StringerThicknessMM,
 		StepThicknessMM:     c.StepThicknessMM,
+		Riser:               c.Riser,
 		ClearanceMM:         c.ClearanceMM,
 		RailingHeightMM:     c.RailingHeightMM,
 		ComfortStepMM:       c.ComfortStepMM,

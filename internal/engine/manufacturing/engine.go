@@ -43,6 +43,15 @@ func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResu
 	}
 	registry := DefaultMaterialRegistry()
 	for i := range parts {
+		// Выбранный материал (MFG-0005, конструктор): применяется ко всем
+		// деталям, пока поддерживает их толщину; иначе — автоназначение по
+		// толщине (первый материал каталога, поддерживающий толщину).
+		if cfg.Material != "" {
+			if m, ok := registry.Find(dommfg.MaterialCode(cfg.Material)); ok && m.SupportsThickness(parts[i].Thickness.Millimeters()) {
+				parts[i].Material = m.Code
+				continue
+			}
+		}
 		code, err := assignMaterial(registry, parts[i].Thickness.Millimeters())
 		if err != nil {
 			return nil, fmt.Errorf("manufacturing: part %q: %w", parts[i].Number, err)

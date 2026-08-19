@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MembersPanel } from './MembersPanel'
 import { projectsApi } from '../api/projects'
-import { ApiError, type ProjectMember, type User } from '../api/types'
+import { ApiError, type ProjectMember, type User } from '@shared/types'
 import { AuthContext, type AuthContextValue } from '../auth/context'
 
 const authCtx: AuthContextValue = {

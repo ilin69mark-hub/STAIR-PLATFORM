@@ -521,7 +521,7 @@ func TestUpdateUserRoleNotFoundInTenant(t *testing.T) {
 func TestAdminPermissionsMatrix(t *testing.T) {
 	for _, perm := range []Permission{
 		PermissionUsersManage, PermissionSettingsRead, PermissionSettingsWrite,
-		PermissionDataExport, PermissionApiKeysManage,
+		PermissionDataExport, PermissionApiKeysManage, PermissionOrdersList, PermissionOrdersManage,
 	} {
 		if !RoleAdmin.HasPermission(perm) {
 			t.Errorf("admin must have %s", perm)

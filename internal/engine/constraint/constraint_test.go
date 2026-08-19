@@ -24,6 +24,41 @@ func TestStandardProfileIntegrity(t *testing.T) {
 	}
 }
 
+func TestStandardProfileAdvice(t *testing.T) {
+	set := StandardProfile("standard")
+	for _, versions := range set.Constraints {
+		rule := versions[0]
+		if !rule.Active {
+			continue
+		}
+		if rule.Advice == nil {
+			t.Fatalf("%s: rule must carry advice", rule.Code)
+		}
+		if rule.Advice.Param == "" {
+			t.Fatalf("%s: advice must name the field to fix", rule.Code)
+		}
+		if rule.Advice.Guide == "" {
+			t.Fatalf("%s: advice must carry a guide template", rule.Code)
+		}
+	}
+
+	// Геометрия (высота/проступь/угол) перебирает готовые варианты.
+	suggested := map[RuleCode]bool{
+		GEO_STEP_HEIGHT: true, GEO_TREAD_DEPTH: true, GEO_ANGLE: true,
+		GEO_CLEARANCE: false, GEO_STRINGER_THICKNESS: false, SAF_RAILING_HEIGHT: false,
+		GEO_SPIRAL_TREAD: true, GEO_SPIRAL_RADIUS: true,
+	}
+	for code, want := range suggested {
+		rule, ok := set.Active(code)
+		if !ok {
+			t.Fatalf("%s: active rule not found", code)
+		}
+		if got := rule.Advice.Suggest; got != want {
+			t.Fatalf("%s: suggest = %v, want %v", code, got, want)
+		}
+	}
+}
+
 func TestDuplicateVersionRejected(t *testing.T) {
 	set := NewSet("cs", "test")
 	if err := set.Add(&Constraint{Code: "A", Category: "g", Version: 1}); err != nil {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { projectsApi } from '../api/projects'
-import type { ConfigurationApproval } from '../api/types'
-import { ApiError } from '../api/types'
+import type { ConfigurationApproval } from '@shared/types'
+import { ApiError } from '@shared/types'
 
 interface Props {
   projectId: string

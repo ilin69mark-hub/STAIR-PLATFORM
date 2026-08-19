@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { adminApi } from '../api/admin'
 import { analyticsApi } from '../api/analytics'
+import { fmt } from '@shared/format'
 import type {
   AdminOverview,
   AdminPolicy,
@@ -8,11 +9,13 @@ import type {
   ApiKey,
   CostReport,
   ManufacturingReport,
+  OrderDTO,
   ProjectReport,
+  TestimonialDTO,
   UsageGranularity,
   UsageReport,
-} from '../api/types'
-import { ApiError } from '../api/types'
+} from '@shared/types'
+import { ApiError } from '@shared/types'
 
 interface Props {
   currentUserId: string
@@ -21,6 +24,16 @@ interface Props {
 
 const roleLabels: Record<string, string> = { user: 'Пользователь', admin: 'Администратор' }
 const statusLabels: Record<string, string> = { active: 'Активен', disabled: 'Заблокирован' }
+
+// Статусы заказов клиентского сайта (store).
+const orderStatusOptions = [
+  { value: 'new', label: 'Новый' },
+  { value: 'priced', label: 'Оценён' },
+  { value: 'confirmed', label: 'Подтверждён' },
+  { value: 'in_progress', label: 'В работе' },
+  { value: 'completed', label: 'Выполнен' },
+  { value: 'cancelled', label: 'Отменён' },
+] as const
 
 const emptyPolicy: AdminPolicy = {
   min_password_length: 8,
@@ -35,6 +48,8 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
   const [users, setUsers] = useState<AdminUser[]>([])
   const [policy, setPolicy] = useState<AdminPolicy>(emptyPolicy)
   const [keys, setKeys] = useState<ApiKey[]>([])
+  const [orders, setOrders] = useState<OrderDTO[]>([])
+  const [testimonials, setTestimonials] = useState<TestimonialDTO[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -42,6 +57,10 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
   const [keyName, setKeyName] = useState('')
   const [keyScopes, setKeyScopes] = useState('users.list')
   const [newToken, setNewToken] = useState<string | null>(null)
+
+  const [tAuthor, setTAuthor] = useState('')
+  const [tText, setTText] = useState('')
+  const [tRating, setTRating] = useState(5)
 
   const [usage, setUsage] = useState<UsageReport | null>(null)
   const [usageGranularity, setUsageGranularity] = useState<UsageGranularity>('day')
@@ -133,16 +152,21 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const [ov, us, pl, ks] = await Promise.all([
+      // listOrders может быть недоступен для не-admin (403) — панель admin.
+      const [ov, us, pl, ks, ordersResp, tms] = await Promise.all([
         adminApi.overview(),
         adminApi.listUsers(),
         adminApi.getSettings(),
         adminApi.listApiKeys(),
+        adminApi.listOrders(),
+        adminApi.listTestimonials(),
       ])
       setOverview(ov)
       setUsers(us)
       setPolicy(pl)
       setKeys(ks)
+      setOrders(ordersResp)
+      setTestimonials(tms)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Не удалось загрузить панель администратора')
     } finally {
@@ -222,6 +246,67 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
 
   const handleExport = (scope: string, format: 'json' | 'csv') => {
     window.location.href = adminApi.exportUrl(scope, format)
+  }
+
+  const handleOrderStatus = async (id: string, status: string) => {
+    setError(null)
+    clearNotice()
+    try {
+      await adminApi.updateOrderStatus(id, status)
+      setNotice('Статус заказа обновлён')
+      void load()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Не удалось обновить статус заказа')
+    }
+  }
+
+  const handleAddTestimonial = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    clearNotice()
+    try {
+      await adminApi.createTestimonial({
+        author: tAuthor.trim(),
+        text: tText.trim(),
+        rating: tRating,
+      })
+      setTAuthor('')
+      setTText('')
+      setTRating(5)
+      setNotice('Отзыв добавлен. Опубликуйте его для лендинга.')
+      void load()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Не удалось добавить отзыв')
+    }
+  }
+
+  const handleToggleTestimonial = async (t: TestimonialDTO) => {
+    setError(null)
+    clearNotice()
+    try {
+      await adminApi.updateTestimonial(t.id, {
+        author: t.author,
+        text: t.text,
+        rating: t.rating,
+        published: !t.published,
+      })
+      setNotice(t.published ? 'Отзыв скрыт с лендинга' : 'Отзыв опубликован на лендинге')
+      void load()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Не удалось обновить отзыв')
+    }
+  }
+
+  const handleDeleteTestimonial = async (id: string) => {
+    setError(null)
+    clearNotice()
+    try {
+      await adminApi.deleteTestimonial(id)
+      setNotice('Отзыв удалён')
+      void load()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Не удалось удалить отзыв')
+    }
   }
 
   return (
@@ -575,6 +660,61 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
           </section>
 
           <section className="panel">
+            <h2 className="panel__title">Заказы (store)</h2>
+            <p className="muted">Лиды клиентского сайта: заказы из конструктора и консультации.</p>
+            {orders.length === 0 ? (
+              <p className="muted">Заказов пока нет.</p>
+            ) : (
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>№</th>
+                    <th>Тип</th>
+                    <th>Клиент</th>
+                    <th>Email / телефон</th>
+                    <th>Детали</th>
+                    <th>Статус</th>
+                    <th>Создан</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orders.map((o) => (
+                    <tr key={o.id}>
+                      <td>{o.id.slice(0, 8)}</td>
+                      <td>
+                        <span className={`badge ${o.kind === 'consultation' ? 'badge--warn' : ''}`}>
+                          {o.kind === 'consultation' ? 'Консультация' : 'Заказ'}
+                        </span>
+                      </td>
+                      <td>{o.contact.name}</td>
+                      <td>
+                        {o.contact.email}
+                        {o.contact.phone ? <span className="muted"> · {o.contact.phone}</span> : null}
+                      </td>
+                      <td>{orderDetails(o)}</td>
+                      <td>
+                        <select
+                          className="member__role"
+                          aria-label={`Статус заказа ${o.id}`}
+                          value={o.status}
+                          onChange={(e) => void handleOrderStatus(o.id, e.target.value)}
+                        >
+                          {orderStatusOptions.map((s) => (
+                            <option key={s.value} value={s.value}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>{new Date(o.created_at).toLocaleString('ru-RU')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+
+          <section className="panel">
             <h2 className="panel__title">Производство</h2>
             <p className="muted">Агрегация производственных данных из снапшотов расчётов (EDR-0030).</p>
             <div className="row--actions">
@@ -780,8 +920,102 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
               </button>
             </form>
           </section>
+
+          <section className="panel">
+            <h2 className="panel__title">Отзывы (store)</h2>
+            <p className="muted">Отзывы клиентов на лендинге. Опубликованные видны всем посетителям.</p>
+            {testimonials.length === 0 ? (
+              <p className="muted">Отзывов пока нет. Добавьте первый ниже.</p>
+            ) : (
+              <ul className="comments">
+                {testimonials.map((t) => (
+                  <li className="comment" key={t.id}>
+                    <div className="comment__meta">
+                      <span className="comment__author">
+                        {t.author} · {'★'.repeat(t.rating)}
+                        <span className="badge badge--sm">{t.published ? 'Опубликован' : 'Черновик'}</span>
+                      </span>
+                      <span className="comment__date">
+                        {new Date(t.created_at).toLocaleString('ru-RU')}
+                      </span>
+                    </div>
+                    <p className="comment__body">{t.text}</p>
+                    <div className="comment__actions">
+                      <button className="btn btn--sm" onClick={() => void handleToggleTestimonial(t)}>
+                        {t.published ? 'Скрыть' : 'Опубликовать'}
+                      </button>
+                      <button
+                        className="btn btn--danger btn--sm"
+                        onClick={() => void handleDeleteTestimonial(t.id)}
+                      >
+                        Удалить
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <form className="member-add" onSubmit={handleAddTestimonial}>
+              <input
+                className="field__input"
+                placeholder="Автор (имя клиента)"
+                value={tAuthor}
+                onChange={(e) => setTAuthor(e.target.value)}
+                required
+              />
+              <input
+                className="field__input"
+                placeholder="Текст отзыва"
+                value={tText}
+                onChange={(e) => setTText(e.target.value)}
+                required
+              />
+              <select
+                className="member__role"
+                aria-label="Оценка отзыва"
+                value={tRating}
+                onChange={(e) => setTRating(Number(e.target.value))}
+              >
+                <option value={5}>5 ★</option>
+                <option value={4}>4 ★</option>
+                <option value={3}>3 ★</option>
+                <option value={2}>2 ★</option>
+                <option value={1}>1 ★</option>
+              </select>
+              <button className="btn btn--primary" type="submit">
+                Добавить отзыв
+              </button>
+            </form>
+          </section>
         </>
       )}
     </div>
   )
+}
+
+function configSize(o: OrderDTO): string {
+  const c = o.config as { width_mm?: number; height_mm?: number } | null | undefined
+  if (c && typeof c.width_mm === 'number' && typeof c.height_mm === 'number') {
+    return `${c.width_mm} × ${c.height_mm} мм`
+  }
+  return '—'
+}
+
+function priceOf(o: OrderDTO): string {
+  const p = o.price as { final_price_rub?: number } | null | undefined
+  if (p && typeof p.final_price_rub === 'number') return fmt.rubMajor(p.final_price_rub)
+  return '—'
+}
+
+function orderDetails(o: OrderDTO): string {
+  if (o.kind === 'consultation') {
+    const c = o.config as { question?: string } | null | undefined
+    return c && typeof c.question === 'string' ? c.question : '—'
+  }
+  const size = configSize(o)
+  const price = priceOf(o)
+  if (size === '—' && price === '—') return '—'
+  if (size === '—') return price
+  if (price === '—') return size
+  return `${size} · ${price}`
 }

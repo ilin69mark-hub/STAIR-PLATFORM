@@ -1,8 +1,8 @@
 import { useContext, useEffect, useState } from 'react'
 import { AuthContext } from '../auth/context'
 import { projectsApi } from '../api/projects'
-import type { ProjectMember, ProjectReview, ProjectStatus } from '../api/types'
-import { ApiError } from '../api/types'
+import type { ProjectMember, ProjectReview, ProjectStatus } from '@shared/types'
+import { ApiError } from '@shared/types'
 
 interface Props {
   projectId: string

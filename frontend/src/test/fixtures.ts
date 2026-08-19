@@ -13,7 +13,7 @@ import type {
   Snapshot,
   SpiralResult,
   UShapeResult,
-} from '../api/types'
+} from '@shared/types'
 
 export const flightFixture: FlightResult = {
   StepCount: 15,

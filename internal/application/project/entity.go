@@ -38,6 +38,7 @@ type StairConfiguration struct {
 	StepHeightMM        float64
 	StringerThicknessMM float64
 	StepThicknessMM     float64
+	Riser               bool
 	ClearanceMM         float64
 	RailingHeightMM     float64
 	ComfortStepMM       float64

@@ -120,8 +120,8 @@ func TestStoreExportCADStorageError(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/export/cad/store?format=dxf", "")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", rec.Code)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", rec.Code)
 	}
 }
 

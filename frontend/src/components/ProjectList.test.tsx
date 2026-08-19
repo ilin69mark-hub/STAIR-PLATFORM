@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ProjectList } from './ProjectList'
 import { projectsApi } from '../api/projects'
-import { ApiError, type Project } from '../api/types'
+import { ApiError, type Project } from '@shared/types'
 
 const projects: Project[] = [
   {

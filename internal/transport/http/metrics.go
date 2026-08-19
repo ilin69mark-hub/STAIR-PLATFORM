@@ -105,10 +105,10 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	refreshRuntimeMetrics()
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	if err := httpMetricsReg.Write(w); err != nil {
-		writeError(w, http.StatusInternalServerError, "metrics", "metrics write failed")
+		writeError(w, http.StatusInternalServerError, "metrics", "Не удалось сохранить метрики.")
 		return
 	}
 	if err := stair.ServiceMetricsReg.Write(w); err != nil {
-		writeError(w, http.StatusInternalServerError, "metrics", "metrics write failed")
+		writeError(w, http.StatusInternalServerError, "metrics", "Не удалось сохранить метрики.")
 	}
 }

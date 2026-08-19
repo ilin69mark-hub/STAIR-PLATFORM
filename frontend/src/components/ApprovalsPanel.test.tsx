@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApprovalsPanel } from './ApprovalsPanel'
 import { projectsApi } from '../api/projects'
-import { ApiError, type ConfigurationApproval } from '../api/types'
+import { ApiError, type ConfigurationApproval } from '@shared/types'
 
 const makeApproval = (overrides: Partial<ConfigurationApproval> = {}): ConfigurationApproval => ({
   id: 'a-1',

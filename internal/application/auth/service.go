@@ -125,6 +125,16 @@ func (s *Service) passwordValid(ctx context.Context, tenantID, password string) 
 	return true
 }
 
+// DefaultTenant возвращает дефолтный tenant (slug "default"). Используется
+// публичными маршрутами без аутентификации (регистрация, консультации store).
+func (s *Service) DefaultTenant(ctx context.Context) (*Tenant, error) {
+	tenant, err := s.repo.DefaultTenant(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("auth: default tenant: %w", err)
+	}
+	return tenant, nil
+}
+
 // Register создаёт пользователя в дефолтном tenant (SEC-0005): для MVP
 // регистрация всегда помещает пользователя в единственный tenant.
 // Роль — user (SEC-0004: админ создаётся только через БД/seed).

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { get, post } from './client'
-import { ApiError } from './types'
+import { ApiError } from '@shared/types'
 
 function fetchMock() {
   const fn = vi.fn()

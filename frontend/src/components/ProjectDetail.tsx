@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
-import type { Calculation, OptimizeTarget, Project } from '../api/types'
-import { ApiError } from '../api/types'
+import type { Calculation, OptimizeTarget, Project } from '@shared/types'
+import { ApiError } from '@shared/types'
 import { projectsApi } from '../api/projects'
 import {
   defaultConfig,
   defaultRates,
   flightOptions,
+  flightFields,
+  materialOptions,
   toRequest,
   toRatesRequest,
   validateForm,
@@ -13,7 +15,7 @@ import {
   type ConfigForm,
   type FieldErrors,
   type RatesForm,
-} from '../lib/config'
+} from '@shared/config'
 import { ResultPanel } from './ResultPanel'
 import { MembersPanel } from './MembersPanel'
 import { CommentsPanel } from './CommentsPanel'
@@ -22,7 +24,7 @@ import { ApprovalsPanel } from './ApprovalsPanel'
 import { VersionsPanel } from './VersionsPanel'
 import { AuditPanel } from './AuditPanel'
 import { AssistantPanel } from './AssistantPanel'
-import type { ProjectStatus } from '../api/types'
+import type { ProjectStatus } from '@shared/types'
 
 interface Props {
   projectId: string
@@ -53,7 +55,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Не удалось загрузить проект'))
   }, [projectId])
 
-  const setField = (key: keyof ConfigForm, value: string) =>
+  const setField = (key: keyof ConfigForm, value: string | boolean) =>
     setConfig((c) => ({ ...c, [key]: value }))
 
   const setRate = (key: keyof RatesForm, value: string) =>
@@ -214,39 +216,30 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
 interface ConfigFormProps {
   fields: ConfigForm
   errors: FieldErrors
-  onChange: (key: keyof ConfigForm, value: string) => void
+  onChange: (key: keyof ConfigForm, value: string | boolean) => void
 }
 
-const configFields: Array<{ key: keyof ConfigForm; label: string }> = [
-  { key: 'widthMM', label: 'Ширина марша, мм' },
-  { key: 'heightMM', label: 'Высота подъёма H, мм' },
-  { key: 'stepHeightMM', label: 'Целевая высота ступени, мм' },
-  { key: 'stringerThicknessMM', label: 'Толщина косоура, мм' },
-  { key: 'stepThicknessMM', label: 'Толщина ступени, мм' },
-  { key: 'clearanceMM', label: 'Зазор, мм' },
-  { key: 'railingHeightMM', label: 'Высота ограждения, мм' },
-  { key: 'comfortStepMM', label: 'Шаг комфорта S, мм' },
-]
+const configLabels: Record<string, string> = {
+  widthMM: 'Ширина марша, мм',
+  heightMM: 'Высота подъёма H, мм',
+  stepHeightMM: 'Целевая высота ступени, мм',
+  stringerThicknessMM: 'Толщина косоура, мм',
+  stepThicknessMM: 'Толщина ступени, мм',
+  riser: 'Подступень',
+  clearanceMM: 'Зазор, мм',
+  railingHeightMM: 'Высота ограждения, мм',
+  comfortStepMM: 'Шаг комфорта S, мм',
+  landingWidthMM: 'Ширина площадки Wp, мм',
+  lowerStepCountMM: 'Ступеней нижнего марша (n1)',
+  outerRadiusMM: 'Наружный радиус R, мм',
+}
 
-// Поля, специфичные для маршей с площадкой (EDR-0005, EDR-0006).
-const landingFields: Array<{ key: keyof ConfigForm; label: string }> = [
-  { key: 'landingWidthMM', label: 'Ширина площадки Wp, мм' },
-  { key: 'lowerStepCountMM', label: 'Ступеней нижнего марша (n1)' },
-]
-
-// Поля, специфичные для спирального марша (EDR-0007).
-const spiralFields: Array<{ key: keyof ConfigForm; label: string }> = [
-  { key: 'outerRadiusMM', label: 'Наружный радиус R, мм' },
-]
+function labelOf(key: keyof ConfigForm): string {
+  return configLabels[key] ?? key
+}
 
 function ConfigForm({ fields, errors, onChange }: ConfigFormProps) {
-  const withLanding = fields.flight === 'l_shape' || fields.flight === 'u_shape'
-  const withSpiral = fields.flight === 'spiral'
-  const visible = withLanding
-    ? [...configFields, ...landingFields]
-    : withSpiral
-      ? [...configFields, ...spiralFields]
-      : configFields.filter((f) => !landingFields.some((lf) => lf.key === f.key))
+  const visible = flightFields[fields.flight]
   return (
     <div className="config-grid">
       <div className="field">
@@ -266,28 +259,59 @@ function ConfigForm({ fields, errors, onChange }: ConfigFormProps) {
           ))}
         </select>
       </div>
-      {visible.map((f) => {
-        const rule = fieldRules[f.key]
-        const error = errors[f.key]
+      <div className="field">
+        <label className="field__label" htmlFor="cfg-material">
+          Материал
+        </label>
+        <select
+          id="cfg-material"
+          className="field__input"
+          value={fields.material}
+          onChange={(e) => onChange('material', e.target.value)}
+        >
+          {materialOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      {visible.map((key) => {
+        const rule = fieldRules[key]
+        const error = errors[key]
         const hint = rule && (rule.hint ?? (rule.min || rule.max ? rangeText(rule) : undefined))
         return (
-          <div className="field" key={f.key}>
-            <label className="field__label" htmlFor={`cfg-${f.key}`}>
-              {f.label}
+          <div className="field" key={key}>
+            <label className="field__label" htmlFor={`cfg-${key}`}>
+              {labelOf(key)}
               {hint && <span className="field__hint"> {hint}</span>}
             </label>
             <input
-              id={`cfg-${f.key}`}
+              id={`cfg-${key}`}
               className={`field__input${error ? ' field__input--invalid' : ''}`}
               type="number"
               inputMode="decimal"
-              value={fields[f.key]}
-              onChange={(e) => onChange(f.key, e.target.value)}
+              value={fields[key] as string}
+              onChange={(e) => onChange(key, e.target.value)}
             />
             {error && <p className="field__error">{error}</p>}
           </div>
         )
       })}
+      <div className="field">
+        <label className="field__label" htmlFor="cfg-riser">
+          {labelOf('riser')}
+        </label>
+        <label className="config-checkbox">
+          <input
+            id="cfg-riser"
+            type="checkbox"
+            checked={fields.riser}
+            onChange={(e) => onChange('riser', e.target.checked)}
+          />
+          <span>{fields.riser ? 'Есть' : 'Нет'}</span>
+        </label>
+      </div>
     </div>
   )
 }

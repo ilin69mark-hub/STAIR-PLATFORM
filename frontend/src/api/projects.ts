@@ -18,7 +18,7 @@ import type {
   ProjectMember,
   ProjectReview,
   ReviewRequest,
-} from './types'
+} from '@shared/types'
 
 export const projectsApi = {
   list: () => get<Project[]>('/api/v1/projects'),

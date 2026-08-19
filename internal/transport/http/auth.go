@@ -44,6 +44,9 @@ type AuthService interface {
 	SsoCallback(ctx context.Context, code, state string) (*auth.User, string, error)
 	// SsoEnabled возвращает публичную конфигурацию SSO.
 	SsoEnabled() auth.SsoConfig
+	// DefaultTenant возвращает дефолтный tenant (slug "default"); используется
+	// публичными маршрутами (регистрация, консультации) без аутентификации.
+	DefaultTenant(ctx context.Context) (*auth.Tenant, error)
 }
 
 // Имена cookie (SEC-0003). session — httpOnly, его читает только сервер;
@@ -151,18 +154,18 @@ func handleRegister(svc AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req registerRequest
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
 		u, token, err := svc.Register(r.Context(), req.Email, req.Name, req.Password)
 		if err != nil {
 			switch {
 			case errors.Is(err, auth.ErrEmailExists):
-				writeError(w, http.StatusConflict, "email_exists", "email already registered")
+				writeError(w, http.StatusConflict, "email_exists", "Пользователь с таким email уже зарегистрирован")
 			case errors.Is(err, auth.ErrInvalidEmail), errors.Is(err, auth.ErrWeakPassword):
-				writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
+				writeInputError(w, "invalid_input", err)
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			}
 			return
 		}
@@ -179,18 +182,18 @@ func handleLogin(svc AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req loginRequest
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
 		u, token, err := svc.Login(r.Context(), req.Email, req.Password)
 		if err != nil {
 			switch {
 			case errors.Is(err, auth.ErrInvalidCreds):
-				writeError(w, http.StatusUnauthorized, "invalid_credentials", "invalid email or password")
+				writeError(w, http.StatusUnauthorized, "invalid_credentials", "Неверный email или пароль.")
 			case errors.Is(err, auth.ErrUserDisabled):
-				writeError(w, http.StatusForbidden, "user_disabled", "account disabled")
+				writeError(w, http.StatusForbidden, "user_disabled", "Аккаунт отключён.")
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			}
 			return
 		}
@@ -204,7 +207,7 @@ func handleLogout(svc AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := sessionToken(r)
 		if err := svc.Logout(r.Context(), token); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		clearSessionCookies(w)

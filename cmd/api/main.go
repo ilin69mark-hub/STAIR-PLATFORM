@@ -19,6 +19,8 @@ import (
 	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/integrations"
 	"stairplatform/internal/application/jobs"
+	orderapp "stairplatform/internal/application/order"
+	testimonialapp "stairplatform/internal/application/testimonial"
 	"stairplatform/internal/application/payments"
 	"stairplatform/internal/application/project"
 
@@ -127,6 +129,12 @@ func main() {
 	)
 	paymentWebhookSecret := os.Getenv("STAIR_PAYMENT_WEBHOOK_SECRET")
 
+	// Retail orders (Store): розничные заказы-лиды клиентского сайта.
+	ordersSvc := orderapp.NewService(database.NewOrderRepository(pool))
+
+	// Client testimonials (Store): отзывы клиентов для лендинга и админки.
+	testimonialSvc := testimonialapp.NewService(database.NewTestimonialRepository(pool))
+
 	// SSO (EDR-0017 §3.2): OIDC-провайдер из окружения. Пока STAIR_SSO_ISSUER
 	// не задан — SSO выключен (публичный ключ, кнопка на фронте не видна).
 	if issuer := os.Getenv("STAIR_SSO_ISSUER"); issuer != "" {
@@ -145,6 +153,8 @@ func main() {
 		LoginRateWindow:       time.Minute,
 		RegisterRateLimit:     envInt("STAIR_REGISTER_RATE_LIMIT", 5),
 		RegisterRateWindow:    time.Minute,
+		QuoteRateLimit:        envInt("STAIR_QUOTE_RATE_LIMIT", 30),
+		QuoteRateWindow:       time.Minute,
 		RedisAddr:             os.Getenv("STAIR_REDIS_ADDR"),
 		MaxBodyBytes:          1 << 20,
 		InstanceID:            instanceID,
@@ -157,6 +167,8 @@ func main() {
 		Analytics:             analyticsSvc,
 		Jobs:                  jobsSvc,
 		Assistant:             assistantSvc,
+		Orders:                ordersSvc,
+		Testimonials:          testimonialSvc,
 	}
 
 	// Readiness (EDR-0018 §3.2): SELECT 1 + Redis PING.

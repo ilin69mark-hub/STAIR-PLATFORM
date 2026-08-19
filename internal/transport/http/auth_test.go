@@ -119,6 +119,10 @@ func (f *fakeAuth) SsoEnabled() auth.SsoConfig {
 	return auth.SsoConfig{Enabled: f.ssoEnabled, Provider: f.ssoProvider}
 }
 
+func (f *fakeAuth) DefaultTenant(_ context.Context) (*auth.Tenant, error) {
+	return &auth.Tenant{ID: "t-1", Slug: "default"}, nil
+}
+
 func authTestRouter(a AuthService) http.Handler {
 	return NewRouter(stair.NewService(), nil, a, DefaultConfig())
 }

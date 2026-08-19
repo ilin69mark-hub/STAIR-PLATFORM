@@ -38,12 +38,12 @@ func toPolicyDTO(p auth.Policy) policyDTO {
 func handleGetSettings(svc AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !hasPermission(r, auth.PermissionSettingsRead) {
-			writeError(w, http.StatusForbidden, "forbidden", "admin required")
+			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
 		p, err := svc.GetPolicy(r.Context(), tenantID(r.Context()))
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusOK, toPolicyDTO(p))
@@ -56,12 +56,12 @@ func handleGetSettings(svc AuthService) http.HandlerFunc {
 func handleUpdateSettings(svc AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !hasPermission(r, auth.PermissionSettingsWrite) {
-			writeError(w, http.StatusForbidden, "forbidden", "admin required")
+			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
 		var req policyDTO
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
 		p := auth.Policy{
@@ -73,10 +73,10 @@ func handleUpdateSettings(svc AuthService) http.HandlerFunc {
 		}
 		if err := svc.UpdatePolicy(r.Context(), tenantID(r.Context()), userID(r.Context()), p); err != nil {
 			if errors.Is(err, auth.ErrInvalidPolicy) {
-				writeError(w, http.StatusUnprocessableEntity, "invalid_policy", err.Error())
+				writeInputError(w, "invalid_policy", err)
 				return
 			}
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusOK, toPolicyDTO(p))
@@ -91,20 +91,20 @@ func handleUpdateSettings(svc AuthService) http.HandlerFunc {
 func handleExport(svc AuthService, projects ProjectService, audits AuditService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !hasPermission(r, auth.PermissionDataExport) {
-			writeError(w, http.StatusForbidden, "forbidden", "admin required")
+			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
 		scope := r.URL.Query().Get("scope")
 		format := r.URL.Query().Get("format")
 		if scope == "" {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_scope", "scope required: users, projects, audit")
+			writeError(w, http.StatusUnprocessableEntity, "invalid_scope", "Укажите scope: users, projects или audit.")
 			return
 		}
 		if format == "" {
 			format = "json"
 		}
 		if format != "json" && format != "csv" {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_format", "format must be json or csv")
+			writeError(w, http.StatusUnprocessableEntity, "invalid_format", "Формат должен быть json или csv.")
 			return
 		}
 		tenant := tenantID(r.Context())
@@ -112,7 +112,7 @@ func handleExport(svc AuthService, projects ProjectService, audits AuditService)
 		case "users":
 			users, err := svc.ListUsers(r.Context(), tenant)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 				return
 			}
 			writeExport(w, format, "users", users, func(u *auth.User) []string {
@@ -121,7 +121,7 @@ func handleExport(svc AuthService, projects ProjectService, audits AuditService)
 		case "projects":
 			list, err := projects.ListTenantProjects(r.Context(), tenant)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 				return
 			}
 			writeExport(w, format, "projects", list, func(p *project.Project) []string {
@@ -130,14 +130,14 @@ func handleExport(svc AuthService, projects ProjectService, audits AuditService)
 		case "audit":
 			events, err := audits.ListTenantAudit(r.Context(), tenant)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 				return
 			}
 			writeExport(w, format, "audit", events, func(e *audit.Event) []string {
 				return []string{e.ID, e.ActorID, string(e.Action), string(e.Result), e.Detail, e.IP, e.CreatedAt.UTC().Format("2006-01-02T15:04:05Z")}
 			})
 		default:
-			writeError(w, http.StatusUnprocessableEntity, "invalid_scope", "scope must be users, projects or audit")
+			writeError(w, http.StatusUnprocessableEntity, "invalid_scope", "Область (scope) должна быть users, projects или audit.")
 		}
 	}
 }
@@ -206,12 +206,12 @@ type createApiKeyResponse struct {
 func handleListApiKeys(svc AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !hasPermission(r, auth.PermissionApiKeysManage) {
-			writeError(w, http.StatusForbidden, "forbidden", "admin required")
+			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
 		keys, err := svc.ListApiKeys(r.Context(), tenantID(r.Context()))
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		out := make([]apiKeyDTO, 0, len(keys))
@@ -228,16 +228,16 @@ func handleListApiKeys(svc AuthService) http.HandlerFunc {
 func handleCreateApiKey(svc AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !hasPermission(r, auth.PermissionApiKeysManage) {
-			writeError(w, http.StatusForbidden, "forbidden", "admin required")
+			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
 		var req createApiKeyRequest
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", err.Error())
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
 		if req.Name == "" {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_input", "name required")
+			writeError(w, http.StatusUnprocessableEntity, "invalid_input", "Укажите имя")
 			return
 		}
 		var scopes []auth.Permission
@@ -246,7 +246,7 @@ func handleCreateApiKey(svc AuthService) http.HandlerFunc {
 		}
 		key, token, err := svc.CreateApiKey(r.Context(), tenantID(r.Context()), userID(r.Context()), req.Name, scopes)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		resp := createApiKeyResponse{apiKeyDTO: toApiKeyDTO(key), Token: token}
@@ -259,15 +259,15 @@ func handleCreateApiKey(svc AuthService) http.HandlerFunc {
 func handleRevokeApiKey(svc AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !hasPermission(r, auth.PermissionApiKeysManage) {
-			writeError(w, http.StatusForbidden, "forbidden", "admin required")
+			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
 		if err := svc.RevokeApiKey(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id")); err != nil {
 			if errors.Is(err, auth.ErrNotFound) {
-				writeError(w, http.StatusNotFound, "not_found", "api key not found")
+				writeError(w, http.StatusNotFound, "not_found", "API-ключ не найден")
 				return
 			}
-			writeError(w, http.StatusInternalServerError, "internal", "internal server error")
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

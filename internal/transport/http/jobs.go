@@ -33,24 +33,24 @@ func handleCalculateAsync(svc JobsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req calculateRequest
 		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "request body is not valid JSON")
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
 		cfg, err := toConfig(req)
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
+			writeInputError(w, "invalid_input", err)
 			return
 		}
 		opts, err := toOptions(req)
 		if err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_rates", err.Error())
+			writeInputError(w, "invalid_rates", err)
 			return
 		}
 		// Дешёвая синхронная валидация (EDR-0035 §3.4): заведомо невалидный
 		// вход отвергается 422 и в очередь не попадает; полный расчёт —
 		// в воркере.
 		if err := stair.ValidateConfig(cfg); err != nil {
-			writeError(w, http.StatusUnprocessableEntity, "invalid_input", err.Error())
+			writeInputError(w, "invalid_input", err)
 			return
 		}
 
@@ -75,7 +75,7 @@ func handleGetJob(svc JobsService) http.HandlerFunc {
 		j, err := svc.GetJob(r.Context(), tenantID(r.Context()), id)
 		if err != nil {
 			if errors.Is(err, jobs.ErrNotFound) {
-				writeError(w, http.StatusNotFound, "not_found", "job not found")
+				writeError(w, http.StatusNotFound, "not_found", "Задание не найдено")
 				return
 			}
 			mapStairError(w, err)

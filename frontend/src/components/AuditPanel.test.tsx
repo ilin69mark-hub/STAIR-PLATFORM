@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AuditPanel } from './AuditPanel'
 import { auditApi } from '../api/audit'
-import { ApiError, type AuditEvent } from '../api/types'
+import { ApiError, type AuditEvent } from '@shared/types'
 
 const makeEvent = (overrides: Partial<AuditEvent> = {}): AuditEvent => ({
   id: 'e-1',
