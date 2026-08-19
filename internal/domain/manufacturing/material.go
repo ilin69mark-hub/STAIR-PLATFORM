@@ -29,6 +29,12 @@ type Material struct {
 	Density      float64 // кг/м³
 	MinThickness float64 // мм
 	MaxThickness float64 // мм
+	// MaxWidthMm — максимальная ширина марша, гарантируемая изготовлением
+	// именно в этом материале (MFG-0012: энвелоп раскройных листов).
+	MaxWidthMm float64
+	// MaxHeightMm — максимальная высота подъёма, гарантируемая изготовлением
+	// именно в этом материале (MFG-0012: крупнейший лист для косоура).
+	MaxHeightMm float64
 }
 
 // Validate проверяет корректность записи материала.
@@ -51,6 +57,12 @@ func (m *Material) Validate() error {
 	if math.IsNaN(m.MinThickness) || math.IsNaN(m.MaxThickness) ||
 		m.MinThickness < 0 || m.MaxThickness < m.MinThickness {
 		return fmt.Errorf("manufacturing: material thickness range is invalid")
+	}
+	if math.IsNaN(m.MaxWidthMm) || m.MaxWidthMm <= 0 {
+		return fmt.Errorf("manufacturing: material max width must be positive")
+	}
+	if math.IsNaN(m.MaxHeightMm) || m.MaxHeightMm <= 0 {
+		return fmt.Errorf("manufacturing: material max height must be positive")
 	}
 	return nil
 }

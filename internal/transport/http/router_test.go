@@ -79,8 +79,8 @@ func TestCalculateReference(t *testing.T) {
 	if resp.Flight.StepThicknessMm != 40 || resp.Flight.RailingHeightMm != 1000 || !resp.Flight.Riser || resp.Flight.StringerThicknessMm != 50 {
 		t.Fatalf("flight echo mismatch: %+v", resp.Flight)
 	}
-	if resp.Pricing.FinalPriceRub != 2868282.74 {
-		t.Fatalf("final price = %v, want 2868282.74", resp.Pricing.FinalPriceRub)
+	if resp.Pricing.FinalPriceRub != 3272189.90 {
+		t.Fatalf("final price = %v, want 3272189.90", resp.Pricing.FinalPriceRub)
 	}
 	if len(resp.Manufacturing.Parts) == 0 || len(resp.Manufacturing.BOM) == 0 ||
 		len(resp.Manufacturing.CutList) == 0 || len(resp.Manufacturing.Nesting.Sheets) == 0 {
@@ -196,10 +196,10 @@ func TestCalculateCustomRates(t *testing.T) {
 		t.Fatalf("invalid response: %v", err)
 	}
 	// Удвоенная цена стали → материал и финальная цена выше дефолта.
-	if resp.Pricing.MaterialRub <= 1593597.87 {
+	if resp.Pricing.MaterialRub <= 1820332.77 {
 		t.Fatalf("material with doubled rate must exceed default, got %v", resp.Pricing.MaterialRub)
 	}
-	if resp.Pricing.FinalPriceRub <= 2868282.74 {
+	if resp.Pricing.FinalPriceRub <= 3272189.90 {
 		t.Fatalf("final price with doubled steel must exceed default, got %v", resp.Pricing.FinalPriceRub)
 	}
 }

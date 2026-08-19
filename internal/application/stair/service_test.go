@@ -3,6 +3,7 @@ package stair
 import (
 	"context"
 	"errors"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -95,11 +96,11 @@ func TestCalculateValidPipeline(t *testing.T) {
 	}
 
 	// Финальная цена эталонного конвейера (100 ₽/кг, ставки по умолчанию).
-	if res.Price.FinalPrice.Minor() != 286828274 {
-		t.Fatalf("final price = %d, want 286828274", res.Price.FinalPrice.Minor())
+	if res.Price.FinalPrice.Minor() != 327218990 {
+		t.Fatalf("final price = %d, want 327218990", res.Price.FinalPrice.Minor())
 	}
-	if res.Price.FinalPrice.Major(domprc.CurrencyRUB) != 2868282.74 {
-		t.Fatalf("final price = %.2f rub, want 2868282.74", res.Price.FinalPrice.Major(domprc.CurrencyRUB))
+	if res.Price.FinalPrice.Major(domprc.CurrencyRUB) != 3272189.90 {
+		t.Fatalf("final price = %.2f rub, want 3272189.90", res.Price.FinalPrice.Major(domprc.CurrencyRUB))
 	}
 }
 
@@ -125,7 +126,7 @@ func TestCalculateCustomRates(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Стоимость стали удвоена → финальная цена выше дефолтной.
-	if res.Price.Material.Minor() <= 159359787 {
+	if res.Price.Material.Minor() <= 182033277 {
 		t.Fatalf("material with doubled rate must exceed default, got %d", res.Price.Material.Minor())
 	}
 }
@@ -215,6 +216,72 @@ func TestCalculateExceedsMaxHeight(t *testing.T) {
 	assertBlockingInput(t, res, constraint.GEO_HEIGHT, "6000 мм")
 }
 
+// TestCalculateExceedsMaterialMaxHeight — высота в пределах глобального
+// энелопа (6000 мм), но выше предела конкретного алюминия (4550 мм),
+// возвращается как блокирующая подсказка по материалу.
+func TestCalculateExceedsMaterialMaxHeight(t *testing.T) {
+	s := NewService()
+	cfg := referenceConfig()
+	cfg.Material = dommfg.MaterialCode("ALUM-5083")
+	cfg.Height = mustLengthHelper(5000)
+	res, err := s.Calculate(context.Background(), cfg, Options{})
+	if err != nil {
+		t.Fatalf("input issues must not be hard errors: %v", err)
+	}
+	assertBlockingInput(t, res, constraint.MFG_MATERIAL, "4550 мм")
+}
+
+// TestCalculateExceedsMaterialMaxWidth — ширина марша выше предела
+// материала (3000 мм) возвращается как блокирующая подсказка.
+func TestCalculateExceedsMaterialMaxWidth(t *testing.T) {
+	s := NewService()
+	cfg := referenceConfig()
+	cfg.Material = dommfg.MaterialCode("STEEL-S235")
+	cfg.Width = mustLengthHelper(4000)
+	res, err := s.Calculate(context.Background(), cfg, Options{})
+	if err != nil {
+		t.Fatalf("input issues must not be hard errors: %v", err)
+	}
+	assertBlockingInput(t, res, constraint.MFG_MATERIAL, "3000 мм")
+}
+
+// TestCalculateWithinMaterialLimits — габариты на границе предела каждого
+// материала проходят весь конвейер (не блокируются размерными лимитами):
+// макс. высота при типовой ширине и макс. ширина при типовой высоте.
+func TestCalculateWithinMaterialLimits(t *testing.T) {
+	s := NewService()
+	limits := map[dommfg.MaterialCode]struct{ height, width int }{
+		"STEEL-S235": {6000, 3000},
+		"ALUM-5083":  {4550, 3000},
+		"WOOD-OAK":   {4550, 3000},
+	}
+	for code, lim := range limits {
+		cfgH := referenceConfig()
+		cfgH.Material = code
+		cfgH.Height = mustLengthHelper(float64(lim.height))
+		resH, err := s.Calculate(context.Background(), cfgH, Options{})
+		if err != nil {
+			t.Fatalf("%s (height limit): input issues must not be hard errors: %v", code, err)
+		}
+		if resH.Validation.Blocking {
+			t.Fatalf("%s: height %d must pass material limit, got %+v",
+				code, lim.height, resH.Validation)
+		}
+
+		cfgW := referenceConfig()
+		cfgW.Material = code
+		cfgW.Width = mustLengthHelper(float64(lim.width))
+		resW, err := s.Calculate(context.Background(), cfgW, Options{})
+		if err != nil {
+			t.Fatalf("%s (width limit): input issues must not be hard errors: %v", code, err)
+		}
+		if resW.Validation.Blocking {
+			t.Fatalf("%s: width %d must pass material limit, got %+v",
+				code, lim.width, resW.Validation)
+		}
+	}
+}
+
 // TestCalculateSpiralExceedsMaxRadius — наружный радиус спирали за пределами
 // поддерживаемого максимума (5000 мм) возвращается как блокирующая подсказка.
 func TestCalculateSpiralExceedsMaxRadius(t *testing.T) {
@@ -288,15 +355,16 @@ func TestCalculateLShapePipeline(t *testing.T) {
 	if res.Flight.StepCount != 0 {
 		t.Fatalf("straight flight must be empty for l_shape, got %+v", res.Flight)
 	}
-	// полный конвейер: 35 деталей, 4 косоура, 16 проступей, 15 подступенков.
+	// полный конвейер: 35 деталей, 4 косоура, 16 проступей, 15 подступенков
+	// подступенков.
 	if res.Package == nil || len(res.Package.Parts) != 35 {
 		t.Fatalf("parts = %d, want 35", len(res.Package.Parts))
 	}
 	if res.Mesh == nil || len(res.Mesh.Vertices) == 0 {
 		t.Fatal("l_shape pipeline must produce preview mesh")
 	}
-	if res.Measurement.Volume != 308700000 {
-		t.Fatalf("volume = %v, want 308700000", res.Measurement.Volume)
+	if math.Abs(res.Measurement.Volume-338451360.854) > 1 {
+		t.Fatalf("volume = %v, want 338451360.854", res.Measurement.Volume)
 	}
 	if res.Price == nil || res.Price.FinalPrice.Minor() <= 0 {
 		t.Fatal("l_shape pipeline must produce price")
@@ -355,15 +423,16 @@ func TestCalculateUShapePipeline(t *testing.T) {
 	if res.Flight.StepCount != 0 {
 		t.Fatalf("straight flight must be empty for u_shape, got %+v", res.Flight)
 	}
-	// полный конвейер: 35 деталей, 4 косоура, 16 проступей, 15 подступенков.
+	// полный конвейер: 35 деталей, 4 косоура, 16 проступей, 15 подступенков
+	// подступенков.
 	if res.Package == nil || len(res.Package.Parts) != 35 {
 		t.Fatalf("parts = %d, want 35", len(res.Package.Parts))
 	}
 	if res.Mesh == nil || len(res.Mesh.Vertices) == 0 {
 		t.Fatal("u_shape pipeline must produce preview mesh")
 	}
-	if res.Measurement.Volume != 308700000 {
-		t.Fatalf("volume = %v, want 308700000", res.Measurement.Volume)
+	if math.Abs(res.Measurement.Volume-338451360.854) > 1 {
+		t.Fatalf("volume = %v, want 338451360.854", res.Measurement.Volume)
 	}
 	if res.Price == nil || res.Price.FinalPrice.Minor() <= 0 {
 		t.Fatal("u_shape pipeline must produce price")
@@ -586,8 +655,8 @@ func TestCalculateMaterialValidation(t *testing.T) {
 		t.Fatalf("guide must mention wood thickness range, got %q", iss.Guide)
 	}
 
-	// Дуб при большом подъёме (косоур не влезает на плиту) — MFG-SHEET
-	// с максимальным листом дуба в подсказке (не стали).
+	// Дуб при большом подъёме (H=5000 выше предела дуба 4550 мм) —
+	// блокирующая подсказка про предельную высоту материала.
 	cfg = referenceConfig()
 	cfg.Material = "WOOD-OAK"
 	cfg.Height = mustLengthHelper(5000)
@@ -599,10 +668,10 @@ func TestCalculateMaterialValidation(t *testing.T) {
 		t.Fatalf("wood + H=5000 must block, got %+v", res.Validation)
 	}
 	iss = res.Validation.Issues[0]
-	if iss.Code != constraint.MFG_SHEET {
-		t.Fatalf("code = %s, want %s", iss.Code, constraint.MFG_SHEET)
+	if iss.Code != constraint.MFG_MATERIAL {
+		t.Fatalf("code = %s, want %s", iss.Code, constraint.MFG_MATERIAL)
 	}
-	if !strings.Contains(iss.Guide, "9000×4600") {
-		t.Fatalf("guide must reference largest oak sheet, got %q", iss.Guide)
+	if !strings.Contains(iss.Guide, "4550") {
+		t.Fatalf("guide must mention oak max height 4550, got %q", iss.Guide)
 	}
 }

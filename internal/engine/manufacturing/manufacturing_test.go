@@ -85,35 +85,45 @@ func TestManufacturePartDimensions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// косоур: 4050×2750×50 (тонок по Y; сама деталь до z=2700, низ -50).
+	// косоур-гребёнка: 4077.7×2660×50 (седла на низ проступи, спинка до пола).
 	if p := findPart(pkg, "STR-01"); p != nil {
-		if !nearlyEqual(p.Length.Millimeters(), 4050) || !nearlyEqual(p.Width.Millimeters(), 2750) ||
+		if !nearlyEqual(p.Length.Millimeters(), 4077.73501) || !nearlyEqual(p.Width.Millimeters(), 2660) ||
 			!nearlyEqual(p.Thickness.Millimeters(), 50) {
-			t.Fatalf("stringer dims = %v×%v×%v, want 4050×2750×50",
+			t.Fatalf("stringer dims = %v×%v×%v, want 4077.735×2660×50",
 				p.Length.Millimeters(), p.Width.Millimeters(), p.Thickness.Millimeters())
 		}
 	} else {
 		t.Fatal("STR-01 not found")
 	}
-	// проступь: 800×270×40 (тонок по Z).
+	// проступь: 900×310×40 (во всю ширину, глубина шага + толщина подступенка, тонок по Z).
 	if p := findPart(pkg, "TRD-01"); p != nil {
-		if !nearlyEqual(p.Length.Millimeters(), 800) || !nearlyEqual(p.Width.Millimeters(), 270) ||
+		if !nearlyEqual(p.Length.Millimeters(), 900) || !nearlyEqual(p.Width.Millimeters(), 310) ||
 			!nearlyEqual(p.Thickness.Millimeters(), 40) {
-			t.Fatalf("tread dims = %v×%v×%v, want 800×270×40",
+			t.Fatalf("tread dims = %v×%v×%v, want 900×310×40",
 				p.Length.Millimeters(), p.Width.Millimeters(), p.Thickness.Millimeters())
 		}
 	} else {
 		t.Fatal("TRD-01 not found")
 	}
-	// подступенок: 800×180×40 (тонок по X).
+	// подступенок: единое полотно во всю ширину (тонок по X, высота h−st):
+	// 900×140×40.
 	if p := findPart(pkg, "RSR-01"); p != nil {
-		if !nearlyEqual(p.Length.Millimeters(), 800) || !nearlyEqual(p.Width.Millimeters(), 180) ||
+		if !nearlyEqual(p.Length.Millimeters(), 900) || !nearlyEqual(p.Width.Millimeters(), 140) ||
 			!nearlyEqual(p.Thickness.Millimeters(), 40) {
-			t.Fatalf("riser dims = %v×%v×%v, want 800×180×40",
+			t.Fatalf("riser dims = %v×%v×%v, want 900×140×40",
 				p.Length.Millimeters(), p.Width.Millimeters(), p.Thickness.Millimeters())
 		}
 	} else {
 		t.Fatal("RSR-01 not found")
+	}
+	if p := findPart(pkg, "RSR-02"); p != nil {
+		if !nearlyEqual(p.Length.Millimeters(), 900) || !nearlyEqual(p.Width.Millimeters(), 140) ||
+			!nearlyEqual(p.Thickness.Millimeters(), 40) {
+			t.Fatalf("riser 2 dims = %v×%v×%v, want 900×140×40",
+				p.Length.Millimeters(), p.Width.Millimeters(), p.Thickness.Millimeters())
+		}
+	} else {
+		t.Fatal("RSR-02 not found")
 	}
 	// материал назначен каждому косоуру/проступи/подступенку из каталога.
 	for _, p := range pkg.Parts {
@@ -131,16 +141,17 @@ func TestManufactureBOM(t *testing.T) {
 	if len(pkg.BOM.Lines) != 3 {
 		t.Fatalf("BOM lines = %d, want 3", len(pkg.BOM.Lines))
 	}
-	// порядок строк детерминирован: косоуры, проступи, подступенки.
+	// порядок строк детерминирован: косоуры, проступи, подступенки
+	// (единое полотно 900×140).
 	want := []struct {
 		desc     string
 		quantity int
 		length   float64
 		width    float64
 	}{
-		{"Stringer", 2, 4050, 2750},
-		{"Tread", 15, 800, 270},
-		{"Riser", 15, 800, 180},
+		{"Stringer", 2, 4077.73501, 2660},
+		{"Tread", 15, 900, 310},
+		{"Riser", 15, 900, 140},
 	}
 	for i, w := range want {
 		line := pkg.BOM.Lines[i]
@@ -213,11 +224,10 @@ func TestManufactureNesting(t *testing.T) {
 		t.Fatalf("nesting parts = %d, want %d", pkg.Nesting.PartCount, len(pkg.Parts))
 	}
 	// n=15: 2 косоура (t=50, лист 6000×3000, по одному на лист → 2 листа);
-	// проступи и подступенки (t=40, лист 2500×1250) раскраиваются вместе:
-	// 12 проступей на первом листе, 3 проступи + 15 подступенков на втором
-	// → 2 листа. Итого 4 листа.
-	if len(pkg.Nesting.Sheets) != 4 {
-		t.Fatalf("sheets = %d, want 4", len(pkg.Nesting.Sheets))
+	// проступи и полосы подступенков (t=40, лист 2500×1250) раскраиваются
+	// вместе, проступи увеличены до 310 вглубь → 4 листа. Итого 6 листов.
+	if len(pkg.Nesting.Sheets) != 6 {
+		t.Fatalf("sheets = %d, want 6", len(pkg.Nesting.Sheets))
 	}
 	if pkg.Nesting.Utilization <= 0 || pkg.Nesting.Utilization > 1 {
 		t.Fatalf("utilization out of range: %v", pkg.Nesting.Utilization)

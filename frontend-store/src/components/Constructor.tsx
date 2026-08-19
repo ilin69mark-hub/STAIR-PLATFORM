@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ConfigForm } from '@shared/config'
-import { defaultConfig, flightOptions, materialOptions, toRequest, validateForm, type FieldErrors } from '@shared/config'
+import { defaultConfig, flightOptions, materialOptions, rulesFor, toRequest, validateForm, type FieldErrors, type FieldRule } from '@shared/config'
 import type { QuoteResult, QuoteSuggestion } from '@shared/types'
 import { quoteApi } from '../api/store'
 import { apiErrorMessage } from '../auth/errors'
@@ -42,12 +42,20 @@ const labels: Record<keyof ConfigForm, string> = {
 const hints: Partial<Record<keyof ConfigForm, string>> = {
   flight: 'Выберите тип марша',
   stepHeightMM: 'Комфортно: 150–190 мм',
-  stepThicknessMM: 'Мин 20 / макс 200 мм',
   riser: 'Подступенок — вертикальная грань под ступенью. Его высота равна высоте ступени и рассчитывается автоматически.',
   clearanceMM: 'Рекомендуем ≥ 2000 мм',
   railingHeightMM: 'Рекомендуем 900–1100 мм',
   comfortStepMM: '600–640 мм (опционально)',
   outerRadiusMM: 'Только для спирали',
+}
+
+// rangeHint — текст подсказки диапазона поля: «Мин X / макс Y мм», «Мин X мм»
+// или «Макс X мм». Для материал-зависимых полей пересчитывается rulesFor.
+function rangeHint(r: FieldRule): string {
+  if (r.min !== undefined && r.max !== undefined) return `Мин ${r.min} / макс ${r.max} мм`
+  if (r.min !== undefined) return `Мин ${r.min} мм`
+  if (r.max !== undefined) return `Макс ${r.max} мм`
+  return ''
 }
 
 const tooltips: Partial<Record<keyof ConfigForm, string>> = {
@@ -94,6 +102,20 @@ export function Constructor() {
     const next = { ...config, [k]: v }
     setConfig(next)
     setErrors(validateForm(next))
+  }
+
+  // Подсказка поля: ширина/высота и толщины считаются по материалу
+  // (rulesFor → materialLimits), остальные поля — статический текст.
+  // Для ширины/высоты показываем материал-зависимый максимум («Макс … мм»),
+  // для толщины ступени — полный диапазон материала.
+  const hintOf = (k: keyof ConfigForm): string | undefined => {
+    if (k === 'widthMM' || k === 'heightMM') {
+      return rangeHint({ max: rulesFor(k, config.material).max })
+    }
+    if (k === 'stepThicknessMM') {
+      return rangeHint(rulesFor(k, config.material))
+    }
+    return hints[k]
   }
 
   const setRiser = (v: boolean) => {
@@ -181,7 +203,7 @@ export function Constructor() {
                     onChange={(e) => update(k, e.target.value)}
                   />
                 )}
-                {hints[k] && <span className="sub">{hints[k]}</span>}
+                {hintOf(k) && <span className="sub">{hintOf(k)}</span>}
                 {errors[k] && <span className="error">{errors[k]}</span>}
               </div>
             ))}

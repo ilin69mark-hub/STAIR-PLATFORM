@@ -173,24 +173,24 @@ var materialCases = []struct {
 	name     string
 	material dommfg.MaterialCode
 	parts    []struct {
-		label      string
-		length     float64
-		width      float64
-		feasible   bool
-		expectL    float64 // ожидаемый лист (0 — не проверяется)
-		expectW    float64
+		label    string
+		length   float64
+		width    float64
+		feasible bool
+		expectL  float64 // ожидаемый лист (0 — не проверяется)
+		expectW  float64
 	}
 }{
 	{
 		name:     "steel",
 		material: "STEEL-S235",
 		parts: []struct {
-			label      string
-			length     float64
-			width      float64
-			feasible   bool
-			expectL    float64
-			expectW    float64
+			label    string
+			length   float64
+			width    float64
+			feasible bool
+			expectL  float64
+			expectW  float64
 		}{
 			{"min лист 2500×1250: деталь 2400×1200", 2400, 1200, true, 2500, 1250},
 			{"мид лист 8000×4600: деталь 7900×4500", 7900, 4500, true, 8000, 4600},
@@ -203,12 +203,12 @@ var materialCases = []struct {
 		name:     "aluminum",
 		material: "ALUM-5083",
 		parts: []struct {
-			label      string
-			length     float64
-			width      float64
-			feasible   bool
-			expectL    float64
-			expectW    float64
+			label    string
+			length   float64
+			width    float64
+			feasible bool
+			expectL  float64
+			expectW  float64
 		}{
 			{"единственный лист 3000×1500: деталь 2900×1400", 2900, 1400, true, 3000, 1500},
 			{"плита 6000×3000: деталь 5900×2900", 5900, 2900, true, 6000, 3000},
@@ -220,12 +220,12 @@ var materialCases = []struct {
 		name:     "wood",
 		material: "WOOD-OAK",
 		parts: []struct {
-			label      string
-			length     float64
-			width      float64
-			feasible   bool
-			expectL    float64
-			expectW    float64
+			label    string
+			length   float64
+			width    float64
+			feasible bool
+			expectL  float64
+			expectW  float64
 		}{
 			{"единственный лист 2500×600: деталь 2400×590", 2400, 590, true, 2500, 600},
 			{"плита 2500×1250: деталь 2480×1240", 2480, 1240, true, 2500, 1250},

@@ -82,10 +82,10 @@ func (s *Service) Create(ctx context.Context, tenantID, author, text string, rat
 	}
 	now := s.now().UTC()
 	t := &Testimonial{
-		TenantID: tenantID,
-		Author:   strings.TrimSpace(author),
-		Text:     strings.TrimSpace(text),
-		Rating:   rating,
+		TenantID:  tenantID,
+		Author:    strings.TrimSpace(author),
+		Text:      strings.TrimSpace(text),
+		Rating:    rating,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}

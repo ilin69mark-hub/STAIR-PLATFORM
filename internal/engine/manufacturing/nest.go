@@ -26,8 +26,9 @@ func DefaultStockSheetRegistry() *dommfg.StockSheetRegistry {
 			&dommfg.StockSheet{MaterialCode: "STEEL-S235", Length: sheetLength(6000), Width: sheetLength(3000)},
 			&dommfg.StockSheet{MaterialCode: "STEEL-S235", Length: sheetLength(2500), Width: sheetLength(1250)},
 			// Крупные листы (энвелоп H ≤ 6000 мм, MFG-0012): худший косоур
-			// прямого марша = прогон ≈1.732·H × (H+heel 50). Для H=6000 это
-			// ≈10200×6050 → покрывается листом 10400×6200; средний 8000×4600
+			// прямого марша = прогон ≈1.732·H × высота H−StepThickness
+			// (низ на полу, седла на уровне низа проступей). Для H=6000 это
+			// ≈10200×6000 → покрывается листом 10400×6200; средний 8000×4600
 			// дешевле для H до ~4550 (pickSheet берёт наименьший по площади).
 			&dommfg.StockSheet{MaterialCode: "STEEL-S235", Length: sheetLength(8000), Width: sheetLength(4600)},
 			&dommfg.StockSheet{MaterialCode: "STEEL-S235", Length: sheetLength(10400), Width: sheetLength(6200)},

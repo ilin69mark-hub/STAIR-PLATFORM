@@ -224,6 +224,32 @@ func configInputError(err error) *solver.InputError {
 			Guide:   fmt.Sprintf("Материал “%s” выпускается в толщинах %.0f–%.0f мм, а %s задан толщиной %.0f мм. Уменьшите толщину или выберите другой материал.", mat, minT, maxT, part, mm),
 			Fix:     fmt.Sprintf("Задайте толщину %s в диапазоне %.0f–%.0f мм или смените материал", part, minT, maxT),
 		}
+	case strings.Contains(msg, "width ") && strings.Contains(msg, "exceeds maximum") && strings.Contains(msg, "for material"):
+		mat := materialCodeFromError(msg)
+		maxW := 3000.0
+		if m, ok := engmfg.DefaultMaterialRegistry().Find(dommfg.MaterialCode(mat)); ok {
+			maxW = m.MaxWidthMm
+		}
+		return &solver.InputError{
+			Code: constraint.MFG_MATERIAL, Field: "Ширина марша",
+			Value: maxW, Max: maxW, HasMax: true,
+			Message: "Ширина марша превышает максимум для материала",
+			Guide:   fmt.Sprintf("Для материала “%s” максимальная ширина марша — %.0f мм (ограничение стандартных листов MFG-0012). Уменьшите ширину или выберите другой материал.", mat, maxW),
+			Fix:     fmt.Sprintf("Уменьшите ширину марша до %.0f мм или менее", maxW),
+		}
+	case strings.Contains(msg, "rise height") && strings.Contains(msg, "exceeds maximum") && strings.Contains(msg, "for material"):
+		mat := materialCodeFromError(msg)
+		maxH := 4550.0
+		if m, ok := engmfg.DefaultMaterialRegistry().Find(dommfg.MaterialCode(mat)); ok {
+			maxH = m.MaxHeightMm
+		}
+		return &solver.InputError{
+			Code: constraint.MFG_MATERIAL, Field: "Высота",
+			Value: maxH, Max: maxH, HasMax: true,
+			Message: "Высота подъёма превышает максимум для материала",
+			Guide:   fmt.Sprintf("Для материала “%s” максимальная высота подъёма — %.0f мм (ограничение стандартных листов MFG-0012). Уменьшите высоту или выберите другой материал.", mat, maxH),
+			Fix:     fmt.Sprintf("Уменьшите высоту подъёма до %.0f мм или менее", maxH),
+		}
 	}
 	return nil
 }

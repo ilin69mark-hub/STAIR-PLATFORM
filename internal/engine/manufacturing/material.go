@@ -25,14 +25,23 @@ func DefaultMaterialRegistry() *dommfg.MaterialRegistry {
 			&dommfg.Material{
 				Code: "STEEL-S235", Name: "Structural Steel S235", Category: "Steel",
 				Density: 7850, MinThickness: 2, MaxThickness: 60,
+				// Энвелоп MFG-0012: крупнейший лист 10400×6200 покрывает
+				// косоур до H≈6000, проступи до ширины W=3000 (лист 6000×3000).
+				MaxWidthMm: 3000, MaxHeightMm: 6000,
 			},
 			&dommfg.Material{
 				Code: "ALUM-5083", Name: "Aluminum 5083", Category: "Aluminum",
 				Density: 2700, MinThickness: 2, MaxThickness: 60,
+				// Энвелоп MFG-0012: крупнейший лист 9000×4600 покрывает
+				// косоур до H≈4550, проступи до W=3000 (лист 6000×3000).
+				MaxWidthMm: 3000, MaxHeightMm: 4550,
 			},
 			&dommfg.Material{
 				Code: "WOOD-OAK", Name: "Oak Wood", Category: "Wood",
 				Density: 700, MinThickness: 20, MaxThickness: 60,
+				// Энвелоп MFG-0012: крупнейшая плита 9000×4600 покрывает
+				// косоур до H≈4550, проступи до W=3000 (плита 6000×3000).
+				MaxWidthMm: 3000, MaxHeightMm: 4550,
 			},
 		)
 		if err != nil {

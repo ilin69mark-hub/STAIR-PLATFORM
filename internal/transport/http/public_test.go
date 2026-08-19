@@ -35,8 +35,8 @@ func TestPublicQuoteSuccess(t *testing.T) {
 	if resp.Pricing == nil {
 		t.Fatal("pricing must be present for non-blocking result")
 	}
-	if resp.Pricing.FinalPriceRub != 2868282.74 {
-		t.Fatalf("final price = %v, want 2868282.74", resp.Pricing.FinalPriceRub)
+	if resp.Pricing.FinalPriceRub != 3272189.90 {
+		t.Fatalf("final price = %v, want 3272189.90", resp.Pricing.FinalPriceRub)
 	}
 
 	// Габаритная ширина марша приходит из конфигурации.

@@ -155,14 +155,17 @@ export interface FieldRule {
   hint?: string
 }
 
+// Базовые правила — нормы, не зависящие от материала. Материал-зависимые
+// пределы (ширина/высота/толщины) задаются в materialLimits и сливаются
+// через rulesFor.
 export const fieldRules: Record<keyof ConfigForm, FieldRule> = {
-  widthMM: { min: 300, max: 3000 },
-  heightMM: { min: 600, max: 6000 },
+  widthMM: { min: 300 },
+  heightMM: { min: 600 },
   flight: {},
   material: {},
   stepHeightMM: { min: 150, max: 200 },
-  stringerThicknessMM: { min: 30, max: 500 },
-  stepThicknessMM: { min: 20, max: 200 },
+  stringerThicknessMM: { min: 30 }, // норматив GEO-STRINGER-THICKNESS
+  stepThicknessMM: {},
   riser: {},
   clearanceMM: { min: 0, max: 5000, hint: '≥2000, иначе предупреждение' },
   railingHeightMM: { min: 900, max: 2000 },
@@ -172,13 +175,50 @@ export const fieldRules: Record<keyof ConfigForm, FieldRule> = {
   outerRadiusMM: { min: 500, max: 5000, hint: 'R > W (радиус марша)' },
 }
 
+// Материал-зависимые пределы (синхронизированы с каталогом MFG-0005 и
+// эневлопом листов MFG-0012 на бэкенде):
+// - шаг/косоур — толщины выпуска материала (сталь/алюминий 2–60, дуб 20–60);
+// - ширина марша — лист для проступей (3000 мм для всех материалов);
+// - высота подъёма — крупнейший лист для косоура (сталь 6000, алюм/дуб 4550).
+export const materialLimits: Record<
+  MaterialCode,
+  Partial<Record<keyof ConfigForm, FieldRule>>
+> = {
+  'STEEL-S235': {
+    widthMM: { max: 3000 },
+    heightMM: { max: 6000 },
+    stepThicknessMM: { min: 2, max: 60 },
+    stringerThicknessMM: { max: 60 },
+  },
+  'ALUM-5083': {
+    widthMM: { max: 3000 },
+    heightMM: { max: 4550 },
+    stepThicknessMM: { min: 2, max: 60 },
+    stringerThicknessMM: { max: 60 },
+  },
+  'WOOD-OAK': {
+    widthMM: { max: 3000 },
+    heightMM: { max: 4550 },
+    stepThicknessMM: { min: 20, max: 60 },
+    stringerThicknessMM: { max: 60 },
+  },
+}
+
+// rulesFor возвращает правило поля для конкретного материала: базовая норма
+// сливается с материал-зависимым пределом (для не зависящих от материала
+// полей материал игнорируется).
+export function rulesFor(key: keyof ConfigForm, material: MaterialCode): FieldRule {
+  return { ...fieldRules[key], ...materialLimits[material]?.[key] }
+}
+
 export type FieldErrors = Partial<Record<keyof ConfigForm, string>>
 
 export function validateForm(f: ConfigForm): FieldErrors {
   const errors: FieldErrors = {}
-  for (const [key, rule] of Object.entries(fieldRules) as Array<
+  for (const [key] of Object.entries(fieldRules) as Array<
     [keyof ConfigForm, FieldRule]
   >) {
+    const rule = rulesFor(key, f.material)
     if (rule.min === undefined && rule.max === undefined) continue
     // Поля маршей с площадкой значимы только для l_shape/u_shape (EDR-0005/0006).
     if (key === 'landingWidthMM' || key === 'lowerStepCountMM') {

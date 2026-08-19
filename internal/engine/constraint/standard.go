@@ -17,16 +17,16 @@ const (
 // рассчитать марш; прикладной слой превращает их в блокирующий результат
 // с русской подсказкой вместо технической ошибки).
 const (
-	GEO_HEIGHT          RuleCode = "GEO-HEIGHT"           // высота/подъём не дают участка
-	GEO_WIDTH           RuleCode = "GEO-WIDTH"            // ширина марша/площадки не положительна
-	GEO_COMFORT_STEP    RuleCode = "GEO-COMFORT-STEP"     // шаг комфорта вне 600–640 мм
-	GEO_LANDING_WIDTH   RuleCode = "GEO-LANDING-WIDTH"    // площадка уже ширины марша
-	GEO_LOWER_STEP      RuleCode = "GEO-LOWER-STEP"       // число ступеней нижнего марша вне диапазона
-	GEO_SPIRAL_RADIUS   RuleCode = "GEO-SPIRAL-RADIUS"    // радиус спирали не превышает ширину марша
-	GEO_SPIRAL_TREAD    RuleCode = "GEO-SPIRAL-TREAD"     // проступи спирали вне допустимых пределов
-	GEO_TREAD_POSITIVE  RuleCode = "GEO-TREAD-POSITIVE"   // проступь неположительна
-	GEO_STRINGER_NARROW RuleCode = "GEO-STRINGER-NARROW"  // марш уже двух толщин косоура
-	MFG_MATERIAL        RuleCode = "MFG-MATERIAL"         // материал не поддерживает толщины деталей
+	GEO_HEIGHT          RuleCode = "GEO-HEIGHT"          // высота/подъём не дают участка
+	GEO_WIDTH           RuleCode = "GEO-WIDTH"           // ширина марша/площадки не положительна
+	GEO_COMFORT_STEP    RuleCode = "GEO-COMFORT-STEP"    // шаг комфорта вне 600–640 мм
+	GEO_LANDING_WIDTH   RuleCode = "GEO-LANDING-WIDTH"   // площадка уже ширины марша
+	GEO_LOWER_STEP      RuleCode = "GEO-LOWER-STEP"      // число ступеней нижнего марша вне диапазона
+	GEO_SPIRAL_RADIUS   RuleCode = "GEO-SPIRAL-RADIUS"   // радиус спирали не превышает ширину марша
+	GEO_SPIRAL_TREAD    RuleCode = "GEO-SPIRAL-TREAD"    // проступи спирали вне допустимых пределов
+	GEO_TREAD_POSITIVE  RuleCode = "GEO-TREAD-POSITIVE"  // проступь неположительна
+	GEO_STRINGER_NARROW RuleCode = "GEO-STRINGER-NARROW" // марш уже двух толщин косоура
+	MFG_MATERIAL        RuleCode = "MFG-MATERIAL"        // материал не поддерживает толщины деталей
 )
 
 // StandardProfile создаёт нормативный профиль STANDARD (EDR-0002,

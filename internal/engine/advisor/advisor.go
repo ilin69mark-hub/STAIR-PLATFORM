@@ -43,6 +43,9 @@ type Input struct {
 	ClearanceMm     float64
 	RailingMm       float64
 	StringerThickMm float64
+	// StepThicknessMm — толщина проступи st: определяет вертикальный
+	// габарит косоура (H − st) для оценки раскроя.
+	StepThicknessMm float64
 	// Material — выбранный конструктором материал (код каталога MFG-0005);
 	// пустое значение — автоназначение по толщине (как в Manufacture).
 	Material dommfg.MaterialCode
@@ -212,8 +215,8 @@ func geometry(in Input, set *constraint.ConstraintSet) (out []validation.Suggest
 				}
 				anyPass = true
 				rects := [][2]float64{
-					{res.LowerRun.Millimeters(), res.LowerHeight.Millimeters() + enggeo.StringerHeel},
-					{res.UpperRun.Millimeters(), res.UpperHeight.Millimeters() + enggeo.StringerHeel},
+					{res.LowerRun.Millimeters(), enggeo.StringerExtent(res.LowerHeight.Millimeters(), in.StepThicknessMm)},
+					{res.UpperRun.Millimeters(), enggeo.StringerExtent(res.UpperHeight.Millimeters(), in.StepThicknessMm)},
 				}
 				if !firstPass {
 					worst = largestRect(rects)
@@ -244,7 +247,7 @@ func geometry(in Input, set *constraint.ConstraintSet) (out []validation.Suggest
 		}
 		anyPass = true
 		rects := [][2]float64{
-			{res.Run.Millimeters(), in.HeightMm + enggeo.StringerHeel},
+			{res.Run.Millimeters(), enggeo.StringerExtent(in.HeightMm, in.StepThicknessMm)},
 		}
 		if !firstPass {
 			worst = largestRect(rects)

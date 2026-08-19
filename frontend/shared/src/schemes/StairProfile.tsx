@@ -92,7 +92,9 @@ export function StairProfile({ flight }: Props) {
     steps.push(`${pt({ x: x0, y: treadBot })} ${pt({ x: x0, y: topY })} ${pt({ x: x1, y: topY })} ${pt({ x: x1, y: treadBot })}`)
     if (closed) {
       const r0 = x1 - th
-      risers.push(`${pt({ x: r0, y: botY })} ${pt({ x: r0, y: topY })} ${pt({ x: x1, y: topY })} ${pt({ x: x1, y: botY })}`)
+      // Классический подступенок: верх упирается в низ вышележащей
+      // проступи (treadBot), низ — на нижележащую ступень (botY).
+      risers.push(`${pt({ x: r0, y: botY })} ${pt({ x: r0, y: treadBot })} ${pt({ x: x1, y: treadBot })} ${pt({ x: x1, y: botY })}`)
     }
   }
 

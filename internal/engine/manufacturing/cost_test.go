@@ -40,17 +40,17 @@ func TestPrepareCostMetrics(t *testing.T) {
 		got  float64
 		want float64
 	}{
-		{"part area", ds.PartArea, 27675000},
-		{"sheet area", ds.SheetArea, 42250000},
-		{"waste area", ds.WasteArea, 14575000},
-		{"volume", ds.Volume, 1329750000},
-		{"surface area", ds.SurfaceArea, 59170000},
-		{"mass", ds.Mass, 10438.5375},
-		{"waste percent", ds.WastePercent, 14575000.0 / 42250000},
-		{"utilization", ds.Utilization, 27675000.0 / 42250000},
-		{"machine time", ds.EstimatedMachineTime, 108.35},
+		{"part area", ds.PartArea, 27768550.2521959},
+		{"sheet area", ds.SheetArea, 4.85e+07},
+		{"waste area", ds.WasteArea, 20731449.7478041},
+		{"volume", ds.Volume, 1.3276775126097956e+09},
+		{"surface area", ds.SurfaceArea, 5.958464750635407e+07},
+		{"mass", ds.Mass, 10422.2684739869},
+		{"waste percent", ds.WastePercent, 20731449.7478041 / 4.85e+07},
+		{"utilization", ds.Utilization, 27768550.2521959 / 4.85e+07},
+		{"machine time", ds.EstimatedMachineTime, 111.225470019623},
 		{"labor time", ds.EstimatedLaborTime, 96},
-		{"production time", ds.EstimatedProductionTime, 204.35},
+		{"production time", ds.EstimatedProductionTime, 207.225470019623},
 	}
 	for _, c := range checks {
 		if !nearlyEqual(c.got, c.want) {

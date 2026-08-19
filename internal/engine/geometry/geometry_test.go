@@ -44,7 +44,7 @@ func TestBuildStraightFlightCount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 2 косоура + 15 проступей + 15 подступенков = 32 тела.
+	// 2 косоура + 15 проступей + 15 подступенков (одно полотно на ступень) = 32 тела.
 	if len(model.Solids()) != 32 {
 		t.Fatalf("solids = %d, want 32", len(model.Solids()))
 	}
@@ -86,26 +86,29 @@ func TestBuildStraightFlightStringerBounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// левый косоур y∈[0,50], правый y∈[850,900] (W=900, T=50).
-	var leftMinY, leftMaxY, rightMinY, rightMaxY float64
-	leftMinY, rightMinY = math.Inf(1), math.Inf(1)
-	leftMaxY, rightMaxY = math.Inf(-1), math.Inf(-1)
+	// Косоуры внутри ширины (W=900, T=50): полосы y∈[200,250] и y∈[650,700]
+	// (центры на w/4 и 3w/4); проступи и подступенки — во всю ширину [0,900].
+	var mins, maxs []float64
 	for _, solid := range model.Solids() {
+		if solid.Role() != "stringer" {
+			continue
+		}
 		minY, maxY := solidYBounds(solid)
-		if maxY <= 50+1e-6 {
-			leftMinY = math.Min(leftMinY, minY)
-			leftMaxY = math.Max(leftMaxY, maxY)
-		}
-		if minY >= 850-1e-6 {
-			rightMinY = math.Min(rightMinY, minY)
-			rightMaxY = math.Max(rightMaxY, maxY)
+		mins = append(mins, minY)
+		maxs = append(maxs, maxY)
+	}
+	if len(mins) != 2 {
+		t.Fatalf("stringer solids = %d, want 2", len(mins))
+	}
+	for _, m := range mins {
+		if !nearlyEqual(m, 200) && !nearlyEqual(m, 650) {
+			t.Fatalf("stringer min y-bounds = %v, want 200 or 650", mins)
 		}
 	}
-	if !nearlyEqual(leftMinY, 0) || !nearlyEqual(leftMaxY, 50) {
-		t.Fatalf("left stringer y-bounds = [%v,%v], want [0,50]", leftMinY, leftMaxY)
-	}
-	if !nearlyEqual(rightMinY, 850) || !nearlyEqual(rightMaxY, 900) {
-		t.Fatalf("right stringer y-bounds = [%v,%v], want [850,900]", rightMinY, rightMaxY)
+	for _, m := range maxs {
+		if !nearlyEqual(m, 250) && !nearlyEqual(m, 700) {
+			t.Fatalf("stringer max y-bounds = %v, want 250 or 700", maxs)
+		}
 	}
 }
 
@@ -114,23 +117,84 @@ func TestBuildStraightFlightStepPositions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// первая проступь: z∈[180,220], x∈[0,270], y∈[50,850].
-	if !pointExists(model, kerngeo.NewPoint3(270, 50, 220)) {
-		t.Fatal("first tread top corner (270,50,220) must exist")
+	// первая проступь: z∈[140,180] (верх на носике, низ на седле косоура),
+	// x∈[−40,270] (глубина шага + толщина подступенка, во всю ширину, на
+	// сёдлах внутренних косоуров).
+	if !pointExists(model, kerngeo.NewPoint3(270, 0, 180)) {
+		t.Fatal("first tread top corner (270,0,180) must exist")
 	}
-	if !pointExists(model, kerngeo.NewPoint3(0, 850, 220)) {
-		t.Fatal("first tread top corner (0,850,220) must exist")
+	if !pointExists(model, kerngeo.NewPoint3(-40, 900, 180)) {
+		t.Fatal("first tread top corner (-40,900,180) must exist")
 	}
-	// первый подступенок: x∈[0,40], z∈[0,180].
-	if !pointExists(model, kerngeo.NewPoint3(0, 50, 0)) {
-		t.Fatal("first riser corner (0,50,0) must exist")
+	// первый подступенок (лицевая панель): x∈[−40,0], z∈[0,140] — стоит на
+	// полу, спиной (x=0) к передней грани косоура, вплотную к свесу первой
+	// проступи. Одно полотно во всю ширину y∈[0,900].
+	if !pointExists(model, kerngeo.NewPoint3(-40, 0, 0)) {
+		t.Fatal("first riser front-bottom corner (−40,0,0) must exist")
 	}
-	if !pointExists(model, kerngeo.NewPoint3(40, 850, 180)) {
-		t.Fatal("first riser corner (40,850,180) must exist")
+	if !pointExists(model, kerngeo.NewPoint3(-40, 900, 140)) {
+		t.Fatal("first riser front-top corner (−40,900,140) must exist")
 	}
-	// последняя проступь: z∈[2700,2740], x∈[3780,4050].
-	if !pointExists(model, kerngeo.NewPoint3(4050, 850, 2740)) {
-		t.Fatal("last tread top corner (4050,850,2740) must exist")
+	if !pointExists(model, kerngeo.NewPoint3(0, 200, 0)) {
+		t.Fatal("first riser back corner (0,200,0) must exist")
+	}
+	// второй подступенок (k=1) выдвинут: x∈[230,270], спина (270) — на
+	// сбросе гребёнки, верх z=320 — под второй проступью.
+	if !pointExists(model, kerngeo.NewPoint3(230, 0, 180)) {
+		t.Fatal("second riser front corner (230,0,180) must exist")
+	}
+	if !pointExists(model, kerngeo.NewPoint3(270, 900, 320)) {
+		t.Fatal("second riser back corner (270,900,320) must exist")
+	}
+	// последняя проступь: z∈[2660,2700], x∈[3780,4050].
+	if !pointExists(model, kerngeo.NewPoint3(4050, 900, 2700)) {
+		t.Fatal("last tread top corner (4050,900,2700) must exist")
+	}
+}
+
+func TestBuildStraightFlightRiserContract(t *testing.T) {
+	cfg := testConfig(t)
+	model, err := BuildStraightFlight(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := cfg.StepHeight.Millimeters()
+	st := cfg.StepThickness.Millimeters()
+	b := cfg.TreadDepth.Millimeters()
+	byStep := make(map[int][]kerngeo.BBox)
+	for _, solid := range model.Solids() {
+		if solid.Role() != "riser" {
+			continue
+		}
+		box := kerngeo.SolidBoundingBox(solid)
+		byStep[int(math.Round(box.Max.X/b))] = append(byStep[int(math.Round(box.Max.X/b))], box)
+	}
+	// Для каждого шага k подступенок — одно полотно во всю ширину, выдвинутое
+	// на толщину: охват x∈[k·b−st, k·b] (k=0 — лицевая панель [−st, 0] на
+	// полу, перед передней гранью косоура), спина (x=k·b) на сбросе косоура.
+	// По Z: низ — на нижележащей ступени (k·h), верх — впритык к низу
+	// вышележащей проступи ((k+1)·h − st).
+	for k := 0; k < cfg.StepCount; k++ {
+		strips := byStep[k]
+		if len(strips) != 1 {
+			t.Fatalf("step %d risers = %d, want 1", k, len(strips))
+		}
+		minX := float64(k)*b - st
+		maxX := float64(k) * b
+		for _, box := range strips {
+			if !nearlyEqual(box.Min.X, minX) {
+				t.Fatalf("riser %d min x = %v, want %v (shifted forward by st)", k, box.Min.X, minX)
+			}
+			if !nearlyEqual(box.Max.X, maxX) {
+				t.Fatalf("riser %d max x = %v, want %v (back on stringer drop)", k, box.Max.X, maxX)
+			}
+			if want := float64(k) * h; !nearlyEqual(box.Min.Z, want) {
+				t.Fatalf("riser %d min z = %v, want %v (top of lower step)", k, box.Min.Z, want)
+			}
+			if want := float64(k+1)*h - st; !nearlyEqual(box.Max.Z, want) {
+				t.Fatalf("riser %d max z = %v, want %v (bottom of upper tread)", k, box.Max.Z, want)
+			}
+		}
 	}
 }
 

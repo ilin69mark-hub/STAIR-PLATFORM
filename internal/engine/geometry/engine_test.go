@@ -27,7 +27,7 @@ func TestGenerateResult(t *testing.T) {
 	if len(res.Issues) != 0 {
 		t.Fatalf("expected no validation issues, got %+v", res.Issues)
 	}
-	// 2 косоура + 15 проступей + 15 подступенков.
+	// 2 косоура + 15 проступей + 15 подступенков (полотно на ступень).
 	if res.Measurement.SolidCount != 32 {
 		t.Fatalf("solid count = %d, want 32", res.Measurement.SolidCount)
 	}
@@ -41,27 +41,28 @@ func TestGenerateMeasurement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// объём: 2 косоура + проступи + подступенки.
-	want := 2.0*(567000*50) + 15.0*(270*800*40) + 15.0*(800*180*40)
+	// объём: 2 косоура (профиль-гребёнка) + проступи во всю ширину [0,w]
+	// (глубина шага + толщина подступенка: 270+40) + подступенки во всю
+	// ширину (материал w шириной).
+	want := 2.0*(601194.16*50) + 15.0*(310*900*40) + 15.0*(900*140*40)
 	if !nearlyEq(res.Measurement.Volume, want) {
 		t.Fatalf("volume = %v, want %v", res.Measurement.Volume, want)
 	}
-	// bounding box: минимум у левого косоура (с низом -50), максимум у
-	// последней проступи на высоте H+st.
+	// bounding box: минимум у задней кромки нижней проступи (x=−st),
+	// максимум у хвоста косоура (nb+t·h/L) и верха последней проступи (H).
 	bb := res.Measurement.BoundingBox
-	if !nearlyEq(bb.Min.X, 0) || !nearlyEq(bb.Min.Y, 0) || !nearlyEq(bb.Min.Z, -50) {
-		t.Fatalf("bbox min = %+v, want (0,0,-50)", bb.Min)
+	if !nearlyEq(bb.Min.X, -40) || !nearlyEq(bb.Min.Y, 0) || !nearlyEq(bb.Min.Z, 0) {
+		t.Fatalf("bbox min = %+v, want (−40,0,0)", bb.Min)
 	}
-	if !nearlyEq(bb.Max.X, 4050) || !nearlyEq(bb.Max.Y, 900) || !nearlyEq(bb.Max.Z, 2740) {
-		t.Fatalf("bbox max = %+v, want (4050,900,2740)", bb.Max)
+	if !nearlyEq(bb.Max.X, 4077.73501) || !nearlyEq(bb.Max.Y, 900) || !nearlyEq(bb.Max.Z, 2700) {
+		t.Fatalf("bbox max = %+v, want (4077.7,900,2700)", bb.Max)
 	}
-	// площадь поверхности: 2 косоура (2 крышки по 567000 + периметр×50)
-	// + 15 проступей + 15 подступенков.
-	d := math.Sqrt(270*270 + 180*180)
-	perimeter := 15.0*(270+180+d) + 100
-	stringerArea := 2 * (2*567000 + 50*perimeter)
-	treadArea := 15.0 * (2*270*800 + 2*270*40 + 2*800*40)
-	riserArea := 15.0 * (2*40*800 + 2*40*180 + 2*800*180)
+	// площадь поверхности: 2 косоура (2 крышки по 601194.16 + периметр×50)
+	// + 15 проступей во всю ширину + 15 подступенков (полотна 900 шириной).
+	perimeter := 11630.521978
+	stringerArea := 2 * (2*601194.16 + 50*perimeter)
+	treadArea := 15.0 * (2*900*310 + 2*900*40 + 2*310*40)
+	riserArea := 15.0 * (2*140*900 + 2*40*900 + 2*140*40)
 	if !nearlyEq(res.Measurement.SurfaceArea, stringerArea+treadArea+riserArea) {
 		t.Fatalf("surface area = %v, want %v", res.Measurement.SurfaceArea, stringerArea+treadArea+riserArea)
 	}
@@ -91,8 +92,8 @@ func TestGenerateNoSteps(t *testing.T) {
 	if len(res.Issues) != 0 {
 		t.Fatalf("stringer-only model must validate clean, got %+v", res.Issues)
 	}
-	// объём двух косоуров.
-	want := 2.0 * (567000 * 50)
+	// объём двух косоуров (профиль при st=0: седло на уровне носика).
+	want := 2.0 * (605999.711094 * 50)
 	if !nearlyEq(res.Measurement.Volume, want) {
 		t.Fatalf("volume = %v, want %v", res.Measurement.Volume, want)
 	}

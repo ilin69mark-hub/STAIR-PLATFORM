@@ -106,6 +106,35 @@ describe('StairProfile', () => {
     expect(h).toBeGreaterThan(w)
   })
 
+  it('первый подступенок: верх на нижней грани вышележащей проступи, низ на верхней грани нижележащей ступени', () => {
+    const closed: FlightResult = { ...base, Riser: true, StepThickness: 40 }
+    const { container } = render(<StairProfile flight={closed} />)
+    const riser = container.querySelector('.scheme__riser')
+    expect(riser).not.toBeNull()
+    const rYs = (riser!.getAttribute('points') ?? '')
+      .trim()
+      .split(/\s+/)
+      .map((p) => Number(p.split(',')[1]))
+    const step0 = container.querySelectorAll('.scheme__step')[0]
+    const step1 = container.querySelectorAll('.scheme__step')[1]
+    const s0Max = Math.max(
+      ...(step0!.getAttribute('points') ?? '')
+        .trim()
+        .split(/\s+/)
+        .map((p) => Number(p.split(',')[1])),
+    )
+    const s1Min = Math.min(
+      ...(step1!.getAttribute('points') ?? '')
+        .trim()
+        .split(/\s+/)
+        .map((p) => Number(p.split(',')[1])),
+    )
+    // SVG-y инвертирован: подступенок-верх (низ проступи treadBot) — меньший y,
+    // подступенок-низ (верх ступени botY) — больший y.
+    expect(Math.min(...rYs)).toBe(s0Max)
+    expect(Math.max(...rYs)).toBe(s1Min)
+  })
+
   it('открытый марш без подступенков не рисует вертикальных граней', () => {
     const open: FlightResult = { ...base, Riser: false, StepThickness: 40 }
     const { container } = render(<StairProfile flight={open} />)

@@ -12,6 +12,7 @@ func testMaterial(t *testing.T, code MaterialCode) *Material {
 	return &Material{
 		Code: code, Name: "Test " + string(code), Category: "Steel",
 		Density: 7850, MinThickness: 2, MaxThickness: 60,
+		MaxWidthMm: 3000, MaxHeightMm: 6000,
 	}
 }
 

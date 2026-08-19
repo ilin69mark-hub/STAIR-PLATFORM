@@ -250,8 +250,8 @@ func TestAdviseGuideRenderedFromRuleTemplate(t *testing.T) {
 func TestAdviseInfeasibleManufacturingNoDeadEnds(t *testing.T) {
 	set := standard()
 	// Прямой марш H=6200: нормо-диапазон существует, но косоур шириной
-	// H+heel=6250 > 6200 никогда не влезет даже на самый большой лист
-	// (10400×6200). Советник не предлагает заведомо нереализуемые варианты.
+	// H−st=6200 (+ рез 3 мм) не влезет на самый большой лист (10400×6200).
+	// Советник не предлагает заведомо нереализуемые варианты.
 	cfg := &engineering.StairConfiguration{
 		Height: 6200, StepHeight: 230, Clearance: 2100, RailingHeight: 900, StringerThickness: 40,
 	}
@@ -274,7 +274,7 @@ func TestAdviseInfeasibleManufacturingNoDeadEnds(t *testing.T) {
 	if issue == nil {
 		t.Fatal("must add blocking MFG-SHEET issue when no variant is manufacturable")
 	}
-	if issue.Param == "" || !strings.Contains(issue.Guide, "6250") || !strings.Contains(issue.Guide, "10400×6200") {
+	if issue.Param == "" || !strings.Contains(issue.Guide, "9020") || !strings.Contains(issue.Guide, "10400×6200") {
 		t.Fatalf("MFG-SHEET issue must explain dims: param=%q guide=%q", issue.Param, issue.Guide)
 	}
 	if !got.Blocking {

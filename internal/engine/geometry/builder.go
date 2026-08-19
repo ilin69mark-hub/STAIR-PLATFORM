@@ -14,18 +14,19 @@ import (
 	kerngeo "stairplatform/internal/geometry"
 )
 
-// StringerHeel — материал под нижней гранью выреза косоура (мм).
-// STAIR-DOC не задаёт значение; heel делает профиль косоура строго
-// простым полигоном (нижняя кромка не проходит через впадины пилы),
-// что гарантирует корректную триангуляцию. Экспортируется, чтобы
-// советник и раскрой использовали единый габарит косоура.
-const StringerHeel = 50.0
+// StringerExtent возвращает вертикальный габарит профиля косоура
+// прямого марша: от уровня пола (низ передней гранки) до верхнего
+// седла пилы (H − StepThickness). Экспортируется, чтобы советник и
+// раскрой использовали единый габарит косоура (BC-002).
+func StringerExtent(heightMm, stepThMm float64) float64 {
+	return heightMm - stepThMm
+}
 
 // BuildStraightFlight строит параметрическую B-Rep модель прямого марша
 // (ENG-GEO-0007). Модель состоит из 2 косоуров и n проступей при
-// StepThickness > 0 (EDR-0004); подступенки (n тел) добавляются только при
+// StepThickness > 0 (EDR-0004); подступенки (3n тел) добавляются только при
 // cfg.Riser — при false лестница имеет открытые ступени. Итого при
-// StepThickness > 0 и Riser: 2n+2 тела.
+// StepThickness > 0 и Riser: 2+4n тела.
 // Координаты: X — направление подъёма, Y — ширина, Z — высота (ADR-0008).
 // Геометрия всегда вычисляется заново из параметров (BC-002).
 func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, error) {
@@ -42,13 +43,16 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 	// Build-циклы параллелятся (B3, EDR-0034 §3.2): каждое тело строится
 	// независимо (Extrude чистый), порядок в Compound фиксирован индексами
 	// слотов (косоуры → проступи → подступенки) — детерминизм ADR-0003.
-	builds := make([]func() (*kerngeo.Solid, error), 0, 2*n+2)
+	builds := make([]func() (*kerngeo.Solid, error), 0, 4*n+2)
 
-	// косоуры: левый на y∈[0,t], правый на y∈[w-t,w].
-	for i, y := range []float64{0, w - t} {
+	// косоуры: два внутри ширины, симметрично относительно центра марша —
+	// полосы [w/4−t/2, w/4+t/2] и [3w/4−t/2, 3w/4+t/2]. Ступени лежат на
+	// сёдлах пилы сверху (седло = низ проступи).
+	yA, yC := w/4-t/2, 3*w/4-t/2
+	for i, y := range []float64{yA, yC} {
 		i, y := i, y
 		builds = append(builds, func() (*kerngeo.Solid, error) {
-			profile := stringerProfile(n, b, h, y)
+			profile := stringerProfile(n, b, h, st, y, t)
 			solid, err := kerngeo.Extrude(profile, kerngeo.NewVector3(0, 1, 0), t)
 			if err != nil {
 				return nil, fmt.Errorf("geometry: stringer %d: %w", i, err)
@@ -61,17 +65,21 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 		return buildCompound(builds)
 	}
 
-	// проступи: горизонтальные боксы между косоурами, толщина по Z.
+	// проступи: горизонтальные боксы во всю ширину [0,w], толщина по Z.
+	// Верх проступи на уровне носика (k+1)·h, толщина st вниз (EDR-0004):
+	// низ проступи ложится на седло пилы косоура. Проступь глубже шага на st
+	// (охват [k·b−st, (k+1)·b]): её задняя кромка нависает над подступенком,
+	// который выдвинут на столько же (см. ниже).
 	for k := 0; k < n; k++ {
 		k := k
 		builds = append(builds, func() (*kerngeo.Solid, error) {
-			x0, x1 := float64(k)*b, float64(k+1)*b
-			z := float64(k+1) * h
+			x0, x1 := float64(k)*b-st, float64(k+1)*b
+			z := float64(k+1)*h - st
 			profile := []kerngeo.Point3{
-				kerngeo.NewPoint3(x0, t, z),
-				kerngeo.NewPoint3(x1, t, z),
-				kerngeo.NewPoint3(x1, w-t, z),
-				kerngeo.NewPoint3(x0, w-t, z),
+				kerngeo.NewPoint3(x0, 0, z),
+				kerngeo.NewPoint3(x1, 0, z),
+				kerngeo.NewPoint3(x1, w, z),
+				kerngeo.NewPoint3(x0, w, z),
 			}
 			solid, err := kerngeo.Extrude(profile, kerngeo.NewVector3(0, 0, 1), st)
 			if err != nil {
@@ -81,21 +89,32 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 		})
 	}
 
-	// подступенки (только при cfg.Riser, ENG-GEO-0007): вертикальные боксы
-	// между косоурами, толщина по X. При выключенном флаге ступени открытые.
+	// подступенки (только при cfg.Riser, ENG-GEO-0007): вертикальное
+	// полотно во всю ширину [0,w], толщиной по X. Классический подступенок:
+	// верхний край упирается в нижнюю плоскость вышележащей проступи
+	// ((k+1)·h − st), нижний — на нижележащую ступень (k·h), спина — в
+	// вертикальный сброс косоура. Проступи глубже шага на st, поэтому
+	// подступенок k выдвинут навстречу подъёму: охват [k·b−st, k·b] кладёт
+	// своё дно целиком на проступь k−1 (она доходит до k·b), верх — под
+	// проступь k, а спина (x=k·b) — на сброс гребёнки. Косоуры в этом
+	// окне лежат ниже низа подступенка (седло на z=k·h−st), поэтому полотно
+	// единое, без пазов: одно тело на ступень. Внизу марша (k=0) подступенок
+	// стоит на полу перед передней гранью косоура — лицевая панель марша
+	// [−st, 0] вместе со свесом первой проступи, спиной (x=0) вплотную к
+	// передней грани. При выключенном флаге ступени открытые.
 	if !cfg.Riser {
 		return buildCompound(builds)
 	}
 	for k := 0; k < n; k++ {
 		k := k
+		x0 := float64(k)*b - st
+		z0, z1 := float64(k)*h, float64(k+1)*h-st
 		builds = append(builds, func() (*kerngeo.Solid, error) {
-			x := float64(k) * b
-			z0, z1 := float64(k)*h, float64(k+1)*h
 			profile := []kerngeo.Point3{
-				kerngeo.NewPoint3(x, t, z0),
-				kerngeo.NewPoint3(x, t, z1),
-				kerngeo.NewPoint3(x, w-t, z1),
-				kerngeo.NewPoint3(x, w-t, z0),
+				kerngeo.NewPoint3(x0, 0, z0),
+				kerngeo.NewPoint3(x0, 0, z1),
+				kerngeo.NewPoint3(x0, w, z1),
+				kerngeo.NewPoint3(x0, w, z0),
 			}
 			solid, err := kerngeo.Extrude(profile, kerngeo.NewVector3(1, 0, 0), st)
 			if err != nil {
@@ -310,24 +329,48 @@ func validateFlight(cfg *engineering.StairConfiguration) error {
 	return nil
 }
 
-// stringerProfile строит строго простой профиль косоура в плоскости XZ
-// при y = yOff: пилообразный верх (впадины на уровне (k·b, k·h), выступы
-// на уровне (k·b, (k+1)·h)) и прямая нижняя кромка, отстоящая от впадин
-// на StringerHeel. Вершины: (0,0), выступ, впадина, ..., (n·b, n·h),
-// (n·b, n·h−heel), (0, −heel).
-func stringerProfile(n int, b, h, yOff float64) []kerngeo.Point3 {
+// stringerProfile строит строго простой профиль косоура-гребёнки в
+// плоскости XZ при y = yOff: пила с посадочными местами на уровне низа
+// проступи ((k+1)·h − st) и вертикальными сбросами h на границах ступеней
+// (седло = низ проступи, ENG-GEO-0007). Низ доски — спинка, параллельная
+// линии посадочных мест на расстоянии t (StringerThickness) по нормали;
+// сзади (у верхней ступени) — перпендикулярный срез из головы пилы,
+// спереди — упор в пол и вертикальная передняя грань (контур начинается
+// с передней грани). Вершины: (0, 0), (0, h−st), седло/сброс, …,
+// (n·b, n·h−st), P_top, F.
+func stringerProfile(n int, b, h, st, yOff, t float64) []kerngeo.Point3 {
 	pts := make([]kerngeo.Point3, 0, 2*n+3)
-	pts = append(pts, kerngeo.NewPoint3(0, yOff, 0))
-	for k := 0; k < n; k++ {
+	pts = append(pts,
+		kerngeo.NewPoint3(0, yOff, 0),
+		kerngeo.NewPoint3(0, yOff, h-st),
+	)
+	for k := 0; k < n-1; k++ {
 		pts = append(pts,
-			kerngeo.NewPoint3(float64(k)*b, yOff, float64(k+1)*h),
-			kerngeo.NewPoint3(float64(k+1)*b, yOff, float64(k+1)*h),
+			kerngeo.NewPoint3(float64(k+1)*b, yOff, float64(k+1)*h-st),
+			kerngeo.NewPoint3(float64(k+1)*b, yOff, float64(k+2)*h-st),
 		)
 	}
-	L := float64(n) * b
+	pts = append(pts, kerngeo.NewPoint3(float64(n)*b, yOff, float64(n)*h-st))
+
+	// Спинка: линия посадочных мест, сдвинутая на толщину t по нормали
+	// вниз (поперёк марша в плоскости XZ). Сзади срез перпендикулярен
+	// маршу из головы пилы, спереди спинка упирается в пол (z = 0).
+	L := math.Hypot(b, h)
+	pTop := kerngeo.NewPoint3(
+		float64(n)*b+t*h/L, // (n·b, n·h−st) + t·(h, −b)/L
+		yOff,
+		float64(n)*h-st-t*b/L,
+	)
+	fx := pTop.X - pTop.Z/h*b
+	if fx < 0 {
+		fx = 0
+	}
+	if fx > float64(n)*b {
+		fx = float64(n) * b
+	}
 	pts = append(pts,
-		kerngeo.NewPoint3(L, yOff, float64(n)*h-StringerHeel),
-		kerngeo.NewPoint3(0, yOff, -StringerHeel),
+		pTop,
+		kerngeo.NewPoint3(fx, yOff, 0),
 	)
 	return pts
 }

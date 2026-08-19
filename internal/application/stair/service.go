@@ -34,9 +34,9 @@ type Config struct {
 	StepThickness     engineering.Length // мм
 	// Riser — строить подступенки (вертикальные грани под проступями).
 	// false — открытые ступени.
-	Riser             bool
-	Clearance         engineering.Length // мм
-	RailingHeight     engineering.Length // мм
+	Riser         bool
+	Clearance     engineering.Length // мм
+	RailingHeight engineering.Length // мм
 	// LandingWidth и LowerStepCount — специфичны для маршей с площадкой
 	// (EDR-0005 L-образный, EDR-0006 П-образный).
 	LandingWidth   engineering.Length // мм — ширина площадки Wp
@@ -75,9 +75,9 @@ type Result struct {
 	// Эхо производственных параметров конфигурации (для 2D-рендера и
 	// публичного ответа): толщина проступи, высота перил, наличие
 	// подступенков (BC-002 — рендер рисует «как посчитано»).
-	StepThickness   engineering.Length
-	RailingHeight   engineering.Length
-	Riser           bool
+	StepThickness     engineering.Length
+	RailingHeight     engineering.Length
+	Riser             bool
 	StringerThickness engineering.Length
 }
 
@@ -148,7 +148,8 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 		ClearanceMm:     cfg.Clearance.Millimeters(),
 		RailingMm:       cfg.RailingHeight.Millimeters(),
 		StringerThickMm: cfg.StringerThickness.Millimeters(),
-		Material:       cfg.Material,
+		StepThicknessMm: cfg.StepThickness.Millimeters(),
+		Material:        cfg.Material,
 	}
 	advise := func(vr validation.Result) validation.Result {
 		return advisor.Advise(advIn, s.constraints, vr)
@@ -374,6 +375,19 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 					"stair: material %q does not support thickness %v mm of %s",
 					cfg.Material, tk.t, tk.name))
 			}
+		}
+		// Габариты, гарантируемые изготовлением в выбранном материале
+		// (MFG-0012): превышение обращается в понятную ошибку, чтобы
+		// пользователь видел предел каждого материала, а не прогон конвейера.
+		if float64(c.Width.Millimeters()) > mat.MaxWidthMm {
+			return nil, configInputError(fmt.Errorf(
+				"stair: width %v mm exceeds maximum %v mm for material %q",
+				c.Width.Millimeters(), int(mat.MaxWidthMm), cfg.Material))
+		}
+		if float64(c.Height.Millimeters()) > mat.MaxHeightMm {
+			return nil, configInputError(fmt.Errorf(
+				"stair: rise height %v mm exceeds maximum %v mm for material %q",
+				c.Height.Millimeters(), int(mat.MaxHeightMm), cfg.Material))
 		}
 	}
 	// Энвелоп платформы (MFG-0012): гарантия изготовления только до этих

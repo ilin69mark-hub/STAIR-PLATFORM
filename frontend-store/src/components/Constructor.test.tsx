@@ -96,8 +96,30 @@ describe('Constructor', () => {
   it('показывает подсказки для ступени и перил', async () => {
     await renderWithAuth(<Constructor />, null)
     expect(screen.getByText('Комфортно: 150–190 мм')).toBeInTheDocument()
-    expect(screen.getByText('Мин 20 / макс 200 мм')).toBeInTheDocument()
+    expect(screen.getByText('Мин 2 / макс 60 мм')).toBeInTheDocument()
     expect(screen.getByText('Рекомендуем 900–1100 мм')).toBeInTheDocument()
+  })
+
+  it('подсказки ширины и высоты зависят от материала', async () => {
+    await renderWithAuth(<Constructor />, null)
+    // Сталь по умолчанию: макс. высота 6000 мм.
+    expect(screen.getByText('Макс 6000 мм')).toBeInTheDocument()
+    expect(screen.getByText('Макс 3000 мм')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Материал'), { target: { value: 'WOOD-OAK' } })
+    // Дуб: макс. высота 4550 мм, толщина ступени 20–60 мм.
+    expect(screen.getByText('Макс 4550 мм')).toBeInTheDocument()
+    expect(screen.getByText('Мин 20 / макс 60 мм')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Материал'), { target: { value: 'ALUM-5083' } })
+    expect(screen.getByText('Мин 2 / макс 60 мм')).toBeInTheDocument()
+  })
+
+  it('валидация учитывает пределы материала', async () => {
+    await renderWithAuth(<Constructor />, null)
+    fireEvent.change(screen.getByLabelText('Материал'), { target: { value: 'ALUM-5083' } })
+    fireEvent.change(screen.getByLabelText('Высота (мм)'), { target: { value: '5000' } })
+    expect(await screen.findByText('Не более 4550')).toBeInTheDocument()
   })
 
   it('показывает знак справки с тултипом у просвета', async () => {

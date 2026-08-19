@@ -71,8 +71,9 @@ func TestPlanOperationsTotalTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// stringers 2×(2+13600/2000) + treads 15×(2+2140/2000) + risers 15×(2+1960/2000) + 32×3 finish.
-	want := 2*(2+6.8) + 15*(2+1.07) + 15*(2+0.98) + 32*3
+	// stringers 2×(2+perim/2000) + treads 15×3.21 + risers 15×3.04
+	// + 32×3 finish.
+	want := 2*(2+2*(4077.7350098112615+2660)/2000) + 15*3.21 + 15*3.04 + 32*3
 	if !nearlyEqual(plan.TotalTime(), want) {
 		t.Fatalf("total time = %v, want %v", plan.TotalTime(), want)
 	}

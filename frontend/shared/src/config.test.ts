@@ -3,6 +3,7 @@ import {
   defaultConfig,
   defaultRates,
   flightFields,
+  rulesFor,
   toRatesRequest,
   toRequest,
   validateForm,
@@ -105,6 +106,60 @@ describe('validateForm', () => {
     // удерживает Wp в диапазоне 600–3000.
     const cfg = { ...defaultConfig, flight: 'l_shape' as const, landingWidthMM: '700' }
     expect(validateForm(cfg).landingWidthMM).toBeUndefined()
+  })
+
+  it('пределы толщины ступени зависят от материала', () => {
+    expect(validateForm({ ...defaultConfig, stepThicknessMM: '61' }).stepThicknessMM).toBe(
+      'Не более 60',
+    )
+    expect(validateForm({ ...defaultConfig, stepThicknessMM: '1' }).stepThicknessMM).toBe(
+      'Не менее 2',
+    )
+    const wood = { ...defaultConfig, material: 'WOOD-OAK' as const }
+    expect(validateForm({ ...wood, stepThicknessMM: '15' }).stepThicknessMM).toBe('Не менее 20')
+    expect(validateForm({ ...wood, stepThicknessMM: '61' }).stepThicknessMM).toBe('Не более 60')
+    expect(validateForm({ ...wood, stepThicknessMM: '30' }).stepThicknessMM).toBeUndefined()
+  })
+
+  it('максимальная высота подъёма зависит от материала', () => {
+    expect(validateForm({ ...defaultConfig, heightMM: '6100' }).heightMM).toBe('Не более 6000')
+    const alum = { ...defaultConfig, material: 'ALUM-5083' as const }
+    expect(validateForm({ ...alum, heightMM: '5000' }).heightMM).toBe('Не более 4550')
+    expect(validateForm({ ...alum, heightMM: '4550' }).heightMM).toBeUndefined()
+  })
+
+  it('максимальная ширина марша ограничена листом материала', () => {
+    expect(validateForm({ ...defaultConfig, widthMM: '3500' }).widthMM).toBe('Не более 3000')
+    expect(validateForm({ ...defaultConfig, widthMM: '3000' }).widthMM).toBeUndefined()
+  })
+
+  it('косоур не бывает толще лимита материала', () => {
+    expect(validateForm({ ...defaultConfig, stringerThicknessMM: '61' }).stringerThicknessMM).toBe(
+      'Не более 60',
+    )
+    expect(
+      validateForm({ ...defaultConfig, stringerThicknessMM: '50' }).stringerThicknessMM,
+    ).toBeUndefined()
+  })
+})
+
+describe('rulesFor', () => {
+  it('базовая норма без материал-зависимых переопределений', () => {
+    expect(rulesFor('stepHeightMM', 'STEEL-S235')).toEqual({ min: 150, max: 200 })
+    expect(rulesFor('clearanceMM', 'WOOD-OAK').min).toBe(0)
+  })
+
+  it('толщина ступени и высота берутся из предела материала', () => {
+    expect(rulesFor('stepThicknessMM', 'STEEL-S235')).toEqual({ min: 2, max: 60 })
+    expect(rulesFor('stepThicknessMM', 'ALUM-5083')).toEqual({ min: 2, max: 60 })
+    expect(rulesFor('stepThicknessMM', 'WOOD-OAK')).toEqual({ min: 20, max: 60 })
+    expect(rulesFor('heightMM', 'STEEL-S235').max).toBe(6000)
+    expect(rulesFor('heightMM', 'ALUM-5083').max).toBe(4550)
+    expect(rulesFor('heightMM', 'WOOD-OAK').max).toBe(4550)
+  })
+
+  it('косоур: норматив не менее 30 мм, лимит материала как максимум', () => {
+    expect(rulesFor('stringerThicknessMM', 'WOOD-OAK')).toEqual({ min: 30, max: 60 })
   })
 })
 

@@ -8,10 +8,10 @@ import {
   flightOptions,
   flightFields,
   materialOptions,
+  rulesFor,
   toRequest,
   toRatesRequest,
   validateForm,
-  fieldRules,
   type ConfigForm,
   type FieldErrors,
   type RatesForm,
@@ -277,7 +277,7 @@ function ConfigForm({ fields, errors, onChange }: ConfigFormProps) {
         </select>
       </div>
       {visible.map((key) => {
-        const rule = fieldRules[key]
+        const rule = rulesFor(key, fields.material)
         const error = errors[key]
         const hint = rule && (rule.hint ?? (rule.min || rule.max ? rangeText(rule) : undefined))
         return (

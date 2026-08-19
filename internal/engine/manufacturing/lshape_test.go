@@ -42,7 +42,7 @@ func TestManufactureLShapeParts(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 4 косоура (2 нижних + 2 верхних), 16 проступей (15 ступеней + площадка),
-	// 15 подступенков. Итого 35 деталей.
+	// 15 подступенков (полотно на ступень). Итого 35 деталей.
 	if len(pkg.Parts) != 35 {
 		t.Fatalf("parts = %d, want 35", len(pkg.Parts))
 	}
@@ -62,8 +62,8 @@ func TestManufactureLShapeParts(t *testing.T) {
 }
 
 // TestManufactureLShapeDimensions проверяет габариты деталей L-марша:
-// нижний косоур 1620×1130×50, верхний 2430×1670×50, проступи 800×270×40,
-// подступенки 800×180×40, площадка 1000×900×40.
+// нижний косоур 1620×1130×50, верхний 2430×1670×50, проступи 900×310×40,
+// подступенки 900×140×40, площадка 1000×900×40.
 func TestManufactureLShapeDimensions(t *testing.T) {
 	cfg := lshapeConfig(t)
 	res, err := enggeo.Generate(context.Background(), cfg)
@@ -78,16 +78,17 @@ func TestManufactureLShapeDimensions(t *testing.T) {
 		number dommfg.PartNumber
 		l, wd  float64
 	}{
-		{"STR-01", 1620, 1130},
-		{"STR-02", 1620, 1130},
-		{"STR-03", 2430, 1670},
-		{"STR-04", 2430, 1670},
-		{"TRD-01", 800, 270},
+		{"STR-01", 1647.73501, 1040},
+		{"STR-02", 1647.73501, 1040},
+		{"STR-03", 2457.73501, 1580},
+		{"STR-04", 2457.73501, 1580},
+		{"TRD-01", 900, 310},
 		{"TRD-07", 1000, 900},
-		{"TRD-08", 800, 270},
-		{"TRD-16", 800, 270},
-		{"RSR-01", 800, 180},
-		{"RSR-15", 800, 180},
+		{"TRD-08", 900, 310},
+		{"TRD-16", 900, 310},
+		{"RSR-01", 900, 140},
+		{"RSR-02", 900, 140},
+		{"RSR-15", 900, 140},
 	}
 	for _, c := range cases {
 		p := findPart(pkg, c.number)
@@ -118,8 +119,8 @@ func TestManufactureLShapeDimensions(t *testing.T) {
 }
 
 // TestManufactureLShapeBOM проверяет группировку BOM: косоуры двух размеров
-// (1620×1130 и 2430×1670) — отдельные строки, проступи и подступенки
-// объединяются по размерам, площадка — отдельная проступь.
+// (1647.7×1040 и 2457.7×1580) — отдельные строки, проступи и полосы
+// подступенков объединяются по размерам, площадка — отдельная проступь.
 func TestManufactureLShapeBOM(t *testing.T) {
 	cfg := lshapeConfig(t)
 	res, err := enggeo.Generate(context.Background(), cfg)
@@ -136,11 +137,11 @@ func TestManufactureLShapeBOM(t *testing.T) {
 		length   float64
 		width    float64
 	}{
-		{"Stringer", 2, 1620, 1130},
-		{"Tread", 15, 800, 270},
-		{"Riser", 15, 800, 180},
+		{"Stringer", 2, 1647.73501, 1040},
+		{"Tread", 15, 900, 310},
+		{"Riser", 15, 900, 140},
 		{"Tread", 1, 1000, 900},
-		{"Stringer", 2, 2430, 1670},
+		{"Stringer", 2, 2457.73501, 1580},
 	}
 	if len(pkg.BOM.Lines) != len(want) {
 		t.Fatalf("BOM lines = %d, want %d", len(pkg.BOM.Lines), len(want))

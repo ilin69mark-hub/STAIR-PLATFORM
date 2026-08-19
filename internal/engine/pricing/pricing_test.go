@@ -139,16 +139,16 @@ func TestPriceExactValues(t *testing.T) {
 		got  domprc.Money
 		want int64
 	}{
-		{"material", b.Material, 159359787},
-		{"machine", b.Machine, 1444667},
+		{"material", b.Material, 182033277},
+		{"machine", b.Machine, 1483006},
 		{"labor", b.Labor, 480000},
-		{"overhead", b.Overhead, 32256891},
-		{"production", b.ProductionCost, 193541345},
-		{"margin", b.Margin, 58062404},
-		{"discount", b.Discount, 12580187},
-		{"pre-tax", b.PreTax, 239023562},
-		{"tax", b.Tax, 47804712},
-		{"final", b.FinalPrice, 286828274},
+		{"overhead", b.Overhead, 36799257},
+		{"production", b.ProductionCost, 220795540},
+		{"margin", b.Margin, 66238662},
+		{"discount", b.Discount, 14351710},
+		{"pre-tax", b.PreTax, 272682492},
+		{"tax", b.Tax, 54536498},
+		{"final", b.FinalPrice, 327218990},
 	}
 	for _, c := range checks {
 		if c.got.Minor() != c.want {

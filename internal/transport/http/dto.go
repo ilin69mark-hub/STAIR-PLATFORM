@@ -126,100 +126,100 @@ type validationDTO struct {
 // (StepThicknessMm, RailingHeightMm, Riser) — эхо конфигурации, по которому
 // фронтенд рисует 2D-профиль «как посчитано» (BC-002).
 type flightDTO struct {
-	StepCount       int     `json:"step_count"`
-	StepHeightMm    float64 `json:"step_height_mm"`
-	TreadDepthMm    float64 `json:"tread_depth_mm"`
-	RunMm           float64 `json:"run_mm"`
-	StringerMm      float64 `json:"stringer_mm"`
-	AngleDeg        float64 `json:"angle_deg"`
-	WidthMm         float64 `json:"width_mm"`
-	StepThicknessMm float64 `json:"step_thickness_mm"`
-	RailingHeightMm float64 `json:"railing_height_mm"`
-	Riser           bool    `json:"riser"`
+	StepCount           int     `json:"step_count"`
+	StepHeightMm        float64 `json:"step_height_mm"`
+	TreadDepthMm        float64 `json:"tread_depth_mm"`
+	RunMm               float64 `json:"run_mm"`
+	StringerMm          float64 `json:"stringer_mm"`
+	AngleDeg            float64 `json:"angle_deg"`
+	WidthMm             float64 `json:"width_mm"`
+	StepThicknessMm     float64 `json:"step_thickness_mm"`
+	RailingHeightMm     float64 `json:"railing_height_mm"`
+	Riser               bool    `json:"riser"`
 	StringerThicknessMm float64 `json:"stringer_thickness_mm"`
 }
 
 // configEcho — производственные параметры конфигурации, дублируемые в
 // flight-ответы для 2D-рендера (BC-002).
 type configEcho struct {
-	StepThicknessMm   float64
-	RailingHeightMm   float64
-	Riser             bool
+	StepThicknessMm     float64
+	RailingHeightMm     float64
+	Riser               bool
 	StringerThicknessMm float64
 }
 
 func flightEcho(r stair.Result) configEcho {
 	return configEcho{
-		StepThicknessMm:   r.StepThickness.Millimeters(),
-		RailingHeightMm:   r.RailingHeight.Millimeters(),
-		Riser:             r.Riser,
+		StepThicknessMm:     r.StepThickness.Millimeters(),
+		RailingHeightMm:     r.RailingHeight.Millimeters(),
+		Riser:               r.Riser,
 		StringerThicknessMm: r.StringerThickness.Millimeters(),
 	}
 }
 
 // lshapeDTO — результат Solver для L-образной лестницы (EDR-0005).
 type lshapeDTO struct {
-	StepCount       int     `json:"step_count"`
-	LowerStepCount  int     `json:"lower_step_count"`
-	UpperStepCount  int     `json:"upper_step_count"`
-	StepHeightMm    float64 `json:"step_height_mm"`
-	TreadDepthMm    float64 `json:"tread_depth_mm"`
-	AngleDeg        float64 `json:"angle_deg"`
-	LowerHeightMm   float64 `json:"lower_height_mm"`
-	UpperHeightMm   float64 `json:"upper_height_mm"`
-	LowerRunMm      float64 `json:"lower_run_mm"`
-	UpperRunMm      float64 `json:"upper_run_mm"`
-	LowerStringerMm float64 `json:"lower_stringer_mm"`
-	UpperStringerMm float64 `json:"upper_stringer_mm"`
-	LandingWidthMm  float64 `json:"landing_width_mm"`
-	WidthMm         float64 `json:"width_mm"`
-	StepThicknessMm float64 `json:"step_thickness_mm"`
-	RailingHeightMm float64 `json:"railing_height_mm"`
-	Riser           bool    `json:"riser"`
+	StepCount           int     `json:"step_count"`
+	LowerStepCount      int     `json:"lower_step_count"`
+	UpperStepCount      int     `json:"upper_step_count"`
+	StepHeightMm        float64 `json:"step_height_mm"`
+	TreadDepthMm        float64 `json:"tread_depth_mm"`
+	AngleDeg            float64 `json:"angle_deg"`
+	LowerHeightMm       float64 `json:"lower_height_mm"`
+	UpperHeightMm       float64 `json:"upper_height_mm"`
+	LowerRunMm          float64 `json:"lower_run_mm"`
+	UpperRunMm          float64 `json:"upper_run_mm"`
+	LowerStringerMm     float64 `json:"lower_stringer_mm"`
+	UpperStringerMm     float64 `json:"upper_stringer_mm"`
+	LandingWidthMm      float64 `json:"landing_width_mm"`
+	WidthMm             float64 `json:"width_mm"`
+	StepThicknessMm     float64 `json:"step_thickness_mm"`
+	RailingHeightMm     float64 `json:"railing_height_mm"`
+	Riser               bool    `json:"riser"`
 	StringerThicknessMm float64 `json:"stringer_thickness_mm"`
 }
 
 // ushapeDTO — результат Solver для П-образной лестницы (EDR-0006).
 type ushapeDTO struct {
-	StepCount       int     `json:"step_count"`
-	LowerStepCount  int     `json:"lower_step_count"`
-	UpperStepCount  int     `json:"upper_step_count"`
-	StepHeightMm    float64 `json:"step_height_mm"`
-	TreadDepthMm    float64 `json:"tread_depth_mm"`
-	AngleDeg        float64 `json:"angle_deg"`
-	LowerHeightMm   float64 `json:"lower_height_mm"`
-	UpperHeightMm   float64 `json:"upper_height_mm"`
-	LowerRunMm      float64 `json:"lower_run_mm"`
-	UpperRunMm      float64 `json:"upper_run_mm"`
-	LowerStringerMm float64 `json:"lower_stringer_mm"`
-	UpperStringerMm float64 `json:"upper_stringer_mm"`
-	LandingWidthMm  float64 `json:"landing_width_mm"`
-	WidthMm         float64 `json:"width_mm"`
-	StepThicknessMm float64 `json:"step_thickness_mm"`
-	RailingHeightMm float64 `json:"railing_height_mm"`
-	Riser           bool    `json:"riser"`
+	StepCount           int     `json:"step_count"`
+	LowerStepCount      int     `json:"lower_step_count"`
+	UpperStepCount      int     `json:"upper_step_count"`
+	StepHeightMm        float64 `json:"step_height_mm"`
+	TreadDepthMm        float64 `json:"tread_depth_mm"`
+	AngleDeg            float64 `json:"angle_deg"`
+	LowerHeightMm       float64 `json:"lower_height_mm"`
+	UpperHeightMm       float64 `json:"upper_height_mm"`
+	LowerRunMm          float64 `json:"lower_run_mm"`
+	UpperRunMm          float64 `json:"upper_run_mm"`
+	LowerStringerMm     float64 `json:"lower_stringer_mm"`
+	UpperStringerMm     float64 `json:"upper_stringer_mm"`
+	LandingWidthMm      float64 `json:"landing_width_mm"`
+	WidthMm             float64 `json:"width_mm"`
+	StepThicknessMm     float64 `json:"step_thickness_mm"`
+	RailingHeightMm     float64 `json:"railing_height_mm"`
+	Riser               bool    `json:"riser"`
 	StringerThicknessMm float64 `json:"stringer_thickness_mm"`
 }
 
 // spiralDTO — результат Solver для спиральной лестницы (EDR-0007).
 type spiralDTO struct {
-	StepCount       int     `json:"step_count"`
-	StepHeightMm    float64 `json:"step_height_mm"`
-	OuterRadiusMm   float64 `json:"outer_radius_mm"`
-	ColumnRadiusMm  float64 `json:"column_radius_mm"`
-	WalkRadiusMm    float64 `json:"walk_radius_mm"`
-	InnerTreadMm    float64 `json:"inner_tread_mm"`
-	WalkTreadMm     float64 `json:"walk_tread_mm"`
-	OuterTreadMm    float64 `json:"outer_tread_mm"`
-	AngleDeg        float64 `json:"angle_deg"`
-	AngularStepDeg  float64 `json:"angular_step_deg"`
-	ArcLengthMm     float64 `json:"arc_length_mm"`
-	ComfortStepMm   float64 `json:"comfort_step_mm"`
-	AngularTotalDeg float64 `json:"angular_total_deg"`
-	WidthMm         float64 `json:"width_mm"`
-	StepThicknessMm float64 `json:"step_thickness_mm"`
-	RailingHeightMm float64 `json:"railing_height_mm"`
-	Riser           bool    `json:"riser"`
+	StepCount           int     `json:"step_count"`
+	StepHeightMm        float64 `json:"step_height_mm"`
+	OuterRadiusMm       float64 `json:"outer_radius_mm"`
+	ColumnRadiusMm      float64 `json:"column_radius_mm"`
+	WalkRadiusMm        float64 `json:"walk_radius_mm"`
+	InnerTreadMm        float64 `json:"inner_tread_mm"`
+	WalkTreadMm         float64 `json:"walk_tread_mm"`
+	OuterTreadMm        float64 `json:"outer_tread_mm"`
+	AngleDeg            float64 `json:"angle_deg"`
+	AngularStepDeg      float64 `json:"angular_step_deg"`
+	ArcLengthMm         float64 `json:"arc_length_mm"`
+	ComfortStepMm       float64 `json:"comfort_step_mm"`
+	AngularTotalDeg     float64 `json:"angular_total_deg"`
+	WidthMm             float64 `json:"width_mm"`
+	StepThicknessMm     float64 `json:"step_thickness_mm"`
+	RailingHeightMm     float64 `json:"railing_height_mm"`
+	Riser               bool    `json:"riser"`
 	StringerThicknessMm float64 `json:"stringer_thickness_mm"`
 }
 
