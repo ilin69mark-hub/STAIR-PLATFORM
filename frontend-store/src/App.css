@@ -505,6 +505,31 @@ body {
   color: #fff;
 }
 
+/* Переключатель вида 2D-схемы: профиль / вид сверху. */
+
+.scheme-toggle {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 14px;
+}
+
+.scheme-toggle__btn {
+  font: inherit;
+  padding: 7px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--sp-border);
+  background: var(--sp-card);
+  cursor: pointer;
+  color: var(--sp-muted);
+}
+
+.scheme-toggle__btn--active {
+  background: var(--sp-primary);
+  border-color: var(--sp-primary);
+  color: #fff;
+}
+
 /* ---- Cabinet (orders) ---- */
 
 .orders-table {

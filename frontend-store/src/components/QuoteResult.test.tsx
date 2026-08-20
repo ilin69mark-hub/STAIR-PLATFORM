@@ -86,6 +86,19 @@ describe('QuoteResult', () => {
     expect(container.querySelectorAll('.scheme__railing').length).toBe(0)
   })
 
+  it('переключает 2D-схему: профиль и вид сверху', () => {
+    render(<QuoteResult quote={okQuote} />)
+    // По умолчанию профиль.
+    expect(screen.getByRole('img', { name: 'Боковой профиль прямого марша' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Вид сверху' }))
+    expect(screen.getByRole('img', { name: 'Вид сверху (план) лестницы' })).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'Боковой профиль прямого марша' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Профиль' }))
+    expect(screen.getByRole('img', { name: 'Боковой профиль прямого марша' })).toBeInTheDocument()
+  })
+
   it('показывает объяснение, что поправить, и кнопку применения варианта', () => {
     const onApply = vi.fn()
     const suggestion = {

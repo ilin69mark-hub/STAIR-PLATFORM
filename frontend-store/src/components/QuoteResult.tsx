@@ -1,8 +1,9 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import type { QuoteResult as QuoteResultType, QuoteSuggestion } from '@shared/types'
 import { fmt } from '@shared/format'
 import { materialLabel } from '@shared/config'
 import { StairProfile } from '@shared/schemes/StairProfile'
+import { StairPlan } from '@shared/schemes/StairPlan'
 import { solverOf } from './quoteView'
 
 // Результат публичного расчёта: марш, геометрия и предварительная цена.
@@ -26,6 +27,7 @@ export function QuoteResult({ quote, onApplySuggestion, material }: Props) {
   const pricing = quote.pricing
   const issues = quote.validation.issues ?? []
   const spiral = quote.spiral !== undefined
+  const [schemeView, setSchemeView] = useState<'profile' | 'plan'>('profile')
 
   return (
     <>
@@ -84,7 +86,29 @@ export function QuoteResult({ quote, onApplySuggestion, material }: Props) {
 
         {!quote.validation.blocking && solver.flight && (
           <div className="scheme-wrap">
-            <StairProfile flight={solver.flight} railing={solver.flight.Railing} />
+            <div className="scheme-toggle" role="group" aria-label="Вид схемы">
+              <button
+                type="button"
+                className={`scheme-toggle__btn${schemeView === 'profile' ? ' scheme-toggle__btn--active' : ''}`}
+                aria-pressed={schemeView === 'profile'}
+                onClick={() => setSchemeView('profile')}
+              >
+                Профиль
+              </button>
+              <button
+                type="button"
+                className={`scheme-toggle__btn${schemeView === 'plan' ? ' scheme-toggle__btn--active' : ''}`}
+                aria-pressed={schemeView === 'plan'}
+                onClick={() => setSchemeView('plan')}
+              >
+                Вид сверху
+              </button>
+            </div>
+            {schemeView === 'profile' ? (
+              <StairProfile flight={solver.flight} railing={solver.flight.Railing} />
+            ) : (
+              <StairPlan flight={solver.flight} kind={solver.kind ?? 'straight'} solver={solver} />
+            )}
           </div>
         )}
 

@@ -44,6 +44,7 @@ describe('solverOf', () => {
   it('прямой марш', () => {
     const s = solverOf(straight)
     expect(s.flight?.StepCount).toBe(15)
+    expect(s.kind).toBe('straight')
     expect(s.lowerStepCount).toBeUndefined()
     expect(s.outerRadius).toBeUndefined()
   })
@@ -74,6 +75,7 @@ describe('solverOf', () => {
       },
     }
     const s = solverOf(q)
+    expect(s.kind).toBe('l_shape')
     expect(s.lowerStepCount).toBe(6)
     expect(s.upperStepCount).toBe(6)
     expect(s.landingWidth).toBe(900)
@@ -170,8 +172,10 @@ describe('solverOf', () => {
       },
     }
     const s = solverOf(q)
+    expect(s.kind).toBe('spiral')
     expect(s.outerRadius).toBe(800)
     expect(s.comfortStep).toBe(685)
+    expect(s.angularTotal).toBe(360)
     expect(s.flight?.StepCount).toBe(14)
   })
 

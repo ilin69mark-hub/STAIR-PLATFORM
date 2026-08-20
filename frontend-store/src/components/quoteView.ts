@@ -8,6 +8,7 @@ import type {
   QuoteSpiral,
   QuoteUShape,
 } from '@shared/types'
+import type { PlanKind } from '@shared/schemes/StairPlan'
 
 export interface FlightView {
   StepCount: number
@@ -27,6 +28,7 @@ export interface FlightView {
 }
 
 export interface SolverView {
+  kind?: PlanKind
   flight?: FlightView
   lowerStepCount?: number
   upperStepCount?: number
@@ -42,6 +44,7 @@ export interface SolverView {
   walkTread?: number
   outerTread?: number
   angularStep?: number
+  angularTotal?: number
   arcLength?: number
   comfortStep?: number
 }
@@ -78,7 +81,7 @@ function segmentsRailing(
 export function solverOf(q: QuoteResult): SolverView {
   if (q.flight) {
     const f = quoteToFlight(q.flight)
-    return { flight: f }
+    return { kind: 'straight', flight: f }
   }
   if (q.lshape) {
     const l: QuoteLShape = q.lshape
@@ -97,6 +100,7 @@ export function solverOf(q: QuoteResult): SolverView {
       Railing: segmentsRailing(l.railing_lower, l.railing_landing, l.railing_upper),
     }
     return {
+      kind: 'l_shape',
       flight: f,
       lowerStepCount: l.lower_step_count,
       upperStepCount: l.upper_step_count,
@@ -124,6 +128,7 @@ export function solverOf(q: QuoteResult): SolverView {
       Railing: segmentsRailing(u.railing_lower, u.railing_landing, u.railing_upper),
     }
     return {
+      kind: 'u_shape',
       flight: f,
       lowerStepCount: u.lower_step_count,
       upperStepCount: u.upper_step_count,
@@ -151,6 +156,7 @@ export function solverOf(q: QuoteResult): SolverView {
       Railing: s.railing,
     }
     return {
+      kind: 'spiral',
       flight: f,
       outerRadius: s.outer_radius_mm,
       columnRadius: s.column_radius_mm,
@@ -159,6 +165,7 @@ export function solverOf(q: QuoteResult): SolverView {
       walkTread: s.walk_tread_mm,
       outerTread: s.outer_tread_mm,
       angularStep: s.angular_step_deg,
+      angularTotal: s.angular_total_deg,
       arcLength: s.arc_length_mm,
       comfortStep: s.comfort_step_mm,
     }
