@@ -11,6 +11,19 @@ export interface SolverSchematic {
   kind: PlanKind
   flight: PlanFlight
   solver: PlanExtras
+  // Эффективная сторона перил (CONF-RAILING): 'none' скрывает перила на
+  // схеме, отсутствие — legacy (рисуем по высоте).
+  railing?: string
+}
+
+// segmentsRailing — эффективная сторона перил маршей с площадкой (L/U):
+// «без перил» только когда все сегменты без перил; смешанный выбор профиль
+// показывает как обычно.
+function segmentsRailing(
+  s: Snapshot,
+): string | undefined {
+  const all = [s.railing_lower, s.railing_landing, s.railing_upper]
+  return all.every((v) => v !== undefined) && all.every((v) => v === 'none') ? 'none' : undefined
 }
 
 export function schematicOf(s: Snapshot): SolverSchematic | null {
@@ -35,6 +48,7 @@ export function schematicOf(s: Snapshot): SolverSchematic | null {
         ...extras,
       },
       solver: {},
+      railing: s.railing,
     }
   }
   if (s.lshape) {
@@ -58,6 +72,7 @@ export function schematicOf(s: Snapshot): SolverSchematic | null {
         lowerRun: l.LowerRun,
         upperRun: l.UpperRun,
       },
+      railing: segmentsRailing(s),
     }
   }
   if (s.ushape) {
@@ -81,6 +96,7 @@ export function schematicOf(s: Snapshot): SolverSchematic | null {
         lowerRun: u.LowerRun,
         upperRun: u.UpperRun,
       },
+      railing: segmentsRailing(s),
     }
   }
   if (s.spiral) {
@@ -107,6 +123,7 @@ export function schematicOf(s: Snapshot): SolverSchematic | null {
         angularTotal: (sp.AngularTotal * 180) / Math.PI,
         arcLength: sp.ArcLength,
       },
+      railing: s.railing,
     }
   }
   return null

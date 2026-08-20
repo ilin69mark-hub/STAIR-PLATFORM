@@ -16,6 +16,7 @@ const straight: QuoteResult = {
     railing_height_mm: 900,
     riser: true,
     stringer_thickness_mm: 50,
+    railing: 'right',
   },
   geometry: { solid_count: 1, volume_mm3: 1e7, surface_area_mm2: 2e5, bbox: { min: { x: 0, y: 0, z: 0 }, max: { x: 900, y: 2700, z: 500 } } },
   pricing: { currency: 'RUB', material_rub: 1, machine_rub: 2, labor_rub: 3, overhead_rub: 4, production_cost_rub: 10, margin_rub: 5, discount_rub: 0, pre_tax_rub: 15, tax_rub: 3, final_price_rub: 18, lines: [] },
@@ -30,6 +31,12 @@ describe('quoteToFlight', () => {
     expect(f.Run).toBe(4050)
     expect(f.Stringer).toBeCloseTo(4867.49)
     expect(f.Angle).toBeCloseTo((33.69 * Math.PI) / 180)
+    expect(f.Railing).toBe('right')
+  })
+
+  it('сторона прямого марша наследуется в view', () => {
+    const s = solverOf(straight)
+    expect(s.flight?.Railing).toBe('right')
   })
 })
 
@@ -71,6 +78,70 @@ describe('solverOf', () => {
     expect(s.upperStepCount).toBe(6)
     expect(s.landingWidth).toBe(900)
     expect(s.flight?.Run).toBeCloseTo(4140)
+  })
+
+  it('L-образный: перила отсутствуют, если все сегменты без перил', () => {
+    const q: QuoteResult = {
+      ...straight,
+      flight: undefined,
+      lshape: {
+        step_count: 12,
+        lower_step_count: 6,
+        upper_step_count: 6,
+        step_height_mm: 180,
+        tread_depth_mm: 270,
+        angle_deg: 33.69,
+        lower_height_mm: 1080,
+        upper_height_mm: 2160,
+        lower_run_mm: 1620,
+        upper_run_mm: 1620,
+        lower_stringer_mm: 1942.8,
+        upper_stringer_mm: 1942.8,
+        landing_width_mm: 900,
+        width_mm: 900,
+        step_thickness_mm: 40,
+        railing_height_mm: 900,
+        riser: true,
+        stringer_thickness_mm: 50,
+        railing_lower: 'none',
+        railing_landing: 'none',
+        railing_upper: 'none',
+      },
+    }
+    const s = solverOf(q)
+    expect(s.flight?.Railing).toBe('none')
+  })
+
+  it('L-образный: смешанный выбор перил показывает схему как обычно', () => {
+    const q: QuoteResult = {
+      ...straight,
+      flight: undefined,
+      lshape: {
+        step_count: 12,
+        lower_step_count: 6,
+        upper_step_count: 6,
+        step_height_mm: 180,
+        tread_depth_mm: 270,
+        angle_deg: 33.69,
+        lower_height_mm: 1080,
+        upper_height_mm: 2160,
+        lower_run_mm: 1620,
+        upper_run_mm: 1620,
+        lower_stringer_mm: 1942.8,
+        upper_stringer_mm: 1942.8,
+        landing_width_mm: 900,
+        width_mm: 900,
+        step_thickness_mm: 40,
+        railing_height_mm: 900,
+        riser: true,
+        stringer_thickness_mm: 50,
+        railing_lower: 'none',
+        railing_landing: 'both',
+        railing_upper: 'none',
+      },
+    }
+    const s = solverOf(q)
+    expect(s.flight?.Railing).toBeUndefined()
   })
 
   it('спираль: объект с радиусом и комфортом', () => {

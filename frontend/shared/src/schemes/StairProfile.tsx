@@ -17,6 +17,10 @@ import {
 
 interface Props {
   flight: FlightResult
+  // Эффективная сторона перил из конструктора (CONF-RAILING): 'none'
+  // скрывает перила при любой высоте ограждения. Отсутствие — legacy:
+  // рисуем, если задана высота.
+  railing?: string
 }
 
 const W = 620
@@ -28,7 +32,7 @@ interface MM {
   y: number
 }
 
-export function StairProfile({ flight }: Props) {
+export function StairProfile({ flight, railing }: Props) {
   const { StepCount, StepHeight, TreadDepth, Run, Stringer, Angle } = flight
   if (StepCount <= 0 || StepHeight <= 0) return null
 
@@ -36,6 +40,9 @@ export function StairProfile({ flight }: Props) {
   const closed = flight.Riser !== false
   const stepTh = Math.min(Math.max(flight.StepThickness ?? 0, 0), StepHeight)
   const railingH = Math.max(flight.RailingHeight ?? 0, 0)
+  // Перила рисуются только если задана высота ограждения и сторона не «без
+  // перил» (CONF-RAILING: none скрывает, left/right/both рисуют).
+  const showRail = railingH > 0 && railing !== 'none'
   const st = Math.max(flight.StringerThickness ?? 40, 0) // толщина косоура, мм
 
   const totalH = StepCount * StepHeight
@@ -178,7 +185,7 @@ export function StairProfile({ flight }: Props) {
 
   // Перила: верхняя перекладина параллельна маршу на высоте railingH от
   // носовых кромок, плюс две крайние стойки.
-  const rail = railingH > 0 && (
+  const rail = showRail && (
     <>
       <line
         x1={px(0)}
@@ -308,7 +315,7 @@ export function StairProfile({ flight }: Props) {
         Ступени: высота {StepHeight.toLocaleString('ru-RU')} мм · глубина{' '}
         {TreadDepth.toLocaleString('ru-RU')} мм · угол {angleDeg.toFixed(1)}° ·{' '}
         {closed ? 'с подступенком' : 'открытый марш'}
-        {railingH > 0 ? ` · перила ${railingH.toLocaleString('ru-RU')} мм` : ''}
+        {showRail ? ` · перила ${railingH.toLocaleString('ru-RU')} мм` : ''}
       </p>
     </div>
   )

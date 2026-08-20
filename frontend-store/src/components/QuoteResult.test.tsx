@@ -76,6 +76,16 @@ describe('QuoteResult', () => {
     expect(screen.queryByText('3D-модель')).not.toBeInTheDocument()
   })
 
+  it('«без перил» прячет перила на схеме профиля', () => {
+    const noRail: QuoteResultType = {
+      ...okQuote,
+      flight: { ...okQuote.flight!, railing: 'none' },
+    }
+    const { container } = render(<QuoteResult quote={noRail} />)
+    expect(container.querySelector('.scheme__caption')?.textContent).not.toContain('перила')
+    expect(container.querySelectorAll('.scheme__railing').length).toBe(0)
+  })
+
   it('показывает объяснение, что поправить, и кнопку применения варианта', () => {
     const onApply = vi.fn()
     const suggestion = {

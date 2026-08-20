@@ -27,16 +27,22 @@ type Snapshot struct {
 	Spiral     *solver.SpiralResult `json:"spiral,omitempty"`
 	// Производственные параметры конфигурации (эхо, BC-002): толщина
 	// проступи, высота перил, наличие подступенков — для 2D-рендера.
-	StepThickness     float64                                 `json:"step_thickness"`
-	RailingHeight     float64                                 `json:"railing_height"`
-	Riser             bool                                    `json:"riser"`
-	StringerThickness float64                                 `json:"stringer_thickness"`
-	Measurement       geometry.Measurement                    `json:"measurement"`
-	Mesh              *kerngeo.Mesh                           `json:"mesh,omitempty"`
-	IssueCount        int                                     `json:"issue_count"`
-	Manufacturing     *manufacturing.ManufacturingPackage     `json:"manufacturing,omitempty"`
-	Pricing           *pricing.PriceBreakdown                 `json:"pricing,omitempty"`
-	Cost              *manufacturing.ManufacturingCostDataset `json:"cost,omitempty"`
+	StepThickness     float64 `json:"step_thickness"`
+	RailingHeight     float64 `json:"railing_height"`
+	Riser             bool    `json:"riser"`
+	StringerThickness float64 `json:"stringer_thickness"`
+	// Стороны перил (CONF-RAILING) — для 2D-рендера: прямой/спираль —
+	// Railing, L/П — по сегментам (RailingLower/Landing/Upper).
+	Railing        string                                  `json:"railing,omitempty"`
+	RailingLower   string                                  `json:"railing_lower,omitempty"`
+	RailingLanding string                                  `json:"railing_landing,omitempty"`
+	RailingUpper   string                                  `json:"railing_upper,omitempty"`
+	Measurement    geometry.Measurement                    `json:"measurement"`
+	Mesh           *kerngeo.Mesh                           `json:"mesh,omitempty"`
+	IssueCount     int                                     `json:"issue_count"`
+	Manufacturing  *manufacturing.ManufacturingPackage     `json:"manufacturing,omitempty"`
+	Pricing        *pricing.PriceBreakdown                 `json:"pricing,omitempty"`
+	Cost           *manufacturing.ManufacturingCostDataset `json:"cost,omitempty"`
 }
 
 // NewSnapshot строит экспортный документ из результата конвейера.
@@ -52,6 +58,10 @@ func NewSnapshot(projectID string, res *stair.Result) Snapshot {
 		RailingHeight:     res.RailingHeight.Millimeters(),
 		Riser:             res.Riser,
 		StringerThickness: res.StringerThickness.Millimeters(),
+		Railing:           string(res.Railing),
+		RailingLower:      string(res.RailingLower),
+		RailingLanding:    string(res.RailingLanding),
+		RailingUpper:      string(res.RailingUpper),
 		Measurement:       res.Measurement,
 		Mesh:              res.Mesh,
 		IssueCount:        len(res.GeometryIssues),

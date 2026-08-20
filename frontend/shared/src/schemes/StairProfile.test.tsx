@@ -161,6 +161,24 @@ describe('StairProfile', () => {
     expect(container.querySelectorAll('.scheme__railing').length).toBe(0)
   })
 
+  it('«без перил» скрывает перила даже при заданной высоте', () => {
+    const { container } = render(<StairProfile flight={{ ...base, RailingHeight: 900 }} railing="none" />)
+    expect(container.querySelectorAll('.scheme__railing').length).toBe(0)
+    expect(container.querySelectorAll('.scheme__post').length).toBe(0)
+    expect(container.querySelector('.scheme__caption')?.textContent).not.toContain('перила')
+  })
+
+  it('сторона перил left/right/both рисует перила', () => {
+    for (const side of ['left', 'right', 'both']) {
+      const { container } = render(
+        <StairProfile flight={{ ...base, RailingHeight: 900 }} railing={side} />,
+      )
+      expect(container.querySelectorAll('.scheme__railing').length).toBe(1)
+      expect(container.querySelectorAll('.scheme__post').length).toBe(2)
+      expect(container.querySelector('.scheme__caption')?.textContent).toContain('перила')
+    }
+  })
+
   it('косоур — гребенка: пила с посадочными местами и вертикальными сбросами', () => {
     const { container } = render(<StairProfile flight={{ ...base, StringerThickness: 50 }} />)
     const poly = container.querySelector('.scheme__stringer')

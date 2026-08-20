@@ -530,6 +530,12 @@ export interface Snapshot {
   railing_height?: number
   riser?: boolean
   stringer_thickness?: number
+  // Стороны перил из конфигурации (CONF-RAILING) — для 2D-рендера:
+  // прямой/спираль — railing; L/U — по сегментам.
+  railing?: string
+  railing_lower?: string
+  railing_landing?: string
+  railing_upper?: string
   measurement?: Measurement
   mesh?: Mesh
   issue_count: number
@@ -674,6 +680,8 @@ export interface QuoteFlight {
   railing_height_mm: number
   riser: boolean
   stringer_thickness_mm: number
+  // Сторона перил (CONF-RAILING): none|left|right|both.
+  railing?: string
 }
 
 export interface QuoteLShape {
@@ -695,6 +703,11 @@ export interface QuoteLShape {
   railing_height_mm: number
   riser: boolean
   stringer_thickness_mm: number
+  // Перила по сегментам (CONF-RAILING) и поворот площадки (CONF-DIRECTION).
+  railing_lower?: string
+  railing_landing?: string
+  railing_upper?: string
+  direction?: string
 }
 
 export interface QuoteUShape {
@@ -716,6 +729,11 @@ export interface QuoteUShape {
   railing_height_mm: number
   riser: boolean
   stringer_thickness_mm: number
+  // Перила по сегментам (CONF-RAILING) и поворот площадки (CONF-DIRECTION).
+  railing_lower?: string
+  railing_landing?: string
+  railing_upper?: string
+  direction?: string
 }
 
 export interface QuoteSpiral {
@@ -737,6 +755,9 @@ export interface QuoteSpiral {
   railing_height_mm: number
   riser: boolean
   stringer_thickness_mm: number
+  // Перила (авто из направления, CONF-SPIRAL-RAILING) и направление закрутки.
+  railing?: string
+  spiral_direction?: string
 }
 
 export interface QuotePoint {

@@ -21,6 +21,9 @@ export interface FlightView {
   RailingHeight?: number
   Riser?: boolean
   StringerThickness?: number
+  // Эффективная сторона перил (CONF-RAILING): 'none' скрывает перила на
+  // схеме, отсутствие — legacy (рисуем по высоте).
+  Railing?: string
 }
 
 export interface SolverView {
@@ -56,7 +59,20 @@ export function quoteToFlight(f: QuoteFlight): FlightView {
     RailingHeight: f.railing_height_mm,
     Riser: f.riser,
     StringerThickness: f.stringer_thickness_mm,
+    Railing: f.railing,
   }
+}
+
+// segmentsRailing — эффективная сторона перил маршей с площадкой (L/U):
+// перила отсутствуют только если во всех сегментах выбрано «без перил»;
+// смешанный выбор схема профиля показывает как обычно (один ряд).
+function segmentsRailing(
+  lower: string | undefined,
+  landing: string | undefined,
+  upper: string | undefined,
+): string | undefined {
+  const all = [lower, landing, upper]
+  return all.every((s) => s !== undefined) && all.every((s) => s === 'none') ? 'none' : undefined
 }
 
 export function solverOf(q: QuoteResult): SolverView {
@@ -78,6 +94,7 @@ export function solverOf(q: QuoteResult): SolverView {
       RailingHeight: l.railing_height_mm,
       Riser: l.riser,
       StringerThickness: l.stringer_thickness_mm,
+      Railing: segmentsRailing(l.railing_lower, l.railing_landing, l.railing_upper),
     }
     return {
       flight: f,
@@ -104,6 +121,7 @@ export function solverOf(q: QuoteResult): SolverView {
       RailingHeight: u.railing_height_mm,
       Riser: u.riser,
       StringerThickness: u.stringer_thickness_mm,
+      Railing: segmentsRailing(u.railing_lower, u.railing_landing, u.railing_upper),
     }
     return {
       flight: f,
@@ -130,6 +148,7 @@ export function solverOf(q: QuoteResult): SolverView {
       RailingHeight: s.railing_height_mm,
       Riser: s.riser,
       StringerThickness: s.stringer_thickness_mm,
+      Railing: s.railing,
     }
     return {
       flight: f,

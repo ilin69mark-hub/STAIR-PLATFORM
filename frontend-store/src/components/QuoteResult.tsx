@@ -84,7 +84,7 @@ export function QuoteResult({ quote, onApplySuggestion, material }: Props) {
 
         {!quote.validation.blocking && solver.flight && (
           <div className="scheme-wrap">
-            <StairProfile flight={solver.flight} />
+            <StairProfile flight={solver.flight} railing={solver.flight.Railing} />
           </div>
         )}
 

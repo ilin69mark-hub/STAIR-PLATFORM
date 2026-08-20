@@ -84,7 +84,7 @@ function SolverDrawings({ snapshot }: { snapshot: Snapshot }) {
         ))}
       </div>
       {tab === 'profile' && (
-        <StairProfile flight={sch.flight} />
+        <StairProfile flight={sch.flight} railing={sch.railing} />
       )}
       {tab === 'plan' && (
         <StairPlan flight={sch.flight} kind={sch.kind} solver={sch.solver} />
