@@ -16,21 +16,28 @@ import (
 
 // calculateRequest — запрос расчёта лестницы (POST /api/v1/stairs:calculate).
 type calculateRequest struct {
-	WidthMM             float64   `json:"width_mm"`
-	HeightMM            float64   `json:"height_mm"`
-	Flight              string    `json:"flight"`
-	StepHeightMM        float64   `json:"step_height_mm"`
-	StringerThicknessMM float64   `json:"stringer_thickness_mm"`
-	StepThicknessMM     float64   `json:"step_thickness_mm"`
-	Riser               bool      `json:"riser,omitempty"`
-	ClearanceMM         float64   `json:"clearance_mm"`
-	RailingHeightMM     float64   `json:"railing_height_mm"`
-	ComfortStepMM       float64   `json:"comfort_step_mm,omitempty"`
-	LandingWidthMM      float64   `json:"landing_width_mm,omitempty"`
-	LowerStepCount      int       `json:"lower_step_count,omitempty"`
-	OuterRadiusMM       float64   `json:"outer_radius_mm,omitempty"`
-	Material            string    `json:"material,omitempty"`
-	Rates               *ratesDTO `json:"rates,omitempty"`
+	WidthMM             float64 `json:"width_mm"`
+	HeightMM            float64 `json:"height_mm"`
+	Flight              string  `json:"flight"`
+	StepHeightMM        float64 `json:"step_height_mm"`
+	StringerThicknessMM float64 `json:"stringer_thickness_mm"`
+	StepThicknessMM     float64 `json:"step_thickness_mm"`
+	Riser               bool    `json:"riser,omitempty"`
+	ClearanceMM         float64 `json:"clearance_mm"`
+	RailingHeightMM     float64 `json:"railing_height_mm"`
+	ComfortStepMM       float64 `json:"comfort_step_mm,omitempty"`
+	LandingWidthMM      float64 `json:"landing_width_mm,omitempty"`
+	LowerStepCount      int     `json:"lower_step_count,omitempty"`
+	OuterRadiusMM       float64 `json:"outer_radius_mm,omitempty"`
+	Material            string  `json:"material,omitempty"`
+	// Перила и направления (CONF-RAILING/DIRECTION/SPIRAL).
+	Railing         string    `json:"railing,omitempty"`          // прямой: none|left|right|both
+	RailingLower    string    `json:"railing_lower,omitempty"`    // L/U: первый марш
+	RailingLanding  string    `json:"railing_landing,omitempty"`  // L/U: площадка
+	RailingUpper    string    `json:"railing_upper,omitempty"`    // L/U: второй марш
+	Direction       string    `json:"direction,omitempty"`        // L/U: left|right (поворот площадки)
+	SpiralDirection string    `json:"spiral_direction,omitempty"` // спираль: cw|ccw
+	Rates           *ratesDTO `json:"rates,omitempty"`
 }
 
 // ratesDTO — опциональное переопределение ставок цены (в руб/натуральной
@@ -137,15 +144,24 @@ type flightDTO struct {
 	RailingHeightMm     float64 `json:"railing_height_mm"`
 	Riser               bool    `json:"riser"`
 	StringerThicknessMm float64 `json:"stringer_thickness_mm"`
+	// Перила прямого марша (CONF-RAILING): none|left|right|both.
+	Railing string `json:"railing,omitempty"`
 }
 
 // configEcho — производственные параметры конфигурации, дублируемые в
-// flight-ответы для 2D-рендера (BC-002).
+// flight-ответы для 2D-рендера (BC-002) и перил/направлений
+// (CONF-RAILING/DIRECTION/SPIRAL).
 type configEcho struct {
 	StepThicknessMm     float64
 	RailingHeightMm     float64
 	Riser               bool
 	StringerThicknessMm float64
+	Railing             string
+	RailingLower        string
+	RailingLanding      string
+	RailingUpper        string
+	Direction           string
+	SpiralDirection     string
 }
 
 func flightEcho(r stair.Result) configEcho {
@@ -154,6 +170,12 @@ func flightEcho(r stair.Result) configEcho {
 		RailingHeightMm:     r.RailingHeight.Millimeters(),
 		Riser:               r.Riser,
 		StringerThicknessMm: r.StringerThickness.Millimeters(),
+		Railing:             string(r.Railing),
+		RailingLower:        string(r.RailingLower),
+		RailingLanding:      string(r.RailingLanding),
+		RailingUpper:        string(r.RailingUpper),
+		Direction:           string(r.Direction),
+		SpiralDirection:     string(r.SpiralDir),
 	}
 }
 
@@ -177,6 +199,11 @@ type lshapeDTO struct {
 	RailingHeightMm     float64 `json:"railing_height_mm"`
 	Riser               bool    `json:"riser"`
 	StringerThicknessMm float64 `json:"stringer_thickness_mm"`
+	// Перила по сегментам (CONF-RAILING) и поворот площадки (CONF-DIRECTION).
+	RailingLower   string `json:"railing_lower,omitempty"`
+	RailingLanding string `json:"railing_landing,omitempty"`
+	RailingUpper   string `json:"railing_upper,omitempty"`
+	Direction      string `json:"direction,omitempty"`
 }
 
 // ushapeDTO — результат Solver для П-образной лестницы (EDR-0006).
@@ -199,6 +226,11 @@ type ushapeDTO struct {
 	RailingHeightMm     float64 `json:"railing_height_mm"`
 	Riser               bool    `json:"riser"`
 	StringerThicknessMm float64 `json:"stringer_thickness_mm"`
+	// Перила по сегментам (CONF-RAILING) и поворот площадки (CONF-DIRECTION).
+	RailingLower   string `json:"railing_lower,omitempty"`
+	RailingLanding string `json:"railing_landing,omitempty"`
+	RailingUpper   string `json:"railing_upper,omitempty"`
+	Direction      string `json:"direction,omitempty"`
 }
 
 // spiralDTO — результат Solver для спиральной лестницы (EDR-0007).
@@ -221,6 +253,10 @@ type spiralDTO struct {
 	RailingHeightMm     float64 `json:"railing_height_mm"`
 	Riser               bool    `json:"riser"`
 	StringerThicknessMm float64 `json:"stringer_thickness_mm"`
+	// Перила (авто из направления, CONF-SPIRAL-RAILING) и направление
+	// закрутки (CONF-SPIRAL-DIRECTION).
+	Railing         string `json:"railing,omitempty"`
+	SpiralDirection string `json:"spiral_direction,omitempty"`
 }
 
 // geometryIssueDTO — запись валидации геометрии (ENG-GEO-0018).
@@ -390,6 +426,7 @@ func toFlight(r stair.Result) flightDTO {
 		StringerMm: r.Flight.Stringer.Millimeters(), AngleDeg: r.Flight.Angle.Degrees(),
 		StepThicknessMm: e.StepThicknessMm, RailingHeightMm: e.RailingHeightMm, Riser: e.Riser,
 		StringerThicknessMm: e.StringerThicknessMm,
+		Railing:             e.Railing,
 	}
 }
 
@@ -406,6 +443,8 @@ func toLShape(l *solver.LShapeResult, e configEcho) *lshapeDTO {
 		UpperStringerMm: l.UpperStringer.Millimeters(), LandingWidthMm: l.LandingWidth.Millimeters(),
 		StepThicknessMm: e.StepThicknessMm, RailingHeightMm: e.RailingHeightMm, Riser: e.Riser,
 		StringerThicknessMm: e.StringerThicknessMm,
+		RailingLower:        e.RailingLower, RailingLanding: e.RailingLanding,
+		RailingUpper: e.RailingUpper, Direction: e.Direction,
 	}
 }
 
@@ -422,6 +461,8 @@ func toUShape(u *solver.UShapeResult, e configEcho) *ushapeDTO {
 		UpperStringerMm: u.UpperStringer.Millimeters(), LandingWidthMm: u.LandingWidth.Millimeters(),
 		StepThicknessMm: e.StepThicknessMm, RailingHeightMm: e.RailingHeightMm, Riser: e.Riser,
 		StringerThicknessMm: e.StringerThicknessMm,
+		RailingLower:        e.RailingLower, RailingLanding: e.RailingLanding,
+		RailingUpper: e.RailingUpper, Direction: e.Direction,
 	}
 }
 
@@ -445,6 +486,7 @@ func toSpiral(s *solver.SpiralResult, e configEcho) *spiralDTO {
 		AngularTotalDeg: s.AngularTotal * 180 / math.Pi,
 		StepThicknessMm: e.StepThicknessMm, RailingHeightMm: e.RailingHeightMm, Riser: e.Riser,
 		StringerThicknessMm: e.StringerThicknessMm,
+		Railing:             e.Railing, SpiralDirection: e.SpiralDirection,
 	}
 }
 
@@ -550,6 +592,12 @@ func toConfig(req calculateRequest) (stair.Config, error) {
 		LowerStepCount:    req.LowerStepCount,
 		OuterRadius:       engineering.Length(req.OuterRadiusMM),
 		Material:          dommfg.MaterialCode(req.Material),
+		Railing:           engineering.RailingSide(req.Railing),
+		RailingLower:      engineering.RailingSide(req.RailingLower),
+		RailingLanding:    engineering.RailingSide(req.RailingLanding),
+		RailingUpper:      engineering.RailingSide(req.RailingUpper),
+		Direction:         engineering.TurnDirection(req.Direction),
+		SpiralDir:         engineering.SpiralDirection(req.SpiralDirection),
 	}
 	return cfg, nil
 }

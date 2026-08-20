@@ -245,6 +245,108 @@ func TestCalculateExceedsMaterialMaxWidth(t *testing.T) {
 	assertBlockingInput(t, res, constraint.MFG_MATERIAL, "3000 мм")
 }
 
+// TestCalculateRailingConfig — перила/направления проходят конвейер и
+// эхо несут выбранные значения: один выбор для прямого марша, по
+// сегментам + поворот для L/U, авто-сторона для спирали (CONF-RAILING).
+func TestCalculateRailingConfig(t *testing.T) {
+	s := NewService()
+
+	straight := referenceConfig()
+	straight.Railing = engineering.RailingBoth
+	res, err := s.Calculate(context.Background(), straight, Options{})
+	if err != nil {
+		t.Fatalf("straight railing: %v", err)
+	}
+	if res.Validation.Blocking {
+		t.Fatalf("straight railing must not block: %+v", res.Validation)
+	}
+	if res.Railing != engineering.RailingBoth {
+		t.Fatalf("expected echoed railing both, got %q", res.Railing)
+	}
+
+	lshape := referenceConfig()
+	lshape.Flight = engineering.FlightLShape
+	lshape.LandingWidth = mustLengthHelper(1000)
+	lshape.LowerStepCount = 6
+	lshape.RailingLower = engineering.RailingLeft
+	lshape.RailingLanding = engineering.RailingBoth
+	lshape.RailingUpper = engineering.RailingRight
+	lshape.Direction = engineering.TurnRight
+	resL, err := s.Calculate(context.Background(), lshape, Options{})
+	if err != nil {
+		t.Fatalf("L-shape railing: %v", err)
+	}
+	if resL.Validation.Blocking {
+		t.Fatalf("L-shape railing must not block: %+v", resL.Validation)
+	}
+	if resL.RailingLower != engineering.RailingLeft ||
+		resL.RailingLanding != engineering.RailingBoth ||
+		resL.RailingUpper != engineering.RailingRight ||
+		resL.Direction != engineering.TurnRight {
+		t.Fatalf("L-shape railing echo mismatch: got %s/%s/%s dir=%s",
+			resL.RailingLower, resL.RailingLanding, resL.RailingUpper, resL.Direction)
+	}
+
+	spiral := referenceSpiralConfig()
+	spiral.SpiralDir = engineering.SpiralCW
+	resS, err := s.Calculate(context.Background(), spiral, Options{})
+	if err != nil {
+		t.Fatalf("spiral railing: %v", err)
+	}
+	if resS.Validation.Blocking {
+		t.Fatalf("spiral railing must not block: %+v", resS.Validation)
+	}
+	// По часовой → перила справа (CONF-SPIRAL-RAILING).
+	if resS.Railing != engineering.RailingRight {
+		t.Fatalf("expected spiral cw → railing right, got %q", resS.Railing)
+	}
+	if resS.SpiralDir != engineering.SpiralCW {
+		t.Fatalf("expected spiral direction cw echoed, got %q", resS.SpiralDir)
+	}
+
+	spiral.SpiralDir = engineering.SpiralCCW
+	resS2, err := s.Calculate(context.Background(), spiral, Options{})
+	if err != nil {
+		t.Fatalf("spiral ccw: %v", err)
+	}
+	if resS2.Railing != engineering.RailingLeft {
+		t.Fatalf("expected spiral ccw → railing left, got %q", resS2.Railing)
+	}
+}
+
+// TestCalculateInvalidRailingConfig — невалидные значения перил/направлений
+// возвращаются как блокирующие подсказки с понятным текстом.
+func TestCalculateInvalidRailingConfig(t *testing.T) {
+	s := NewService()
+
+	badSide := referenceConfig()
+	badSide.Railing = engineering.RailingSide("diagonal")
+	res, err := s.Calculate(context.Background(), badSide, Options{})
+	if err != nil {
+		t.Fatalf("input issues must not be hard errors: %v", err)
+	}
+	assertBlockingInput(t, res, constraint.SAF_RAILING_HEIGHT, "сторон")
+
+	badTurn := referenceConfig()
+	badTurn.Flight = engineering.FlightLShape
+	badTurn.LandingWidth = mustLengthHelper(1000)
+	badTurn.LowerStepCount = 6
+	badTurn.Direction = engineering.TurnDirection("up")
+	resT, err := s.Calculate(context.Background(), badTurn, Options{})
+	if err != nil {
+		t.Fatalf("input issues must not be hard errors: %v", err)
+	}
+	assertBlockingInput(t, resT, constraint.GEO_LANDING_WIDTH, "влево или вправо")
+
+	badSpiralDir := referenceSpiralConfig()
+	badSpiralDir.SpiralDir = engineering.SpiralDirection("zigzag")
+	resS, err := s.Calculate(context.Background(), badSpiralDir, Options{})
+	if err != nil {
+		t.Fatalf("input issues must not be hard errors: %v", err)
+	}
+	assertBlockingInput(t, resS, constraint.GEO_SPIRAL_RADIUS, "спирали")
+}
+
 // TestCalculateWithinMaterialLimits — габариты на границе предела каждого
 // материала проходят весь конвейер (не блокируются размерными лимитами):
 // макс. высота при типовой ширине и макс. ширина при типовой высоте.

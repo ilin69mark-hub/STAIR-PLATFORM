@@ -26,6 +26,43 @@ export function materialLabel(code: string): string {
   return materialOptions.find((m) => m.value === code)?.label ?? code
 }
 
+// ---- Перила (CONF-RAILING) ----
+// Сторона отсчитывается от первой ступени по ходу подъёма: слева от
+// смотрящего вперёд — левые перила, справа — правые. Для маршей с
+// площадкой (L/П) выбор делается по сегментам: первый марш → площадка →
+// второй марш.
+export const railingOptions = [
+  { value: 'none', label: 'Без перил' },
+  { value: 'left', label: 'Слева' },
+  { value: 'right', label: 'Справа' },
+  { value: 'both', label: 'С двух сторон' },
+] as const
+
+export type RailingSide = (typeof railingOptions)[number]['value']
+
+export function railingLabel(code: string): string {
+  return railingOptions.find((r) => r.value === code)?.label ?? code
+}
+
+// ---- Направление (CONF-DIRECTION / CONF-SPIRAL-DIRECTION) ----
+export const directionOptions = [
+  { value: 'left', label: 'Влево' },
+  { value: 'right', label: 'Вправо' },
+] as const
+
+export const spiralDirectionOptions = [
+  { value: 'cw', label: 'По часовой' },
+  { value: 'ccw', label: 'Против часовой' },
+] as const
+
+export type SpiralDirection = (typeof spiralDirectionOptions)[number]['value']
+
+// railingForSpiral — автоматическая сторона перил спирали (CONF-SPIRAL-RAILING):
+// по часовой — справа, против часовой — слева. Перила всегда с одной стороны.
+export function railingForSpiral(dir: SpiralDirection): RailingSide {
+  return dir === 'cw' ? 'right' : 'left'
+}
+
 export interface ConfigForm {
   widthMM: string
   heightMM: string
@@ -41,6 +78,12 @@ export interface ConfigForm {
   landingWidthMM: string
   lowerStepCountMM: string
   outerRadiusMM: string
+  railing: RailingSide
+  railingLower: RailingSide
+  railingLanding: RailingSide
+  railingUpper: RailingSide
+  direction: (typeof directionOptions)[number]['value']
+  spiralDirection: SpiralDirection
 }
 
 export const defaultConfig: ConfigForm = {
@@ -58,6 +101,12 @@ export const defaultConfig: ConfigForm = {
   landingWidthMM: '1000',
   lowerStepCountMM: '6',
   outerRadiusMM: '800',
+  railing: 'both',
+  railingLower: 'both',
+  railingLanding: 'both',
+  railingUpper: 'both',
+  direction: 'left',
+  spiralDirection: 'ccw',
 }
 
 // ---- Поля формы по типу марша (BC-002) ----
@@ -77,9 +126,9 @@ const commonFields: Array<keyof ConfigForm> = [
 ]
 
 export const flightFields: Record<Flight, Array<keyof ConfigForm>> = {
-  straight: commonFields,
-  l_shape: [...commonFields, 'landingWidthMM', 'lowerStepCountMM'],
-  u_shape: [...commonFields, 'landingWidthMM', 'lowerStepCountMM'],
+  straight: [...commonFields, 'railing'],
+  l_shape: [...commonFields, 'landingWidthMM', 'lowerStepCountMM', 'railingLower', 'railingLanding', 'railingUpper', 'direction'],
+  u_shape: [...commonFields, 'landingWidthMM', 'lowerStepCountMM', 'railingLower', 'railingLanding', 'railingUpper', 'direction'],
   spiral: [
     'widthMM',
     'heightMM',
@@ -89,6 +138,7 @@ export const flightFields: Record<Flight, Array<keyof ConfigForm>> = {
     'clearanceMM',
     'railingHeightMM',
     'outerRadiusMM',
+    'spiralDirection',
   ],
 }
 
@@ -173,6 +223,12 @@ export const fieldRules: Record<keyof ConfigForm, FieldRule> = {
   landingWidthMM: { min: 600, max: 3000, hint: 'Wp ≥ ширины марша' },
   lowerStepCountMM: { min: 1, max: 100 },
   outerRadiusMM: { min: 500, max: 5000, hint: 'R > W (радиус марша)' },
+  railing: {},
+  railingLower: {},
+  railingLanding: {},
+  railingUpper: {},
+  direction: {},
+  spiralDirection: {},
 }
 
 // Материал-зависимые пределы (синхронизированы с каталогом MFG-0005 и
@@ -274,6 +330,22 @@ export function toRequest(f: ConfigForm): Record<string, unknown> {
   // Наружный радиус передаётся только для спирали (EDR-0007).
   if (f.flight === 'spiral') {
     req.outer_radius_mm = Number(f.outerRadiusMM)
+  }
+  // Перила и направления (CONF-RAILING/DIRECTION/SPIRAL): прямой марш —
+  // одна сторона; марши с площадкой — по сегментам + поворот площадки;
+  // спираль — только направление (перила вычисляются на сервере из
+  // направления закрутки, CONF-SPIRAL-RAILING).
+  if (f.flight === 'straight') {
+    req.railing = f.railing
+  }
+  if (f.flight === 'l_shape' || f.flight === 'u_shape') {
+    req.railing_lower = f.railingLower
+    req.railing_landing = f.railingLanding
+    req.railing_upper = f.railingUpper
+    req.direction = f.direction
+  }
+  if (f.flight === 'spiral') {
+    req.spiral_direction = f.spiralDirection
   }
   return req
 }

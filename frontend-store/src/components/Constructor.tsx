@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ConfigForm } from '@shared/config'
-import { defaultConfig, flightOptions, materialOptions, rulesFor, toRequest, validateForm, type FieldErrors, type FieldRule } from '@shared/config'
+import { defaultConfig, directionOptions, flightOptions, materialOptions, railingForSpiral, railingLabel, railingOptions, rulesFor, spiralDirectionOptions, toRequest, validateForm, type FieldErrors, type FieldRule } from '@shared/config'
 import type { QuoteResult, QuoteSuggestion } from '@shared/types'
 import { quoteApi } from '../api/store'
 import { apiErrorMessage } from '../auth/errors'
@@ -16,6 +16,12 @@ const orderFields: Array<keyof ConfigForm> = [
   'stepThicknessMM',
   'clearanceMM',
   'railingHeightMM',
+  'railing',
+  'railingLower',
+  'railingLanding',
+  'railingUpper',
+  'direction',
+  'spiralDirection',
   'landingWidthMM',
   'lowerStepCountMM',
   'outerRadiusMM',
@@ -37,6 +43,12 @@ const labels: Record<keyof ConfigForm, string> = {
   landingWidthMM: 'Ширина площадки (мм)',
   lowerStepCountMM: 'Нижних ступеней (шт)',
   outerRadiusMM: 'Радиус (мм)',
+  railing: 'Перила',
+  railingLower: 'Перила: первый марш',
+  railingLanding: 'Перила: площадка',
+  railingUpper: 'Перила: второй марш',
+  direction: 'Направление поворота',
+  spiralDirection: 'Направление спирали',
 }
 
 const hints: Partial<Record<keyof ConfigForm, string>> = {
@@ -61,6 +73,14 @@ function rangeHint(r: FieldRule): string {
 const tooltips: Partial<Record<keyof ConfigForm, string>> = {
   clearanceMM:
     'Просвет — вертикальное расстояние от ступени до перекрытия. Рекомендуемый проход — от 2000 мм.',
+  railing:
+    'Сторона перил: встаньте у первой ступени и посмотрите вперёд по ходу подъёма. Слева от вас — левые перила, справа — правые.',
+  railingLower:
+    'Сторона перил на первом марше: встаньте у первой ступени и посмотрите вперёд по ходу подъёма. Слева — левые, справа — правые.',
+  railingLanding:
+    'Сторона перил на площадке: встаньте у первой ступени площадки и посмотрите вперёд по ходу подъёма. Слева — левые, справа — правые.',
+  railingUpper:
+    'Сторона перил на втором марше: встаньте у первой ступени марша и посмотрите вперёд по ходу подъёма. Слева — левые, справа — правые.',
 }
 
 // Пустая форма: поля не предзаполнены. Тип марша и скрытый косоур сохраняются.
@@ -95,7 +115,36 @@ export function Constructor() {
     if (k === 'outerRadiusMM' && config.flight !== 'spiral') return false
     // Спираль считает шаг комфорта сама (S = 2h + b_ход); остальные марши используют поле.
     if (k === 'comfortStepMM' && config.flight === 'spiral') return false
+    // Перила: прямой марш — один выбор, марши с площадкой — по сегментам,
+    // спираль — авто (сторона от направления закрутки), свой блок ниже.
+    if (k === 'railing' && config.flight !== 'straight') return false
+    if ((k === 'railingLower' || k === 'railingLanding' || k === 'railingUpper' || k === 'direction') &&
+      config.flight !== 'l_shape' && config.flight !== 'u_shape') {
+      return false
+    }
+    if (k === 'spiralDirection' && config.flight !== 'spiral') return false
     return true
+  }
+
+  // selectOptions — варианты выпадающих списков формы по ключу поля.
+  const selectOptions = (k: keyof ConfigForm) => {
+    switch (k) {
+      case 'flight':
+        return flightOptions
+      case 'material':
+        return materialOptions
+      case 'railing':
+      case 'railingLower':
+      case 'railingLanding':
+      case 'railingUpper':
+        return railingOptions
+      case 'direction':
+        return directionOptions
+      case 'spiralDirection':
+        return spiralDirectionOptions
+      default:
+        return null
+    }
   }
 
   const update = (k: keyof ConfigForm, v: string) => {
@@ -185,9 +234,9 @@ export function Constructor() {
             {orderFields.map((k) => (
               <div className="field" key={k} hidden={!visible(k)}>
                 <FieldLabel label={labels[k]} tooltip={tooltips[k]} htmlFor={`cfg-${k}`} />
-                {k === 'flight' || k === 'material' ? (
+                {selectOptions(k) ? (
                   <select id={`cfg-${k}`} value={config[k] as string} onChange={(e) => update(k, e.target.value)}>
-                    {(k === 'material' ? materialOptions : flightOptions).map((o) => (
+                    {selectOptions(k)!.map((o) => (
                       <option key={o.value} value={o.value}>
                         {o.label}
                       </option>
@@ -207,6 +256,13 @@ export function Constructor() {
                 {errors[k] && <span className="error">{errors[k]}</span>}
               </div>
             ))}
+            <div className="field" hidden={config.flight !== 'spiral'}>
+              <FieldLabel label={labels.railing} tooltip={tooltips.railing} htmlFor="cfg-railing-auto" />
+              {/* Спираль: перила всегда с одной стороны, сторона автоматически
+                  от направления закрутки (CONF-SPIRAL-RAILING). */}
+              <input id="cfg-railing-auto" type="text" readOnly value={railingLabel(railingForSpiral(config.spiralDirection))} />
+              <span className="sub">Авто: по направлению спирали</span>
+            </div>
             <div className="field" hidden={config.flight === 'spiral'}>
               <FieldLabel label={labels.riser} htmlFor="cfg-riser" />
               <label className="checkbox">

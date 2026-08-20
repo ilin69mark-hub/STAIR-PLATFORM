@@ -478,6 +478,10 @@ body {
   margin: 0 auto;
 }
 
+.auth-form .actions {
+  justify-content: center;
+}
+
 .auth-tabs {
   display: flex;
   gap: 8px;

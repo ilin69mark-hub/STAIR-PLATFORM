@@ -47,6 +47,13 @@ type Config struct {
 	// Material — выбранный материал (код каталога MFG-0005); пустое
 	// значение — автоназначение по толщине (текущая политика).
 	Material dommfg.MaterialCode
+	// Перила и направления (CONF-RAILING/DIRECTION/SPIRAL).
+	Railing        engineering.RailingSide     // прямой марш
+	RailingLower   engineering.RailingSide     // L/U: первый марш
+	RailingLanding engineering.RailingSide     // L/U: площадка
+	RailingUpper   engineering.RailingSide     // L/U: второй марш
+	Direction      engineering.TurnDirection   // L/U: поворот площадки
+	SpiralDir      engineering.SpiralDirection // спираль: закрутка
 }
 
 // Options — опциональные настройки расчёта; нулевое значение даёт дефолты.
@@ -79,6 +86,14 @@ type Result struct {
 	RailingHeight     engineering.Length
 	Riser             bool
 	StringerThickness engineering.Length
+	// Эхо перил/направлений (CONF-RAILING/DIRECTION/SPIRAL): для спирали
+	// Railing уже деривирован из направления закрутки.
+	Railing        engineering.RailingSide
+	RailingLower   engineering.RailingSide
+	RailingLanding engineering.RailingSide
+	RailingUpper   engineering.RailingSide
+	Direction      engineering.TurnDirection
+	SpiralDir      engineering.SpiralDirection
 }
 
 // Service — прикладной сервис расчёта лестницы. Является единственной
@@ -272,6 +287,12 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	res.RailingHeight = c.RailingHeight
 	res.Riser = c.Riser
 	res.StringerThickness = c.StringerThickness
+	res.Railing = c.Railing
+	res.RailingLower = c.RailingLower
+	res.RailingLanding = c.RailingLanding
+	res.RailingUpper = c.RailingUpper
+	res.Direction = c.Direction
+	res.SpiralDir = c.SpiralDirection
 	return res, nil
 }
 
@@ -355,6 +376,18 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 	c.LowerStepCount = cfg.LowerStepCount
 	c.OuterRadius = cfg.OuterRadius
 	c.Material = string(cfg.Material)
+	c.Railing = cfg.Railing
+	c.RailingLower = cfg.RailingLower
+	c.RailingLanding = cfg.RailingLanding
+	c.RailingUpper = cfg.RailingUpper
+	c.Direction = cfg.Direction
+	c.SpiralDirection = cfg.SpiralDir
+	// Спираль: перила автоматически — сторона по направлению закрутки
+	// (CONF-SPIRAL-RAILING): по часовой — справа, против часовой — слева.
+	// Перила всегда с одной стороны (по наружному краю марша).
+	if cfg.Flight == engineering.FlightSpiral {
+		c.Railing = cfg.SpiralDir.DefaultRailing()
+	}
 	// Выбранный материал (MFG-0005): должен быть в каталоге и поддерживать
 	// толщины косоура и ступени. Пустой материал — автоназначение по толщине.
 	if cfg.Material != "" {

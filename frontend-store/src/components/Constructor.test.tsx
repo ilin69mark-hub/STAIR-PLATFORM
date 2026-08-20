@@ -124,8 +124,60 @@ describe('Constructor', () => {
 
   it('показывает знак справки с тултипом у просвета', async () => {
     await renderWithAuth(<Constructor />, null)
-    const help = screen.getByRole('tooltip')
-    expect(help).toHaveTextContent(/Просвет — вертикальное расстояние от ступени до перекрытия/)
+    const help = screen.getAllByRole('tooltip').find((el) =>
+      el.textContent?.includes('Просвет — вертикальное расстояние'),
+    )
+    expect(help).toBeDefined()
+  })
+
+  it('прямой марш: один выбор перил с тултипом-подсказкой', async () => {
+    await renderWithAuth(<Constructor />, null)
+    const railing = screen.getByRole('combobox', { name: 'Перила' }) as HTMLSelectElement
+    expect(railing).toBeVisible()
+    expect(railing.value).toBe('both')
+    // Тултип объясняет, как определять стороны перил.
+    const tip = screen.getAllByRole('tooltip').find((el) =>
+      el.textContent?.includes('Слева от вас — левые перила'),
+    )
+    expect(tip).toBeDefined()
+    // Направления — только для маршей с площадкой/спирали.
+    expect(screen.queryByRole('combobox', { name: 'Направление поворота' })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'Направление спирали' })).toBeNull()
+  })
+
+  it('L-образная: перила по сегментам и направление поворота', async () => {
+    await renderWithAuth(<Constructor />, null)
+    fireEvent.change(screen.getByLabelText('Тип лестницы'), { target: { value: 'l_shape' } })
+    // Прямой «Перила» скрывается, появляются сегменты.
+    expect(screen.queryByRole('combobox', { name: 'Перила' })).toBeNull()
+    expect(
+      (screen.getByRole('combobox', { name: 'Перила: первый марш' }) as HTMLSelectElement).value,
+    ).toBe('both')
+    expect(screen.getByRole('combobox', { name: 'Перила: площадка' })).toBeVisible()
+    expect(screen.getByRole('combobox', { name: 'Перила: второй марш' })).toBeVisible()
+    const dir = screen.getByRole('combobox', {
+      name: 'Направление поворота',
+    }) as HTMLSelectElement
+    expect(dir).toBeVisible()
+    expect(dir.value).toBe('left')
+    expect(screen.queryByRole('combobox', { name: 'Направление спирали' })).toBeNull()
+
+    fireEvent.change(dir, { target: { value: 'right' } })
+    expect(
+      (screen.getByRole('combobox', { name: 'Направление поворота' }) as HTMLSelectElement)
+        .value,
+    ).toBe('right')
+  })
+
+  it('спираль: направление закрутки и авто-перила от него', async () => {
+    await renderWithAuth(<Constructor />, null)
+    fireEvent.change(screen.getByLabelText('Тип лестницы'), { target: { value: 'spiral' } })
+    const dir = screen.getByRole('combobox', { name: 'Направление спирали' }) as HTMLSelectElement
+    expect(dir).toBeVisible()
+    // Перила автоматически: против часовой → слева (CONF-SPIRAL-RAILING).
+    expect((screen.getByRole('textbox', { name: 'Перила' }) as HTMLInputElement).value).toBe('Слева')
+    fireEvent.change(dir, { target: { value: 'cw' } })
+    expect((screen.getByRole('textbox', { name: 'Перила' }) as HTMLInputElement).value).toBe('Справа')
   })
 
   it('не вызывает расчёт при ошибках валидации', async () => {

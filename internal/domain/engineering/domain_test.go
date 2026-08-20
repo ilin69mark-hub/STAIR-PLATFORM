@@ -31,6 +31,81 @@ func TestAngleUnits(t *testing.T) {
 	}
 }
 
+func TestRailingDirectionEnums(t *testing.T) {
+	if RailingNone.Valid() != true || RailingLeft.Valid() != true ||
+		RailingRight.Valid() != true || RailingBoth.Valid() != true {
+		t.Fatal("valid railing sides must be accepted")
+	}
+	if RailingSide("sideways").Valid() {
+		t.Fatal("unknown railing side must be rejected")
+	}
+	if !TurnLeft.Valid() || !TurnRight.Valid() {
+		t.Fatal("turn directions left/right must be accepted")
+	}
+	if TurnDirection("up").Valid() {
+		t.Fatal("unknown turn direction must be rejected")
+	}
+	if !SpiralCW.Valid() || !SpiralCCW.Valid() {
+		t.Fatal("spiral directions cw/ccw must be accepted")
+	}
+	if SpiralDirection("diagonal").Valid() {
+		t.Fatal("unknown spiral direction must be rejected")
+	}
+	// Перила спирали: по часовой — справа, против часовой — слева
+	// (CONF-SPIRAL-RAILING).
+	if SpiralCW.DefaultRailing() != RailingRight {
+		t.Fatal("clockwise spiral must default railing to the right")
+	}
+	if SpiralCCW.DefaultRailing() != RailingLeft {
+		t.Fatal("counter-clockwise spiral must default railing to the left")
+	}
+}
+
+func TestRailingFieldsValidate(t *testing.T) {
+	base := &StairConfiguration{Width: 900, Height: 2700, Flight: FlightStraight, StepCount: 6}
+
+	good := *base
+	good.Railing = RailingLeft
+	if err := good.Validate(); err != nil {
+		t.Fatalf("valid railing left rejected: %v", err)
+	}
+
+	bad := *base
+	bad.Railing = RailingSide("diagonal")
+	if err := bad.Validate(); err == nil {
+		t.Fatal("invalid railing side must be rejected")
+	}
+
+	turn := &StairConfiguration{
+		Width: 900, Height: 2700, Flight: FlightLShape, StepCount: 8,
+		LandingWidth: 1000, LowerStepCount: 4,
+		RailingLower: RailingBoth, RailingLanding: RailingNone, RailingUpper: RailingRight,
+		Direction: TurnRight,
+	}
+	if err := turn.Validate(); err != nil {
+		t.Fatalf("valid L-shape railing/direction rejected: %v", err)
+	}
+
+	badTurn := *turn
+	badTurn.Direction = TurnDirection("inwards")
+	if err := badTurn.Validate(); err == nil {
+		t.Fatal("invalid turn direction must be rejected")
+	}
+
+	spiral := &StairConfiguration{
+		Width: 900, Height: 2700, Flight: FlightSpiral, StepCount: 12,
+		OuterRadius: 1500, SpiralDirection: SpiralCW,
+	}
+	if err := spiral.Validate(); err != nil {
+		t.Fatalf("valid spiral direction rejected: %v", err)
+	}
+	badSpiral := *spiral
+	badSpiral.SpiralDirection = SpiralDirection("zigzag")
+	if err := badSpiral.Validate(); err == nil {
+		t.Fatal("invalid spiral direction must be rejected")
+	}
+}
+
 func TestParameterLifecycle(t *testing.T) {
 	p := NewParameter("p", "step.height", "mm", 180.0, SourceUser)
 	if p.State != ParameterCreated {

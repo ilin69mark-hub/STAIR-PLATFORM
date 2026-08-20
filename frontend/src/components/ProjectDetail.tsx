@@ -8,6 +8,11 @@ import {
   flightOptions,
   flightFields,
   materialOptions,
+  directionOptions,
+  spiralDirectionOptions,
+  railingOptions,
+  railingForSpiral,
+  railingLabel,
   rulesFor,
   toRequest,
   toRatesRequest,
@@ -232,10 +237,34 @@ const configLabels: Record<string, string> = {
   landingWidthMM: 'Ширина площадки Wp, мм',
   lowerStepCountMM: 'Ступеней нижнего марша (n1)',
   outerRadiusMM: 'Наружный радиус R, мм',
+  railing: 'Перила',
+  railingLower: 'Перила: первый марш',
+  railingLanding: 'Перила: площадка',
+  railingUpper: 'Перила: второй марш',
+  direction: 'Направление поворота',
+  spiralDirection: 'Направление спирали',
 }
 
 function labelOf(key: keyof ConfigForm): string {
   return configLabels[key] ?? key
+}
+
+// adminSelectOptions — выпадающие списки административной формы для полей
+// с дискретными значениями (перила/направления).
+const adminSelectOptions = (key: keyof ConfigForm) => {
+  switch (key) {
+    case 'railing':
+    case 'railingLower':
+    case 'railingLanding':
+    case 'railingUpper':
+      return railingOptions
+    case 'direction':
+      return directionOptions
+    case 'spiralDirection':
+      return spiralDirectionOptions
+    default:
+      return null
+  }
 }
 
 function ConfigForm({ fields, errors, onChange }: ConfigFormProps) {
@@ -280,24 +309,54 @@ function ConfigForm({ fields, errors, onChange }: ConfigFormProps) {
         const rule = rulesFor(key, fields.material)
         const error = errors[key]
         const hint = rule && (rule.hint ?? (rule.min || rule.max ? rangeText(rule) : undefined))
+        const options = adminSelectOptions(key)
         return (
           <div className="field" key={key}>
             <label className="field__label" htmlFor={`cfg-${key}`}>
               {labelOf(key)}
               {hint && <span className="field__hint"> {hint}</span>}
             </label>
-            <input
-              id={`cfg-${key}`}
-              className={`field__input${error ? ' field__input--invalid' : ''}`}
-              type="number"
-              inputMode="decimal"
-              value={fields[key] as string}
-              onChange={(e) => onChange(key, e.target.value)}
-            />
+            {options ? (
+              <select
+                id={`cfg-${key}`}
+                className="field__input"
+                value={fields[key] as string}
+                onChange={(e) => onChange(key, e.target.value)}
+              >
+                {options.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                id={`cfg-${key}`}
+                className={`field__input${error ? ' field__input--invalid' : ''}`}
+                type="number"
+                inputMode="decimal"
+                value={fields[key] as string}
+                onChange={(e) => onChange(key, e.target.value)}
+              />
+            )}
             {error && <p className="field__error">{error}</p>}
           </div>
         )
       })}
+      {fields.flight === 'spiral' && (
+        <div className="field">
+          <label className="field__label" htmlFor="cfg-railing-auto">
+            {labelOf('railing')}
+          </label>
+          <input
+            id="cfg-railing-auto"
+            className="field__input"
+            readOnly
+            value={railingLabel(railingForSpiral(fields.spiralDirection))}
+          />
+          <p className="field__hint">Авто: по направлению спирали</p>
+        </div>
+      )}
       <div className="field">
         <label className="field__label" htmlFor="cfg-riser">
           {labelOf('riser')}

@@ -56,6 +56,121 @@ const referenceJSON = `{
 	"railing_height_mm": 1000
 }`
 
+func TestCalculateRailingAndDirectionEcho(t *testing.T) {
+	body := `{
+		"width_mm": 900,
+		"height_mm": 2700,
+		"flight": "l_shape",
+		"step_height_mm": 180,
+		"stringer_thickness_mm": 50,
+		"step_thickness_mm": 40,
+		"riser": true,
+		"clearance_mm": 2500,
+		"railing_height_mm": 1000,
+		"landing_width_mm": 1000,
+		"lower_step_count": 7,
+		"railing_lower": "left",
+		"railing_landing": "both",
+		"railing_upper": "right",
+		"direction": "right"
+	}`
+	req := authedRequest(http.MethodPost, "/api/v1/stairs:calculate", body)
+	rec := httptest.NewRecorder()
+	testRouter().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp calculateResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("invalid response: %v", err)
+	}
+	if resp.Validation.Blocking {
+		t.Fatalf("expected valid, got %+v", resp.Validation)
+	}
+	if resp.LShape == nil {
+		t.Fatal("expected lshape result")
+	}
+	if resp.LShape.RailingLower != "left" || resp.LShape.RailingLanding != "both" ||
+		resp.LShape.RailingUpper != "right" || resp.LShape.Direction != "right" {
+		t.Fatalf("railing/direction echo mismatch: %+v", resp.LShape)
+	}
+}
+
+func TestCalculateSpiralAutoRailingEcho(t *testing.T) {
+	// Спираль: перила выводятся автоматически из направления закрутки
+	// (CONF-SPIRAL-RAILING): по часовой — справа, против — слева.
+	for _, tc := range []struct {
+		dir     string
+		railing string
+	}{
+		{"cw", "right"},
+		{"ccw", "left"},
+	} {
+		body := `{
+			"width_mm": 500,
+			"height_mm": 2700,
+			"flight": "spiral",
+			"step_height_mm": 180,
+			"stringer_thickness_mm": 50,
+			"step_thickness_mm": 40,
+			"riser": true,
+			"clearance_mm": 2500,
+			"railing_height_mm": 1000,
+			"outer_radius_mm": 800,
+			"spiral_direction": "` + tc.dir + `"
+		}`
+		req := authedRequest(http.MethodPost, "/api/v1/stairs:calculate", body)
+		rec := httptest.NewRecorder()
+		testRouter().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: expected status 200, got %d: %s", tc.dir, rec.Code, rec.Body.String())
+		}
+		var resp calculateResponse
+		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			t.Fatalf("%s: invalid response: %v", tc.dir, err)
+		}
+		if resp.Spiral == nil || resp.Validation.Blocking {
+			t.Fatalf("%s: expected valid spiral, got %+v", tc.dir, resp.Validation)
+		}
+		if resp.Spiral.Railing != tc.railing {
+			t.Fatalf("%s: auto railing = %q, want %q", tc.dir, resp.Spiral.Railing, tc.railing)
+		}
+		if resp.Spiral.SpiralDirection != tc.dir {
+			t.Fatalf("%s: spiral_direction echo = %q, want %q", tc.dir, resp.Spiral.SpiralDirection, tc.dir)
+		}
+	}
+}
+
+func TestCalculateInvalidRailingRejected(t *testing.T) {
+	body := `{
+		"width_mm": 900,
+		"height_mm": 2700,
+		"flight": "straight",
+		"step_height_mm": 180,
+		"stringer_thickness_mm": 50,
+		"step_thickness_mm": 40,
+		"clearance_mm": 2500,
+		"railing_height_mm": 1000,
+		"railing": "diagonal"
+	}`
+	req := authedRequest(http.MethodPost, "/api/v1/stairs:calculate", body)
+	rec := httptest.NewRecorder()
+	testRouter().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected advisory 200, got %d", rec.Code)
+	}
+	var resp calculateResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("invalid response: %v", err)
+	}
+	if !resp.Validation.Blocking {
+		t.Fatal("invalid railing must block validation")
+	}
+}
+
 func TestCalculateReference(t *testing.T) {
 	req := authedRequest(http.MethodPost, "/api/v1/stairs:calculate",
 		referenceJSON)

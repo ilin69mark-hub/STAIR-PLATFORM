@@ -12,6 +12,66 @@ const (
 	FlightSpiral   FlightType = "spiral"
 )
 
+// RailingSide — сторона установки перил (CONF-RAILING). Отсчёт сторон
+// определяется со стороны первой ступени по ходу подъёма: слева от
+// смотрящего вперёд человека — левые перила, справа — правые.
+type RailingSide string
+
+const (
+	RailingNone  RailingSide = "none" // без перил
+	RailingLeft  RailingSide = "left"
+	RailingRight RailingSide = "right"
+	RailingBoth  RailingSide = "both" // с двух сторон
+)
+
+// RailingSideValid — допускает ли значение роль стороны перил.
+func (s RailingSide) Valid() bool {
+	switch s {
+	case RailingNone, RailingLeft, RailingRight, RailingBoth:
+		return true
+	}
+	return false
+}
+
+// TurnDirection — направление поворота площадки L/П-образного марша:
+// влево или вправо относительно хода подъёма (CONF-DIRECTION).
+type TurnDirection string
+
+const (
+	TurnLeft  TurnDirection = "left"
+	TurnRight TurnDirection = "right"
+)
+
+// Valid — допускает ли значение направление поворота.
+func (d TurnDirection) Valid() bool {
+	return d == TurnLeft || d == TurnRight
+}
+
+// SpiralDirection — направление закрутки спиральной лестницы
+// (CONF-SPIRAL-DIRECTION): по часовой (cw) или против часовой (ccw)
+// стрелки при виде сверху.
+type SpiralDirection string
+
+const (
+	SpiralCW  SpiralDirection = "cw"
+	SpiralCCW SpiralDirection = "ccw"
+)
+
+// Valid — допускает ли значение направление спирали.
+func (d SpiralDirection) Valid() bool {
+	return d == SpiralCW || d == SpiralCCW
+}
+
+// DefaultRailing — сторона перил спиральной лестницы по её направлению:
+// по часовой — справа, против часовой — слева (CONF-SPIRAL-RAILING).
+// Перила всегда только с одной стороны — по наружному краю марша.
+func (d SpiralDirection) DefaultRailing() RailingSide {
+	if d == SpiralCW {
+		return RailingRight
+	}
+	return RailingLeft
+}
+
 // StairConfiguration — параметрическая конфигурация лестницы.
 // Параметры являются единственным источником истины геометрии (BC-002).
 type StairConfiguration struct {
@@ -43,6 +103,21 @@ type StairConfiguration struct {
 	// Material — выбранный конструктором материал (код каталога MFG-0005,
 	// например "STEEL-S235"); пустое значение — автоназначение по толщине.
 	Material string
+	// Перила (CONF-RAILING): сторона установки. Стороны отсчитываются со
+	// стороны первой ступени по ходу подъёма (слева — левые, справа —
+	// правые). Для прямого марша — единственный выбор Railing; для маршей
+	// с площадкой перила задаются по сегментам; для спирали Railing
+	// вычисляется из SpiralDirection (CONF-SPIRAL-RAILING).
+	Railing RailingSide
+	// Перила по сегментам маршей с площадкой (только L/U):
+	// первый марш → площадка → второй марш.
+	RailingLower   RailingSide
+	RailingLanding RailingSide
+	RailingUpper   RailingSide
+	// Направление поворота площадки L/U-марша (CONF-DIRECTION).
+	Direction TurnDirection
+	// Направление закрутки спирали (CONF-SPIRAL-DIRECTION).
+	SpiralDirection SpiralDirection
 }
 
 // Validate проверяет конфигурацию лестницы.
@@ -97,6 +172,20 @@ func (c *StairConfiguration) Validate() error {
 		if c.OuterRadius.Millimeters() <= c.Width.Millimeters() {
 			return fmt.Errorf("stair: outer radius must exceed the stair width for %s", c.Flight)
 		}
+	}
+	// Значения перил/направлений (CONF-RAILING/DIRECTION/SPIRAL): пустое
+	// значение допустимо (не задано), любое другое должно быть валидным.
+	if (c.Railing != "" && !c.Railing.Valid()) ||
+		(c.RailingLower != "" && !c.RailingLower.Valid()) ||
+		(c.RailingLanding != "" && !c.RailingLanding.Valid()) ||
+		(c.RailingUpper != "" && !c.RailingUpper.Valid()) {
+		return fmt.Errorf("stair: invalid railing sides (none|left|right|both)")
+	}
+	if c.Direction != "" && !c.Direction.Valid() {
+		return fmt.Errorf("stair: invalid turn direction (left|right)")
+	}
+	if c.SpiralDirection != "" && !c.SpiralDirection.Valid() {
+		return fmt.Errorf("stair: invalid spiral direction (cw|ccw)")
 	}
 	return nil
 }

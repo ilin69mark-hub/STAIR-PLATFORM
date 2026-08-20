@@ -3,6 +3,7 @@ import {
   defaultConfig,
   defaultRates,
   flightFields,
+  railingForSpiral,
   rulesFor,
   toRatesRequest,
   toRequest,
@@ -20,20 +21,25 @@ describe('flightFields', () => {
     'railingHeightMM',
   ]
 
-  it('прямой марш — только общие поля', () => {
-    expect(flightFields.straight).toEqual([...common, 'comfortStepMM'])
+  it('прямой марш — только общие поля + перила', () => {
+    expect(flightFields.straight).toEqual([...common, 'comfortStepMM', 'railing'])
+    expect(flightFields.straight).not.toContain('direction')
+    expect(flightFields.straight).not.toContain('spiralDirection')
   })
 
-  it('L/U — общие + поля площадки', () => {
-    expect(flightFields.l_shape).toEqual([...common, 'comfortStepMM', 'landingWidthMM', 'lowerStepCountMM'])
-    expect(flightFields.u_shape).toEqual([...common, 'comfortStepMM', 'landingWidthMM', 'lowerStepCountMM'])
+  it('L/U — общие + поля площадки + перила по сегментам и поворот', () => {
+    const l = [...common, 'comfortStepMM', 'landingWidthMM', 'lowerStepCountMM',
+      'railingLower', 'railingLanding', 'railingUpper', 'direction']
+    expect(flightFields.l_shape).toEqual(l)
+    expect(flightFields.u_shape).toEqual(l)
   })
 
-  it('спираль — без шага комфорта, но с наружным радиусом', () => {
-    expect(flightFields.spiral).toEqual([...common, 'outerRadiusMM'])
+  it('спираль — без шага комфорта, но с наружным радиусом и направлением', () => {
+    expect(flightFields.spiral).toEqual([...common, 'outerRadiusMM', 'spiralDirection'])
     expect(flightFields.spiral).not.toContain('comfortStepMM')
     expect(flightFields.spiral).not.toContain('landingWidthMM')
     expect(flightFields.spiral).not.toContain('lowerStepCountMM')
+    expect(flightFields.spiral).not.toContain('railing')
   })
 
   it('SPA занимает все ключи ConfigForm', () => {
@@ -46,6 +52,8 @@ describe('flightFields', () => {
         'widthMM', 'heightMM', 'stepHeightMM', 'stringerThicknessMM',
         'stepThicknessMM', 'clearanceMM', 'railingHeightMM', 'comfortStepMM',
         'landingWidthMM', 'lowerStepCountMM', 'outerRadiusMM',
+        'railing', 'railingLower', 'railingLanding', 'railingUpper',
+        'direction', 'spiralDirection',
       ]),
     )
   })
@@ -160,6 +168,45 @@ describe('rulesFor', () => {
 
   it('косоур: норматив не менее 30 мм, лимит материала как максимум', () => {
     expect(rulesFor('stringerThicknessMM', 'WOOD-OAK')).toEqual({ min: 30, max: 60 })
+  })
+})
+
+describe('railingForSpiral', () => {
+  it('перила спирали автоматически от направления', () => {
+    expect(railingForSpiral('cw')).toBe('right')
+    expect(railingForSpiral('ccw')).toBe('left')
+  })
+})
+
+describe('toRequest railing/direction', () => {
+  it('прямой марш шлёт одну сторону перил', () => {
+    const req = toRequest({ ...defaultConfig, railing: 'right' })
+    expect(req.railing).toBe('right')
+    expect(req.railing_lower).toBeUndefined()
+    expect(req.direction).toBeUndefined()
+  })
+
+  it('L/U шлют перила по сегментам и поворот площадки', () => {
+    const req = toRequest({
+      ...defaultConfig,
+      flight: 'l_shape',
+      railingLower: 'left',
+      railingLanding: 'both',
+      railingUpper: 'right',
+      direction: 'right',
+    })
+    expect(req.railing_lower).toBe('left')
+    expect(req.railing_landing).toBe('both')
+    expect(req.railing_upper).toBe('right')
+    expect(req.direction).toBe('right')
+    expect(req.railing).toBeUndefined()
+  })
+
+  it('спираль шлёт только направление; перила считает сервер', () => {
+    const req = toRequest({ ...defaultConfig, flight: 'spiral', spiralDirection: 'cw' })
+    expect(req.spiral_direction).toBe('cw')
+    expect(req.railing).toBeUndefined()
+    expect(req.direction).toBeUndefined()
   })
 })
 

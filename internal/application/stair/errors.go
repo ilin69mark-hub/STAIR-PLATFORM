@@ -250,6 +250,27 @@ func configInputError(err error) *solver.InputError {
 			Guide:   fmt.Sprintf("Для материала “%s” максимальная высота подъёма — %.0f мм (ограничение стандартных листов MFG-0012). Уменьшите высоту или выберите другой материал.", mat, maxH),
 			Fix:     fmt.Sprintf("Уменьшите высоту подъёма до %.0f мм или менее", maxH),
 		}
+	case strings.Contains(msg, "invalid railing sides"):
+		return &solver.InputError{
+			Code: constraint.SAF_RAILING_HEIGHT, Field: "Перила",
+			Message: "Неверное значение стороны перил",
+			Guide:   "Стороны перил: без, слева, справа или с двух сторон (см. от первой ступени по ходу подъёма: слева — левые, справа — правые).",
+			Fix:     "Выберите сторону перил из списка",
+		}
+	case strings.Contains(msg, "invalid turn direction"):
+		return &solver.InputError{
+			Code: constraint.GEO_LANDING_WIDTH, Field: "Направление поворота",
+			Message: "Неверное направление поворота площадки",
+			Guide:   "Поворот площадки задаётся влево или вправо относительно хода подъёма.",
+			Fix:     "Выберите направление поворота",
+		}
+	case strings.Contains(msg, "invalid spiral direction"):
+		return &solver.InputError{
+			Code: constraint.GEO_SPIRAL_RADIUS, Field: "Направление спирали",
+			Message: "Неверное направление закрутки спирали",
+			Guide:   "Направление спирали: по часовой (cw) или против часовой (ccw) стрелки при виде сверху.",
+			Fix:     "Выберите направление спирали",
+		}
 	}
 	return nil
 }
