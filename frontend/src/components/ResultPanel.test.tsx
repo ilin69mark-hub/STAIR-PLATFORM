@@ -6,6 +6,7 @@ import {
   makeSnapshot,
   spiralFixture,
   ushapeFixture,
+  zeroFlightFixture,
 } from '../test/fixtures'
 
 describe('ResultPanel', () => {
@@ -25,7 +26,7 @@ describe('ResultPanel', () => {
   it('рендерит панель L-образного марша, когда есть lshape', () => {
     render(
       <ResultPanel
-        snapshot={makeSnapshot({ flight: undefined, lshape: lshapeFixture })}
+        snapshot={makeSnapshot({ flight: zeroFlightFixture, lshape: lshapeFixture })}
       />,
     )
 
@@ -36,11 +37,36 @@ describe('ResultPanel', () => {
     expect(screen.queryByText('Марш (Solver)')).not.toBeInTheDocument()
   })
 
+  it('план отрисовывается для не-прямых типов даже с нулевым flight (REGB-01)', () => {
+    render(
+      <ResultPanel snapshot={makeSnapshot({ flight: zeroFlightFixture, lshape: lshapeFixture })} />,
+    )
+    fireEvent.click(screen.getByRole('tab', { name: 'План' }))
+    expect(screen.getByRole('img', { name: 'Вид сверху (план) лестницы' })).toBeInTheDocument()
+    expect(screen.getByText(/L₁/)).toBeInTheDocument()
+  })
+
+  it('L-образный марш: чертёжная секция без «Профиля», план по умолчанию', () => {
+    render(
+      <ResultPanel snapshot={makeSnapshot({ flight: zeroFlightFixture, lshape: lshapeFixture })} />,
+    )
+    expect(screen.queryByRole('tab', { name: 'Профиль' })).not.toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Вид сверху (план) лестницы' })).toBeInTheDocument()
+  })
+
+  it('П-образный марш: чертёжная секция без «Профиля», план по умолчанию', () => {
+    render(
+      <ResultPanel snapshot={makeSnapshot({ flight: zeroFlightFixture, ushape: ushapeFixture })} />,
+    )
+    expect(screen.queryByRole('tab', { name: 'Профиль' })).not.toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Вид сверху (план) лестницы' })).toBeInTheDocument()
+  })
+
   it('рендерит панель П-образного марша, когда есть ushape', () => {
     render(
       <ResultPanel
         snapshot={makeSnapshot({
-          flight: undefined,
+          flight: zeroFlightFixture,
           lshape: undefined,
           ushape: ushapeFixture,
         })}
@@ -57,7 +83,7 @@ describe('ResultPanel', () => {
     render(
       <ResultPanel
         snapshot={makeSnapshot({
-          flight: undefined,
+          flight: zeroFlightFixture,
           lshape: undefined,
           ushape: undefined,
           spiral: spiralFixture,
@@ -140,7 +166,7 @@ describe('ResultPanel', () => {
     render(
       <ResultPanel
         snapshot={makeSnapshot({
-          flight: undefined,
+          flight: zeroFlightFixture,
           lshape: undefined,
           ushape: undefined,
           spiral: spiralFixture,

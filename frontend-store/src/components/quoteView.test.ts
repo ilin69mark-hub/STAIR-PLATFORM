@@ -22,6 +22,22 @@ const straight: QuoteResult = {
   pricing: { currency: 'RUB', material_rub: 1, machine_rub: 2, labor_rub: 3, overhead_rub: 4, production_cost_rub: 10, margin_rub: 5, discount_rub: 0, pre_tax_rub: 15, tax_rub: 3, final_price_rub: 18, lines: [] },
 }
 
+// zeroFlight — нулевое поле flight, которое API присылает всегда, даже для
+// L/U/спирали (их реальные данные лежат в lshape/ushape/spiral).
+const zeroFlight: QuoteResult['flight'] = {
+  step_count: 0,
+  step_height_mm: 0,
+  tread_depth_mm: 0,
+  run_mm: 0,
+  stringer_mm: 0,
+  angle_deg: 0,
+  width_mm: 0,
+  step_thickness_mm: 0,
+  railing_height_mm: 0,
+  riser: false,
+  stringer_thickness_mm: 0,
+}
+
 describe('quoteToFlight', () => {
   it('конвертирует snake_case DTO в camelCase марш с радианами', () => {
     const f = quoteToFlight(straight.flight!)
@@ -52,7 +68,7 @@ describe('solverOf', () => {
   it('L-образный: площадка и два марша', () => {
     const q: QuoteResult = {
       ...straight,
-      flight: undefined,
+      flight: zeroFlight,
       lshape: {
         step_count: 12,
         lower_step_count: 6,
@@ -85,7 +101,7 @@ describe('solverOf', () => {
   it('L-образный: перила отсутствуют, если все сегменты без перил', () => {
     const q: QuoteResult = {
       ...straight,
-      flight: undefined,
+      flight: zeroFlight,
       lshape: {
         step_count: 12,
         lower_step_count: 6,
@@ -111,13 +127,14 @@ describe('solverOf', () => {
       },
     }
     const s = solverOf(q)
+    expect(s.kind).toBe('l_shape')
     expect(s.flight?.Railing).toBe('none')
   })
 
   it('L-образный: смешанный выбор перил показывает схему как обычно', () => {
     const q: QuoteResult = {
       ...straight,
-      flight: undefined,
+      flight: zeroFlight,
       lshape: {
         step_count: 12,
         lower_step_count: 6,
@@ -146,10 +163,41 @@ describe('solverOf', () => {
     expect(s.flight?.Railing).toBeUndefined()
   })
 
+  it('П-образный: нулевой flight реального API не съедает тип (REGB-01)', () => {
+    const q: QuoteResult = {
+      ...straight,
+      flight: zeroFlight,
+      ushape: {
+        step_count: 12,
+        lower_step_count: 6,
+        upper_step_count: 6,
+        step_height_mm: 180,
+        tread_depth_mm: 270,
+        angle_deg: 33.69,
+        lower_height_mm: 1080,
+        upper_height_mm: 2160,
+        lower_run_mm: 1620,
+        upper_run_mm: 1620,
+        lower_stringer_mm: 1942.8,
+        upper_stringer_mm: 1942.8,
+        landing_width_mm: 900,
+        width_mm: 900,
+        step_thickness_mm: 40,
+        railing_height_mm: 900,
+        riser: true,
+        stringer_thickness_mm: 50,
+      },
+    }
+    const s = solverOf(q)
+    expect(s.kind).toBe('u_shape')
+    expect(s.flight?.StepCount).toBe(12)
+    expect(s.flight?.Run).toBeCloseTo(8280)
+  })
+
   it('спираль: объект с радиусом и комфортом', () => {
     const q: QuoteResult = {
       ...straight,
-      flight: undefined,
+      flight: zeroFlight,
       spiral: {
         step_count: 14,
         step_height_mm: 192.86,

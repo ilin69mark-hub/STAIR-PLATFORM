@@ -37,6 +37,8 @@ export interface SolverView {
   upperRun?: number
   lowerStringer?: number
   upperStringer?: number
+  // Направление поворота (CONF-DIRECTION): 'left' | 'right' (план зеркалится).
+  direction?: 'left' | 'right'
   outerRadius?: number
   columnRadius?: number
   walkRadius?: number
@@ -79,66 +81,8 @@ function segmentsRailing(
 }
 
 export function solverOf(q: QuoteResult): SolverView {
-  if (q.flight) {
-    const f = quoteToFlight(q.flight)
-    return { kind: 'straight', flight: f }
-  }
-  if (q.lshape) {
-    const l: QuoteLShape = q.lshape
-    const f: FlightView = {
-      StepCount: l.step_count,
-      StepHeight: l.step_height_mm,
-      TreadDepth: l.tread_depth_mm,
-      Run: l.lower_run_mm + l.upper_run_mm + l.landing_width_mm,
-      Stringer: l.lower_stringer_mm,
-      Angle: (l.angle_deg * Math.PI) / 180,
-      Width: l.width_mm,
-      StepThickness: l.step_thickness_mm,
-      RailingHeight: l.railing_height_mm,
-      Riser: l.riser,
-      StringerThickness: l.stringer_thickness_mm,
-      Railing: segmentsRailing(l.railing_lower, l.railing_landing, l.railing_upper),
-    }
-    return {
-      kind: 'l_shape',
-      flight: f,
-      lowerStepCount: l.lower_step_count,
-      upperStepCount: l.upper_step_count,
-      landingWidth: l.landing_width_mm,
-      lowerRun: l.lower_run_mm,
-      upperRun: l.upper_run_mm,
-      lowerStringer: l.lower_stringer_mm,
-      upperStringer: l.upper_stringer_mm,
-    }
-  }
-  if (q.ushape) {
-    const u: QuoteUShape = q.ushape
-    const f: FlightView = {
-      StepCount: u.step_count,
-      StepHeight: u.step_height_mm,
-      TreadDepth: u.tread_depth_mm,
-      Run: (u.lower_run_mm + u.upper_run_mm + u.landing_width_mm) * 2,
-      Stringer: u.lower_stringer_mm,
-      Angle: (u.angle_deg * Math.PI) / 180,
-      Width: u.width_mm,
-      StepThickness: u.step_thickness_mm,
-      RailingHeight: u.railing_height_mm,
-      Riser: u.riser,
-      StringerThickness: u.stringer_thickness_mm,
-      Railing: segmentsRailing(u.railing_lower, u.railing_landing, u.railing_upper),
-    }
-    return {
-      kind: 'u_shape',
-      flight: f,
-      lowerStepCount: u.lower_step_count,
-      upperStepCount: u.upper_step_count,
-      landingWidth: u.landing_width_mm,
-      lowerRun: u.lower_run_mm,
-      upperRun: u.upper_run_mm,
-      lowerStringer: u.lower_stringer_mm,
-      upperStringer: u.upper_stringer_mm,
-    }
-  }
+  // Сначала более конкретные типы: API всегда шлёт поле flight (для L/U/спирали
+  // оно нулевое), поэтому проверка flight первой съедала бы все не-прямые типы.
   if (q.spiral) {
     const s: QuoteSpiral = q.spiral
     const f: FlightView = {
@@ -169,6 +113,68 @@ export function solverOf(q: QuoteResult): SolverView {
       arcLength: s.arc_length_mm,
       comfortStep: s.comfort_step_mm,
     }
+  }
+  if (q.ushape) {
+    const u: QuoteUShape = q.ushape
+    const f: FlightView = {
+      StepCount: u.step_count,
+      StepHeight: u.step_height_mm,
+      TreadDepth: u.tread_depth_mm,
+      Run: (u.lower_run_mm + u.upper_run_mm + u.landing_width_mm) * 2,
+      Stringer: u.lower_stringer_mm,
+      Angle: (u.angle_deg * Math.PI) / 180,
+      Width: u.width_mm,
+      StepThickness: u.step_thickness_mm,
+      RailingHeight: u.railing_height_mm,
+      Riser: u.riser,
+      StringerThickness: u.stringer_thickness_mm,
+      Railing: segmentsRailing(u.railing_lower, u.railing_landing, u.railing_upper),
+    }
+    return {
+      kind: 'u_shape',
+      flight: f,
+      lowerStepCount: u.lower_step_count,
+      upperStepCount: u.upper_step_count,
+      landingWidth: u.landing_width_mm,
+      lowerRun: u.lower_run_mm,
+      upperRun: u.upper_run_mm,
+      lowerStringer: u.lower_stringer_mm,
+      upperStringer: u.upper_stringer_mm,
+      direction: u.direction as 'left' | 'right' | undefined,
+    }
+  }
+  if (q.lshape) {
+    const l: QuoteLShape = q.lshape
+    const f: FlightView = {
+      StepCount: l.step_count,
+      StepHeight: l.step_height_mm,
+      TreadDepth: l.tread_depth_mm,
+      Run: l.lower_run_mm + l.upper_run_mm + l.landing_width_mm,
+      Stringer: l.lower_stringer_mm,
+      Angle: (l.angle_deg * Math.PI) / 180,
+      Width: l.width_mm,
+      StepThickness: l.step_thickness_mm,
+      RailingHeight: l.railing_height_mm,
+      Riser: l.riser,
+      StringerThickness: l.stringer_thickness_mm,
+      Railing: segmentsRailing(l.railing_lower, l.railing_landing, l.railing_upper),
+    }
+    return {
+      kind: 'l_shape',
+      flight: f,
+      lowerStepCount: l.lower_step_count,
+      upperStepCount: l.upper_step_count,
+      landingWidth: l.landing_width_mm,
+      lowerRun: l.lower_run_mm,
+      upperRun: l.upper_run_mm,
+      lowerStringer: l.lower_stringer_mm,
+      upperStringer: l.upper_stringer_mm,
+      direction: l.direction as 'left' | 'right' | undefined,
+    }
+  }
+  if (q.flight) {
+    const f = quoteToFlight(q.flight)
+    return { kind: 'straight', flight: f }
   }
   return {}
 }

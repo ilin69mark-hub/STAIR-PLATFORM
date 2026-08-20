@@ -99,6 +99,68 @@ describe('QuoteResult', () => {
     expect(screen.getByRole('img', { name: 'Боковой профиль прямого марша' })).toBeInTheDocument()
   })
 
+  it('L-образный марш: только план, без вкладки «Профиль»', () => {
+    const lQuote: QuoteResultType = {
+      validation: { valid: true, blocking: false, issues: [] },
+      lshape: {
+        step_count: 15,
+        lower_step_count: 6,
+        upper_step_count: 9,
+        step_height_mm: 180,
+        tread_depth_mm: 270,
+        angle_deg: 30,
+        lower_height_mm: 1080,
+        upper_height_mm: 1620,
+        lower_run_mm: 1620,
+        upper_run_mm: 2430,
+        lower_stringer_mm: 1870.9,
+        upper_stringer_mm: 2805.9,
+        landing_width_mm: 1000,
+        width_mm: 900,
+        step_thickness_mm: 40,
+        railing_height_mm: 900,
+        riser: true,
+        stringer_thickness_mm: 50,
+      },
+    }
+    render(<QuoteResult quote={lQuote} />)
+    // Нет мёртвой вкладки «Профиль»…
+    expect(screen.queryByRole('button', { name: 'Профиль' })).not.toBeInTheDocument()
+    // …а схема по умолчанию — план L.
+    expect(screen.getByRole('img', { name: 'Вид сверху (план) лестницы' })).toBeInTheDocument()
+    expect(screen.getByText(/L₁ 1 620 мм/)).toBeInTheDocument()
+  })
+
+  it('П-образный марш: только план, без вкладки «Профиль»', () => {
+    const uQuote: QuoteResultType = {
+      validation: { valid: true, blocking: false, issues: [] },
+      ushape: {
+        step_count: 15,
+        lower_step_count: 6,
+        upper_step_count: 9,
+        step_height_mm: 180,
+        tread_depth_mm: 270,
+        angle_deg: 30,
+        lower_height_mm: 1080,
+        upper_height_mm: 1620,
+        lower_run_mm: 1620,
+        upper_run_mm: 2430,
+        lower_stringer_mm: 1870.9,
+        upper_stringer_mm: 2805.9,
+        landing_width_mm: 1000,
+        width_mm: 900,
+        step_thickness_mm: 40,
+        railing_height_mm: 900,
+        riser: true,
+        stringer_thickness_mm: 50,
+      },
+    }
+    render(<QuoteResult quote={uQuote} />)
+    expect(screen.queryByRole('button', { name: 'Профиль' })).not.toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Вид сверху (план) лестницы' })).toBeInTheDocument()
+    expect(screen.getByText(/L₁ 1 620 мм/)).toBeInTheDocument()
+  })
+
   it('показывает объяснение, что поправить, и кнопку применения варианта', () => {
     const onApply = vi.fn()
     const suggestion = {

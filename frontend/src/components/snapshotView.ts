@@ -33,72 +33,9 @@ export function schematicOf(s: Snapshot): SolverSchematic | null {
     Riser: s.riser,
     StringerThickness: s.stringer_thickness,
   }
-  if (s.flight) {
-    const f = s.flight
-    return {
-      kind: 'straight',
-      flight: {
-        StepCount: f.StepCount,
-        StepHeight: f.StepHeight,
-        TreadDepth: f.TreadDepth,
-        Run: f.Run,
-        Stringer: f.Stringer,
-        Angle: f.Angle,
-        Width: DEFAULT_WIDTH,
-        ...extras,
-      },
-      solver: {},
-      railing: s.railing,
-    }
-  }
-  if (s.lshape) {
-    const l = s.lshape
-    return {
-      kind: 'l_shape',
-      flight: {
-        StepCount: l.StepCount,
-        StepHeight: l.StepHeight,
-        TreadDepth: l.TreadDepth,
-        Run: l.LowerRun + l.UpperRun + l.LandingWidth,
-        Stringer: l.LowerStringer,
-        Angle: l.Angle,
-        Width: DEFAULT_WIDTH,
-        ...extras,
-      },
-      solver: {
-        lowerStepCount: l.LowerStepCount,
-        upperStepCount: l.UpperStepCount,
-        landingWidth: l.LandingWidth,
-        lowerRun: l.LowerRun,
-        upperRun: l.UpperRun,
-      },
-      railing: segmentsRailing(s),
-    }
-  }
-  if (s.ushape) {
-    const u = s.ushape
-    return {
-      kind: 'u_shape',
-      flight: {
-        StepCount: u.StepCount,
-        StepHeight: u.StepHeight,
-        TreadDepth: u.TreadDepth,
-        Run: (u.LowerRun + u.UpperRun + u.LandingWidth) * 2,
-        Stringer: u.LowerStringer,
-        Angle: u.Angle,
-        Width: DEFAULT_WIDTH,
-        ...extras,
-      },
-      solver: {
-        lowerStepCount: u.LowerStepCount,
-        upperStepCount: u.UpperStepCount,
-        landingWidth: u.LandingWidth,
-        lowerRun: u.LowerRun,
-        upperRun: u.UpperRun,
-      },
-      railing: segmentsRailing(s),
-    }
-  }
+  // Сначала более конкретные типы: бэкенд всегда шлёт поле flight (для
+  // L/U/спирали оно нулевое), поэтому проверка flight первой съедала бы
+  // все не-прямые типы (их план не отрисовывался).
   if (s.spiral) {
     const sp = s.spiral
     return {
@@ -123,6 +60,74 @@ export function schematicOf(s: Snapshot): SolverSchematic | null {
         angularTotal: (sp.AngularTotal * 180) / Math.PI,
         arcLength: sp.ArcLength,
       },
+      railing: s.railing,
+    }
+  }
+  if (s.ushape) {
+    const u = s.ushape
+    return {
+      kind: 'u_shape',
+      flight: {
+        StepCount: u.StepCount,
+        StepHeight: u.StepHeight,
+        TreadDepth: u.TreadDepth,
+        Run: (u.LowerRun + u.UpperRun + u.LandingWidth) * 2,
+        Stringer: u.LowerStringer,
+        Angle: u.Angle,
+        Width: DEFAULT_WIDTH,
+        ...extras,
+      },
+      solver: {
+        lowerStepCount: u.LowerStepCount,
+        upperStepCount: u.UpperStepCount,
+        landingWidth: u.LandingWidth,
+        lowerRun: u.LowerRun,
+        upperRun: u.UpperRun,
+        direction: u.direction as 'left' | 'right' | undefined,
+      },
+      railing: segmentsRailing(s),
+    }
+  }
+  if (s.lshape) {
+    const l = s.lshape
+    return {
+      kind: 'l_shape',
+      flight: {
+        StepCount: l.StepCount,
+        StepHeight: l.StepHeight,
+        TreadDepth: l.TreadDepth,
+        Run: l.LowerRun + l.UpperRun + l.LandingWidth,
+        Stringer: l.LowerStringer,
+        Angle: l.Angle,
+        Width: DEFAULT_WIDTH,
+        ...extras,
+      },
+      solver: {
+        lowerStepCount: l.LowerStepCount,
+        upperStepCount: l.UpperStepCount,
+        landingWidth: l.LandingWidth,
+        lowerRun: l.LowerRun,
+        upperRun: l.UpperRun,
+        direction: l.direction as 'left' | 'right' | undefined,
+      },
+      railing: segmentsRailing(s),
+    }
+  }
+  if (s.flight) {
+    const f = s.flight
+    return {
+      kind: 'straight',
+      flight: {
+        StepCount: f.StepCount,
+        StepHeight: f.StepHeight,
+        TreadDepth: f.TreadDepth,
+        Run: f.Run,
+        Stringer: f.Stringer,
+        Angle: f.Angle,
+        Width: DEFAULT_WIDTH,
+        ...extras,
+      },
+      solver: {},
       railing: s.railing,
     }
   }

@@ -14,6 +14,10 @@ export interface PlanFlight {
   Stringer: number
   Angle: number
   Width: number
+  // Перила на виде сверху (прямой марш): высота и эффективная сторона
+  // (CONF-RAILING). Отсутствие — legacy: рисуем, если задана высота.
+  RailingHeight?: number
+  Railing?: string
 }
 
 // PlanExtras — дополнительные параметры L/U/спирали (структурно совместима).
@@ -23,6 +27,9 @@ export interface PlanExtras {
   landingWidth?: number
   lowerRun?: number
   upperRun?: number
+  // Направление поворота (CONF-DIRECTION): 'right' — площадка справа (как сейчас),
+  // 'left' — план зеркалится по горизонтали.
+  direction?: 'left' | 'right'
   outerRadius?: number
   columnRadius?: number
   walkRadius?: number
@@ -41,9 +48,11 @@ interface Props {
   solver: PlanExtras
 }
 
-const W = 560
+// Размер канваса совпадает со StairProfile (профиль): фиксированный viewBox
+// 620×340 с полями PAD — вид сверху выглядит в том же масштабе, что и профиль.
+const W = 620
 const H = 340
-const PAD = 66
+const PAD = 62
 
 const fmt = (v: number) => `${Math.round(v).toLocaleString('ru-RU')} мм`
 
@@ -57,17 +66,23 @@ function contentMm(p: Props): { w: number; h: number; pts: Array<{ x: number; y:
       const lr = s.lowerRun ?? f.Run
       const ur = s.upperRun ?? f.Run
       const lw = s.landingWidth ?? f.Width
+      const uEnd = lw - f.Width + ur
       const pts = [
-        { x: 0, y: 0 },
-        { x: lr, y: 0 },
-        { x: lr + lw, y: -lw },
-        { x: lr + lw, y: -lw - ur },
-        { x: lr + lw - f.Width, y: -lw - ur },
-        { x: lr + lw - f.Width, y: -lw },
-        { x: lr + lw - f.Width, y: -f.Width },
+        { x: 0, y: -f.Width },
         { x: lr, y: -f.Width },
+        { x: lr + lw, y: -f.Width },
+        { x: lr + lw, y: uEnd },
+        { x: lr + lw - f.Width, y: uEnd },
+        { x: lr + lw - f.Width, y: lw - f.Width },
+        { x: lr, y: lw - f.Width },
+        { x: lr, y: 0 },
+        { x: 0, y: 0 },
       ]
-      return { w: lr + lw, h: mathMax(pts.map((q) => q.y)) - mathMin(pts.map((q) => q.y)), pts }
+      return {
+        w: lr + lw,
+        h: mathMax(pts.map((q) => q.y)) - mathMin(pts.map((q) => q.y)),
+        pts: pts.map((q) => ({ x: (s.direction === 'left' ? -1 : 1) * q.x, y: q.y })),
+      }
     }
     case 'u_shape': {
       const lr = s.lowerRun ?? f.Run
@@ -83,7 +98,11 @@ const gap = Math.max(60, (lw - f.Width) / 2)
         { x: ur, y: gap },
         { x: 0, y: gap },
       ]
-      return { w: lr + lw, h: gap + f.Width, pts }
+      return {
+        w: lr + lw,
+        h: gap + f.Width,
+        pts: pts.map((q) => ({ x: (s.direction === 'left' ? -1 : 1) * q.x, y: q.y })),
+      }
     }
     case 'spiral': {
       const r = s.outerRadius ?? f.Width + 400
@@ -108,8 +127,11 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
   const areaW = W - PAD * 2
   const areaH = H - PAD * 2
   const scale = Math.min(areaW / cw, areaH / ch)
-  const ox = PAD + (areaW - cw * scale) / 2
-  const oy = PAD + (areaH - ch * scale) / 2
+  // Центрирование чертежа с учётом знака координат: слева сверху — minX,
+  // сверху (screen y) — maxY. Без этого при minX<0<spiral/maxY>0 контент
+  // сдвигается влево/вверх и вылезает за пределы viewBox.
+  const ox = PAD + (areaW - cw * scale) / 2 - mathMin(pts.map((q) => q.x)) * scale
+  const oy = PAD + (areaH - ch * scale) / 2 + mathMax(pts.map((q) => q.y)) * scale
   const px = (x: number) => ox + x * scale
   const py = (y: number) => oy + -y * scale
 
@@ -127,8 +149,13 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
     fontSize = 11,
   ) => {
     const w = textWidth(text, fontSize)
-    const pt = placeLabel({ ax: cx, ay: cy, w, h: fontSize + 4, dx, dy, obstacles: [outline], placed, step: 16 })
-    placed.push(rectAt(pt.x, pt.y, w, fontSize + 4))
+    const h = fontSize + 4
+    const pt = placeLabel({ ax: cx, ay: cy, w, h, dx, dy, obstacles: [outline], placed, step: 16 })
+    // Подпись целиком внутри канваса (фиксированный viewBox): не даём
+    // placeLabel увести её за края при тесных раскладках (например, «B …»).
+    pt.x = Math.max(w / 2 + 6, Math.min(W - w / 2 - 6, pt.x))
+    pt.y = Math.max(h / 2 + 6, Math.min(H - h / 2 - 6, pt.y))
+    placed.push(rectAt(pt.x, pt.y, w, h))
     return (
       <text
         x={pt.x}
@@ -160,20 +187,33 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
     <line x1={x1} y1={y1} x2={x2} y2={y2} className="scheme__dir" markerEnd={`url(#${markerId})`} />
   )
 
+  // Перила (CONF-RAILING): рисуем, если задана высота и сторона не «без перил».
+  const showRail = (f.RailingHeight ?? 0) > 0 && f.Railing !== 'none'
+
   let body: ReactElement | null = null
   if (kind === 'straight') {
+    // Подъём справа налево: левая рука — нижняя кромка экрана (py(0)),
+    // правая — верхняя (py(f.Width)).
+    const railing = (side: 'left' | 'right') =>
+      showRail && (f.Railing === 'both' || f.Railing === side) ? (
+        <line x1={px(0)} y1={side === 'left' ? py(0) : py(f.Width)} x2={px(f.Run)} y2={side === 'left' ? py(0) : py(f.Width)} className="scheme__railing" />
+      ) : null
     body = (
       <>
         <rect x={px(0)} y={py(f.Width)} width={f.Run * scale} height={f.Width * scale} className="scheme__fill" />
         <rect x={px(0)} y={py(f.Width)} width={f.Run * scale} height={f.Width * scale} className="scheme__outline" fill="none" />
+        {railing('left')}
+        {railing('right')}
         {Array.from({ length: f.StepCount }, (_, i) => i + 1).map((i) => (
-          <line key={i} x1={px(i * f.TreadDepth)} y1={py(f.Width)} x2={px(i * f.TreadDepth)} y2={py(0)} className="scheme__tread" />
+          <line key={i} x1={px(f.Run - i * f.TreadDepth)} y1={py(f.Width)} x2={px(f.Run - i * f.TreadDepth)} y2={py(0)} className="scheme__tread" />
         ))}
-        {dirArrow(px(0), py(f.Width / 2), px(f.Run), py(f.Width / 2), 'pln-dir')}
-        {arrowLine(px(0), py(0) + 18, px(f.Run), py(0) + 18, 'pln-arr')}
-        {dim('L ' + fmt(f.Run), px(f.Run) / 2, py(0) + 18, 'middle', 0, 1)}
-        {arrowLine(px(0) - 20, py(f.Width), px(0) - 20, py(0), 'pln-arr')}
-        {dim('B ' + fmt(f.Width), px(0) - 20, py(f.Width / 2), 'middle', -1, 0)}
+        {/* Направление совпадает с профилем (StairProfile): первая ступень справа,
+            подъём — справа налево. */}
+        {dirArrow(px(f.Run), py(f.Width / 2), px(0), py(f.Width / 2), 'pln-dir')}
+        {arrowLine(px(f.Run), py(0) + 18, px(0), py(0) + 18, 'pln-arr')}
+        {dim('L ' + fmt(f.Run), (px(0) + px(f.Run)) / 2, py(0) + 18, 'middle', 0, 1)}
+        {arrowLine(px(f.Run) + 20, py(f.Width), px(f.Run) + 20, py(0), 'pln-arr')}
+        {dim('B ' + fmt(f.Width), px(f.Run) + 20, py(f.Width / 2), 'middle', 1, 0)}
       </>
     )
   } else if (kind === 'l_shape') {
@@ -181,35 +221,59 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
     const ur = s.upperRun ?? f.Run
     const lw = s.landingWidth ?? f.Width
     const wBig = f.Width
+    // Направление поворота (CONF-DIRECTION): 'left' зеркалит план по горизонтали —
+    // площадка в левом нижнем углу, верхний марш по левой стороне.
+    const mp = s.direction === 'left' ? -1 : 1
+    const P = (x: number) => px(mp * x)
+    // «Буква L»: нижний марш внизу, площадка в правом нижнем углу, верхний марш
+    // идёт вверх по правой стороне. Левая кромка площадки совпадает с правой
+    // кромкой нижнего марша — стык по всей ширине плоскости ступеней.
+    const uEnd = lw - wBig + ur
     const rects: Array<[number, number, number, number]> = [
-      [0, 0, lr, wBig],
-      [lr, -lw, lw, lw],
-      [lr + lw - wBig, -lw - ur, wBig, ur],
+      [0, -wBig, lr, wBig],
+      [lr, -wBig, lw, lw],
+      [lr + lw - wBig, lw - wBig, wBig, ur],
+    ]
+    const rim: Array<[number, number]> = [
+      [0, -wBig],
+      [lr, -wBig],
+      [lr + lw, -wBig],
+      [lr + lw, uEnd],
+      [lr + lw - wBig, uEnd],
+      [lr + lw - wBig, lw - wBig],
+      [lr, lw - wBig],
+      [lr, 0],
+      [0, 0],
     ]
     body = (
       <>
         {rects.map(([x, y, w2, h2], i) => (
           <g key={i}>
-            <rect x={px(x)} y={py(y + h2)} width={w2 * scale} height={h2 * scale} className="scheme__fill" />
-            <rect x={px(x)} y={py(y + h2)} width={w2 * scale} height={h2 * scale} className="scheme__outline" fill="none" />
+            <rect x={mp === -1 ? P(x + w2) : P(x)} y={py(y + h2)} width={w2 * scale} height={h2 * scale} className="scheme__fill" />
+            <rect x={mp === -1 ? P(x + w2) : P(x)} y={py(y + h2)} width={w2 * scale} height={h2 * scale} className="scheme__outline" fill="none" />
           </g>
         ))}
+        {showRail && (
+          <polyline points={rim.map(([q, r]) => `${P(q)},${py(r)}`).join(' ')} className="scheme__railing" />
+        )}
         {Array.from({ length: s.lowerStepCount ?? Math.floor(lr / f.TreadDepth) }, (_, i) => i + 1).map((i) =>
           i * f.TreadDepth < lr ? (
-            <line key={`l${i}`} x1={px(i * f.TreadDepth)} y1={py(0)} x2={px(i * f.TreadDepth)} y2={py(-wBig)} className="scheme__tread" />
+            <line key={`l${i}`} x1={P(i * f.TreadDepth)} y1={py(0)} x2={P(i * f.TreadDepth)} y2={py(-wBig)} className="scheme__tread scheme__tread--lower" />
           ) : null,
         )}
         {Array.from({ length: s.upperStepCount ?? Math.floor(ur / f.TreadDepth) }, (_, i) => i + 1).map((i) =>
           i * f.TreadDepth < ur ? (
-            <line key={`u${i}`} x1={px(lr + lw - wBig)} y1={py(-wBig - i * f.TreadDepth)} x2={px(lr + lw)} y2={py(-wBig - i * f.TreadDepth)} className="scheme__tread" />
+            <line key={`u${i}`} x1={P(lr + lw - wBig)} y1={py(lw - wBig + i * f.TreadDepth)} x2={P(lr + lw)} y2={py(lw - wBig + i * f.TreadDepth)} className="scheme__tread scheme__tread--upper" />
           ) : null,
         )}
-        <line x1={px(0)} y1={py(0)} x2={px(lr)} y2={py(0)} className="scheme__axis" />
-        {arrowLine(px(0), py(-wBig - 24), px(lr), py(-wBig - 24), 'pln-arr')}
-        {dim('L₁ ' + fmt(lr), px(lr) / 2, py(-wBig - 24), 'middle', 0, 1)}
-        {arrowLine(px(lr + lw), py(-lw), px(lr + lw), py(-lw - ur - 24), 'pln-arr')}
-        {dim('L₂ ' + fmt(ur), px(lr + lw), py(-lw - ur / 2 - 24), 'middle', 0, 1)}
-        {dim('B ' + fmt(wBig), px(0) - 18, py(-wBig / 2), 'middle', -1, 0)}
+        {dirArrow(P(0), py(-wBig / 2), P(lr), py(-wBig / 2), 'pln-dir')}
+        {dirArrow(P(lr + lw - wBig / 2), py(lw - wBig), P(lr + lw - wBig / 2), py(uEnd), 'pln-dir')}
+        {arrowLine(P(0), py(-wBig) + 18, P(lr), py(-wBig) + 18, 'pln-arr')}
+        {dim('L₁ ' + fmt(lr), (P(0) + P(lr)) / 2, py(-wBig) + 18, 'middle', 0, 1)}
+        {arrowLine(P(lr + lw) + mp * 20, py(lw - wBig), P(lr + lw) + mp * 20, py(uEnd), 'pln-arr')}
+        {dim('L₂ ' + fmt(ur), P(lr + lw) + mp * 20, (py(lw - wBig) + py(uEnd)) / 2, 'middle', 1, 0)}
+        {arrowLine(P(0) - mp * 18, py(-wBig), P(0) - mp * 18, py(0), 'pln-arr')}
+        {dim('B ' + fmt(wBig), P(0) - mp * 18, (py(-wBig) + py(0)) / 2, 'middle', -1, 0)}
       </>
     )
   } else if (kind === 'u_shape') {
@@ -218,24 +282,53 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
     const lw = s.landingWidth ?? f.Width
     const gap = Math.max(60, (lw - f.Width) / 2)
     const wBig = f.Width
+    // Направление поворота (CONF-DIRECTION): 'left' зеркалит план по горизонтали.
+    const mp = s.direction === 'left' ? -1 : 1
+    const P = (x: number) => px(mp * x)
     const rects: Array<[number, number, number, number]> = [
       [0, 0, lr, wBig],
       [lr, 0, lw, gap + wBig],
       [0, gap, ur, wBig],
     ]
+    const rim: Array<[number, number]> = [
+      [0, wBig],
+      [lr, wBig],
+      [lr, 0],
+      [lr + lw, 0],
+      [lr + lw, gap + wBig],
+      [ur, gap + wBig],
+      [ur, gap],
+      [0, gap],
+    ]
     body = (
       <>
         {rects.map(([x, y, w2, h2], i) => (
           <g key={i}>
-            <rect x={px(x)} y={py(y + h2)} width={w2 * scale} height={h2 * scale} className="scheme__fill" />
-            <rect x={px(x)} y={py(y + h2)} width={w2 * scale} height={h2 * scale} className="scheme__outline" fill="none" />
+            <rect x={mp === -1 ? P(x + w2) : P(x)} y={py(y + h2)} width={w2 * scale} height={h2 * scale} className="scheme__fill" />
+            <rect x={mp === -1 ? P(x + w2) : P(x)} y={py(y + h2)} width={w2 * scale} height={h2 * scale} className="scheme__outline" fill="none" />
           </g>
         ))}
-        {arrowLine(px(0), py(-wBig - 24), px(lr), py(-wBig - 24), 'pln-arr')}
-        {dim('L₁ ' + fmt(lr), px(lr) / 2, py(-wBig - 24), 'middle', 0, 1)}
-        {arrowLine(px(ur), py(gap + wBig + 24), px(0) + (0), py(gap + wBig + 24), 'pln-arr')}
-        {dim('L₂ ' + fmt(ur), px(ur / 2), py(gap + wBig + 24), 'middle', 0, 1)}
-        {dim('B ' + fmt(wBig), px(0) - 18, py(-wBig / 2), 'middle', -1, 0)}
+        {showRail && (
+          <polyline points={rim.map(([q, r]) => `${P(q)},${py(r)}`).join(' ')} className="scheme__railing" />
+        )}
+        {Array.from({ length: s.lowerStepCount ?? Math.floor(lr / f.TreadDepth) }, (_, i) => i + 1).map((i) =>
+          i * f.TreadDepth < lr ? (
+            <line key={`l${i}`} x1={P(i * f.TreadDepth)} y1={py(0)} x2={P(i * f.TreadDepth)} y2={py(wBig)} className="scheme__tread scheme__tread--lower" />
+          ) : null,
+        )}
+        {Array.from({ length: s.upperStepCount ?? Math.floor(ur / f.TreadDepth) }, (_, i) => i + 1).map((i) =>
+          i * f.TreadDepth < ur ? (
+            <line key={`u${i}`} x1={P(i * f.TreadDepth)} y1={py(gap)} x2={P(i * f.TreadDepth)} y2={py(gap + wBig)} className="scheme__tread scheme__tread--upper" />
+          ) : null,
+        )}
+        {dirArrow(P(0), py(wBig / 2), P(lr), py(wBig / 2), 'pln-dir')}
+        {dirArrow(P(ur), py(gap + wBig / 2), P(0), py(gap + wBig / 2), 'pln-dir')}
+        {arrowLine(P(0), py(gap + wBig) - 18, P(lr), py(gap + wBig) - 18, 'pln-arr')}
+        {dim('L₁ ' + fmt(lr), (P(0) + P(lr)) / 2, py(gap + wBig) - 18, 'middle', 0, -1)}
+        {arrowLine(P(0), py(gap) + 18, P(ur), py(gap) + 18, 'pln-arr')}
+        {dim('L₂ ' + fmt(ur), (P(0) + P(ur)) / 2, py(gap) + 18, 'middle', 0, 1)}
+        {arrowLine(P(0) - mp * 18, py(gap + wBig), P(0) - mp * 18, py(gap), 'pln-arr')}
+        {dim('B ' + fmt(wBig), P(0) - mp * 18, (py(gap + wBig) + py(gap)) / 2, 'middle', -1, 0)}
       </>
     )
   } else {
@@ -269,36 +362,13 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
     )
   }
 
-  // Плотная рамка чертежа: объединение контура (outline) и всех подписей
-  // (placed) с небольшим полем, чтобы узкий план (прямой марш) не терялся
-  // в пустом канвасе. Вырожденный случай — прежняя рамка.
-  const frame = (() => {
-    let x0 = Infinity
-    let y0 = Infinity
-    let x1 = -Infinity
-    let y1 = -Infinity
-    for (const r of [outline, ...placed]) {
-      if (r.w <= 0 || r.h <= 0) continue
-      x0 = Math.min(x0, r.x)
-      y0 = Math.min(y0, r.y)
-      x1 = Math.max(x1, r.x + r.w)
-      y1 = Math.max(y1, r.y + r.h)
-    }
-    if (!Number.isFinite(x0)) return { x: 0, y: 0, w: W, h: H }
-    const pad = 10
-    return {
-      x: Math.max(0, x0 - pad),
-      y: Math.max(0, y0 - pad),
-      w: Math.min(W, Math.max(60, x1 - x0 + pad * 2)),
-      h: Math.min(H, Math.max(40, y1 - y0 + pad * 2)),
-    }
-  })()
-
+  // Фиксированный канвас как у StairProfile: вид сверху центрирован с полями
+  // PAD со всех сторон — тот же масштаб, что и профиль.
   return (
     <div className="scheme">
       <svg
         className="scheme__svg"
-        viewBox={`${frame.x} ${frame.y} ${frame.w} ${frame.h}`}
+        viewBox={`0 0 ${W} ${H}`}
         role="img"
         aria-label="Вид сверху (план) лестницы"
       >

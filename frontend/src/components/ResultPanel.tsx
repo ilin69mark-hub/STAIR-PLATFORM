@@ -61,35 +61,37 @@ function SolverDrawings({ snapshot }: { snapshot: Snapshot }) {
   const sch = schematicOf(snapshot)
   if (!sch) return null
 
+  // Профиль (вид сбоку) осмыслен только для прямого марша; L/U/спираль
+  // показываем планом по умолчанию.
+  const activeTab = sch.kind === 'straight' ? tab : tab === 'profile' ? 'plan' : tab
+  const tabs: Array<['profile' | 'plan' | 'threed', string]> =
+    sch.kind === 'straight'
+      ? [['profile', 'Профиль'], ['plan', 'План'], ['threed', '3D']]
+      : [['plan', 'План'], ['threed', '3D']]
+
   return (
     <div className="draw">
       <div className="draw__tabs" role="tablist">
-        {(
-          [
-            ['profile', 'Профиль'],
-            ['plan', 'План'],
-            ['threed', '3D'],
-          ] as const
-        ).map(([key, label]) => (
+        {tabs.map(([key, label]) => (
           <button
             key={key}
             type="button"
             role="tab"
-            aria-selected={tab === key}
-            className={`draw__tab${tab === key ? ' draw__tab--active' : ''}`}
+            aria-selected={activeTab === key}
+            className={`draw__tab${activeTab === key ? ' draw__tab--active' : ''}`}
             onClick={() => setTab(key)}
           >
             {label}
           </button>
         ))}
       </div>
-      {tab === 'profile' && (
+      {activeTab === 'profile' && (
         <StairProfile flight={sch.flight} railing={sch.railing} />
       )}
-      {tab === 'plan' && (
+      {activeTab === 'plan' && (
         <StairPlan flight={sch.flight} kind={sch.kind} solver={sch.solver} />
       )}
-      {tab === 'threed' && (
+      {activeTab === 'threed' && (
         snapshot.mesh ? (
           <Suspense fallback={<p className="muted">Загрузка 3D…</p>}>
             <GeometryViewer mesh={snapshot.mesh} />

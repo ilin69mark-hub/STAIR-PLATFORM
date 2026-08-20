@@ -131,5 +131,42 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 		}
 		base += len(outs[i].verts)
 	}
+
+	// Декоративные перила (CONF-RAILING): добавляются только в preview mesh.
+	// Они не являются частью несущей модели и не участвуют в измерениях
+	// (SolidCount, объём, площадь, габарит) и в производственной декомпозиции.
+	if err := appendRailingMesh(result, cfg); err != nil {
+		return nil, err
+	}
 	return result, nil
+}
+
+// appendRailingMesh строит декоративные тела перил (BuildRailingDecor) и
+// добавляет их в preview mesh. Валидация перил выполняется, но их тела не
+// влияют на Measurement и Model (ENG-GEO-0008: mesh — производная величина).
+func appendRailingMesh(result *GenerationResult, cfg *engineering.StairConfiguration) error {
+	decor, err := BuildRailingDecor(cfg)
+	if err != nil {
+		return fmt.Errorf("geometry: railing decor: %w", err)
+	}
+	base := len(result.Mesh.Vertices)
+	for _, solid := range decor {
+		cache := kerngeo.NewTessellationCache()
+		for _, issue := range kerngeo.ValidateCached(solid, cache) {
+			issue.Element = fmt.Sprintf("decor:%s/%s", solid.Role(), issue.Element)
+			result.Issues = append(result.Issues, issue)
+		}
+		verts, tris, err := meshSolid(solid, cache)
+		if err != nil {
+			return fmt.Errorf("geometry: railing mesh: %w", err)
+		}
+		result.Mesh.Vertices = append(result.Mesh.Vertices, verts...)
+		for _, tr := range tris {
+			if err := result.Mesh.AddTriangle(base+tr[0], base+tr[1], base+tr[2]); err != nil {
+				return fmt.Errorf("geometry: railing mesh triangle: %w", err)
+			}
+		}
+		base += len(verts)
+	}
+	return nil
 }

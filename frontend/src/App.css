@@ -519,6 +519,16 @@ body {
   stroke-width: 1;
 }
 
+.scheme__tread--lower {
+  stroke: #4dabf7;
+  stroke-width: 2;
+}
+
+.scheme__tread--upper {
+  stroke: #51cf66;
+  stroke-width: 2;
+}
+
 .scheme__axis {
   stroke: #adb5bd;
   stroke-width: 1.5;

@@ -46,9 +46,17 @@ func BuildSpiralFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, 
 	solids = append(solids, col)
 
 	// веерные ступени: сектор кольца [r, R] на углу k·δ, верх на (k+1)·h.
+	// Направление закрутки (CONF-SPIRAL-DIRECTION): cw (по умолчанию) —
+	// угол растёт (против часовой при взгляде сверху в проекции на XY без
+	// отражения), ccw — угол убывает: план зеркалится по горизонтали
+	// (как в 2D-схеме StaPlan при смене направления).
+	sign := 1.0
+	if cfg.SpiralDirection == engineering.SpiralCCW {
+		sign = -1
+	}
 	for k := 0; k < n; k++ {
-		a0 := float64(k) * delta
-		a1 := a0 + delta
+		a0 := sign * float64(k) * delta
+		a1 := a0 + sign*delta
 		// верх проступи на высоте (k+1)·h; толщина st вниз (z0 = (k+1)h − st).
 		zTop := float64(k+1) * h
 		profile := sectorRing(r, R, a0, a1, zTop-st)

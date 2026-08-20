@@ -24,6 +24,19 @@ export const flightFixture: FlightResult = {
   Angle: Math.PI / 4,
 }
 
+// Нулевое поле flight, которое бэкенд шлёт всегда — даже для L/U/спирали
+// (их реальные данные лежат в lshape/ushape/spiral). Похожие тесты обязаны
+// включать его рядом с конкретным типом, иначе сценарий REGB-01 (тип
+// «съедается» нулевым flight) не воспроизводится.
+export const zeroFlightFixture: FlightResult = {
+  StepCount: 0,
+  StepHeight: 0,
+  TreadDepth: 0,
+  Run: 0,
+  Stringer: 0,
+  Angle: 0,
+}
+
 export const lshapeFixture: LShapeResult = {
   StepCount: 15,
   LowerStepCount: 6,

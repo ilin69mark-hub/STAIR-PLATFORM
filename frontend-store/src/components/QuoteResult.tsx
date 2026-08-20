@@ -28,6 +28,10 @@ export function QuoteResult({ quote, onApplySuggestion, material }: Props) {
   const issues = quote.validation.issues ?? []
   const spiral = quote.spiral !== undefined
   const [schemeView, setSchemeView] = useState<'profile' | 'plan'>('profile')
+  // Профиль (вид сбоку) осмыслен только для прямого марша; L/U/спираль
+  // показываем планом по умолчанию.
+  const hasProfile = solver.kind === 'straight'
+  const view = hasProfile ? schemeView : 'plan'
 
   return (
     <>
@@ -87,24 +91,26 @@ export function QuoteResult({ quote, onApplySuggestion, material }: Props) {
         {!quote.validation.blocking && solver.flight && (
           <div className="scheme-wrap">
             <div className="scheme-toggle" role="group" aria-label="Вид схемы">
+              {hasProfile && (
+                <button
+                  type="button"
+                  className={`scheme-toggle__btn${view === 'profile' ? ' scheme-toggle__btn--active' : ''}`}
+                  aria-pressed={view === 'profile'}
+                  onClick={() => setSchemeView('profile')}
+                >
+                  Профиль
+                </button>
+              )}
               <button
                 type="button"
-                className={`scheme-toggle__btn${schemeView === 'profile' ? ' scheme-toggle__btn--active' : ''}`}
-                aria-pressed={schemeView === 'profile'}
-                onClick={() => setSchemeView('profile')}
-              >
-                Профиль
-              </button>
-              <button
-                type="button"
-                className={`scheme-toggle__btn${schemeView === 'plan' ? ' scheme-toggle__btn--active' : ''}`}
-                aria-pressed={schemeView === 'plan'}
+                className={`scheme-toggle__btn${view === 'plan' ? ' scheme-toggle__btn--active' : ''}`}
+                aria-pressed={view === 'plan'}
                 onClick={() => setSchemeView('plan')}
               >
                 Вид сверху
               </button>
             </div>
-            {schemeView === 'profile' ? (
+            {view === 'profile' ? (
               <StairProfile flight={solver.flight} railing={solver.flight.Railing} />
             ) : (
               <StairPlan flight={solver.flight} kind={solver.kind ?? 'straight'} solver={solver} />

@@ -370,6 +370,8 @@ export interface LShapeResult {
   LowerStringer: number
   UpperStringer: number
   LandingWidth: number
+  // Направление поворота (CONF-DIRECTION): 'left' | 'right' (план зеркалится).
+  direction?: 'left' | 'right'
 }
 
 export interface UShapeResult {
@@ -386,6 +388,8 @@ export interface UShapeResult {
   LowerStringer: number
   UpperStringer: number
   LandingWidth: number
+  // Направление поворота (CONF-DIRECTION): 'left' | 'right' (план зеркалится).
+  direction?: 'left' | 'right'
 }
 
 export interface SpiralResult {

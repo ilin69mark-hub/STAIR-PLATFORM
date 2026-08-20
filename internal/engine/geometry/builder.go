@@ -184,22 +184,39 @@ func BuildLShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, 
 	if err != nil {
 		return nil, fmt.Errorf("geometry: upper flight: %w", err)
 	}
-	// Площадка: план [L1, L1+W]×[0, Wp], верх на уровне H1 (EDR-0005 §4.8).
-	// Верхний марш (в локальных координатах: подъём вдоль +X, ширина вдоль
-	// +Y) поворачивается на +90° вокруг Z: подъём → вдоль +Y, ширина →
-	// вдоль -X, затем переносится так, чтобы марш занимал
-	// [L1, L1+W]×[Wp, Wp+L2] на высоте H1.
+	// Площадка и ориентация маршей зависят от направления поворота
+	// (CONF-DIRECTION). Правосторонний поворот (по умолчанию): площадка в
+	// плане [L1, L1+W]×[0, Wp], верхний марш — поворотом на +90° вокруг Z
+	// (подъём → +Y), занимает [L1, L1+W]×[Wp, Wp+L2] на высоте H1.
+	// Левосторонний (TurnLeft) — зеркальная в плане компоновка: площадка
+	// [0, W]×[0, Wp] слева, нижний марш повёрнут на 180° и поднимается по
+	// −X (его верх стыкуется с правой гранью площадки x = W), верхний марш
+	// повёрнут на +90° и поднимается вдоль +Y от края площадки.
 	l1 := float64(n1) * b
+	left := cfg.Direction == engineering.TurnLeft
+	landingX0 := l1
+	lowerTransform := kerngeo.Identity()
 	upperTransform := kerngeo.Translate(l1+w, wp, h1).Mul(kerngeo.RotateZ(math.Pi / 2))
+	if left {
+		landingX0 = 0
+		lowerTransform = kerngeo.Translate(w+l1, w, 0).Mul(kerngeo.RotateZ(math.Pi))
+		upperTransform = kerngeo.Translate(w, wp, h1).Mul(kerngeo.RotateZ(math.Pi / 2))
+	}
 
 	// площадка: горизонтальная плита толщиной st на высоте H1, план
-	// [L1, L1+W]×[0, Wp] (EDR-0005 §4.8), роль "landing".
-	landing, err := buildLanding(w, wp, l1, h1, st)
+	// [landingX0, landingX0+W]×[0, Wp] (EDR-0005 §4.8), роль "landing".
+	landing, err := buildLanding(w, wp, landingX0, h1, st)
 	if err != nil {
 		return nil, err
 	}
 
-	solids := append([]*kerngeo.Solid{}, lowerModel.Solids()...)
+	// нижний марш: для правого поворота — без поворота; для левого —
+	// повёрнут на 180° (левосторонняя компоновка). Порядок тел сохранён
+	// (нижний марш → площадка → верхний марш) для детерминизма.
+	solids := make([]*kerngeo.Solid, 0, len(lowerModel.Solids())+1+len(upperModel.Solids()))
+	for _, s := range lowerModel.Solids() {
+		solids = append(solids, kerngeo.TransformSolid(s, lowerTransform))
+	}
 	solids = append(solids, landing)
 	for _, s := range upperModel.Solids() {
 		solids = append(solids, kerngeo.TransformSolid(s, upperTransform))
@@ -269,22 +286,39 @@ func BuildUShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, 
 	if err != nil {
 		return nil, fmt.Errorf("geometry: upper flight: %w", err)
 	}
-	// Площадка: план [L1, L1+W]×[0, Wp], верх на уровне H1 (EDR-0006 §4.8).
-	// Верхний марш (в локальных координатах: подъём вдоль +X, ширина вдоль
-	// +Y) поворачивается на 180° вокруг Z (RotateZ(π)): подъём → вдоль −X,
-	// ширина → вдоль −Y, затем переносится так, чтобы марш занимал
-	// [L1+W−L2, L1+W]×[Wp, Wp+W] на высоте H1 (EDR-0006 §4.8).
+	// Площадка и ориентация маршей зависят от направления П-оборота
+	// (CONF-DIRECTION). Правосторонний (по умолчанию): площадка
+	// [L1, L1+W]×[0, Wp], верхний марш — поворотом на 180° вокруг Z
+	// (RotateZ(π), подъём → −X), занимает [L1, L1+W]×[Wp, Wp+W] на высоте
+	// H1 и возвращается параллельно нижнему маршу (EDR-0006 §4.8).
+	// Левосторонний (TurnLeft) — зеркальная в плане компоновка: площадка
+	// [0, W]×[0, Wp] слева, нижний марш повёрнут на 180° и поднимается по
+	// −X (верх на правой грани x = W), верхний марш без поворота
+	// поднимается вдоль +X от левого края площадки.
 	l1 := float64(n1) * b
+	left := cfg.Direction == engineering.TurnLeft
+	landingX0 := l1
+	lowerTransform := kerngeo.Identity()
 	upperTransform := kerngeo.Translate(l1+w, wp+w, h1).Mul(kerngeo.RotateZ(math.Pi))
+	if left {
+		landingX0 = 0
+		lowerTransform = kerngeo.Translate(w+l1, w, 0).Mul(kerngeo.RotateZ(math.Pi))
+		upperTransform = kerngeo.Translate(0, wp, h1)
+	}
 
 	// площадка: горизонтальная плита толщиной st на высоте H1, план
-	// [L1, L1+W]×[0, Wp] (EDR-0006 §4.8), роль "landing".
-	landing, err := buildLanding(w, wp, l1, h1, st)
+	// [landingX0, landingX0+W]×[0, Wp] (EDR-0006 §4.8), роль "landing".
+	landing, err := buildLanding(w, wp, landingX0, h1, st)
 	if err != nil {
 		return nil, err
 	}
 
-	solids := append([]*kerngeo.Solid{}, lowerModel.Solids()...)
+	// нижний марш: для правого поворота — без поворота; для левого —
+	// повёрнут на 180° (левосторонняя компоновка). Порядок тел сохранён.
+	solids := make([]*kerngeo.Solid, 0, len(lowerModel.Solids())+1+len(upperModel.Solids()))
+	for _, s := range lowerModel.Solids() {
+		solids = append(solids, kerngeo.TransformSolid(s, lowerTransform))
+	}
 	solids = append(solids, landing)
 	for _, s := range upperModel.Solids() {
 		solids = append(solids, kerngeo.TransformSolid(s, upperTransform))
