@@ -617,6 +617,30 @@ body {
   stroke-linecap: round;
 }
 
+.scheme__tread {
+  stroke: #adb5bd;
+  stroke-width: 1;
+}
+
+.scheme__axis {
+  stroke: #adb5bd;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+}
+
+.scheme__column {
+  fill: #ced4da;
+  stroke: #868e96;
+  stroke-width: 2;
+}
+
+.scheme__dir {
+  stroke: #e8a33d;
+  stroke-width: 2.5;
+  fill: #e8a33d;
+  stroke-linecap: round;
+}
+
 .scheme__dimline {
   stroke: #22b8cf;
   stroke-width: 1;

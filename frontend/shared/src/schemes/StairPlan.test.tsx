@@ -29,6 +29,24 @@ describe('StairPlan', () => {
     expect(screen.getByRole('img')).toBeInTheDocument()
   })
 
+  it('прямой план плотно кадрирует чертёж в viewBox', () => {
+    const { container } = render(<StairPlan flight={base} kind="straight" solver={{}} />)
+    const vb = (container.querySelector('.scheme__svg')?.getAttribute('viewBox') ?? '0 0 560 340')
+      .split(/\s+/)
+      .map(Number)
+    // Узкий прямой марш не должен размазываться по пустому канвасу 560×340.
+    expect(vb[3]).toBeLessThan(340)
+  })
+
+  it('прямой план показывает стрелку направления подъёма', () => {
+    const { container } = render(<StairPlan flight={base} kind="straight" solver={{}} />)
+    const dir = container.querySelector('line.scheme__dir')
+    expect(dir).not.toBeNull()
+    expect(dir?.getAttribute('marker-end')).toBe('url(#pln-dir)')
+    // Стрелка от первой ступени (x=0) к верху марша (x=Run).
+    expect(Number(dir?.getAttribute('x2'))).toBeGreaterThan(Number(dir?.getAttribute('x1')))
+  })
+
   it('рендерит план L-образного марша', () => {
     const solver: PlanExtras = {
       lowerStepCount: 6,

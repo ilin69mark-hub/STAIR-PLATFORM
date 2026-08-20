@@ -155,6 +155,11 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
     />
   )
 
+  // dirArrow — односторонняя стрелка направления (подъём марша).
+  const dirArrow = (x1: number, y1: number, x2: number, y2: number, markerId: string) => (
+    <line x1={x1} y1={y1} x2={x2} y2={y2} className="scheme__dir" markerEnd={`url(#${markerId})`} />
+  )
+
   let body: ReactElement | null = null
   if (kind === 'straight') {
     body = (
@@ -164,9 +169,9 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
         {Array.from({ length: f.StepCount }, (_, i) => i + 1).map((i) => (
           <line key={i} x1={px(i * f.TreadDepth)} y1={py(f.Width)} x2={px(i * f.TreadDepth)} y2={py(0)} className="scheme__tread" />
         ))}
-        <line x1={px(0)} y1={py(f.Width / 2)} x2={px(f.Run)} y2={py(f.Width / 2)} className="scheme__axis" />
-        {arrowLine(px(0), py(f.Width) + 18, px(f.Run), py(f.Width) + 18, 'pln-arr')}
-        {dim('L ' + fmt(f.Run), px(f.Run) / 2, py(f.Width) + 18, 'middle', 0, 1)}
+        {dirArrow(px(0), py(f.Width / 2), px(f.Run), py(f.Width / 2), 'pln-dir')}
+        {arrowLine(px(0), py(0) + 18, px(f.Run), py(0) + 18, 'pln-arr')}
+        {dim('L ' + fmt(f.Run), px(f.Run) / 2, py(0) + 18, 'middle', 0, 1)}
         {arrowLine(px(0) - 20, py(f.Width), px(0) - 20, py(0), 'pln-arr')}
         {dim('B ' + fmt(f.Width), px(0) - 20, py(f.Width / 2), 'middle', -1, 0)}
       </>
@@ -264,17 +269,45 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
     )
   }
 
+  // Плотная рамка чертежа: объединение контура (outline) и всех подписей
+  // (placed) с небольшим полем, чтобы узкий план (прямой марш) не терялся
+  // в пустом канвасе. Вырожденный случай — прежняя рамка.
+  const frame = (() => {
+    let x0 = Infinity
+    let y0 = Infinity
+    let x1 = -Infinity
+    let y1 = -Infinity
+    for (const r of [outline, ...placed]) {
+      if (r.w <= 0 || r.h <= 0) continue
+      x0 = Math.min(x0, r.x)
+      y0 = Math.min(y0, r.y)
+      x1 = Math.max(x1, r.x + r.w)
+      y1 = Math.max(y1, r.y + r.h)
+    }
+    if (!Number.isFinite(x0)) return { x: 0, y: 0, w: W, h: H }
+    const pad = 10
+    return {
+      x: Math.max(0, x0 - pad),
+      y: Math.max(0, y0 - pad),
+      w: Math.min(W, Math.max(60, x1 - x0 + pad * 2)),
+      h: Math.min(H, Math.max(40, y1 - y0 + pad * 2)),
+    }
+  })()
+
   return (
     <div className="scheme">
       <svg
         className="scheme__svg"
-        viewBox={`0 0 ${W} ${H}`}
+        viewBox={`${frame.x} ${frame.y} ${frame.w} ${frame.h}`}
         role="img"
         aria-label="Вид сверху (план) лестницы"
       >
         <defs>
           <marker id="pln-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M 0 0 L 10 5 L 0 10 z" className="scheme__dimline" />
+          </marker>
+          <marker id="pln-dir" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" className="scheme__dir" />
           </marker>
         </defs>
         {body}
