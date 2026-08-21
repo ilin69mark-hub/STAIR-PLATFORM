@@ -177,12 +177,13 @@ func straightRailingSolids(n int, b, h, rh, w float64, side engineering.RailingS
 	return sols
 }
 
-// landingRailingSolids строит горизонтальный поручень-«букву L» вдоль
-// открытых кромок площадки (CONF-RAILING сегмент «площадка»). Правосторонний
-// поворот: от (x0, 0) по нижней кромке к (x0+w, 0) и по правой кромке к
-// (x0+w, wp); левосторонний — зеркально по горизонтали. Поручень на высоте
-// h1+rh. Стойки на площадке не строим (декоративный упрощённый контур;
-// уточнить при визуальной проверке).
+// landingRailingSolids строит горизонтальный поручень-«П» вдоль открытых
+// кромок площадки (CONF-RAILING сегмент «площадка»). Открытая сторона — та,
+// где марши примыкают к площадке (X=x0 для правого поворота, X=w для
+// левого). Правосторонний поворот: от (x0,0) по нижней кромке к (x0+w,0), по
+// правой кромке к (x0+w,wp) и по дальней короткой кромке к (x0,wp); левый —
+// зеркально. Поручень на высоте h1+rh. Стойки на площадке не строим
+// (декоративный упрощённый контур; уточнить при визуальной проверке).
 func landingRailingSolids(w, wp, rh, h1 float64, x0 float64, left bool) []*kerngeo.Solid {
 	if rh <= 0 {
 		return nil
@@ -193,17 +194,67 @@ func landingRailingSolids(w, wp, rh, h1 float64, x0 float64, left bool) []*kerng
 			kerngeo.NewPoint3(w, 0, h1+rh),
 			kerngeo.NewPoint3(0, 0, h1+rh),
 			kerngeo.NewPoint3(0, wp, h1+rh),
+			kerngeo.NewPoint3(w, wp, h1+rh),
 		}
 	} else {
 		corners = []kerngeo.Point3{
 			kerngeo.NewPoint3(x0, 0, h1+rh),
 			kerngeo.NewPoint3(x0+w, 0, h1+rh),
 			kerngeo.NewPoint3(x0+w, wp, h1+rh),
+			kerngeo.NewPoint3(x0, wp, h1+rh),
 		}
 	}
 	var sols []*kerngeo.Solid
 	for i := 0; i+1 < len(corners); i++ {
 		if s := railAlong(corners[i], corners[i+1]); s != nil {
+			sols = append(sols, s)
+		}
+	}
+	return sols
+}
+
+// winderRailingSolids строит декоративный поручень поворотных ступеней
+// П-образной лестницы (CONF-RAILING сегмент «поворот»): изогнутый поручень
+// вдоль внешней дуги веера поворотных ступеней (радиус ro) от уровня H1 до
+// верха поворота (H1 + nw·h) на высоте rh. Поручень — ломаная из прямых
+// сегментов по дуге; стойки не строим (декоративное упрощение, как для
+// площадки). Геометрия веера совпадает с buildWinders.
+func winderRailingSolids(w, h, rh float64, n1, nw int, l1, wp float64, left bool) []*kerngeo.Solid {
+	if rh <= 0 || nw < 3 {
+		return nil
+	}
+	h1 := float64(n1) * h
+	// Внутренние ребра стыка маршей (как в BuildUShapeWinderFlight).
+	var pLower, pUpper kerngeo.Point3
+	if left {
+		pLower = kerngeo.NewPoint3(w, w, h1)
+		pUpper = kerngeo.NewPoint3(0, wp, h1+float64(nw)*h)
+	} else {
+		pLower = kerngeo.NewPoint3(l1, w, h1)
+		pUpper = kerngeo.NewPoint3(l1, w+wp, h1+float64(nw)*h)
+	}
+	// Корректная геометрия веера: центр O — середина pLower–pUpper.
+	ox, oy := (pLower.X+pUpper.X)/2, (pLower.Y+pUpper.Y)/2
+	ux, uy := pLower.X-ox, pLower.Y-oy
+	ul := math.Hypot(ux, uy)
+	if ul < kerngeo.Precision {
+		return nil
+	}
+	ux, uy = ux/ul, uy/ul
+	ri := ul
+	ro := ri + w
+	a0 := math.Atan2(uy, ux)
+
+	zRail := h1 + float64(nw)*h + rh
+	segs := nw + 1
+	var pts []kerngeo.Point3
+	for i := 0; i <= segs; i++ {
+		a := a0 + math.Pi*float64(i)/float64(segs)
+		pts = append(pts, kerngeo.NewPoint3(ox+ro*math.Cos(a), oy+ro*math.Sin(a), zRail))
+	}
+	var sols []*kerngeo.Solid
+	for i := 0; i+1 < len(pts); i++ {
+		if s := railAlong(pts[i], pts[i+1]); s != nil {
 			sols = append(sols, s)
 		}
 	}
@@ -282,30 +333,50 @@ func buildLURNailing(cfg *engineering.StairConfiguration, rh float64) ([]*kernge
 	h1 := float64(n1) * h
 	l1 := float64(n1) * b
 	left := cfg.Direction == engineering.TurnLeft
+	// Эффективная ширина марша: П-образный (платформенный) сужается на
+	// flightSideInsetMM для внутреннего зазора 100 мм; L-образный и веерный
+	// остаются на полной ширине W.
+	flightW := w
+	if cfg.Flight == engineering.FlightUShape {
+		flightW = w - flightSideInsetMM
+	}
 
 	var sols []*kerngeo.Solid
 
-	// Нижний марш. Фаза поворота совпадает с BuildLShapeFlight/BuildUShapeFlight.
+	// Нижний марш. При левом повороте нижний марш зеркалится на RotateZ(π)
+	// (см. BuildLShapeFlight / uShapePlatformTransforms), поэтому сторона
+	// перил передаётся напрямую (как для правого поворота): после поворота
+	// сегмента целиком локальная кромка RailingRight оказывается на
+	// внешней/зеркальной стороне. Узкая ширина flightW учитывается и в
+	// профиле перил, и в трансформе (для left — Translate(w+l1, flightW, 0)).
 	if railingEnabled(rh, cfg.RailingLower) {
 		side := cfg.RailingLower
 		lowerT := kerngeo.Identity()
-		rot := 0.0
 		if left {
-			lowerT = kerngeo.Translate(w+l1, w, 0).Mul(kerngeo.RotateZ(math.Pi))
-			rot = math.Pi
+			lowerT = kerngeo.Translate(w+l1, flightW, 0).Mul(kerngeo.RotateZ(math.Pi))
 		}
-		for _, s := range straightRailingSolids(n1, b, h, rh, w, swapSidesForTurn(side, rot)) {
+		for _, s := range straightRailingSolids(n1, b, h, rh, flightW, side) {
 			sols = append(sols, kerngeo.TransformSolid(s, lowerT))
 		}
 	}
 
-	// Площадка.
-	if railingEnabled(rh, cfg.RailingLanding) {
+	// Площадка (режим площадки) либо поворотные ступени (режим поворота).
+	// Платформенная площадка П-образного марша охватывает 2·W (совпадает с
+	// buildUShapePlatform); у L-образного — ширина Wp.
+	landingY := wp
+	if cfg.Flight == engineering.FlightUShape {
+		landingY = 2 * w
+	}
+	if cfg.TurnKind == engineering.TurnWinder {
+		if railingEnabled(rh, cfg.RailingLanding) {
+			sols = append(sols, winderRailingSolids(w, h, rh, n1, cfg.WinderCount, l1, wp, left)...)
+		}
+	} else if railingEnabled(rh, cfg.RailingLanding) {
 		x0 := l1
 		if left {
 			x0 = 0
 		}
-		sols = append(sols, landingRailingSolids(w, wp, rh, h1, x0, left)...)
+		sols = append(sols, landingRailingSolids(w, landingY, rh, h1, x0, left)...)
 	}
 
 	// Верхний марш.
@@ -322,14 +393,18 @@ func buildLURNailing(cfg *engineering.StairConfiguration, rh float64) ([]*kernge
 				rot = math.Pi / 2
 			}
 		} else {
+			// П-образный: верхний марш переиспользует трансформ из
+			// uShapePlatformTransforms, совпадающий со ступенями. Левый
+			// вариант — Translate(0, w, h1) (подъём +X, на 180° к нижнему
+			// маршу); правый — Translate(l1+w, 2*w, h1)·RotateZ(π) (подъём −X).
+			_, upperT, _, _ = uShapePlatformTransforms(cfg)
 			if left {
-				upperT = kerngeo.Translate(0, wp, h1)
+				rot = 0.0
 			} else {
-				upperT = kerngeo.Translate(l1+w, wp+w, h1).Mul(kerngeo.RotateZ(math.Pi))
 				rot = math.Pi
 			}
 		}
-		for _, s := range straightRailingSolids(n2, b, h, rh, w, swapSidesForTurn(side, rot)) {
+		for _, s := range straightRailingSolids(n2, b, h, rh, flightW, swapSidesForTurn(side, rot)) {
 			sols = append(sols, kerngeo.TransformSolid(s, upperT))
 		}
 	}

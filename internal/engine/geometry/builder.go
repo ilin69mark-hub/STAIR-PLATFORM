@@ -14,6 +14,13 @@ import (
 	kerngeo "stairplatform/internal/geometry"
 )
 
+// flightSideInsetMM — величина, на которую каждый марш П-образной лестницы
+// (платформенный режим) сужается от внешней кромки. Оба марша сужаются на
+// одну и ту же величину, поэтому между ними образуется внутренний зазор
+// 2·flightSideInsetMM = 100 мм. Площадка остаётся шириной 2·W — зазор
+// получается внутренним за счёт сужения маршей, внешний габарит не меняется.
+const flightSideInsetMM = 50.0
+
 // StringerExtent возвращает вертикальный габарит профиля косоура
 // прямого марша: от уровня пола (низ передней гранки) до верхнего
 // седла пилы (H − StepThickness). Экспортируется, чтобы советник и
@@ -247,14 +254,21 @@ func subFlight(cfg *engineering.StairConfiguration, height float64, steps int) *
 	}
 }
 
+// subFlightWidth — то же, что subFlight, но с явно заданной шириной марша
+// (переопределяет cfg.Width). Используется П-образной лестницей в
+// платформенном режиме, чтобы сузить марши на flightSideInsetMM и получить
+// внутренний зазор, не затрагивая веерный режим (subFlight).
+func subFlightWidth(cfg *engineering.StairConfiguration, height float64, steps int, width engineering.Length) *engineering.StairConfiguration {
+	c := subFlight(cfg, height, steps)
+	c.Width = width
+	return c
+}
+
 // BuildUShapeFlight строит параметрическую B-Rep модель П-образной
-// лестницы (EDR-0006, ENG-GEO-0007): нижний прямой марш (n1 ступеней),
-// горизонтальная площадка на высоте H1 и верхний прямой марш (n2
-// ступеней), параллельный нижнему и развёрнутый на 180° по горизонтали.
-// Координаты: X — направление подъёма нижнего марша, Y — его ширина,
-// Z — высота (ADR-0008); верхний марш возвращается вдоль −X. Геометрия
-// всегда вычисляется заново из параметров (BC-002). Роли тел
-// проставляются для корректной декомпозиции.
+// лестницы (EDR-0006, ENG-GEO-0007). Поворот между маршами выбирается
+// полем cfg.TurnKind: площадка (TurnPlatform, по умолчанию) либо поворотные
+// ступени (TurnWinder). Диспетчеризация по TurnKind сохраняет обратную
+// совместимость: пустой/неизвестный TurnKind трактуется как площадка.
 func BuildUShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, error) {
 	if err := validateFlight(cfg); err != nil {
 		return nil, err
@@ -262,59 +276,85 @@ func BuildUShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, 
 	if cfg.Flight != engineering.FlightUShape {
 		return nil, fmt.Errorf("geometry: configuration flight must be u_shape")
 	}
+	if cfg.TurnKind == engineering.TurnWinder {
+		return BuildUShapeWinderFlight(cfg)
+	}
+	return buildUShapePlatform(cfg)
+}
+
+// uShapePlatformTransforms возвращает трансформы нижнего и верхнего маршей и
+// габариты площадки П-образной лестницы с площадкой (платформенный режим).
+// Верхний марш развёрнут на 180° относительно нижнего (подъём в
+// противоположную сторону); в левом варианте (TurnLeft) раскладка зеркальна
+// в плане. Те же самые трансформы используют перила (buildLURNailing), поэтому
+// рассинхрон между ступенями и перилами исключён по построению.
+func uShapePlatformTransforms(cfg *engineering.StairConfiguration) (lowerT, upperT kerngeo.Transform, landingX0, landingY float64) {
 	w := cfg.Width.Millimeters()
 	b := cfg.TreadDepth.Millimeters()
+	h := cfg.StepHeight.Millimeters()
+	n1 := cfg.LowerStepCount
+	h1 := float64(n1) * h
+	l1 := float64(n1) * b
+	landingY = 2 * w
+	// Зазор 100 мм между маршами: каждый марш сужается на flightSideInsetMM
+	// от внешней кромки (wEff = W − flightSideInsetMM); площадка остаётся
+	// 2·W, зазор получается внутренним.
+	wEff := w - flightSideInsetMM
+	left := cfg.Direction == engineering.TurnLeft
+	landingX0 = l1
+	lowerT = kerngeo.Identity()
+	// Верхний марш — подъём в противоположную сторону (180°): правый вариант
+	// развёрнут на RotateZ(π) и само вращение сужает марш до [W+50, 2W];
+	// левый — зеркален и поднимается по +X из левого края площадки, занимая
+	// Y∈[W+50, 2W]. Нижний (левый) — Y∈[0, wEff]. Оба варианта примыкают к
+	// площадке той же кромкой, что и раньше (узел поворота — в одном углу
+	// площадки, а не классический switchback через всю площадку).
+	upperT = kerngeo.Translate(l1, 2*w, h1).Mul(kerngeo.RotateZ(math.Pi))
+	if left {
+		landingX0 = 0
+		lowerT = kerngeo.Translate(w+l1, wEff, 0).Mul(kerngeo.RotateZ(math.Pi))
+		upperT = kerngeo.Translate(w, w+flightSideInsetMM, h1)
+	}
+	return
+}
+
+// buildUShapePlatform строит П-образную лестницу с площадкой (EDR-0006 §4):
+// нижний прямой марш (n1), горизонтальная площадка на высоте H1 и верхний
+// прямой марш (n2), параллельный нижнему и развёрнутый на 180°. Площадка
+// соединяет оба марша на одном Z-уровне H1 и охватывает полную ширину
+// 2·W (внешние кромки обоих маршей), будучи по ширине равной двум пролётам.
+func buildUShapePlatform(cfg *engineering.StairConfiguration) (*kerngeo.Compound, error) {
+	w := cfg.Width.Millimeters()
 	h := cfg.StepHeight.Millimeters()
 	st := cfg.StepThickness.Millimeters()
 	n1 := cfg.LowerStepCount
 	n2 := cfg.StepCount - n1
-	wp := cfg.LandingWidth.Millimeters()
+	// Трансформы маршей и габариты площадки вычисляются одной функцией и
+	// переиспользуются перилами (uShapePlatformTransforms), чтобы перила
+	// гарантированно совпадали со ступенями (EDR-0006 §4.8).
+	lowerTransform, upperTransform, landingX0, landingY := uShapePlatformTransforms(cfg)
 	// EDR-0006 §4.5: H1 = n1·h — уровень площадки.
 	h1 := float64(n1) * h
+	// Марши сужаются на flightSideInsetMM (внутренний зазор 100 мм), площадка
+	// остаётся 2·W (см. uShapePlatformTransforms).
+	wEff := w - flightSideInsetMM
 
-	// нижний марш в локальных координатах (без поворота).
-	lowerModel, err := BuildStraightFlight(subFlight(cfg, h1, n1))
+	lowerModel, err := BuildStraightFlight(subFlightWidth(cfg, h1, n1, engineering.Length(wEff)))
 	if err != nil {
 		return nil, fmt.Errorf("geometry: lower flight: %w", err)
 	}
-
-	// верхний марш: строится как прямой в локальных координатах, затем
-	// поворот на 180° вокруг Z (направление подъёма → вдоль −X) и перенос
-	// так, чтобы марш начинался с края площадки на высоте H1 и шёл вдоль
-	// площадки параллельно нижнему маршу.
-	upperModel, err := BuildStraightFlight(subFlight(cfg, float64(n2)*h, n2))
+	upperModel, err := BuildStraightFlight(subFlightWidth(cfg, float64(n2)*h, n2, engineering.Length(wEff)))
 	if err != nil {
 		return nil, fmt.Errorf("geometry: upper flight: %w", err)
 	}
-	// Площадка и ориентация маршей зависят от направления П-оборота
-	// (CONF-DIRECTION). Правосторонний (по умолчанию): площадка
-	// [L1, L1+W]×[0, Wp], верхний марш — поворотом на 180° вокруг Z
-	// (RotateZ(π), подъём → −X), занимает [L1, L1+W]×[Wp, Wp+W] на высоте
-	// H1 и возвращается параллельно нижнему маршу (EDR-0006 §4.8).
-	// Левосторонний (TurnLeft) — зеркальная в плане компоновка: площадка
-	// [0, W]×[0, Wp] слева, нижний марш повёрнут на 180° и поднимается по
-	// −X (верх на правой грани x = W), верхний марш без поворота
-	// поднимается вдоль +X от левого края площадки.
-	l1 := float64(n1) * b
-	left := cfg.Direction == engineering.TurnLeft
-	landingX0 := l1
-	lowerTransform := kerngeo.Identity()
-	upperTransform := kerngeo.Translate(l1+w, wp+w, h1).Mul(kerngeo.RotateZ(math.Pi))
-	if left {
-		landingX0 = 0
-		lowerTransform = kerngeo.Translate(w+l1, w, 0).Mul(kerngeo.RotateZ(math.Pi))
-		upperTransform = kerngeo.Translate(0, wp, h1)
-	}
 
-	// площадка: горизонтальная плита толщиной st на высоте H1, план
-	// [landingX0, landingX0+W]×[0, Wp] (EDR-0006 §4.8), роль "landing".
-	landing, err := buildLanding(w, wp, landingX0, h1, st)
+	// площадка: плита толщиной st на высоте H1, план
+	// [landingX0, landingX0+W]×[0, 2W], роль "landing".
+	landing, err := buildLanding(w, landingY, landingX0, h1, st)
 	if err != nil {
 		return nil, err
 	}
 
-	// нижний марш: для правого поворота — без поворота; для левого —
-	// повёрнут на 180° (левосторонняя компоновка). Порядок тел сохранён.
 	solids := make([]*kerngeo.Solid, 0, len(lowerModel.Solids())+1+len(upperModel.Solids()))
 	for _, s := range lowerModel.Solids() {
 		solids = append(solids, kerngeo.TransformSolid(s, lowerTransform))
@@ -324,6 +364,118 @@ func BuildUShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, 
 		solids = append(solids, kerngeo.TransformSolid(s, upperTransform))
 	}
 	return kerngeo.NewCompound(solids...), nil
+}
+
+// BuildUShapeWinderFlight строит П-образную лестницу с поворотными
+// ступенями (EDR-0006 §4, поворот на 180°): нижний прямой марш (n1),
+// набор из nw поворотных ступеней (веер на 180° в просвете шириной Wp
+// между маршами) и верхний прямой марш (n2 = n − n1 − nw). Поворотные
+// ступени наследуют высоту h и проступь b прямых маршей; каждая поднимает
+// на h, общий подъём марша H = n·h. Геометрия веера опирается на тот же
+// примитив sectorRing, что и спиральная лестница (спираль — веер на 360°,
+// поворот — на 180°). Роль тел: "winder" для поворотных ступеней.
+func BuildUShapeWinderFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, error) {
+	if err := validateFlight(cfg); err != nil {
+		return nil, err
+	}
+	if cfg.Flight != engineering.FlightUShape {
+		return nil, fmt.Errorf("geometry: configuration flight must be u_shape")
+	}
+	if cfg.TurnKind != engineering.TurnWinder {
+		return nil, fmt.Errorf("geometry: configuration turn kind must be winder")
+	}
+	w := cfg.Width.Millimeters()
+	b := cfg.TreadDepth.Millimeters()
+	h := cfg.StepHeight.Millimeters()
+	st := cfg.StepThickness.Millimeters()
+	n1 := cfg.LowerStepCount
+	nw := cfg.WinderCount
+	n2 := cfg.StepCount - n1 - nw
+	if n2 < 1 {
+		return nil, fmt.Errorf("geometry: upper flight must have at least 1 step (n − n1 − nw = %d)", n2)
+	}
+	wp := cfg.LandingWidth.Millimeters() // ширина просвета между маршами
+	h1 := float64(n1) * h
+	l1 := float64(n1) * b
+	left := cfg.Direction == engineering.TurnLeft
+
+	lowerModel, err := BuildStraightFlight(subFlight(cfg, h1, n1))
+	if err != nil {
+		return nil, fmt.Errorf("geometry: lower flight: %w", err)
+	}
+	upperModel, err := BuildStraightFlight(subFlight(cfg, float64(n2)*h, n2))
+	if err != nil {
+		return nil, fmt.Errorf("geometry: upper flight: %w", err)
+	}
+
+	// Внутренние ребра стыка маршей с поворотом (нижний верх /
+	// верхний низ), через которые поворотные ступени соединяют марши.
+	var pLower, pUpper kerngeo.Point3
+	lowerTransform := kerngeo.Identity()
+	upperTransform := kerngeo.Translate(l1, w+wp+w, h1+float64(nw)*h).Mul(kerngeo.RotateZ(math.Pi))
+	if left {
+		pLower = kerngeo.NewPoint3(w, w, h1)
+		pUpper = kerngeo.NewPoint3(0, wp, h1+float64(nw)*h)
+		lowerTransform = kerngeo.Translate(w+l1, w, 0).Mul(kerngeo.RotateZ(math.Pi))
+		upperTransform = kerngeo.Translate(0, w+wp, h1+float64(nw)*h).Mul(kerngeo.RotateZ(math.Pi))
+	} else {
+		pLower = kerngeo.NewPoint3(l1, w, h1)
+		pUpper = kerngeo.NewPoint3(l1, w+wp, h1+float64(nw)*h)
+	}
+
+	winders, err := buildWinders(w, h, st, n1, nw, pLower, pUpper)
+	if err != nil {
+		return nil, err
+	}
+
+	solids := make([]*kerngeo.Solid, 0, len(lowerModel.Solids())+len(winders)+len(upperModel.Solids()))
+	for _, s := range lowerModel.Solids() {
+		solids = append(solids, kerngeo.TransformSolid(s, lowerTransform))
+	}
+	solids = append(solids, winders...)
+	for _, s := range upperModel.Solids() {
+		solids = append(solids, kerngeo.TransformSolid(s, upperTransform))
+	}
+	return kerngeo.NewCompound(solids...), nil
+}
+
+// buildWinders строит nw поворотных ступеней — веер на 180° между
+// внутренними ребрами стыка pLower (нижний марш) и pUpper (верхний марш).
+// Веер центрируется в середине отрезка pLower–pUpper; внутренний радиус ri
+// достигает внутренних рёбер обоих маршей, внешний ro = ri + W — их внешних
+// кромок (EDR-0006 §4.8). Каждая ступень — сектор кольца, выдавленный по Z
+// на толщину st, верх на высоте H1 + (k+1)·h (общий подъём h). Роль "winder".
+func buildWinders(w, h, st float64, n1, nw int, pLower, pUpper kerngeo.Point3) ([]*kerngeo.Solid, error) {
+	if nw < 3 {
+		return nil, fmt.Errorf("geometry: winder count must be at least 3")
+	}
+	h1 := float64(n1) * h
+	ox, oy := (pLower.X+pUpper.X)/2, (pLower.Y+pUpper.Y)/2
+	ux, uy := pLower.X-ox, pLower.Y-oy
+	ul := math.Hypot(ux, uy)
+	if ul < kerngeo.Precision {
+		return nil, fmt.Errorf("geometry: degenerate winder pivot")
+	}
+	ux, uy = ux/ul, uy/ul
+	ri := ul     // расстояние от центра веера до внутренних рёбер (половина просвета)
+	ro := ri + w // до внешних кромок маршей
+	a0 := math.Atan2(uy, ux)
+	dth := math.Pi / float64(nw)
+
+	sols := make([]*kerngeo.Solid, 0, nw)
+	for k := 0; k < nw; k++ {
+		aa := a0 + float64(k)*dth
+		ab := aa + dth
+		zTop := h1 + float64(k+1)*h
+		profile := sectorRing(ri, ro, aa, ab, zTop-st)
+		solid, err := kerngeo.Extrude(profile, kerngeo.NewVector3(0, 0, 1), st)
+		if err != nil {
+			return nil, fmt.Errorf("geometry: winder %d: %w", k, err)
+		}
+		solid = kerngeo.TransformSolid(solid, kerngeo.Translate(ox, oy, 0))
+		sols = append(sols, solid.WithRole("winder"))
+	}
+	return sols, nil
 }
 
 // buildLanding строит твёрдое тело горизонтальной прямоугольной плиты

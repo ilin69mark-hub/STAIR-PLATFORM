@@ -96,10 +96,9 @@ func TestBuildLShapeFlightLeftTurnVolume(t *testing.T) {
 	}
 }
 
-// TestBuildUShapeFlightLeftTurn проверяет левосторонний П-оборот: площадка
-// [0,W]×[0,Wp], нижний марш поднимается по −X к правой грани площадки,
-// верхний марш без поворота поднимается по +X от левого края площадки.
-// Габарит: X∈[-40, 2560], Y∈[0, 1900], Z∈[0, 2700].
+// TestBuildUShapeFlightLeftTurn проверяет левосторонний П-оборот: нижний
+// марш вдоль +X, площадка шириной 2W на стыке, верхний марш развёрнут на
+// 180° в полосе Y∈[W,2W]. Габарит: X∈[-810, 2560], Y∈[0, 1800], Z∈[0, 2700].
 func TestBuildUShapeFlightLeftTurn(t *testing.T) {
 	cfg := ushapeConfig(t)
 	cfg.Direction = engineering.TurnLeft
@@ -110,24 +109,24 @@ func TestBuildUShapeFlightLeftTurn(t *testing.T) {
 	if !pointExists(model, kerngeo.NewPoint3(0, 0, 1040)) {
 		t.Fatal("landing bottom corner (0,0,1040) must exist")
 	}
-	if !pointExists(model, kerngeo.NewPoint3(-40, 1000, 1260)) {
-		t.Fatal("upper first tread corner (-40,1000,1260) must exist")
+	if !pointExists(model, kerngeo.NewPoint3(900, 950, 1080)) {
+		t.Fatal("upper first tread corner (900,950,1080) must exist")
 	}
-	if !pointExists(model, kerngeo.NewPoint3(2430, 1900, 2700)) {
-		t.Fatal("upper last tread corner (2430,1900,2700) must exist")
+	if !pointExists(model, kerngeo.NewPoint3(3330, 1800, 2700)) {
+		t.Fatal("upper last tread corner (3330,1800,2700) must exist")
 	}
-	if !pointExists(model, kerngeo.NewPoint3(2560, 900, 0)) {
-		t.Fatal("lower riser front corner (2560,900,0) must exist (flight flipped)")
+	if !pointExists(model, kerngeo.NewPoint3(2560, 850, 0)) {
+		t.Fatal("lower riser front corner (2560,850,0) must exist (flight flipped, inset)")
 	}
 	bb := kerngeo.BoundingBox(model)
-	if !nearlyEqual(bb.Min.X, -40) {
-		t.Fatalf("bbox Min.X = %v, want -40 (upper stringer tail)", bb.Min.X)
+	if !nearlyEqual(bb.Min.X, 0) {
+		t.Fatalf("bbox Min.X = %v, want 0 (landing left edge)", bb.Min.X)
 	}
-	if !nearlyEqual(bb.Max.X, 2560) {
-		t.Fatalf("bbox Max.X = %v, want 2560", bb.Max.X)
+	if !nearlyEqual(bb.Max.X, 3357.73500981) {
+		t.Fatalf("bbox Max.X = %v, want 3357.73500981 (upper stringer tail)", bb.Max.X)
 	}
-	if !nearlyEqual(bb.Max.Y, 1900) {
-		t.Fatalf("bbox Max.Y = %v, want 1900", bb.Max.Y)
+	if !nearlyEqual(bb.Max.Y, 1800) {
+		t.Fatalf("bbox Max.Y = %v, want 1800", bb.Max.Y)
 	}
 	if !nearlyEqual(bb.Max.Z, 2700) {
 		t.Fatalf("bbox Max.Z = %v, want 2700", bb.Max.Z)

@@ -62,8 +62,8 @@ func TestManufactureUShapeParts(t *testing.T) {
 }
 
 // TestManufactureUShapeDimensions проверяет габариты деталей П-марша:
-// нижний косоур 1620×1130×50, верхний 2430×1670×50, проступи 900×310×40,
-// полосы подступенков 200×140 и 400×140×40, площадка 1000×900×40.
+// нижний косоур 1620×1130×50, верхний 2430×1670×50, проступи 850×310×40
+// (марш сужен на flightSideInsetMM), подступенки 850×140×40, площадка 1800×900×40.
 func TestManufactureUShapeDimensions(t *testing.T) {
 	cfg := ushapeConfig(t)
 	res, err := enggeo.Generate(context.Background(), cfg)
@@ -82,13 +82,13 @@ func TestManufactureUShapeDimensions(t *testing.T) {
 		{"STR-02", 1647.73501, 1040},
 		{"STR-03", 2457.73501, 1580},
 		{"STR-04", 2457.73501, 1580},
-		{"TRD-01", 900, 310},
-		{"TRD-07", 1000, 900},
-		{"TRD-08", 900, 310},
-		{"TRD-16", 900, 310},
-		{"RSR-01", 900, 140},
-		{"RSR-02", 900, 140},
-		{"RSR-15", 900, 140},
+		{"TRD-01", 850, 310},
+		{"TRD-07", 1800, 900},
+		{"TRD-08", 850, 310},
+		{"TRD-16", 850, 310},
+		{"RSR-01", 850, 140},
+		{"RSR-02", 850, 140},
+		{"RSR-15", 850, 140},
 	}
 	for _, c := range cases {
 		p := findPart(pkg, c.number)
@@ -138,10 +138,10 @@ func TestManufactureUShapeBOM(t *testing.T) {
 		width    float64
 	}{
 		{"Stringer", 2, 1647.73501, 1040},
-		{"Tread", 15, 900, 310},
+		{"Tread", 15, 850, 310},
 
-		{"Riser", 15, 900, 140},
-		{"Tread", 1, 1000, 900},
+		{"Riser", 15, 850, 140},
+		{"Tread", 1, 1800, 900},
 		{"Stringer", 2, 2457.73501, 1580},
 	}
 	if len(pkg.BOM.Lines) != len(want) {

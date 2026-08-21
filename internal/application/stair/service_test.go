@@ -497,6 +497,45 @@ func referenceUShapeConfig() Config {
 	return cfg
 }
 
+// TestCalculateUShapeWinderPipeline проверяет сквозной конвейер П-образной
+// лестницы в режиме поворотных ступеней (CONF-TURN-KIND=winder): расчёт
+// ветвится на SolveUShapeWinder, геометрия строит веер (роль "winder"),
+// площадки нет.
+func TestCalculateUShapeWinderPipeline(t *testing.T) {
+	s := NewService()
+	cfg := referenceUShapeConfig()
+	cfg.TurnKind = engineering.TurnWinder
+	cfg.WinderCount = 3
+	res, err := s.Calculate(context.Background(), cfg, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Validation.Valid || res.Validation.Blocking {
+		t.Fatalf("expected valid configuration, got %+v", res.Validation)
+	}
+	if res.UShape == nil {
+		t.Fatal("u_shape flight must populate UShape result")
+	}
+	if res.UShape.StepCount != 15 || res.UShape.LowerStepCount != 6 ||
+		res.UShape.WinderCount != 3 || res.UShape.UpperStepCount != 6 {
+		t.Fatalf("split = %d/%d/%d/%d, want 15/6/3/6",
+			res.UShape.StepCount, res.UShape.LowerStepCount,
+			res.UShape.WinderCount, res.UShape.UpperStepCount)
+	}
+	if res.Mesh == nil || len(res.Mesh.Vertices) == 0 {
+		t.Fatal("winder pipeline must produce preview mesh")
+	}
+	// деталей: 4 косоура + 12 проступей + 12 подступенков + 3 поворотные = 31.
+	if res.Package == nil || len(res.Package.Parts) != 31 {
+		t.Fatalf("parts = %d, want 31", len(res.Package.Parts))
+	}
+	// эхо поворота в результате.
+	if res.TurnKind != engineering.TurnWinder || res.WinderCount != 3 {
+		t.Fatalf("result echo TurnKind/WinderCount = %q/%d, want winder/3",
+			res.TurnKind, res.WinderCount)
+	}
+}
+
 func TestCalculateUShapePipeline(t *testing.T) {
 	s := NewService()
 	res, err := s.Calculate(context.Background(), referenceUShapeConfig(), Options{})
@@ -533,8 +572,8 @@ func TestCalculateUShapePipeline(t *testing.T) {
 	if res.Mesh == nil || len(res.Mesh.Vertices) == 0 {
 		t.Fatal("u_shape pipeline must produce preview mesh")
 	}
-	if math.Abs(res.Measurement.Volume-338451360.854) > 1 {
-		t.Fatalf("volume = %v, want 338451360.854", res.Measurement.Volume)
+	if math.Abs(res.Measurement.Volume-353751360.854) > 1 {
+		t.Fatalf("volume = %v, want 353751360.854", res.Measurement.Volume)
 	}
 	if res.Price == nil || res.Price.FinalPrice.Minor() <= 0 {
 		t.Fatal("u_shape pipeline must produce price")
