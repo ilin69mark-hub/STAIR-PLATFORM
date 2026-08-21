@@ -45,12 +45,12 @@ func (r LShapeResult) Apply(cfg *engineering.StairConfiguration) {
 // twoFlightValues — результат решателя марша с площадкой (EDR-0005 §3
 // EDR-0006 §3, общие для L- и П-образного маршей).
 type twoFlightValues struct {
-	n, n1, n2   int
-	h, b, alpha float64
-	h1, h2      float64
-	l1, l2      float64
-	r1, r2      float64
-	wp          float64
+	n, n1, n2, nw int
+	h, b, alpha   float64
+	h1, h2        float64
+	l1, l2        float64
+	r1, r2        float64
+	wp            float64
 }
 
 // solveTwoFlight вычисляет общий для L- и П-образного маршей блок формул
@@ -114,7 +114,85 @@ func solveTwoFlight(H, h0 engineering.Length, n1 int, wp engineering.Length, s .
 	r2 := math.Sqrt(l2*l2 + h2*h2)
 
 	return twoFlightValues{
-		n: n, n1: n1, n2: n2,
+		n: n, n1: n1, n2: n2, nw: 0,
+		h: h, b: b, alpha: alpha,
+		h1: h1, h2: h2,
+		l1: l1, l2: l2,
+		r1: r1, r2: r2,
+		wp: wpm,
+	}, nil
+}
+
+// solveUShapeWinder вычисляет блок формул для П-образного марша с
+// поворотными ступенями (EDR-0006 §4, поворот на 180°): общие n1/nw/n2,
+// h, b, α, высоты/длины секций, косоуры, Wp (ширина просвета). Число
+// поворотных ступеней nw входит в общее число ступеней n = n1 + nw + n2.
+// Инвариант §7: 1 ≤ n1, nw ≥ 3, n2 ≥ 1.
+func solveUShapeWinder(H, h0 engineering.Length, n1, nw int, wp engineering.Length, s ...float64) (twoFlightValues, error) {
+	var step float64
+	if len(s) > 0 {
+		step = s[0]
+	} else {
+		step = DefaultComfortStep
+	}
+
+	hm := H.Millimeters()
+	if hm <= 0 {
+		return twoFlightValues{}, riseInputError()
+	}
+	h0m := h0.Millimeters()
+	if h0m <= 0 {
+		return twoFlightValues{}, riserInputError()
+	}
+	wpm := wp.Millimeters()
+	if wpm <= 0 {
+		return twoFlightValues{}, landingPositiveError()
+	}
+	if step < ComfortStepMin || step > ComfortStepMax {
+		return twoFlightValues{}, comfortInputError(step)
+	}
+
+	// §4.1 число ступеней; поворотные ступени входят в общее число.
+	n := int(math.Round(hm / h0m))
+	if n < 1 {
+		return twoFlightValues{}, noFlightInputError(hm)
+	}
+
+	// §4.5 разбивка по маршам и повороту: 1 ≤ n1, nw ≥ 3, n2 ≥ 1.
+	if n1 < 1 || n1 > n-1 {
+		return twoFlightValues{}, lowerStepInputError(n1, n)
+	}
+	if nw < 3 {
+		return twoFlightValues{}, winderCountInputError(nw)
+	}
+	n2 := n - n1 - nw
+	if n2 < 1 {
+		return twoFlightValues{}, upperStepInputError(n2, n, nw)
+	}
+
+	// §4.2 уточнённая высота ступени (общая для прямых и поворотных).
+	h := hm / float64(n)
+	// §4.3 проступь (общая).
+	b := step - 2*h
+	if b <= 0 {
+		return twoFlightValues{}, treadPositiveError(b)
+	}
+	// §4.4 угол наклона (общий).
+	alpha := math.Atan(h / b)
+
+	// §4.5 высоты секций: нижний марш n1·h, поворот nw·h, верхний n2·h.
+	h1 := float64(n1) * h
+	h2 := float64(n2) * h
+	// §4.6 длины маршей по горизонтали (поворотные ступени не добавляют
+	// прямого пробега — они занимают поворот).
+	l1 := float64(n1) * b
+	l2 := float64(n2) * b
+	// §4.7 длины косоуров.
+	r1 := math.Sqrt(l1*l1 + h1*h1)
+	r2 := math.Sqrt(l2*l2 + h2*h2)
+
+	return twoFlightValues{
+		n: n, n1: n1, n2: n2, nw: nw,
 		h: h, b: b, alpha: alpha,
 		h1: h1, h2: h2,
 		l1: l1, l2: l2,

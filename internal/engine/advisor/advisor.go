@@ -34,7 +34,11 @@ type Input struct {
 	ComfortMm float64
 	// LowerStepCount — число ступеней нижнего марша (для L/U), n1.
 	LowerStepCount int
-	LandingMm      float64 // Wp — ширина площадки (для L/U)
+	// TurnKind — тип поворота (площадка/поворотные ступени, только U).
+	TurnKind engineering.TurnKind
+	// WinderCount — число поворотных ступеней (для U в режиме поворота).
+	WinderCount int
+	LandingMm float64 // Wp — ширина площадки/просвета (для L/U)
 	// WidthMm — ширина марша W (для спирали: зазор от колонны до кромки).
 	WidthMm float64
 	// OuterRadiusMm — наружный радиус спирали R (для спирали).
@@ -199,6 +203,51 @@ func geometry(in Input, set *constraint.ConstraintSet) (out []validation.Suggest
 
 	for n := nStart; n <= nEnd && len(out) < MaxSuggestions; n++ {
 		target := engineering.Length(in.HeightMm / float64(n))
+		if in.Flight == engineering.FlightUShape && in.TurnKind == engineering.TurnWinder {
+			// П-образный с поворотными ступенями: перебираем n1 и число
+			// поворотных ступеней nw (≥3), решатель учитывает их в общем n.
+			if in.LandingMm <= 0 {
+				break
+			}
+			for _, n1 := range lowerCandidates(in, n) {
+				for _, nw := range winderCandidates(in, n, n1) {
+					res, err := solver.SolveUShapeWinder(
+						engineering.Length(in.HeightMm), target, n1, nw,
+						engineering.Length(in.LandingMm), in.ComfortMm)
+					if err != nil {
+						continue
+					}
+					if !passes(in, set, res.StepCount, res.StepHeight, res.TreadDepth, res.Angle) {
+						continue
+					}
+					anyPass = true
+					rects := [][2]float64{
+						{res.LowerRun.Millimeters(), enggeo.StringerExtent(res.LowerHeight.Millimeters(), in.StepThicknessMm)},
+						{res.UpperRun.Millimeters(), enggeo.StringerExtent(res.UpperHeight.Millimeters(), in.StepThicknessMm)},
+					}
+					if !firstPass {
+						worst = largestRect(rects)
+						firstPass = true
+					}
+					if !manufactureFeasible(in, rects...) {
+						continue
+					}
+					it := validation.Suggestion{
+						StepCount: res.StepCount, LowerStepCount: res.LowerStepCount,
+						WinderCount:    res.WinderCount,
+						StepHeightMm:   res.StepHeight.Millimeters(),
+						TreadDepthMm:   res.TreadDepth.Millimeters(),
+						AngleDeg:       res.Angle.Degrees(),
+					}
+					iid := fmt.Sprintf("s%d-%d-w%d", res.StepCount, res.LowerStepCount, res.WinderCount)
+					if !seen[iid] {
+						seen[iid] = true
+						out = append(out, it)
+					}
+				}
+			}
+			continue
+		}
 		if in.Flight == engineering.FlightLShape || in.Flight == engineering.FlightUShape {
 			if in.LandingMm <= 0 {
 				break
@@ -451,6 +500,27 @@ func lowerCandidates(in Input, n int) []int {
 	var seq []int
 	for _, v := range []int{orig, orig - 1, orig + 1, orig - 2, orig + 2} {
 		if v < 1 || v > n-1 || seen[v] {
+			continue
+		}
+		seen[v] = true
+		seq = append(seq, v)
+	}
+	return seq
+}
+
+// winderCandidates — порядок перебора числа поворотных ступеней nw для
+// варианта с n ступенями и нижним маршем n1: сначала исходное (≥3), затем
+// вокруг; отбрасываем значения, оставляющие верхнему маршу <1 ступени
+// (n2 = n − n1 − nw ≥ 1).
+func winderCandidates(in Input, n, n1 int) []int {
+	orig := in.WinderCount
+	if orig < 3 {
+		orig = 3
+	}
+	seen := map[int]bool{}
+	var seq []int
+	for _, v := range []int{orig, orig + 1, orig - 1, orig + 2, orig - 2} {
+		if v < 3 || n-n1-v < 1 || seen[v] {
 			continue
 		}
 		seen[v] = true

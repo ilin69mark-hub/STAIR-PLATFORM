@@ -184,3 +184,44 @@ func TestSolveCheckedUShapeBlockingRollback(t *testing.T) {
 		t.Fatal("returned UShapeResult must still hold computed values")
 	}
 }
+
+// TestSolveUShapeWinder проверяет расчёт П-образной лестницы с поворотными
+// ступенями: n = round(H/h0), n2 = n − n1 − nw ≥ 1, h/b/α общие для прямых
+// и поворотных ступеней (EDR-0006 §4).
+func TestSolveUShapeWinder(t *testing.T) {
+	res, err := SolveUShapeWinder(mustLength(t, 2700), mustLength(t, 180), 6, 3, mustLength(t, 1000), 630)
+	if err != nil {
+		t.Fatalf("solve error: %v", err)
+	}
+	if res.StepCount != 15 {
+		t.Fatalf("n = %d, want 15", res.StepCount)
+	}
+	if res.LowerStepCount != 6 || res.WinderCount != 3 || res.UpperStepCount != 6 {
+		t.Fatalf("split = %d/%d/%d, want 6/3/6", res.LowerStepCount, res.WinderCount, res.UpperStepCount)
+	}
+	if !nearlyEqual(res.StepHeight.Millimeters(), 180) {
+		t.Fatalf("h = %v, want 180", res.StepHeight.Millimeters())
+	}
+	if !nearlyEqual(res.TreadDepth.Millimeters(), 270) {
+		t.Fatalf("b = %v, want 270", res.TreadDepth.Millimeters())
+	}
+	if !nearlyEqual(res.Angle.Degrees(), math.Atan2(180, 270)*180/math.Pi) {
+		t.Fatalf("angle = %v, want atan(180/270)", res.Angle.Degrees())
+	}
+	if !nearlyEqual(res.LowerHeight.Millimeters(), 1080) || !nearlyEqual(res.UpperHeight.Millimeters(), 1080) {
+		t.Fatalf("H1/H2 = %v/%v, want 1080/1080", res.LowerHeight.Millimeters(), res.UpperHeight.Millimeters())
+	}
+	if res.LandingWidth.Millimeters() != 1000 {
+		t.Fatalf("landing width = %v, want 1000 (well width, winder mode)", res.LandingWidth.Millimeters())
+	}
+}
+
+// TestSolveUShapeWinderErrors — инвариант §7: nw ≥ 3 и n2 ≥ 1.
+func TestSolveUShapeWinderErrors(t *testing.T) {
+	if _, err := SolveUShapeWinder(mustLength(t, 2700), mustLength(t, 180), 6, 2, mustLength(t, 1000), 630); err == nil {
+		t.Fatal("winder count < 3 must be rejected")
+	}
+	if _, err := SolveUShapeWinder(mustLength(t, 2700), mustLength(t, 180), 6, 12, mustLength(t, 1000), 630); err == nil {
+		t.Fatal("winder count leaving no upper flight (n2<1) must be rejected")
+	}
+}

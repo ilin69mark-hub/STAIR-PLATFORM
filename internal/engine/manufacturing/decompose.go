@@ -134,7 +134,7 @@ func roleKind(role string) (dommfg.PartKind, bool) {
 	switch role {
 	case "stringer":
 		return dommfg.PartStringer, true
-	case "tread", "landing":
+	case "tread", "landing", "winder":
 		return dommfg.PartTread, true
 	case "riser":
 		return dommfg.PartRiser, true

@@ -474,3 +474,43 @@ func TestAdviseSpiralGuideFromRuleTemplate(t *testing.T) {
 		t.Fatalf("spiral guide must mention the violated value: %q", issue.Guide)
 	}
 }
+
+// TestAdviseUShapeWinderSuggestions проверяет, что для П-образного марша в
+// режиме поворотных ступеней (CONF-TURN-KIND=winder) советник предлагает
+// варианты с WinderCount ≥ 3, и эти варианты проходят все нормы.
+func TestAdviseUShapeWinderSuggestions(t *testing.T) {
+	set := standard()
+	cfg := &engineering.StairConfiguration{
+		Height: 2700, StepHeight: 230, Flight: engineering.FlightUShape,
+		LowerStepCount: 5, LandingWidth: 1000, Width: 900,
+		TurnKind: engineering.TurnWinder, WinderCount: 3,
+		Clearance: 2100, RailingHeight: 900, StringerThickness: 40,
+	}
+	_, vr, err := solver.SolveCheckedUShape(cfg, set, solver.DefaultComfortStep)
+	if err != nil {
+		t.Fatalf("SolveCheckedUShape: %v", err)
+	}
+	in := inStraight(2700, 230)
+	in.Flight = engineering.FlightUShape
+	in.TurnKind = engineering.TurnWinder
+	in.LowerStepCount = 5
+	in.WinderCount = 3
+	in.LandingMm = 1000
+
+	got := Advise(in, set, vr)
+	found := false
+	for _, it := range got.Issues {
+		for _, s := range it.Suggestions {
+			if s.WinderCount < 3 {
+				continue
+			}
+			found = true
+			if !normOK(set, s) {
+				t.Fatalf("winder suggestion %+v must pass all norms", s)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no winder suggestions (WinderCount ≥ 3) produced for U-shape winder mode")
+	}
+}

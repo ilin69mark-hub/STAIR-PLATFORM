@@ -39,8 +39,13 @@ type Config struct {
 	RailingHeight engineering.Length // мм
 	// LandingWidth и LowerStepCount — специфичны для маршей с площадкой
 	// (EDR-0005 L-образный, EDR-0006 П-образный).
-	LandingWidth   engineering.Length // мм — ширина площадки Wp
+	LandingWidth   engineering.Length // мм — ширина площадки Wp (платформа) либо просвета (поворот)
 	LowerStepCount int                // n1 — число ступеней нижнего марша
+	// TurnKind — тип поворота для маршей с площадкой (L/U): площадка
+	// (platform, по умолчанию) либо поворотные ступени (winder, только U).
+	TurnKind engineering.TurnKind
+	// WinderCount — число поворотных ступеней (только TurnWinder, U-образный).
+	WinderCount int
 	// OuterRadius — специфичен для спиральной лестницы (EDR-0007):
 	// наружный радиус марша R (радиус колонны r = R − W).
 	OuterRadius engineering.Length
@@ -94,6 +99,9 @@ type Result struct {
 	RailingUpper   engineering.RailingSide
 	Direction      engineering.TurnDirection
 	SpiralDir      engineering.SpiralDirection
+	// Эхо поворота (CONF-TURN-KIND): тип поворота и число поворотных ступеней.
+	TurnKind    engineering.TurnKind
+	WinderCount int
 }
 
 // Service — прикладной сервис расчёта лестницы. Является единственной
@@ -157,6 +165,8 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 		TargetStepMm:    cfg.StepHeight.Millimeters(),
 		ComfortMm:       comfort,
 		LowerStepCount:  cfg.LowerStepCount,
+		TurnKind:        cfg.TurnKind,
+		WinderCount:     cfg.WinderCount,
 		LandingMm:       cfg.LandingWidth.Millimeters(),
 		WidthMm:         cfg.Width.Millimeters(),
 		OuterRadiusMm:   cfg.OuterRadius.Millimeters(),
@@ -293,6 +303,8 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	res.RailingUpper = c.RailingUpper
 	res.Direction = c.Direction
 	res.SpiralDir = c.SpiralDirection
+	res.TurnKind = c.TurnKind
+	res.WinderCount = c.WinderCount
 	return res, nil
 }
 
@@ -374,6 +386,8 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 	c.RailingHeight = cfg.RailingHeight
 	c.LandingWidth = cfg.LandingWidth
 	c.LowerStepCount = cfg.LowerStepCount
+	c.TurnKind = cfg.TurnKind
+	c.WinderCount = cfg.WinderCount
 	c.OuterRadius = cfg.OuterRadius
 	c.Material = string(cfg.Material)
 	c.Railing = cfg.Railing

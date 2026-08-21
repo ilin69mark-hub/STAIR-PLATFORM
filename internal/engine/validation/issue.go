@@ -13,6 +13,7 @@ import "stairplatform/internal/engine/constraint"
 type Suggestion struct {
 	StepCount      int     // n — общее число ступеней
 	LowerStepCount int     // n1 — число ступеней нижнего марша (0 для прямого/спирали)
+	WinderCount    int     // nw — число поворотных ступеней (0 для площадки/прямого/спирали)
 	StepHeightMm   float64 // h — высота ступени
 	TreadDepthMm   float64 // b — проступь
 	AngleDeg       float64 // α — угол наклона, градусы

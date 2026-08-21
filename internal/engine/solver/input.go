@@ -133,6 +133,28 @@ func lowerStepInputError(n1, n int) *InputError {
 	)
 }
 
+// winderCountInputError — число поворотных ступеней меньше 3.
+func winderCountInputError(nw int) *InputError {
+	return minError(
+		constraint.GEO_LOWER_STEP, "Поворотных ступеней",
+		float64(nw), 3,
+		"Число поворотных ступеней должно быть не менее 3",
+		fmt.Sprintf("Число поворотных ступеней %d, нужно не менее 3 для устойчивого поворота на 180°.", nw),
+		"Задайте число поворотных ступеней 3 или больше",
+	)
+}
+
+// upperStepInputError — верхний марш не содержит ступеней после разбивки
+// (n1 + nw съедают все ступени; нужно n2 ≥ 1).
+func upperStepInputError(n2, n, nw int) *InputError {
+	return inputError(
+		constraint.GEO_LOWER_STEP, "Нижних/поворотных ступеней",
+		"Верхний марш не содержит ступеней",
+		fmt.Sprintf("После разбивки нижний марш и поворотные ступени занимают все %d ступеней, верхнему не остаётся места. Уменьшите число нижних (n1) или поворотных (nw=%d) ступеней.", n, nw),
+		"Уменьшите число нижних или поворотных ступеней",
+	)
+}
+
 // landingNarrowError — площадка уже ширины марша (инвариант Wp ≥ W).
 func landingNarrowError(wp, width float64) *InputError {
 	return minError(

@@ -47,6 +47,25 @@ func (d TurnDirection) Valid() bool {
 	return d == TurnLeft || d == TurnRight
 }
 
+// TurnKind — тип поворота маршей с площадкой (L/U): площадка (платформа)
+// либо поворотные ступени (EDR-0006 §4, поворот на 180° для U-образного).
+// Пустое значение трактуется как TurnPlatform (обратная совместимость).
+type TurnKind string
+
+const (
+	TurnPlatform TurnKind = "platform" // площадка (по умолчанию)
+	TurnWinder   TurnKind = "winder"   // поворотные ступени (только U-образный)
+)
+
+// Valid — допускает ли значение тип поворота.
+func (k TurnKind) Valid() bool {
+	switch k {
+	case TurnPlatform, TurnWinder, "":
+		return true
+	}
+	return false
+}
+
 // SpiralDirection — направление закрутки спиральной лестницы
 // (CONF-SPIRAL-DIRECTION): по часовой (cw) или против часовой (ccw)
 // стрелки при виде сверху.
@@ -97,6 +116,17 @@ type StairConfiguration struct {
 	// Flight == FlightLShape || Flight == FlightUShape.
 	LowerStepCount int
 	LandingWidth   Length
+	// TurnKind — тип поворота для маршей с площадкой (L/U): площадка
+	// (TurnPlatform) либо поворотные ступени (TurnWinder, только U-образный,
+	// EDR-0006 §4). Пустое значение — площадка (обратная совместимость).
+	// Для TurnWinder поле LandingWidth трактуется как ширина просвета
+	// (well width) между двумя маршами, а число поворотных ступеней задаёт
+	// WinderCount.
+	TurnKind TurnKind
+	// WinderCount — число поворотных ступеней (только TurnWinder, U-образный).
+	// Каждая поворотная ступень поднимает на ту же высоту h, что и прямые
+	// марши; общее число ступеней n = LowerStepCount + WinderCount + верхних.
+	WinderCount int
 	// Спиральная лестница (EDR-0007): наружный радиус марша R. Радиус
 	// колонны r = R − Width. Используется только при Flight == FlightSpiral.
 	OuterRadius Length
@@ -159,12 +189,29 @@ func (c *StairConfiguration) Validate() error {
 	if c.LandingWidth.Millimeters() < 0 {
 		return fmt.Errorf("stair: landing width must not be negative")
 	}
+	if c.TurnKind != "" && !c.TurnKind.Valid() {
+		return fmt.Errorf("stair: invalid turn kind (platform|winder)")
+	}
 	if (c.Flight == FlightLShape || c.Flight == FlightUShape) && c.StepCount > 1 {
-		if c.LandingWidth.Millimeters() < c.Width.Millimeters() {
-			return fmt.Errorf("stair: landing width must be at least the flight width for %s", c.Flight)
-		}
-		if c.LowerStepCount < 1 || c.LowerStepCount >= c.StepCount {
-			return fmt.Errorf("stair: lower step count must be in [1, %d] for %s", c.StepCount-1, c.Flight)
+		if c.TurnKind == TurnWinder {
+			// Поворотные ступени: LandingWidth — ширина просвета между
+			// маршами (Wp>0), число поворотных ступеней WinderCount≥3.
+			if c.WinderCount < 3 {
+				return fmt.Errorf("stair: winder count must be at least 3 for %s", c.Flight)
+			}
+			if c.LandingWidth.Millimeters() <= 0 {
+				return fmt.Errorf("stair: well width must be positive for winder %s", c.Flight)
+			}
+			if c.LowerStepCount < 1 || c.LowerStepCount >= c.StepCount {
+				return fmt.Errorf("stair: lower step count must be in [1, %d] for %s", c.StepCount-1, c.Flight)
+			}
+		} else {
+			if c.LandingWidth.Millimeters() < c.Width.Millimeters() {
+				return fmt.Errorf("stair: landing width must be at least the flight width for %s", c.Flight)
+			}
+			if c.LowerStepCount < 1 || c.LowerStepCount >= c.StepCount {
+				return fmt.Errorf("stair: lower step count must be in [1, %d] for %s", c.StepCount-1, c.Flight)
+			}
 		}
 	}
 	if c.Flight == FlightSpiral {
