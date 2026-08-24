@@ -346,6 +346,219 @@ func TestBuildRailingDecorLShape(t *testing.T) {
 	}
 }
 
+// TestBuildLShapeLandingRailingOpensPassage проверяет, что перила площадки
+// L-образного марша (платформенный режим) НЕ перекрывают проходы: дальняя
+// кромка площадки (Y=Wp, откуда верхний марш уходит вдоль +Y) остаётся
+// открытой, и участок боковой кромки марша Y∈[0,W] (проход к нижнему маршу)
+// тоже открыт. Число сегментов поручня: «Г» (2) при Wp==W и «[» (3) при
+// Wp>W (тогда огораживается и верхний участок боковой кромки Y∈[W,Wp]).
+// Проверяем оба направления поворота (CONF-DIRECTION): правый и зеркальный
+// левый.
+func TestBuildLShapeLandingRailingOpensPassage(t *testing.T) {
+	for _, dir := range []engineering.TurnDirection{engineering.TurnRight, engineering.TurnLeft} {
+		cfg := lshapeConfig(t)
+		cfg.Direction = dir
+		w := cfg.Width.Millimeters()
+		wp := cfg.LandingWidth.Millimeters()
+		rh := 900.0
+		h1 := float64(cfg.LowerStepCount) * cfg.StepHeight.Millimeters()
+		b := cfg.TreadDepth.Millimeters()
+		l1 := float64(cfg.LowerStepCount) * b
+		left := dir == engineering.TurnLeft
+		x0 := l1
+		if left {
+			x0 = 0
+		}
+		// closeFar=false — L-образный марш: дальняя кромка Y=wp открыта.
+		sols := landingRailingSolids(w, wp, rh, h1, b, x0, left, false, engineering.RailingBoth)
+
+		rails := 0
+		for _, s := range sols {
+			if s.Role() == roleRailing {
+				rails++
+			}
+		}
+		wantRails := 2
+		if wp > w {
+			wantRails = 3
+		}
+		if rails != wantRails {
+			t.Fatalf("%s: landing handrail segments = %d, want %d (Wp=%v W=%v)",
+				dir, rails, wantRails, wp, w)
+		}
+		// Ни один поручень не должен быть центрирован на дальней кромке
+		// Y=wp (проход к верхнему маршу). Допуск — половина толщины
+		// поручня.
+		const tol = railThickness / 2
+		for _, s := range sols {
+			if s.Role() != roleRailing {
+				continue
+			}
+			bb := boundingBoxOf([]*kerngeo.Solid{s})
+			cy := (bb.Min.Y + bb.Max.Y) / 2
+			if math.Abs(cy-wp) < tol {
+				t.Fatalf("%s: landing handrail centered at Y=%v (~Wp=%v), blocks passage to upper flight",
+					dir, cy, wp)
+			}
+		}
+		// Проход к нижнему маршу: на боковой кромке марша (X=x0 / X=w)
+		// поручень не должен лежать в полосе Y∈[0,W] (центр Y<=W по
+		// допуску). Верхний участок Y∈[W,Wp] при Wp>W — огорожен и тут
+		// проверяется отдельным тестом.
+		flightX := x0
+		if left {
+			flightX = w
+		}
+		for _, s := range sols {
+			if s.Role() != roleRailing {
+				continue
+			}
+			bb := boundingBoxOf([]*kerngeo.Solid{s})
+			cx := (bb.Min.X + bb.Max.X) / 2
+			if math.Abs(cx-flightX) < tol {
+				// поручень на боковой кромке марша: он должен быть
+				// смещён к верхнему участку (центр Y>=W), иначе
+				// перекрывает проход к нижнему маршу.
+				cy := (bb.Min.Y + bb.Max.Y) / 2
+				if cy < w-tol {
+					t.Fatalf("%s: landing handrail on flight-side edge at Y=%v (<W=%v) blocks lower-flight passage",
+						dir, cy, w)
+				}
+			}
+		}
+	}
+}
+
+// TestBuildLShapeLandingRailingFullPerimeter проверяет, что при LandingWidth>W
+// («площадка больше марша») площадка L-образного марша огораживается по всему
+// открытому периметру без пропущенных кусков: на боковой кромке марша
+// (X=x0 для правого / X=w для левого поворота) есть поручень, охватывающий
+// весь внешний участок Y∈[W,Wp]; проходы к маршам (Y=wp и Y∈[0,W] на
+// боковой кромке) при этом остаются открытыми.
+func TestBuildLShapeLandingRailingFullPerimeter(t *testing.T) {
+	for _, dir := range []engineering.TurnDirection{engineering.TurnRight, engineering.TurnLeft} {
+		cfg := lshapeConfig(t)
+		cfg.Direction = dir
+		w := cfg.Width.Millimeters()
+		wp := cfg.LandingWidth.Millimeters()
+		if wp <= w {
+			t.Fatalf("test needs Wp>W (got Wp=%v W=%v)", wp, w)
+		}
+		rh := 900.0
+		h1 := float64(cfg.LowerStepCount) * cfg.StepHeight.Millimeters()
+		b := cfg.TreadDepth.Millimeters()
+		l1 := float64(cfg.LowerStepCount) * b
+		left := dir == engineering.TurnLeft
+		x0 := l1
+		if left {
+			x0 = 0
+		}
+		sols := landingRailingSolids(w, wp, rh, h1, b, x0, left, false, engineering.RailingBoth)
+
+		flightX := x0
+		if left {
+			flightX = w
+		}
+		// ищем поручень, центрированный на боковой кромке марша (X≈flightX)
+		// и охватывающий верхний участок Y∈[w,wp] (его bbox достигает
+		// Y, близкого к wp).
+		const tol = railThickness / 2
+		found := false
+		for _, s := range sols {
+			if s.Role() != roleRailing {
+				continue
+			}
+			bb := boundingBoxOf([]*kerngeo.Solid{s})
+			cx := (bb.Min.X + bb.Max.X) / 2
+			if math.Abs(cx-flightX) >= tol {
+				continue
+			}
+			// поручень на боковой кромке: должен охватывать Y∈[w,wp]
+			if bb.Min.Y <= w+tol && bb.Max.Y >= wp-tol {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%s: no landing handrail encloses flight-side edge Y∈[W,Wp] (Wp=%v W=%v) — gap remains",
+				dir, wp, w)
+		}
+	}
+}
+
+// TestBuildLShapeLandingRailingSides проверяет, что выбор стороны перил
+// площадки L-образного марша работает: RailingRight — только правая вертикаль
+// (большая X), RailingLeft — только левая (меньшая X), RailingBoth — весь
+// открытый периметр. Выбор по плану, зеркально для левого поворота. Проходы
+// (Y=wp к верхнему маршу и Y∈[0,W] к нижнему на пристеночной вертикали)
+// остаются открытыми.
+func TestBuildLShapeLandingRailingSides(t *testing.T) {
+	for _, dir := range []engineering.TurnDirection{engineering.TurnRight, engineering.TurnLeft} {
+		cfg := lshapeConfig(t)
+		cfg.Direction = dir
+		w := cfg.Width.Millimeters()
+		wp := cfg.LandingWidth.Millimeters()
+		rh := 900.0
+		h1 := float64(cfg.LowerStepCount) * cfg.StepHeight.Millimeters()
+		b := cfg.TreadDepth.Millimeters()
+		l1 := float64(cfg.LowerStepCount) * b
+		left := dir == engineering.TurnLeft
+		leftEdgeX, rightEdgeX := 0.0, w
+		if !left {
+			leftEdgeX, rightEdgeX = l1, l1+w
+		}
+		const tol = railThickness / 2
+
+		checkOneSide := func(side engineering.RailingSide, expectX float64) {
+			sols := landingRailingSolids(w, wp, rh, h1, b, l1, left, false, side)
+			rails := 0
+			for _, s := range sols {
+				if s.Role() == roleRailing {
+					rails++
+				}
+			}
+			if rails != 1 {
+				t.Fatalf("%s/%s: landing handrail segments = %d, want 1 (single side)", dir, side, rails)
+			}
+			// единственный поручень центрирован на нужной вертикали
+			for _, s := range sols {
+				if s.Role() != roleRailing {
+					continue
+				}
+				bb := boundingBoxOf([]*kerngeo.Solid{s})
+				cx := (bb.Min.X + bb.Max.X) / 2
+				if math.Abs(cx-expectX) >= tol {
+					t.Fatalf("%s/%s: handrail centered at X=%v, want ~%v", dir, side, cx, expectX)
+				}
+				// не перекрывает проход к верхнему маршу (Y=wp)
+				cy := (bb.Min.Y + bb.Max.Y) / 2
+				if math.Abs(cy-wp) < tol {
+					t.Fatalf("%s/%s: handrail centered at Y=%v (~Wp), blocks upper-flight passage", dir, side, cy)
+				}
+			}
+		}
+		checkOneSide(engineering.RailingRight, rightEdgeX)
+		checkOneSide(engineering.RailingLeft, leftEdgeX)
+
+		// RailingBoth — полный периметр (низ + 2 вертикали; для Wp>W
+		// левая/правая вертикали могут быть короче из-за проходов).
+		both := landingRailingSolids(w, wp, rh, h1, b, l1, left, false, engineering.RailingBoth)
+		bothRails := 0
+		for _, s := range both {
+			if s.Role() == roleRailing {
+				bothRails++
+			}
+		}
+		wantBoth := 2
+		if wp > w {
+			wantBoth = 3
+		}
+		if bothRails != wantBoth {
+			t.Fatalf("%s: RailingBoth landing handrail segments = %d, want %d", dir, bothRails, wantBoth)
+		}
+	}
+}
+
 // TestBuildRailingDecorSpiral проверяет сторону перил спирали по её
 // направлению (CONF-SPIRAL-RAILING): перила на открытой кромке.
 func TestBuildRailingDecorSpiral(t *testing.T) {

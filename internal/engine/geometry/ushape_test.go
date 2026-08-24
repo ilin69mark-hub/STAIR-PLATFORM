@@ -443,13 +443,20 @@ func TestBuildUShapeLandingRailingIsU(t *testing.T) {
 			t.Fatal(err)
 		}
 		rails := 0
+		balusters := 0
 		for _, s := range decor {
-			if s.Role() == roleRailing {
+			switch s.Role() {
+			case roleRailing:
 				rails++
+			case roleBaluster:
+				balusters++
 			}
 		}
 		if rails != 3 {
 			t.Fatalf("%s: landing railing segments = %d, want 3 (П contour)", dir, rails)
+		}
+		if balusters == 0 {
+			t.Fatalf("%s: landing railing must have support balusters (like flights)", dir)
 		}
 		bb := kerngeo.BoundingBox(kerngeo.NewCompound(decor...))
 		// центральная линия поручня проходит по Y=0 и Y=2W=1800; тело

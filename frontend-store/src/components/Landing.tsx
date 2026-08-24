@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { consultationsApi, testimonialsApi } from '../api/store'
 import { apiErrorMessage } from '../auth/errors'
 import type { TestimonialDTO } from '@shared/types'
+import { HeroScene } from './HeroScene'
 
 interface Props {
   onStart: () => void
@@ -41,6 +42,7 @@ export function Landing({ onStart }: Props) {
             Рассчитать стоимость
           </button>
         </div>
+        <HeroScene />
       </section>
 
       <section className="features">

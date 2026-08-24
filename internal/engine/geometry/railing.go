@@ -177,37 +177,136 @@ func straightRailingSolids(n int, b, h, rh, w float64, side engineering.RailingS
 	return sols
 }
 
-// landingRailingSolids строит горизонтальный поручень-«П» вдоль открытых
-// кромок площадки (CONF-RAILING сегмент «площадка»). Открытая сторона — та,
-// где марши примыкают к площадке (X=x0 для правого поворота, X=w для
-// левого). Правосторонний поворот: от (x0,0) по нижней кромке к (x0+w,0), по
-// правой кромке к (x0+w,wp) и по дальней короткой кромке к (x0,wp); левый —
-// зеркально. Поручень на высоте h1+rh. Стойки на площадке не строим
-// (декоративный упрощённый контур; уточнить при визуальной проверке).
-func landingRailingSolids(w, wp, rh, h1 float64, x0 float64, left bool) []*kerngeo.Solid {
+// landingRailingSolids строит горизонтальный поручень вдоль открытых
+// кромок площадки (CONF-RAILING сегмент «площадка») и опорные стойки под ним.
+// Поручень на высоте h1+rh; стойки (балясины) — вертикальные бруски с тем же
+// шагом b, что на маршах, от поверхности площадки (z=h1) до поручня (h1+rh).
+//
+// Края площадки в плане: leftEdgeX (меньшая X) и rightEdgeX (большая X);
+// rightEdgeX-leftEdgeX = w (ширина марша). «Лево»/«право» перил площадки
+// выбираются ПО ПЛАНУ: RailingLeft — левая вертикаль (leftEdgeX), RailingRight
+// — правая (rightEdgeX), RailingBoth — обе вертикали + низ (весь открытый
+// периметр). Это согласуется с «лево/право» при движении по площадке к
+// верхнему маршу и зеркально для левого поворота.
+//
+// closeFar управляет дальней кромкой (Y=wp), откуда верхний марш уходит
+// вдоль +Y. Для П-образного марша (closeFar=true) площадка охватывает 2·W и
+// оба марша примыкают к одной боковой кромке, поэтому строим «П» (низ +
+// внешний бок + дальняя кромка), выбор стороны (side) не учитывается.
+// Для L-образного (closeFar=false) верхний марш отходит от дальней кромки,
+// поэтому её оставляем открытой. Нижний марш примыкает к площадке по одной
+// из вертикалей ровно на ширину w, так что на этой кромке Y∈[0,w] — проход,
+// а участок Y∈[w,wp] (если wp>w) — внешний и тоже огораживается. Проход к
+// нижнему маршу (Y∈[0,w] на пристеночной вертикали) и к верхнему (Y=wp)
+// остаются открытыми при любом выборе стороны.
+func landingRailingSolids(w, wp, rh, h1, b float64, x0 float64, left, closeFar bool, side engineering.RailingSide) []*kerngeo.Solid {
 	if rh <= 0 {
 		return nil
 	}
-	var corners []kerngeo.Point3
+	zRail := h1 + rh
+	zBase := h1
+	// Контур охватывает ВСЕ внешние кромки площадки, кроме кромок-проходов
+	// (где примыкают марши). Это гарантирует, что при LandingWidth > Width
+	// («площадка больше марша») на площадке не остаётся неогороженных
+	// кусков. Каждый сегмент — пара точек поручня (z=zRail) и базы стойки
+	// (z=zBase) с теми же (x,y).
+	//
+	// Нижний марш примыкает к площадке по боковой кромке (X=x0 для правого
+	// поворота, X=w для левого) ровно на ширину марша w, поэтому на этой
+	// кромке Y∈[0,w] — проход, а участок Y∈[w,wp] (если wp>w) — внешний и
+	// тоже огораживается. Дальняя кромка Y=wp — проход к верхнему маршу
+	// (L-марш, closeFar=false) и остаётся открытой; для П-марша (closeFar)
+	// она, наоборот, входит в контур «П».
+	type seg [2]kerngeo.Point3
+	var top, base []seg
+	add := func(ax, ay, bx, by float64) {
+		top = append(top, seg{
+			kerngeo.NewPoint3(ax, ay, zRail),
+			kerngeo.NewPoint3(bx, by, zRail),
+		})
+		base = append(base, seg{
+			kerngeo.NewPoint3(ax, ay, zBase),
+			kerngeo.NewPoint3(bx, by, zBase),
+		})
+	}
+	// Края площадки в плане (rightEdgeX-leftEdgeX = w).
+	leftEdgeX, rightEdgeX := 0.0, w
+	if !left {
+		leftEdgeX, rightEdgeX = x0, x0+w
+	}
+	// flightSideX — вертикаль, к которой примыкает нижний марш; на ней
+	// Y∈[0,w] — проход, остальное (Y∈[w,wp]) при wp>w — внешний участок,
+	// который при выборе этой стороны тоже огораживается.
+	flightSideX := leftEdgeX
 	if left {
-		corners = []kerngeo.Point3{
-			kerngeo.NewPoint3(w, 0, h1+rh),
-			kerngeo.NewPoint3(0, 0, h1+rh),
-			kerngeo.NewPoint3(0, wp, h1+rh),
-			kerngeo.NewPoint3(w, wp, h1+rh),
+		flightSideX = rightEdgeX
+	}
+	railEdge := func(cx float64) {
+		y0 := 0.0
+		if cx == flightSideX {
+			y0 = w // пропускаем проход к нижнему маршу
 		}
-	} else {
-		corners = []kerngeo.Point3{
-			kerngeo.NewPoint3(x0, 0, h1+rh),
-			kerngeo.NewPoint3(x0+w, 0, h1+rh),
-			kerngeo.NewPoint3(x0+w, wp, h1+rh),
-			kerngeo.NewPoint3(x0, wp, h1+rh),
+		if wp > y0 {
+			add(cx, wp, cx, y0)
 		}
 	}
+	switch {
+	case closeFar:
+		// П-образный марш: «П» (низ + внешний бок + дальняя кромка).
+		// Выбор стороны не учитывается (по плану — только L-марш).
+		outerX := rightEdgeX
+		if left {
+			outerX = leftEdgeX
+		}
+		otherX := leftEdgeX
+		if outerX == leftEdgeX {
+			otherX = rightEdgeX
+		}
+		add(leftEdgeX, 0, rightEdgeX, 0) // низ
+		add(outerX, 0, outerX, wp)       // внешний бок
+		add(outerX, wp, otherX, wp)      // дальняя кромка (проход к верхнему маршу)
+	case side == engineering.RailingRight:
+		railEdge(rightEdgeX)
+	case side == engineering.RailingLeft:
+		railEdge(leftEdgeX)
+	default: // RailingBoth (и RailingNone не должен приходить — вызов загорожен)
+		add(leftEdgeX, 0, rightEdgeX, 0) // низ
+		railEdge(rightEdgeX)
+		railEdge(leftEdgeX)
+	}
+
 	var sols []*kerngeo.Solid
-	for i := 0; i+1 < len(corners); i++ {
-		if s := railAlong(corners[i], corners[i+1]); s != nil {
+	for i := range top {
+		if s := railAlong(top[i][0], top[i][1]); s != nil {
 			sols = append(sols, s)
+		}
+	}
+	// Балясины вдоль контура с тем же линейным шагом b, что на маршах.
+	if b > kerngeo.Precision {
+		for i := range base {
+			p0, p1 := base[i][0], base[i][1]
+			segVec := p1.Sub(p0)
+			L := segVec.Norm()
+			if L <= kerngeo.Precision {
+				continue
+			}
+			dir, _ := segVec.Normalized()
+			// Первый сегмент начинаем с угла (d=0), остальные — с шага b,
+			// чтобы не дублировать стойку в общем углу со смежным сегментом.
+			start := 0.0
+			if i > 0 {
+				start = b
+			}
+			for d := start; d <= L+kerngeo.Precision; d += b {
+				dd := d
+				if dd > L {
+					dd = L
+				}
+				p := p0.Add(dir.Scale(dd))
+				if s := balusterAt(p.X, p.Y, h1, rh); s != nil {
+					sols = append(sols, s)
+				}
+			}
 		}
 	}
 	return sols
@@ -376,7 +475,13 @@ func buildLURNailing(cfg *engineering.StairConfiguration, rh float64) ([]*kernge
 		if left {
 			x0 = 0
 		}
-		sols = append(sols, landingRailingSolids(w, landingY, rh, h1, x0, left)...)
+		// Платформенная площадка L-марша: дальняя кромка Y=wp открыта
+		// (верхний марш отходит от неё), поэтому контур «Г», а не «П»,
+		// чтобы перила не перекрывали проход ко второму маршу. Для
+		// U-марша площадка охватывает 2·W и оба марша примыкают к одной
+		// боковой кромке, дальнюю кромку оставляем (closeFar=true).
+		closeFar := cfg.Flight == engineering.FlightUShape
+		sols = append(sols, landingRailingSolids(w, landingY, rh, h1, b, x0, left, closeFar, cfg.RailingLanding)...)
 	}
 
 	// Верхний марш.

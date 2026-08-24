@@ -37,6 +37,7 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
 }
 
 .store-header {
@@ -131,6 +132,17 @@ body {
 /* ---- Hero (landing) ---- */
 
 .hero {
+  /* уютная «деревянная» палитра — переопределяем переменные только в hero,
+     чтобы не перекрашивать Конструктор/Кабинет. */
+  --sp-bg: #fbf3e7;
+  --sp-card: #fffaf2;
+  --sp-text: #3a2c20;
+  --sp-muted: #8a7560;
+  --sp-primary: #9c6b3f;
+  --sp-primary-dark: #7c5230;
+  --sp-accent: #e0a458;
+  --sp-border: #ecd9c2;
+  --sp-shadow: 0 10px 30px rgba(120, 80, 40, 0.12);
   text-align: center;
   padding: 56px 20px 30px;
 }
