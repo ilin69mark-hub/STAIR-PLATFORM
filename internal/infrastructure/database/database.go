@@ -6,10 +6,14 @@ package database
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// SlowQueryThreshold — порог для логирования медленных запросов.
+var SlowQueryThreshold = 500 * time.Millisecond
 
 // Config — параметры подключения к PostgreSQL (BE-0029 Configuration).
 type Config struct {
@@ -29,6 +33,26 @@ func DefaultConfig(url string) Config {
 		MaxConnLifetime: time.Hour,
 		MaxConnIdleTime: 30 * time.Minute,
 	}
+}
+
+// EnvConfig возвращает конфигурацию из переменных окружения.
+// STAIR_DB_MAX_CONNS, STAIR_DB_MIN_CONNS, STAIR_DB_MAX_CONN_LIFETIME,
+// STAIR_DB_MAX_CONN_IDLE_TIME — необязательные параметры.
+func EnvConfig(url string, maxConns, minConns int, lifetime, idleTime time.Duration) Config {
+	cfg := DefaultConfig(url)
+	if maxConns > 0 {
+		cfg.MaxConns = int32(maxConns)
+	}
+	if minConns > 0 {
+		cfg.MinConns = int32(minConns)
+	}
+	if lifetime > 0 {
+		cfg.MaxConnLifetime = lifetime
+	}
+	if idleTime > 0 {
+		cfg.MaxConnIdleTime = idleTime
+	}
+	return cfg
 }
 
 // Connect открывает пул соединений и проверяет доступность (Ping).
@@ -54,4 +78,15 @@ func Connect(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("database: ping: %w", err)
 	}
 	return pool, nil
+}
+
+// LogSlowQuery логирует медленные запросы.
+func LogSlowQuery(query string, duration time.Duration, args ...interface{}) {
+	if duration >= SlowQueryThreshold {
+		slog.Warn("slow query detected",
+			"query", query,
+			"duration", duration.String(),
+			"args", args,
+		)
+	}
 }

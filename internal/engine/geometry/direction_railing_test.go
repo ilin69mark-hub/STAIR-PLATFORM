@@ -52,8 +52,8 @@ func TestBuildLShapeFlightLeftTurn(t *testing.T) {
 	if !nearlyEqual(bb.Max.X, 2560) {
 		t.Fatalf("bbox Max.X = %v, want 2560", bb.Max.X)
 	}
-	if !nearlyEqual(bb.Max.Y, 3457.73501) {
-		t.Fatalf("bbox Max.Y = %v, want 3457.7", bb.Max.Y)
+	if !nearlyEqual(bb.Max.Y, 3430) {
+		t.Fatalf("bbox Max.Y = %v, want 3430", bb.Max.Y)
 	}
 	if !nearlyEqual(bb.Max.Z, 2700) {
 		t.Fatalf("bbox Max.Z = %v, want 2700", bb.Max.Z)
@@ -122,8 +122,8 @@ func TestBuildUShapeFlightLeftTurn(t *testing.T) {
 	if !nearlyEqual(bb.Min.X, 0) {
 		t.Fatalf("bbox Min.X = %v, want 0 (landing left edge)", bb.Min.X)
 	}
-	if !nearlyEqual(bb.Max.X, 3357.73500981) {
-		t.Fatalf("bbox Max.X = %v, want 3357.73500981 (upper stringer tail)", bb.Max.X)
+	if !nearlyEqual(bb.Max.X, 3330) {
+		t.Fatalf("bbox Max.X = %v, want 3330 (upper stringer tail, vertical cut)", bb.Max.X)
 	}
 	if !nearlyEqual(bb.Max.Y, 1800) {
 		t.Fatalf("bbox Max.Y = %v, want 1800", bb.Max.Y)
@@ -223,13 +223,13 @@ func TestGenerateRailingAffectsOnlyMesh(t *testing.T) {
 		t.Fatalf("Volume changed by railing: %v -> %v",
 			baseRes.Measurement.Volume, railRes.Measurement.Volume)
 	}
-	if len(railRes.Mesh.Vertices) <= len(baseRes.Mesh.Vertices) {
+	if len(railRes.RailingMesh.Vertices) <= len(baseRes.RailingMesh.Vertices) {
 		t.Fatalf("railing mesh must have more vertices: %d <= %d",
-			len(railRes.Mesh.Vertices), len(baseRes.Mesh.Vertices))
+			len(railRes.RailingMesh.Vertices), len(baseRes.RailingMesh.Vertices))
 	}
-	if len(railRes.Mesh.Triangles) <= len(baseRes.Mesh.Triangles) {
+	if len(railRes.RailingMesh.Triangles) <= len(baseRes.RailingMesh.Triangles) {
 		t.Fatalf("railing mesh must have more triangles: %d <= %d",
-			len(railRes.Mesh.Triangles), len(baseRes.Mesh.Triangles))
+			len(railRes.RailingMesh.Triangles), len(baseRes.RailingMesh.Triangles))
 	}
 }
 
@@ -261,15 +261,16 @@ func TestBuildRailingDecorStraight(t *testing.T) {
 	if roles[roleBaluster] != 15 {
 		t.Fatalf("balusters = %d, want 15 (one per step)", roles[roleBaluster])
 	}
-	// правая сторона: кромка y=W присутствует в координатах перил
-	// (центр габарита по Y — на кромке 900; поручень и стойки имеют
-	// собственные габариты поверх/вокруг неё).
+	// правая сторона: поручень и стойки сдвинуты внутрь ступени (edgeInset),
+	// наружная грань совпадает с кромкой y=W=900. Центр габарита по Y:
+	// поручень: 900−railWidth/2=875; стойка: 900−balusterSize/2=890;
+	// combined bbox Y: [850, 900], center = 875.
 	bb := boundingBoxOf(decor)
-	if !nearlyEqual((bb.Min.Y+bb.Max.Y)/2, 900) {
-		t.Fatalf("railing bbox Y centre = %v, want 900 (right edge)",
+	if !nearlyEqual((bb.Min.Y+bb.Max.Y)/2, 875) {
+		t.Fatalf("railing bbox Y centre = %v, want 875 (right edge inset)",
 			(bb.Min.Y+bb.Max.Y)/2)
 	}
-	// стойки на носиках проступей (как в 2D-плане): центр X — x=k·b.
+	// стойки на центрах ступеней: центр X — x=(k-0.5)·b.
 	var balXs []float64
 	for _, s := range decor {
 		if s.Role() == roleBaluster {
@@ -280,14 +281,13 @@ func TestBuildRailingDecorStraight(t *testing.T) {
 	sort.Float64s(balXs)
 	b := cfg.TreadDepth.Millimeters()
 	for k, cx := range balXs {
-		want := float64(k+1) * b
+		want := (float64(k+1) - 0.5) * b
 		if !nearlyEqual(cx, want) {
-			t.Fatalf("baluster %d centre X = %v, want %v (nosing)", k+1, cx, want)
+			t.Fatalf("baluster %d centre X = %v, want %v (step centre)", k+1, cx, want)
 		}
 	}
-	// поручень занимает ровно отрезок [A,B] по линии носиков (регресс
-	// railAlong: призма выдавливалась от середины, и поручень «уезжал»
-	// на половину марша). Центр габарита поручня — (run/2, W, rh+H/2).
+	// поручень идёт по центрам ступеней от (b/2, edge, h+rh) до
+	// ((n-0.5)·b, edge, H+rh-h/2).
 	var rails []kerngeo.BBox
 	for _, s := range decor {
 		if s.Role() == roleRailing {
@@ -300,14 +300,14 @@ func TestBuildRailingDecorStraight(t *testing.T) {
 	h := cfg.StepHeight.Millimeters()
 	rh := cfg.RailingHeight.Millimeters()
 	wantCX := float64(cfg.StepCount) * b / 2
-	wantCZ := rh + float64(cfg.StepCount)*h/2
+	wantCZ := rh + (float64(cfg.StepCount)+1)*h/2
 	if !nearlyEqual((rails[0].Min.X+rails[0].Max.X)/2, wantCX) {
 		t.Fatalf("handrail centre X = %v, want %v (over nosings)",
 			(rails[0].Min.X+rails[0].Max.X)/2, wantCX)
 	}
-	if !nearlyEqual((rails[0].Min.Y+rails[0].Max.Y)/2, 900) {
-		t.Fatalf("handrail centre Y = %v, want 900 (right edge)",
-			(rails[0].Min.Y+rails[0].Max.Y)/2)
+	if !nearlyEqual((rails[0].Min.Y+rails[0].Max.Y)/2, 900-railWidth/2) {
+		t.Fatalf("handrail centre Y = %v, want %v (right edge inset)",
+			(rails[0].Min.Y+rails[0].Max.Y)/2, 900-railWidth/2)
 	}
 	if !nearlyEqual((rails[0].Min.Z+rails[0].Max.Z)/2, wantCZ) {
 		t.Fatalf("handrail centre Z = %v, want %v (rh+H/2)",
@@ -503,10 +503,11 @@ func TestBuildLShapeLandingRailingSides(t *testing.T) {
 		b := cfg.TreadDepth.Millimeters()
 		l1 := float64(cfg.LowerStepCount) * b
 		left := dir == engineering.TurnLeft
-		leftEdgeX, rightEdgeX := 0.0, w
-		if !left {
-			leftEdgeX, rightEdgeX = l1, l1+w
-		}
+		// Контракт landingRailingSolids: левый/правый края площадки всегда
+		// задаются переданным x0 (левый = x0, правый = x0+w) независимо от
+		// флага left. Здесь x0=l1 для обоих направлений (синтетический
+		// параметр: проверяем только логику выбора стороны).
+		leftEdgeX, rightEdgeX := l1, l1+w
 		const tol = railThickness / 2
 
 		checkOneSide := func(side engineering.RailingSide, expectX float64) {

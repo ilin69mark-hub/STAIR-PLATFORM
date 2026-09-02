@@ -43,18 +43,18 @@ func (l *redisRateLimiter) Allow(ip string) bool {
 
 // newRateLimiterStrategy строит лимитер по конфигурации: redis (если адрес
 // задан и клиент доступен) либо memory. Используется applyConfig.
-func newRateLimiterStrategy(addr string, limit int, window time.Duration) RateLimiter {
+func newRateLimiterStrategy(ctx context.Context, addr string, limit int, window time.Duration) RateLimiter {
 	if addr == "" {
-		return newRateLimiter(limit, window)
+		return newRateLimiter(ctx, limit, window)
 	}
 	client := redis.NewClient(&redis.Options{Addr: addr})
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	if err := client.Ping(ctx).Err(); err != nil {
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer pingCancel()
+	if err := client.Ping(pingCtx).Err(); err != nil {
 		slog.Warn("rate limiter: redis unavailable, falling back to memory",
 			"addr", addr, "error", err)
 		_ = client.Close()
-		return newRateLimiter(limit, window)
+		return newRateLimiter(ctx, limit, window)
 	}
 	return newRedisRateLimiter(client, limit, window)
 }

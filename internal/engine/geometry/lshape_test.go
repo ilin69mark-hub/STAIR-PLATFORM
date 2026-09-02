@@ -100,8 +100,8 @@ func TestBuildLShapeFlightUpperFlightPositions(t *testing.T) {
 	if !nearlyEqual(bb.Max.X, 2520) {
 		t.Fatalf("model bbox max X = %v, want 2520 (landing edge)", bb.Max.X)
 	}
-	if !nearlyEqual(bb.Max.Y, 3457.73501) {
-		t.Fatalf("model bbox max Y = %v, want 3457.7 (1000+2430+хвост косоура)", bb.Max.Y)
+	if !nearlyEqual(bb.Max.Y, 3430) {
+		t.Fatalf("model bbox max Y = %v, want 3430 (1000+2430, vertical cut)", bb.Max.Y)
 	}
 	if !nearlyEqual(bb.Max.Z, 2700) {
 		t.Fatalf("model bbox max Z = %v, want 2700 (H)", bb.Max.Z)
@@ -173,10 +173,10 @@ func TestGenerateLShape(t *testing.T) {
 		t.Fatal("preview mesh must be present")
 	}
 	// объём: нижний и верхний марши + площадка. Площадка: Wp·W·st = 1000·900·40.
-	// Профиль косоура (шнуровка): n1=6 → 236469.33, n2=9 → 358044.28, толщина 50.
+	// Профиль косоура (шнуровка, вертикальный срез): n1=6 → 208201.85, n2=9 → 314799.88, толщина 50.
 	// Проступи во всю ширину 900; подступенки — полотна 900 шириной.
-	want := 2.0*(236469.33*50) + 6.0*(310*900*40) + 6.0*(900*140*40) +
-		2.0*(358044.28*50) + 9.0*(310*900*40) + 9.0*(900*140*40) +
+	want := 2.0*(208201.846035*50) + 6.0*(310*900*40) + 6.0*(900*140*40) +
+		2.0*(314799.882956*50) + 9.0*(310*900*40) + 9.0*(900*140*40) +
 		1000*900*40
 	if !nearlyEq(res.Measurement.Volume, want) {
 		t.Fatalf("volume = %v, want %v", res.Measurement.Volume, want)
@@ -213,7 +213,7 @@ func TestLShapeBBoxMath(t *testing.T) {
 	if math.Abs(bb.Min.X+40) > 1e-6 || bb.Min.Y < -1e-6 || bb.Min.Z > 1e-6 {
 		t.Fatalf("bbox min = %+v, want near (−40,0,0)", bb.Min)
 	}
-	if math.Abs(bb.Max.X-2520) > 1e-6 || math.Abs(bb.Max.Y-3457.73501) > 1e-6 || math.Abs(bb.Max.Z-2700) > 1e-6 {
-		t.Fatalf("bbox max = %+v, want (2520,3457.7,2700)", bb.Max)
+	if math.Abs(bb.Max.X-2520) > 1e-6 || math.Abs(bb.Max.Y-3430) > 1e-6 || math.Abs(bb.Max.Z-2700) > 1e-6 {
+		t.Fatalf("bbox max = %+v, want (2520,3430,2700)", bb.Max)
 	}
 }

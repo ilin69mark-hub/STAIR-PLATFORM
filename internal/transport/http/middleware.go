@@ -70,15 +70,19 @@ func withLogging(next http.Handler) http.Handler {
 					"error": map[string]string{"code": "internal", "message": "Внутренняя ошибка сервера"},
 				})
 			}
-			slog.Info("http request",
-				"request_id", rid,
-				"method", r.Method,
-				"path", r.URL.Path,
-				"status", sw.status,
-				"duration_ms", float64(time.Since(start).Microseconds())/1000.0,
-				"remote_ip", clientIP(r),
-				"user_agent", r.UserAgent(),
-			)
+			logAttrs := []slog.Attr{
+				slog.String("request_id", rid),
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+				slog.Int("status", sw.status),
+				slog.Float64("duration_ms", float64(time.Since(start).Microseconds())/1000.0),
+				slog.String("remote_ip", clientIP(r)),
+				slog.String("user_agent", r.UserAgent()),
+			}
+			if uid := userID(r.Context()); uid != "" {
+				logAttrs = append(logAttrs, slog.String("user_id", uid))
+			}
+			slog.LogAttrs(r.Context(), slog.LevelInfo, "http request", logAttrs...)
 			recordHTTPMetrics(r.Method, r.URL.Path, sw.status, time.Since(start))
 		}()
 

@@ -1,15 +1,14 @@
-import { lazy, Suspense, useState } from 'react'
-import type { QuoteResult as QuoteResultType, QuoteSuggestion } from '@shared/types'
+import { lazy, Suspense } from 'react'
+import type { QuoteResult as QuoteResultType, QuoteSuggestion, Variation } from '@shared/types'
 import { fmt } from '@shared/format'
 import { materialLabel } from '@shared/config'
-import { StairProfile } from '@shared/schemes/StairProfile'
-import { StairPlan } from '@shared/schemes/StairPlan'
+import { VariationPicker } from '@shared/components/VariationPicker'
 import { solverOf } from './quoteView'
 
 // Результат публичного расчёта: марш, геометрия и предварительная цена.
-// Покупателю показываем схему-профиль и интерактивную 3D-модель (меш уже
-// приходит в публичном ответе); производственный пакет (BOM/раскрой) остаётся
-// в админке. three.js грузится лениво, чтобы не утяжелять основной бандл.
+// Покупателю показываем интерактивную 3D-модель (меш уже приходит в публичном
+// ответе); производственный пакет (BOM/раскрой) остаётся в админке.
+// three.js грузится лениво, чтобы не утяжелять основной бандл.
 
 const GeometryViewer = lazy(() =>
   import('@shared/viewer/GeometryViewer').then((m) => ({ default: m.GeometryViewer })),
@@ -18,20 +17,27 @@ const GeometryViewer = lazy(() =>
 interface Props {
   quote: QuoteResultType
   onApplySuggestion?: (s: QuoteSuggestion) => void
+  onApplyVariation?: (v: Variation) => void
   material?: string
+  // Свободное пространство перед первой ступенью (мм), введено в калькуляторе
+  // (дефолт 1000). Передаём в solverOf, чтобы не зависеть от сдвига модели.
+  approachSpaceMM?: string
 }
 
-export function QuoteResult({ quote, onApplySuggestion, material }: Props) {
-  const solver = solverOf(quote)
+export function QuoteResult({ quote, onApplySuggestion, onApplyVariation, material, approachSpaceMM }: Props) {
+  const solver = solverOf(quote, approachSpaceMM != null && approachSpaceMM.trim() !== '' ? Number(approachSpaceMM) : undefined)
   const geometry = quote.geometry
   const pricing = quote.pricing
   const issues = quote.validation.issues ?? []
   const spiral = quote.spiral !== undefined
-  const [schemeView, setSchemeView] = useState<'profile' | 'plan'>('profile')
-  // Профиль (вид сбоку) осмыслен только для прямого марша; L/U/спираль
-  // показываем планом по умолчанию.
-  const hasProfile = solver.kind === 'straight'
-  const view = hasProfile ? schemeView : 'plan'
+  // Вариации (A/B/C, напр. невписываемость в помещение) могут относиться к
+  // нескольким issue с одинаковым набором — показываем только для первого.
+  const firstVar = issues.find((i) => i.variations && i.variations.length > 0)
+  // Фиолетовая линия верха марша на 3D: суммарный подъём марша.
+  const stairTop =
+    solver.flight && solver.kind !== 'spiral'
+      ? { rise: solver.flight.StepHeight * solver.flight.StepCount }
+      : undefined
 
   return (
     <>
@@ -88,33 +94,10 @@ export function QuoteResult({ quote, onApplySuggestion, material }: Props) {
           </div>
         )}
 
-        {!quote.validation.blocking && solver.flight && (
-          <div className="scheme-wrap">
-            <div className="scheme-toggle" role="group" aria-label="Вид схемы">
-              {hasProfile && (
-                <button
-                  type="button"
-                  className={`scheme-toggle__btn${view === 'profile' ? ' scheme-toggle__btn--active' : ''}`}
-                  aria-pressed={view === 'profile'}
-                  onClick={() => setSchemeView('profile')}
-                >
-                  Профиль
-                </button>
-              )}
-              <button
-                type="button"
-                className={`scheme-toggle__btn${view === 'plan' ? ' scheme-toggle__btn--active' : ''}`}
-                aria-pressed={view === 'plan'}
-                onClick={() => setSchemeView('plan')}
-              >
-                Вид сверху
-              </button>
-            </div>
-            {view === 'profile' ? (
-              <StairProfile flight={solver.flight} railing={solver.flight.Railing} />
-            ) : (
-              <StairPlan flight={solver.flight} kind={solver.kind ?? 'straight'} solver={solver} />
-            )}
+        {firstVar && onApplyVariation && (
+          <div className="variations">
+            <h3 className="panel__sub">Варианты решения (выберите подходящий)</h3>
+            <VariationPicker variations={firstVar.variations!} onApply={onApplyVariation} />
           </div>
         )}
 
@@ -122,7 +105,17 @@ export function QuoteResult({ quote, onApplySuggestion, material }: Props) {
           <div className="scheme-3d">
             <h3 className="scheme-3d__title">3D-модель</h3>
             <Suspense fallback={<p className="muted">Загрузка 3D…</p>}>
-              <GeometryViewer mesh={quote.mesh} />
+              <GeometryViewer
+                mesh={quote.mesh}
+                roomMesh={quote.room_mesh}
+                railingMesh={quote.railing_mesh}
+                stairTop={stairTop}
+                flight={solver.kind}
+                direction={solver.direction}
+                roomWidth={solver.roomWidth}
+                roomLength={solver.roomLength}
+                approachSpace={solver.approachSpace}
+              />
             </Suspense>
           </div>
         )}

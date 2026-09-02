@@ -53,7 +53,7 @@ func handleGetSettings(svc AuthService) http.HandlerFunc {
 // handleUpdateSettings — PUT /api/v1/admin/settings (auth+admin).
 // 200 — политика обновлена; 403 — нет права settings.write;
 // 422 — невалидные значения.
-func handleUpdateSettings(svc AuthService) http.HandlerFunc {
+func handleUpdateSettings(svc AuthService, auditSvc AuditService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !hasPermission(r, auth.PermissionSettingsWrite) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
@@ -78,6 +78,15 @@ func handleUpdateSettings(svc AuthService) http.HandlerFunc {
 			}
 			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
+		}
+		// Audit: settings updated
+		if auditSvc != nil {
+			_ = auditSvc.Record(r.Context(), &audit.Event{
+				ActorID:  userID(r.Context()),
+				TenantID: tenantID(r.Context()),
+				Action:   audit.ActionSettingsUpdated,
+				Result:   audit.ResultOK,
+			})
 		}
 		writeJSON(w, http.StatusOK, toPolicyDTO(p))
 	}

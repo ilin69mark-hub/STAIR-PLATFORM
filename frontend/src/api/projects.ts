@@ -20,8 +20,16 @@ import type {
   ReviewRequest,
 } from '@shared/types'
 
+interface PaginatedResponse<T> {
+  data: T[]
+  page: number
+  per_page: number
+  total: number
+  total_pages: number
+}
+
 export const projectsApi = {
-  list: () => get<Project[]>('/api/v1/projects'),
+  list: () => get<PaginatedResponse<Project>>('/api/v1/projects').then((r) => r.data),
 
   create: (body: CreateProjectRequest) => post<Project>('/api/v1/projects', body),
 
@@ -29,6 +37,11 @@ export const projectsApi = {
 
   calculate: (id: string, body: unknown) =>
     post<Calculation>(`/api/v1/projects/${id}/calculate`, body),
+
+  // preview — расчёт БЕЗ сохранения: используется вариациями (A/B/C),
+  // чтобы пользователь перебирал альтернативы, не создавая ревизий.
+  preview: (id: string, body: unknown) =>
+    post<Calculation>(`/api/v1/projects/${id}/preview`, body),
 
   optimize: (id: string, body: unknown) =>
     post<OptimizeResult>(`/api/v1/projects/${id}/optimize`, body),
@@ -48,7 +61,8 @@ export const projectsApi = {
     del(`/api/v1/projects/${id}/members/${userID}`),
 
   // ---- Комментарии (EDR-0009) ----
-  listComments: (id: string) => get<ProjectComment[]>(`/api/v1/projects/${id}/comments`),
+  listComments: (id: string) =>
+    get<PaginatedResponse<ProjectComment>>(`/api/v1/projects/${id}/comments`).then((r) => r.data),
 
   addComment: (id: string, body: CommentRequest) =>
     post<ProjectComment>(`/api/v1/projects/${id}/comments`, body),
@@ -66,7 +80,8 @@ export const projectsApi = {
   requestChanges: (id: string, reviewID: string, body: ReviewRequest) =>
     post<ProjectReview>(`/api/v1/projects/${id}/reviews/${reviewID}/changes`, body),
 
-  listReviews: (id: string) => get<ProjectReview[]>(`/api/v1/projects/${id}/reviews`),
+  listReviews: (id: string) =>
+    get<PaginatedResponse<ProjectReview>>(`/api/v1/projects/${id}/reviews`).then((r) => r.data),
 
   // ---- Утверждение конфигурации (EDR-0011) ----
   approveConfiguration: (id: string, configurationID: string, body: ApprovalRequest) =>
@@ -78,7 +93,8 @@ export const projectsApi = {
   getConfigurationApproval: (id: string, configurationID: string) =>
     get<ConfigurationApproval>(`/api/v1/projects/${id}/configurations/${configurationID}/approval`),
 
-  listApprovals: (id: string) => get<ConfigurationApproval[]>(`/api/v1/projects/${id}/approvals`),
+  listApprovals: (id: string) =>
+    get<PaginatedResponse<ConfigurationApproval>>(`/api/v1/projects/${id}/approvals`).then((r) => r.data),
 
   // ---- Версионирование конфигурации (EDR-0012) ----
   listConfigurations: (id: string) => get<Configuration[]>(`/api/v1/projects/${id}/configurations`),

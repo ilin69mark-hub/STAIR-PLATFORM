@@ -29,6 +29,10 @@ const actionLabels: Record<string, string> = {
   'review.requested': 'Запрос ревью',
   'review.signed': 'Подпись ревью',
   'review.changes': 'Запрос изменений',
+  'stair.calculated': 'Расчёт лестницы',
+  'stair.config_changed': 'Изменение поля конфигурации',
+  'stair.suggestion_applied': 'Применён совет',
+  'stair.variation_applied': 'Применён вариант',
 }
 
 export function AuditPanel({ projectId }: Props) {

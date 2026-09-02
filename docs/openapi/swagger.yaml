@@ -1,0 +1,1248 @@
+openapi: "3.0.3"
+info:
+  title: "STAIR Platform API"
+  description: "API for stair configuration, pricing, and manufacturing"
+  version: "1.0.0"
+  contact:
+    name: "STAIR Platform"
+
+servers:
+  - url: "http://localhost:8080/api/v1"
+    description: "Local development"
+  - url: "https://api.stairplatform.com/api/v1"
+    description: "Production"
+
+tags:
+  - name: "auth"
+    description: "Authentication & registration"
+  - name: "projects"
+    description: "Project management"
+  - name: "stairs"
+    description: "Stair configurations"
+  - name: "configs"
+    description: "Configuration management"
+  - name: "payments"
+    description: "Payment processing"
+  - name: "orders"
+    description: "Order management"
+  - name: "testimonials"
+    description: "Client testimonials"
+  - name: "analytics"
+    description: "Usage analytics"
+  - name: "health"
+    description: "Health checks"
+  - name: "metrics"
+    description: "Prometheus metrics"
+
+paths:
+  /auth/register:
+    post:
+      tags: ["auth"]
+      summary: "Register new user"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["email", "password"]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+                name:
+                  type: string
+      responses:
+        "201":
+          description: "User registered"
+        "409":
+          description: "Email already exists"
+        "422":
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/login:
+    post:
+      tags: ["auth"]
+      summary: "Login"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["email", "password"]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        "200":
+          description: "Login successful"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  user:
+                    $ref: "#/components/schemas/User"
+        "401":
+          description: "Invalid credentials"
+
+  /projects:
+    get:
+      tags: ["projects"]
+      summary: "List projects"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: "page"
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: "limit"
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        "200":
+          description: "Projects list"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projects:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Project"
+                  total:
+                    type: integer
+    post:
+      tags: ["projects"]
+      summary: "Create project"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["name"]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        "201":
+          description: "Project created"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
+  /projects/{id}:
+    get:
+      tags: ["projects"]
+      summary: "Get project by ID"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: "id"
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: "Project details"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          description: "Project not found"
+
+  /stairs:
+    get:
+      tags: ["stairs"]
+      summary: "List stairs"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Stairs list"
+    post:
+      tags: ["stairs"]
+      summary: "Create stair configuration"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StairConfig"
+      responses:
+        "201":
+          description: "Stair created"
+
+  /stairs/{id}/calculate:
+    post:
+      tags: ["stairs"]
+      summary: "Calculate stair pricing"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: "id"
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: "Calculation result"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PricingResult"
+
+  /health:
+    get:
+      tags: ["health"]
+      summary: "Health check"
+      responses:
+        "200":
+          description: "Health OK"
+
+  /ready:
+    get:
+      tags: ["health"]
+      summary: "Readiness check"
+      responses:
+        "200":
+          description: "Ready"
+        "503":
+          description: "Not ready"
+
+  /metrics:
+    get:
+      tags: ["metrics"]
+      summary: "Prometheus metrics"
+      responses:
+        "200":
+          description: "Metrics in Prometheus format"
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /orders:
+    post:
+      tags: ["orders"]
+      summary: "Create order"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderRequest"
+      responses:
+        "201":
+          description: "Order created"
+        "422":
+          description: "Validation error"
+    get:
+      tags: ["orders"]
+      summary: "List my orders"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Orders list"
+
+  /admin/orders:
+    get:
+      tags: ["orders"]
+      summary: "Admin list orders"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Orders list"
+
+  /public/testimonials:
+    get:
+      tags: ["testimonials"]
+      summary: "Public testimonials"
+      responses:
+        "200":
+          description: "Testimonials list"
+
+  /admin/analytics/usage:
+    get:
+      tags: ["analytics"]
+      summary: "Usage analytics"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Usage analytics"
+
+  /admin/analytics/projects:
+    get:
+      tags: ["analytics"]
+      summary: "Projects analytics"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Projects analytics"
+
+  /admin/analytics/manufacturing:
+    get:
+      tags: ["analytics"]
+      summary: "Manufacturing analytics"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Manufacturing analytics"
+
+  /admin/analytics/cost:
+    get:
+      tags: ["analytics"]
+      summary: "Cost analytics"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Cost analytics"
+
+  /admin/orders:
+    get:
+      tags: ["orders"]
+      summary: "Admin list all orders"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Orders list"
+
+  /admin/overview:
+    get:
+      tags: ["admin"]
+      summary: "Admin overview dashboard"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Admin overview"
+
+  /admin/settings:
+    get:
+      tags: ["admin"]
+      summary: "Get tenant settings"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Settings"
+    put:
+      tags: ["admin"]
+      summary: "Update tenant settings"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Settings"
+      responses:
+        "200":
+          description: "Settings updated"
+
+  /admin/users:
+    get:
+      tags: ["admin"]
+      summary: "List users"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Users list"
+
+  /admin/users/{id}:
+    patch:
+      tags: ["admin"]
+      summary: "Update user"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                status:
+                  type: string
+      responses:
+        "200":
+          description: "User updated"
+
+  /admin/api-keys:
+    get:
+      tags: ["admin"]
+      summary: "List API keys"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "API keys list"
+    post:
+      tags: ["admin"]
+      summary: "Create API key"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["name"]
+              properties:
+                name:
+                  type: string
+                permissions:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "201":
+          description: "API key created"
+
+  /admin/api-keys/{id}:
+    delete:
+      tags: ["admin"]
+      summary: "Revoke API key"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: "API key revoked"
+
+  /admin/testimonials:
+    get:
+      tags: ["testimonials"]
+      summary: "Admin list testimonials"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Testimonials list"
+    post:
+      tags: ["testimonials"]
+      summary: "Create testimonial"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestimonialRequest"
+      responses:
+        "201":
+          description: "Testimonial created"
+
+  /admin/testimonials/{id}:
+    patch:
+      tags: ["testimonials"]
+      summary: "Update testimonial"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TestimonialRequest"
+      responses:
+        "200":
+          description: "Testimonial updated"
+    delete:
+      tags: ["testimonials"]
+      summary: "Delete testimonial"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: "Testimonial deleted"
+
+  /projects:
+    get:
+      tags: ["projects"]
+      summary: "List projects"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: "Projects list"
+    post:
+      tags: ["projects"]
+      summary: "Create project"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["name"]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        "201":
+          description: "Project created"
+
+  /projects/{id}:
+    get:
+      tags: ["projects"]
+      summary: "Get project"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Project"
+    put:
+      tags: ["projects"]
+      summary: "Update project"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        "200":
+          description: "Project updated"
+    delete:
+      tags: ["projects"]
+      summary: "Delete project"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: "Project deleted"
+
+  /projects/{id}/comments:
+    get:
+      tags: ["projects"]
+      summary: "List project comments"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Comments list"
+    post:
+      tags: ["projects"]
+      summary: "Add project comment"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["body"]
+              properties:
+                body:
+                  type: string
+                  maxLength: 10000
+      responses:
+        "201":
+          description: "Comment created"
+
+  /projects/{id}/members:
+    get:
+      tags: ["projects"]
+      summary: "List project members"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Members list"
+    post:
+      tags: ["projects"]
+      summary: "Add project member"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["user_id", "role"]
+              properties:
+                user_id:
+                  type: string
+                role:
+                  type: string
+                  enum: [viewer, editor, admin]
+      responses:
+        "201":
+          description: "Member added"
+
+  /projects/{id}/configurations:
+    get:
+      tags: ["projects"]
+      summary: "List project configurations"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Configurations list"
+
+  /projects/{id}/reviews:
+    get:
+      tags: ["projects"]
+      summary: "List project reviews"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Reviews list"
+
+  /projects/{id}/export:
+    get:
+      tags: ["projects"]
+      summary: "Export project as JSON"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Project export"
+
+  /projects/{id}/export/cad:
+    get:
+      tags: ["projects"]
+      summary: "Export project as CAD"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [stl, dxf, svg]
+      responses:
+        "200":
+          description: "CAD export"
+
+  /projects/{id}/checkout:
+    post:
+      tags: ["payments"]
+      summary: "Create checkout session"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Checkout session"
+
+  /projects/{id}/payments:
+    get:
+      tags: ["payments"]
+      summary: "List project payments"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Payments list"
+
+  /payments/{id}:
+    get:
+      tags: ["payments"]
+      summary: "Get payment"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Payment"
+
+  /payments/webhook:
+    post:
+      tags: ["payments"]
+      summary: "Payment webhook"
+      responses:
+        "200":
+          description: "Webhook processed"
+
+  /payments/stripe/webhook:
+    post:
+      tags: ["payments"]
+      summary: "Stripe webhook"
+      responses:
+        "200":
+          description: "Webhook processed"
+
+  /integrations/endpoints:
+    get:
+      tags: ["integrations"]
+      summary: "List integration endpoints"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Endpoints list"
+    post:
+      tags: ["integrations"]
+      summary: "Create integration endpoint"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["type", "url"]
+              properties:
+                type:
+                  type: string
+                url:
+                  type: string
+                config:
+                  type: object
+      responses:
+        "201":
+          description: "Endpoint created"
+
+  /integrations/endpoints/{id}:
+    delete:
+      tags: ["integrations"]
+      summary: "Delete integration endpoint"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: "Endpoint deleted"
+
+  /orders:
+    post:
+      tags: ["orders"]
+      summary: "Create order"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderRequest"
+      responses:
+        "201":
+          description: "Order created"
+    get:
+      tags: ["orders"]
+      summary: "List my orders"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Orders list"
+
+  /public/orders:
+    post:
+      tags: ["orders"]
+      summary: "Create public order (consultation)"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["name", "phone"]
+              properties:
+                name:
+                  type: string
+                phone:
+                  type: string
+                email:
+                  type: string
+                message:
+                  type: string
+      responses:
+        "201":
+          description: "Order created"
+
+  /audit:
+    get:
+      tags: ["admin"]
+      summary: "List tenant audit events"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Audit events"
+    post:
+      tags: ["admin"]
+      summary: "Record audit event"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["action"]
+              properties:
+                action:
+                  type: string
+                resource_id:
+                  type: string
+                detail:
+                  type: string
+      responses:
+        "201":
+          description: "Event recorded"
+
+  /assistant/{kind}:
+    post:
+      tags: ["assistant"]
+      summary: "AI assistant request"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [design, engineering, manufacturing, pricing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prompt:
+                  type: string
+      responses:
+        "200":
+          description: "Assistant response"
+
+  /jobs/{id}:
+    get:
+      tags: ["jobs"]
+      summary: "Get job status"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "Job status"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: "http"
+      scheme: "bearer"
+      bearerFormat: "JWT"
+
+  schemas:
+    User:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          type: string
+          enum: ["user", "admin"]
+
+    Project:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    StairConfig:
+      type: "object"
+      properties:
+        project_id:
+          type: string
+          format: uuid
+        width:
+          type: number
+          format: double
+        height:
+          type: number
+          format: double
+        steps:
+          type: integer
+          minimum: 3
+          maximum: 30
+        material_id:
+          type: string
+          format: uuid
+
+    OrderRequest:
+      type: "object"
+      required: ["name", "phone"]
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        message:
+          type: string
+
+    PricingResult:
+      type: "object"
+      properties:
+        material_cost:
+          type: number
+          format: double
+        labor_cost:
+          type: number
+          format: double
+        total:
+          type: number
+          format: double
+        currency:
+          type: string
+          default: "RUB"
+
+    OrderRequest:
+      type: "object"
+      required: ["name", "phone"]
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        message:
+          type: string
+
+    Settings:
+      type: "object"
+      properties:
+        min_password_length:
+          type: integer
+        require_number:
+          type: boolean
+        require_upper:
+          type: boolean
+        session_ttl_seconds:
+          type: integer
+        login_rate_limit_per_min:
+          type: integer
+
+    TestimonialRequest:
+      type: "object"
+      required: ["author", "text", "rating"]
+      properties:
+        author:
+          type: string
+        text:
+          type: string
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        published:
+          type: boolean
+
+    Comment:
+      type: "object"
+      properties:
+        id:
+          type: string
+        body:
+          type: string
+        author_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Member:
+      type: "object"
+      properties:
+        user_id:
+          type: string
+        role:
+          type: string
+          enum: [viewer, editor, admin]
+        joined_at:
+          type: string
+          format: date-time
+
+    Payment:
+      type: "object"
+      properties:
+        id:
+          type: string
+        amount:
+          type: number
+          format: double
+        currency:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    AuditEvent:
+      type: "object"
+      properties:
+        id:
+          type: string
+        actor_id:
+          type: string
+        action:
+          type: string
+        resource_id:
+          type: string
+        result:
+          type: string
+        detail:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Error:
+      type: "object"
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+
+  headers:
+    X-RateLimit-Limit:
+      description: "Request limit"
+      schema:
+        type: integer
+    X-RateLimit-Remaining:
+      description: "Remaining requests"
+      schema:
+        type: integer
+    X-RateLimit-Reset:
+      description: "Reset timestamp"
+      schema:
+        type: integer
+    X-Request-ID:
+      description: "Request ID"
+      schema:
+        type: string
+    X-API-Version:
+      description: "API version"
+      schema:
+        type: string
+    X-Trace-Id:
+      description: "Trace ID"
+      schema:
+        type: string

@@ -136,12 +136,15 @@ func TestRegisterHandler(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
-	var u userDTO
-	if err := decodeResponse(rec, &u); err != nil {
+	var resp authResponse
+	if err := decodeResponse(rec, &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if u.Email != "new@example.com" {
-		t.Fatalf("email = %q", u.Email)
+	if resp.User.Email != "new@example.com" {
+		t.Fatalf("email = %q", resp.User.Email)
+	}
+	if resp.Token == "" {
+		t.Fatal("expected token in response")
 	}
 }
 
@@ -300,7 +303,7 @@ func decodeResponse(rec *httptest.ResponseRecorder, dst any) error {
 
 // testRateLimiterWindow — проверка сброса окна.
 func TestRateLimitWindowResets(t *testing.T) {
-	l := newRateLimiter(1, 10*time.Millisecond)
+	l := newRateLimiter(context.Background(), 1, 10*time.Millisecond)
 	if !l.allow("1.2.3.4") {
 		t.Fatal("first request must be allowed")
 	}
@@ -337,7 +340,7 @@ func TestRateLimitRegister(t *testing.T) {
 
 func TestRateLimiterStrategyFallsBackToMemory(t *testing.T) {
 	// Недоступный адрес Redis → fallback на memory; лимитер работает.
-	l := newRateLimiterStrategy("127.0.0.1:1", 1, time.Minute)
+	l := newRateLimiterStrategy(context.Background(), "127.0.0.1:1", 1, time.Minute)
 	if !l.Allow("1.2.3.4") {
 		t.Fatal("first request must be allowed")
 	}

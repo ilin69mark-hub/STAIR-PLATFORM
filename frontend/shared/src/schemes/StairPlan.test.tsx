@@ -80,6 +80,19 @@ describe('StairPlan', () => {
     expect(screen.getByRole('img')).toBeInTheDocument()
   })
 
+  it('прямой план рисует зону подхода при заданном approachSpace', () => {
+    const { container } = render(
+      <StairPlan flight={base} kind="straight" solver={{ approachSpace: 1000 }} />,
+    )
+    expect(container.querySelectorAll('rect.scheme__approach').length).toBe(1)
+    expect(screen.getByText(/Свободное место 1 000 мм/)).toBeInTheDocument()
+  })
+
+  it('прямой план не рисует зону подхода без approachSpace', () => {
+    const { container } = render(<StairPlan flight={base} kind="straight" solver={{}} />)
+    expect(container.querySelectorAll('rect.scheme__approach').length).toBe(0)
+  })
+
   it('использует фиксированный канвас как у профиля', () => {
     const { container } = render(<StairPlan flight={base} kind="straight" solver={{}} />)
     const vb = (container.querySelector('.scheme__svg')?.getAttribute('viewBox') ?? '')
@@ -106,6 +119,26 @@ describe('StairPlan', () => {
     // Направление как в профиле: первая ступень справа (x=Run), подъём — влево.
     expect(Number(dir?.getAttribute('x1'))).toBeGreaterThan(Number(dir?.getAttribute('x2')))
     expect(Number(dir?.getAttribute('x1'))).toBeGreaterThan(310)
+  })
+
+  it('рисует временную цвето-буквенную разметку периметра и рёбер при наличии комнаты', () => {
+    const solver: PlanExtras = { roomWidth: 5000, roomLength: 5000, roomFits: true, direction: 'right' }
+    const first = render(<StairPlan flight={base} kind="straight" solver={solver} />)
+    // Стороны периметра: В/Н/П/Л.
+    for (const w of ['В', 'Н', 'П', 'Л']) {
+      expect(screen.getByText(w)).toBeInTheDocument()
+    }
+    // Рёбра марша: 1В/1Н/1П/1Л (каждое своим цветом).
+    for (const e of ['1В', '1Н', '1П', '1Л']) {
+      expect(screen.getByText(e)).toBeInTheDocument()
+    }
+    first.unmount()
+    // Без комнаты разметка не рисуется.
+    const second = render(<StairPlan flight={base} kind="straight" solver={{}} />)
+    for (const w of ['В', 'Н', 'П', 'Л']) {
+      expect(screen.queryByText(w)).toBeNull()
+    }
+    second.unmount()
   })
 
   it('прямой план рисует перила с двух сторон', () => {
@@ -178,29 +211,42 @@ describe('StairPlan', () => {
     }
   })
 
-  it('L план: перила рисуются полилинией по контуру, «без перил» — нет', () => {
-    const solver: PlanExtras = {
+  it('L план: перила рисуются по сторонам сегментов, «без перил» — нет', () => {
+    const mk = (lower: string, landing: string, upper: string): PlanExtras => ({
       lowerStepCount: 6,
       upperStepCount: 9,
       landingWidth: 1000,
       lowerRun: 1620,
       upperRun: 2430,
-    }
-    const { container: c1 } = render(
-      <StairPlan flight={{ ...base, RailingHeight: 900, Railing: 'both' }} kind="l_shape" solver={solver} />,
+      railingLower: lower,
+      railingLanding: landing,
+      railingUpper: upper,
+    })
+    // все справа → только правая грань каждого сегмента
+    const { container: cR } = render(
+      <StairPlan flight={{ ...base, RailingHeight: 900 }} kind="l_shape" solver={mk('right', 'right', 'right')} />,
     )
-    const rail = c1.querySelector('polyline.scheme__railing')
-    expect(rail).not.toBeNull()
-    expect((rail?.getAttribute('points') ?? '').split(' ').length).toBe(9)
-
-    const { container: c2 } = render(
-      <StairPlan flight={{ ...base, RailingHeight: 900, Railing: 'none' }} kind="l_shape" solver={solver} />,
+    expect(cR.querySelectorAll('polyline.scheme__railing').length).toBe(3)
+    // все слева → только левая грань каждого сегмента
+    const { container: cL } = render(
+      <StairPlan flight={{ ...base, RailingHeight: 900 }} kind="l_shape" solver={mk('left', 'left', 'left')} />,
     )
-    const { container: c3 } = render(
-      <StairPlan flight={{ ...base, RailingHeight: 0 }} kind="l_shape" solver={solver} />,
+    expect(cL.querySelectorAll('polyline.scheme__railing').length).toBe(3)
+    // обе стороны → 6 полилиний (равно старому сплошному контуру)
+    const { container: cB } = render(
+      <StairPlan flight={{ ...base, RailingHeight: 900 }} kind="l_shape" solver={mk('both', 'both', 'both')} />,
     )
-    expect(c2.querySelector('.scheme__railing')).toBeNull()
-    expect(c3.querySelector('.scheme__railing')).toBeNull()
+    expect(cB.querySelectorAll('polyline.scheme__railing').length).toBe(6)
+    // без перил ни в одном сегменте → ничего
+    const { container: cN } = render(
+      <StairPlan flight={{ ...base, RailingHeight: 900 }} kind="l_shape" solver={mk('none', 'none', 'none')} />,
+    )
+    expect(cN.querySelector('.scheme__railing')).toBeNull()
+    // высота 0 → перил нет
+    const { container: c0 } = render(
+      <StairPlan flight={base} kind="l_shape" solver={mk('right', 'right', 'right')} />,
+    )
+    expect(c0.querySelector('.scheme__railing')).toBeNull()
   })
 
   it('рендерит план П-образного марша', () => {
@@ -230,29 +276,42 @@ describe('StairPlan', () => {
     expect(screen.getByText(/B 900 мм/)).toBeInTheDocument()
   })
 
-  it('U план: перила рисуются полилинией по контуру, «без перил» — нет', () => {
-    const solver: PlanExtras = {
+  it('U план: перила рисуются по сторонам сегментов, «без перил» — нет', () => {
+    const mk = (lower: string, landing: string, upper: string): PlanExtras => ({
       lowerStepCount: 6,
       upperStepCount: 9,
       landingWidth: 1000,
       lowerRun: 1620,
       upperRun: 2430,
-    }
-    const { container: c1 } = render(
-      <StairPlan flight={{ ...base, RailingHeight: 900, Railing: 'both' }} kind="u_shape" solver={solver} />,
+      railingLower: lower,
+      railingLanding: landing,
+      railingUpper: upper,
+    })
+    // все справа → только правая грань каждого сегмента
+    const { container: cR } = render(
+      <StairPlan flight={{ ...base, RailingHeight: 900 }} kind="u_shape" solver={mk('right', 'right', 'right')} />,
     )
-    const rail = c1.querySelector('polyline.scheme__railing')
-    expect(rail).not.toBeNull()
-    expect((rail?.getAttribute('points') ?? '').split(' ').length).toBe(8)
-
-    const { container: c2 } = render(
-      <StairPlan flight={{ ...base, RailingHeight: 900, Railing: 'none' }} kind="u_shape" solver={solver} />,
+    expect(cR.querySelectorAll('polyline.scheme__railing').length).toBe(3)
+    // все слева → только левая грань каждого сегмента
+    const { container: cL } = render(
+      <StairPlan flight={{ ...base, RailingHeight: 900 }} kind="u_shape" solver={mk('left', 'left', 'left')} />,
     )
-    const { container: c3 } = render(
-      <StairPlan flight={{ ...base, RailingHeight: 0 }} kind="u_shape" solver={solver} />,
+    expect(cL.querySelectorAll('polyline.scheme__railing').length).toBe(3)
+    // обе стороны → 6 полилиний
+    const { container: cB } = render(
+      <StairPlan flight={{ ...base, RailingHeight: 900 }} kind="u_shape" solver={mk('both', 'both', 'both')} />,
     )
-    expect(c2.querySelector('.scheme__railing')).toBeNull()
-    expect(c3.querySelector('.scheme__railing')).toBeNull()
+    expect(cB.querySelectorAll('polyline.scheme__railing').length).toBe(6)
+    // без перил ни в одном сегменте → ничего
+    const { container: cN } = render(
+      <StairPlan flight={{ ...base, RailingHeight: 900 }} kind="u_shape" solver={mk('none', 'none', 'none')} />,
+    )
+    expect(cN.querySelector('.scheme__railing')).toBeNull()
+    // высота 0 → перил нет
+    const { container: c0 } = render(
+      <StairPlan flight={base} kind="u_shape" solver={mk('right', 'right', 'right')} />,
+    )
+    expect(c0.querySelector('.scheme__railing')).toBeNull()
   })
 
   it.each(['l_shape', 'u_shape'] as const)('план зеркалится по направлению поворота (%s)', (kind) => {

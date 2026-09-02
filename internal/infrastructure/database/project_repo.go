@@ -42,32 +42,25 @@ func scanProject(row pgx.Row) (*project.Project, error) {
 // владельца атомарно (EDR-0008). Проект и членство владельца — одна
 // транзакция: проект не существует без владельца.
 func (r *ProjectRepository) CreateProject(ctx context.Context, tenantID, ownerID string, p *project.Project) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("project: begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	return WithTx(ctx, r.pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx,
+			`INSERT INTO projects (tenant_id, owner_id, name, description, status)
+			 VALUES ($1, $2, $3, $4, $5)
+			 RETURNING id, created_at, updated_at`,
+			tenantID, ownerID, p.Name, p.Description, p.Status,
+		).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return fmt.Errorf("project: create: %w", err)
+		}
+		p.OwnerID = ownerID
 
-	if err := tx.QueryRow(ctx,
-		`INSERT INTO projects (tenant_id, owner_id, name, description, status)
-		 VALUES ($1, $2, $3, $4, $5)
-		 RETURNING id, created_at, updated_at`,
-		tenantID, ownerID, p.Name, p.Description, p.Status,
-	).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt); err != nil {
-		return fmt.Errorf("project: create: %w", err)
-	}
-	p.OwnerID = ownerID
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, 'owner')`,
+			p.ID, ownerID); err != nil {
+			return fmt.Errorf("project: create owner membership: %w", err)
+		}
 
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, 'owner')`,
-		p.ID, ownerID); err != nil {
-		return fmt.Errorf("project: create owner membership: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("project: commit: %w", err)
-	}
-	return nil
+		return nil
+	})
 }
 
 // projectScope — условие видимости проекта: вызывающий должен быть членом
@@ -253,13 +246,15 @@ func (r *ProjectRepository) RemoveMember(ctx context.Context, tenantID, projectI
 
 const configCols = `id, project_id, revision, width_mm, height_mm, flight, step_height_mm,
 	stringer_thickness_mm, step_thickness_mm, riser, clearance_mm, railing_height_mm,
-	comfort_step_mm, landing_width_mm, lower_step_count, outer_radius_mm, created_at, updated_at`
+	comfort_step_mm, landing_width_mm, landing_depth_mm, room_width_mm, room_length_mm,
+	approach_space_mm, lower_step_count, outer_radius_mm, created_at, updated_at`
 
 func scanConfig(row pgx.Row) (*project.StairConfiguration, error) {
 	var c project.StairConfiguration
 	if err := row.Scan(&c.ID, &c.ProjectID, &c.Revision, &c.WidthMM, &c.HeightMM, &c.Flight,
 		&c.StepHeightMM, &c.StringerThicknessMM, &c.StepThicknessMM, &c.Riser, &c.ClearanceMM,
-		&c.RailingHeightMM, &c.ComfortStepMM, &c.LandingWidthMM, &c.LowerStepCount,
+		&c.RailingHeightMM, &c.ComfortStepMM, &c.LandingWidthMM, &c.LandingDepthMM,
+		&c.RoomWidthMM, &c.RoomLengthMM, &c.ApproachSpaceMM, &c.LowerStepCount,
 		&c.OuterRadiusMM, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return nil, err
 	}
@@ -270,13 +265,15 @@ func (r *ProjectRepository) SaveConfiguration(ctx context.Context, c *project.St
 	if err := r.pool.QueryRow(ctx,
 		`INSERT INTO stair_configurations (project_id, width_mm, height_mm, flight,
 			step_height_mm, stringer_thickness_mm, step_thickness_mm, riser, clearance_mm,
-			railing_height_mm, comfort_step_mm, landing_width_mm, lower_step_count, outer_radius_mm, revision)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
+			railing_height_mm, comfort_step_mm, landing_width_mm, landing_depth_mm,
+			room_width_mm, room_length_mm, approach_space_mm, lower_step_count, outer_radius_mm, revision)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
 		   (SELECT COALESCE(MAX(s.revision),0)+1 FROM stair_configurations s WHERE s.project_id = $1))
 		 RETURNING id, created_at, updated_at, revision`,
 		c.ProjectID, c.WidthMM, c.HeightMM, c.Flight, c.StepHeightMM,
 		c.StringerThicknessMM, c.StepThicknessMM, c.Riser, c.ClearanceMM, c.RailingHeightMM,
-		c.ComfortStepMM, c.LandingWidthMM, c.LowerStepCount, c.OuterRadiusMM,
+		c.ComfortStepMM, c.LandingWidthMM, c.LandingDepthMM, c.RoomWidthMM, c.RoomLengthMM,
+		c.ApproachSpaceMM, c.LowerStepCount, c.OuterRadiusMM,
 	).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt, &c.Revision); err != nil {
 		return fmt.Errorf("project: save config: %w", err)
 	}
@@ -420,13 +417,15 @@ func (r *ProjectRepository) SaveCalculationWithConfig(ctx context.Context, tenan
 	if err := tx.QueryRow(ctx,
 		`INSERT INTO stair_configurations (project_id, width_mm, height_mm, flight,
 			step_height_mm, stringer_thickness_mm, step_thickness_mm, riser, clearance_mm,
-			railing_height_mm, comfort_step_mm, landing_width_mm, lower_step_count, outer_radius_mm, revision)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
+			railing_height_mm, comfort_step_mm, landing_width_mm, landing_depth_mm,
+			room_width_mm, room_length_mm, approach_space_mm, lower_step_count, outer_radius_mm, revision)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17,
 		   (SELECT COALESCE(MAX(s.revision),0)+1 FROM stair_configurations s WHERE s.project_id = $1))
 		 RETURNING id, created_at, updated_at, revision`,
 		cfg.ProjectID, cfg.WidthMM, cfg.HeightMM, cfg.Flight, cfg.StepHeightMM,
 		cfg.StringerThicknessMM, cfg.StepThicknessMM, cfg.Riser, cfg.ClearanceMM, cfg.RailingHeightMM,
-		cfg.ComfortStepMM, cfg.LandingWidthMM, cfg.LowerStepCount, cfg.OuterRadiusMM,
+		cfg.ComfortStepMM, cfg.LandingWidthMM, cfg.LandingDepthMM, cfg.RoomWidthMM, cfg.RoomLengthMM,
+		cfg.ApproachSpaceMM, cfg.LowerStepCount, cfg.OuterRadiusMM,
 	).Scan(&cfg.ID, &cfg.CreatedAt, &cfg.UpdatedAt, &cfg.Revision); err != nil {
 		return nil, fmt.Errorf("project: save config: %w", err)
 	}

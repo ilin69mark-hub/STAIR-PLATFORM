@@ -21,7 +21,7 @@ import (
 )
 
 // MaxSuggestions — сколько готовых вариантов отдаёт советник на нарушение.
-const MaxSuggestions = 3
+const MaxSuggestions = 4
 
 // Input — пользовательская конфигурация, нужная советнику. Берётся
 // ДО зануления полей blocking-валидацией в checked-функциях solver.
@@ -201,7 +201,14 @@ func geometry(in Input, set *constraint.ConstraintSet) (out []validation.Suggest
 	seen := map[string]bool{}
 	suggestible := in.Flight != engineering.FlightSpiral
 
-	for n := nStart; n <= nEnd && len(out) < MaxSuggestions; n++ {
+	// Кандидаты числа ступеней — разнесены по всему допустимому окну
+	// (минимальное/максимальное/промежуточные), а не подряд идущие:
+	// так пользователь получает ДЕЙСТВИТЕЛЬНО разные варианты (самый
+	// крутой, самый пологий, средние), а не почти одинаковые n±1.
+	for _, n := range spreadInts(nStart, nEnd, MaxSuggestions) {
+		if len(out) >= MaxSuggestions {
+			break
+		}
 		target := engineering.Length(in.HeightMm / float64(n))
 		if in.Flight == engineering.FlightUShape && in.TurnKind == engineering.TurnWinder {
 			// П-образный с поворотными ступенями: перебираем n1 и число
@@ -534,4 +541,27 @@ func mathMax(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// spreadInts возвращает до k равномерно разнесённых целых чисел из
+// диапазона [start, end] включительно (в том числе концы), чтобы набор
+// кандидатов охватывал весь допустимый диапазон, а не был подряд идущим.
+func spreadInts(start, end, k int) []int {
+	if end < start {
+		return nil
+	}
+	n := end - start + 1
+	if n <= k {
+		out := make([]int, 0, n)
+		for i := start; i <= end; i++ {
+			out = append(out, i)
+		}
+		return out
+	}
+	out := make([]int, 0, k)
+	step := float64(n-1) / float64(k-1)
+	for i := 0; i < k; i++ {
+		out = append(out, start+int(math.Round(float64(i)*step)))
+	}
+	return out
 }

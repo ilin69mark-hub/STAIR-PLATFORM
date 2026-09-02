@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { ConfigForm } from '@shared/config'
 import { defaultConfig, directionOptions, flightOptions, materialOptions, railingForSpiral, railingLabel, railingOptions, rulesFor, spiralDirectionOptions, toRequest, validateForm, type FieldErrors, type FieldRule } from '@shared/config'
-import type { QuoteResult, QuoteSuggestion } from '@shared/types'
+import type { QuoteResult, QuoteSuggestion, Variation } from '@shared/types'
 import { quoteApi } from '../api/store'
 import { apiErrorMessage } from '../auth/errors'
 import { QuoteResult as QuoteResultView } from './QuoteResult'
 import { OrderForm } from './OrderForm'
+import { logAction } from '@shared/api/audit'
 
 const orderFields: Array<keyof ConfigForm> = [
   'widthMM',
@@ -23,6 +24,10 @@ const orderFields: Array<keyof ConfigForm> = [
   'direction',
   'spiralDirection',
   'landingWidthMM',
+  'landingDepthMM',
+  'roomWidthMM',
+  'roomLengthMM',
+  'approachSpaceMM',
   'lowerStepCountMM',
   'outerRadiusMM',
   'comfortStepMM',
@@ -41,6 +46,10 @@ const labels: Record<keyof ConfigForm, string> = {
   railingHeightMM: 'Высота перил (мм)',
   comfortStepMM: 'Шаг комфорта (мм)',
   landingWidthMM: 'Ширина площадки (мм)',
+  landingDepthMM: 'Глубина площадки (мм)',
+  roomWidthMM: 'Ширина помещения (мм)',
+  roomLengthMM: 'Длина помещения (мм)',
+  approachSpaceMM: 'Свободное пространство перед маршем (мм)',
   lowerStepCountMM: 'Нижних ступеней (шт)',
   outerRadiusMM: 'Радиус (мм)',
   railing: 'Перила',
@@ -59,6 +68,10 @@ const hints: Partial<Record<keyof ConfigForm, string>> = {
   railingHeightMM: 'Рекомендуем 900–1100 мм',
   comfortStepMM: '600–640 мм (опционально)',
   outerRadiusMM: 'Только для спирали',
+  landingDepthMM: 'Глубина площадки вдоль нижнего марша (X в плане). Должна быть ≥ ширины марша.',
+    roomWidthMM: 'Ширина помещения (X) — направление марша: длина забега + свободное место (1000–1200 мм). 0 — без проверки вписываемости.',
+    roomLengthMM: 'Длина помещения (Y) — ширина марша. 0 — без проверки вписываемости.',
+    approachSpaceMM: 'Свободная зона перед первой ступенью (норма 1000–1200 мм).',
 }
 
 // rangeHint — текст подсказки диапазона поля: «Мин X / макс Y мм», «Мин X мм»
@@ -111,7 +124,12 @@ export function Constructor() {
 
   const visible = (k: keyof ConfigForm): boolean => {
     if (k === 'stringerThicknessMM') return false // скрыт: единый косоур по умолчанию
-    if ((k === 'landingWidthMM' || k === 'lowerStepCountMM') && config.flight !== 'l_shape' && config.flight !== 'u_shape') return false
+    if ((k === 'landingWidthMM' || k === 'landingDepthMM' || k === 'lowerStepCountMM') &&
+      config.flight !== 'l_shape' && config.flight !== 'u_shape') {
+      return false
+    }
+    if ((k === 'roomWidthMM' || k === 'roomLengthMM') && config.flight !== 'l_shape' && config.flight !== 'straight' && config.flight !== 'u_shape' && config.flight !== 'spiral') return false
+    // approachSpaceMM показывается для всех типов марша (EDR-0023).
     if (k === 'outerRadiusMM' && config.flight !== 'spiral') return false
     // Спираль считает шаг комфорта сама (S = 2h + b_ход); остальные марши используют поле.
     if (k === 'comfortStepMM' && config.flight === 'spiral') return false
@@ -147,10 +165,20 @@ export function Constructor() {
     }
   }
 
+  const configChangeTimer = useRef<number | null>(null)
   const update = (k: keyof ConfigForm, v: string) => {
     const next = { ...config, [k]: v }
     setConfig(next)
     setErrors(validateForm(next))
+    // Аудит изменения поля (debounce 600 мс, best-effort).
+    if (configChangeTimer.current) window.clearTimeout(configChangeTimer.current)
+    configChangeTimer.current = window.setTimeout(() => {
+      logAction({
+        action: 'stair.config_changed',
+        resource_type: 'stair',
+        detail: JSON.stringify({ field: k }),
+      })
+    }, 600)
   }
 
   // Подсказка поля: ширина/высота и толщины считаются по материалу
@@ -209,6 +237,39 @@ export function Constructor() {
     }
     setConfig(next)
     void calculate(next)
+    logAction({
+      action: 'stair.suggestion_applied',
+      resource_type: 'stair',
+      detail: JSON.stringify({ step_height_mm: s.step_height_mm, step_count: s.step_count }),
+    })
+  }
+
+  // Применение вариации (A/B/C, напр. невписываемость в помещение): сливаем
+  // её конфиг в форму и пересчитываем — блокировка снимается.
+  // Вариации от бэкенда содержат все поля ConfigForm, в т.ч. пустые
+  // (railing/direction/сегменты перил и т.п. не заданы для данного варианта).
+  // Пустые значения НЕ перезаписывают выбор пользователя, иначе форма
+  // оказывается невалидной и пересчёт падает (clobbering).
+  const applyVariation = (v: Variation) => {
+    const merged = { ...config } as unknown as Record<string, string>
+    for (const [k, val] of Object.entries(v.config)) {
+      if (val === '') continue
+      merged[k] = val
+    }
+    const next = merged as unknown as ConfigForm
+    // Свободное пространство перед первой ступенью обязательно для всех
+    // типов марша (норма 1000–1200 мм, EDR-0023); пустое/отсутствующее
+    // значение — 1000 мм по умолчанию.
+    if ((next.approachSpaceMM ?? '').trim() === '') {
+      next.approachSpaceMM = '1000'
+    }
+    setConfig(next)
+    void calculate(next)
+    logAction({
+      action: 'stair.variation_applied',
+      resource_type: 'stair',
+      detail: JSON.stringify({ id: v.id, title: v.title }),
+    })
   }
 
   const reset = () => {
@@ -286,7 +347,13 @@ export function Constructor() {
 
       {quote && (
         <>
-          <QuoteResultView quote={quote} onApplySuggestion={applySuggestion} material={config.material} />
+          <QuoteResultView
+            quote={quote}
+            onApplySuggestion={applySuggestion}
+            onApplyVariation={applyVariation}
+            material={config.material}
+            approachSpaceMM={config.approachSpaceMM}
+          />
           {!quote.validation.blocking && quote.pricing && request && (
             <OrderForm
               quote={quote}

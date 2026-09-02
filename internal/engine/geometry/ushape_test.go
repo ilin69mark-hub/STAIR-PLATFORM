@@ -174,11 +174,11 @@ func TestGenerateUShape(t *testing.T) {
 	}
 	// объём идентичен L-образному (вращение не меняет объём): нижний и
 	// верхний марши + площадка. Площадка имеет ширину 2W: 2W·W·st = 1800·900·40.
-	// Профиль косоура (шнуровка): n1=6 → 236469.33, n2=9 → 358044.28, толщина 50.
+	// Профиль косоура (шнуровка, вертикальный срез): n1=6 → 208201.85, n2=9 → 314799.88, толщина 50.
 	// Марши сужены на flightSideInsetMM=50 (wEff=850): проступи/подступенки
 	// — полотна 850 шириной; площадка — по-прежнему 2W=1800 на 900.
-	want := 2.0*(236469.33*50) + 6.0*(310*850*40) + 6.0*(850*140*40) +
-		2.0*(358044.28*50) + 9.0*(310*850*40) + 9.0*(850*140*40) +
+	want := 2.0*(208201.846035*50) + 6.0*(310*850*40) + 6.0*(850*140*40) +
+		2.0*(314799.882956*50) + 9.0*(310*850*40) + 9.0*(850*140*40) +
 		1800*900*40
 	if !nearlyEq(res.Measurement.Volume, want) {
 		t.Fatalf("volume = %v, want %v", res.Measurement.Volume, want)
@@ -213,8 +213,8 @@ func TestUShapeBBoxMath(t *testing.T) {
 		t.Fatal(err)
 	}
 	bb := kerngeo.BoundingBox(model)
-	if math.Abs(bb.Min.X+837.73500981) > 1e-6 || bb.Min.Y < -1e-6 || bb.Min.Z > 1e-6 {
-		t.Fatalf("bbox min = %+v, want near (−837.73500981,0,0)", bb.Min)
+	if math.Abs(bb.Min.X+810) > 1e-6 || bb.Min.Y < -1e-6 || bb.Min.Z > 1e-6 {
+		t.Fatalf("bbox min = %+v, want near (−810,0,0)", bb.Min)
 	}
 	if math.Abs(bb.Max.X-2520) > 1e-6 || math.Abs(bb.Max.Y-1800) > 1e-6 || math.Abs(bb.Max.Z-2700) > 1e-6 {
 		t.Fatalf("bbox max = %+v, want (2520,1800,2700)", bb.Max)

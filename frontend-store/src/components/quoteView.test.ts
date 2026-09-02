@@ -65,6 +65,26 @@ describe('solverOf', () => {
     expect(s.outerRadius).toBeUndefined()
   })
 
+  it('прямой марш: approachSpace из явного ввода (approachMM) приоритетнее bbox', () => {
+    const s = solverOf(straight, 1100)
+    expect(s.approachSpace).toBe(1100)
+  })
+
+  it('прямой марш: без явного ввода approachSpace берётся из bbox.min.x', () => {
+    const q: QuoteResult = {
+      ...straight,
+      geometry: {
+        ...straight.geometry!,
+        bbox: { min: { x: 1000, y: 0, z: 0 }, max: { x: 900, y: 2700, z: 500 } },
+      },
+    }
+    expect(solverOf(q).approachSpace).toBe(1000)
+  })
+
+  it('прямой марш: без ввода и без сдвига модели approachSpace не задан', () => {
+    expect(solverOf(straight).approachSpace).toBeUndefined()
+  })
+
   it('L-образный: площадка и два марша', () => {
     const q: QuoteResult = {
       ...straight,
@@ -128,7 +148,10 @@ describe('solverOf', () => {
     }
     const s = solverOf(q)
     expect(s.kind).toBe('l_shape')
-    expect(s.flight?.Railing).toBe('none')
+    expect(s.flight?.Railing).toBeUndefined()
+    expect(s.railingLower).toBe('none')
+    expect(s.railingLanding).toBe('none')
+    expect(s.railingUpper).toBe('none')
   })
 
   it('L-образный: смешанный выбор перил показывает схему как обычно', () => {
@@ -161,6 +184,9 @@ describe('solverOf', () => {
     }
     const s = solverOf(q)
     expect(s.flight?.Railing).toBeUndefined()
+    expect(s.railingLower).toBe('none')
+    expect(s.railingLanding).toBe('both')
+    expect(s.railingUpper).toBe('none')
   })
 
   it('П-образный: нулевой flight реального API не съедает тип (REGB-01)', () => {

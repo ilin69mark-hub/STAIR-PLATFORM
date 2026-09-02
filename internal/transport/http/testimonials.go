@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/testimonial"
 )
@@ -96,7 +97,7 @@ type upsertTestimonialRequest struct {
 // Создаёт отзыв (по умолчанию неопубликованный черновик).
 //
 //	201 — отзыв создан; 400 — битый JSON; 403 — нет права; 422 — невалидный вход.
-func handleAdminCreateTestimonial(svc TestimonialService) http.HandlerFunc {
+func handleAdminCreateTestimonial(svc TestimonialService, auditSvc AuditService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !hasPermission(r, auth.PermissionTestimonialsManage) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
@@ -116,6 +117,16 @@ func handleAdminCreateTestimonial(svc TestimonialService) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
+		// Audit: testimonial created
+		if auditSvc != nil {
+			_ = auditSvc.Record(r.Context(), &audit.Event{
+				ActorID:    userID(r.Context()),
+				TenantID:   tenantID(r.Context()),
+				Action:     audit.ActionTestimonialCreated,
+				ResourceID: t.ID,
+				Result:     audit.ResultOK,
+			})
+		}
 		writeJSON(w, http.StatusCreated, toTestimonialDTO(t))
 	}
 }
@@ -124,7 +135,7 @@ func handleAdminCreateTestimonial(svc TestimonialService) http.HandlerFunc {
 // (auth+admin). Обновляет текст, рейтинг и флаг публикации.
 //
 //	200 — отзыв обновлён; 403 — нет права; 404 — не найден; 422 — невалидный вход.
-func handleAdminUpdateTestimonial(svc TestimonialService) http.HandlerFunc {
+func handleAdminUpdateTestimonial(svc TestimonialService, auditSvc AuditService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !hasPermission(r, auth.PermissionTestimonialsManage) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
@@ -149,6 +160,16 @@ func handleAdminUpdateTestimonial(svc TestimonialService) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
+		// Audit: testimonial updated
+		if auditSvc != nil {
+			_ = auditSvc.Record(r.Context(), &audit.Event{
+				ActorID:    userID(r.Context()),
+				TenantID:   tenantID(r.Context()),
+				Action:     audit.ActionTestimonialUpdated,
+				ResourceID: r.PathValue("id"),
+				Result:     audit.ResultOK,
+			})
+		}
 		writeJSON(w, http.StatusOK, toTestimonialDTO(t))
 	}
 }
@@ -157,19 +178,30 @@ func handleAdminUpdateTestimonial(svc TestimonialService) http.HandlerFunc {
 // (auth+admin).
 //
 //	204 — удалён; 403 — нет права; 404 — не найден.
-func handleAdminDeleteTestimonial(svc TestimonialService) http.HandlerFunc {
+func handleAdminDeleteTestimonial(svc TestimonialService, auditSvc AuditService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !hasPermission(r, auth.PermissionTestimonialsManage) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
-		if err := svc.Delete(r.Context(), tenantID(r.Context()), r.PathValue("id")); err != nil {
+		id := r.PathValue("id")
+		if err := svc.Delete(r.Context(), tenantID(r.Context()), id); err != nil {
 			if errors.Is(err, testimonial.ErrNotFound) {
 				writeError(w, http.StatusNotFound, "not_found", "Отзыв не найден.")
 				return
 			}
 			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
+		}
+		// Audit: testimonial deleted
+		if auditSvc != nil {
+			_ = auditSvc.Record(r.Context(), &audit.Event{
+				ActorID:    userID(r.Context()),
+				TenantID:   tenantID(r.Context()),
+				Action:     audit.ActionTestimonialDeleted,
+				ResourceID: id,
+				Result:     audit.ResultOK,
+			})
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}

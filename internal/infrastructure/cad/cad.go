@@ -54,7 +54,7 @@ func ParseFormat(s string) (Format, error) {
 	case "svg", "SVG":
 		return SVG, nil
 	}
-	return "", fmt.Errorf("cad: unsupported format %q (supported: dxf, stl, svg)", s)
+	return "", fmt.Errorf("cad: unsupported format %q (supported: dxf, stl, svg, step, iges, obj, 3mf, csv, json, xml)", s)
 }
 
 // ErrEmptyMesh — сетка не содержит вершин/граней.

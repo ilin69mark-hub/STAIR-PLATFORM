@@ -23,6 +23,26 @@ type Suggestion struct {
 	WidthMm       float64 // W — ширина марша
 }
 
+// Variation — альтернативная конфигурация (вариант A/B/C), устраняющая
+// неблокирующее нарушение (напр. room_fit). Config — переопределение полей
+// формы: ключи совпадают с полями ConfigForm фронтенда, значения — строки
+// (как в форме). Фронтенд сливает их в текущий конфиг и пересчитывает
+// (превью), не заменяя исходный, пока пользователь не выберет вариант.
+// Summary — краткое описание варианта (габариты, ступени, угол).
+type Variation struct {
+	ID          string
+	Title       string
+	Description string
+	Config      map[string]string
+	Fits        bool
+	// PassesNorms — кандидат проходит ВСЕ активные нормы (неблокирующий).
+	// Выставляется генератором вариаций (variation) после проверки через
+	// validation.Validate; фронтенду/аудиту сигнализирует, что применение
+	// варианта не приведёт к blocking-ошибке (см. bugfix: «круче» → проступь).
+	PassesNorms bool
+	Summary     string
+}
+
 // Issue — одно нарушение правила (EDR-0003 §4).
 type Issue struct {
 	ID       string
@@ -40,9 +60,12 @@ type Issue struct {
 	// «Высота ступени»). Guide — понятное описание блокировки и решения.
 	// Suggestions — готовые проходящие нормы варианты конфигурации.
 	// Заполняются советником advisor при blocking-валидации (additive).
+	// Variations — альтернативные конфигурации для неблокирующих
+	// нарушений (room_fit и т.п.), предлагаемые как варианты выбора.
 	Param       string
 	Guide       string
 	Suggestions []Suggestion
+	Variations  []Variation
 }
 
 // Result — итог валидации (EDR-0003 §5).

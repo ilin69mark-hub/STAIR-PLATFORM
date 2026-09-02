@@ -41,6 +41,10 @@ type ProjectService interface {
 	GetConfigurationApproval(ctx context.Context, tenantID, userID, projectID, configurationID string) (*project.ConfigurationApproval, error)
 	ListApprovals(ctx context.Context, tenantID, userID, projectID string) ([]*project.ConfigurationApproval, error)
 	Calculate(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options) (*project.Calculation, error)
+	// Preview — рассчитывает конфигурацию БЕЗ сохранения (превью варианта).
+	// Используется вариациями (A/B/C), чтобы пользователь мог перебирать
+	// альтернативы, не засоряя сохранённые расчёты проекта.
+	Preview(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options) (*project.Snapshot, error)
 	Optimize(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options, oreq stair.OptimizeRequest) (*project.OptimizeOutcome, error)
 	GetResult(ctx context.Context, tenantID, userID, projectID string) (*project.Calculation, error)
 	ExportCAD(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, error)
@@ -144,6 +148,10 @@ type configurationDTO struct {
 	RailingHeightMM     float64   `json:"railing_height_mm"`
 	ComfortStepMM       float64   `json:"comfort_step_mm"`
 	LandingWidthMM      float64   `json:"landing_width_mm"`
+	LandingDepthMM      float64   `json:"landing_depth_mm"`
+	RoomWidthMM         float64   `json:"room_width_mm"`
+	RoomLengthMM        float64   `json:"room_length_mm"`
+	ApproachSpaceMM     float64   `json:"approach_space_mm"`
 	LowerStepCount      int       `json:"lower_step_count"`
 	OuterRadiusMM       float64   `json:"outer_radius_mm"`
 	Current             bool      `json:"current"`
@@ -211,16 +219,31 @@ func handleGetProject(svc ProjectService) http.HandlerFunc {
 // членом которых является вызывающий (EDR-0008).
 func handleListProjects(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		params := ParsePagination(r)
 		list, err := svc.ListProjects(r.Context(), tenantID(r.Context()), userID(r.Context()))
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
+
+		// Применяем пагинацию
+		total := len(list)
+		start := params.Offset()
+		if start >= total {
+			list = []*project.Project{}
+		} else {
+			end := start + params.PerPage
+			if end > total {
+				end = total
+			}
+			list = list[start:end]
+		}
+
 		out := make([]projectDTO, 0, len(list))
 		for _, p := range list {
 			out = append(out, toProjectDTO(p))
 		}
-		writeJSON(w, http.StatusOK, out)
+		WritePaginatedJSON(w, out, params, total)
 	}
 }
 
@@ -345,6 +368,19 @@ func handleAddComment(svc ProjectService) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
+
+		// Валидация длины комментария
+		const maxCommentLength = 10000
+		if len(req.Body) == 0 {
+			writeError(w, http.StatusUnprocessableEntity, "validation_error", "Тело комментария не может быть пустым")
+			return
+		}
+		if len(req.Body) > maxCommentLength {
+			writeError(w, http.StatusUnprocessableEntity, "validation_error",
+				fmt.Sprintf("Тело комментария не может превышать %d символов", maxCommentLength))
+			return
+		}
+
 		c, err := svc.AddComment(r.Context(), tenantID(r.Context()), userID(r.Context()),
 			r.PathValue("id"), req.Body)
 		switch {
@@ -366,6 +402,7 @@ func handleAddComment(svc ProjectService) http.HandlerFunc {
 // 200 — список; 403 — нет прав; 404 — нет проекта.
 func handleListComments(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		params := ParsePagination(r)
 		comments, err := svc.ListComments(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
 		switch {
 		case errors.Is(err, project.ErrNotFound):
@@ -375,11 +412,24 @@ func handleListComments(svc ProjectService) http.HandlerFunc {
 		case err != nil:
 			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 		default:
+			// Применяем пагинацию
+			total := len(comments)
+			start := params.Offset()
+			if start >= total {
+				comments = []*project.Comment{}
+			} else {
+				end := start + params.PerPage
+				if end > total {
+					end = total
+				}
+				comments = comments[start:end]
+			}
+
 			out := make([]commentDTO, 0, len(comments))
 			for _, c := range comments {
 				out = append(out, toCommentDTO(c))
 			}
-			writeJSON(w, http.StatusOK, out)
+			WritePaginatedJSON(w, out, params, total)
 		}
 	}
 }
@@ -467,6 +517,7 @@ func handleRequestChanges(svc ProjectService) http.HandlerFunc {
 // 200 — история; 403 — нет прав; 404 — нет проекта.
 func handleListReviews(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		params := ParsePagination(r)
 		reviews, err := svc.ListReviews(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
 		switch {
 		case errors.Is(err, project.ErrNotFound):
@@ -476,11 +527,24 @@ func handleListReviews(svc ProjectService) http.HandlerFunc {
 		case err != nil:
 			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 		default:
+			// Применяем пагинацию
+			total := len(reviews)
+			start := params.Offset()
+			if start >= total {
+				reviews = []*project.ProjectReview{}
+			} else {
+				end := start + params.PerPage
+				if end > total {
+					end = total
+				}
+				reviews = reviews[start:end]
+			}
+
 			out := make([]reviewDTO, 0, len(reviews))
 			for _, rv := range reviews {
 				out = append(out, toReviewDTO(rv))
 			}
-			writeJSON(w, http.StatusOK, out)
+			WritePaginatedJSON(w, out, params, total)
 		}
 	}
 }
@@ -551,6 +615,7 @@ func handleGetConfigurationApproval(svc ProjectService) http.HandlerFunc {
 // 200 — история утверждений; 403 — нет прав; 404 — нет проекта.
 func handleListApprovals(svc ProjectService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		params := ParsePagination(r)
 		approvals, err := svc.ListApprovals(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
 		switch {
 		case errors.Is(err, project.ErrNotFound):
@@ -560,11 +625,24 @@ func handleListApprovals(svc ProjectService) http.HandlerFunc {
 		case err != nil:
 			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 		default:
+			// Применяем пагинацию
+			total := len(approvals)
+			start := params.Offset()
+			if start >= total {
+				approvals = []*project.ConfigurationApproval{}
+			} else {
+				end := start + params.PerPage
+				if end > total {
+					end = total
+				}
+				approvals = approvals[start:end]
+			}
+
 			out := make([]approvalDTO, 0, len(approvals))
 			for _, a := range approvals {
 				out = append(out, toApprovalDTO(a))
 			}
-			writeJSON(w, http.StatusOK, out)
+			WritePaginatedJSON(w, out, params, total)
 		}
 	}
 }
@@ -682,7 +760,46 @@ func handleCalculateProject(svc ProjectService) http.HandlerFunc {
 	}
 }
 
-// handleOptimizeProject — POST /api/v1/projects/{id}/optimize (auth+CSRF).
+// handlePreviewProject — POST /api/v1/projects/{id}/preview (auth+CSRF).
+// Рассчитывает конфигурацию БЕЗ сохранения: 200 — расчёт-превью;
+// 400 — битый JSON; 404 — нет проекта; 403 — нет прав; 422 — невалидный
+// вход; 500 — сбой. Используется вариациями (A/B/C) для перебора альтернатив.
+func handlePreviewProject(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		projectID := r.PathValue("id")
+
+		var req calculateRequest
+		if err := decodeJSON(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
+			return
+		}
+		cfg, err := toConfig(req)
+		if err != nil {
+			writeInputError(w, "invalid_input", err)
+			return
+		}
+		opts, err := toOptions(req)
+		if err != nil {
+			writeInputError(w, "invalid_rates", err)
+			return
+		}
+
+		snap, err := svc.Preview(r.Context(), tenantID(r.Context()), userID(r.Context()), projectID, cfg, opts)
+		if errors.Is(err, project.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "Проект не найден")
+			return
+		}
+		if errors.Is(err, project.ErrForbidden) {
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
+			return
+		}
+		if err != nil {
+			writeInputError(w, "invalid_input", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, toSnapshotDTO(projectID, *snap))
+	}
+}
 // Находит оптимальную конфигурацию проекта и сохраняет её с расчётом
 // (EDR-0032). 200 — итог поиска (+ сохранённый расчёт при valid:true);
 // 400 — битый JSON; 404 — нет проекта; 403 — viewer; 422 — невалидный
@@ -859,6 +976,10 @@ func toConfigurationDTO(c *project.StairConfiguration, current string) configura
 		RailingHeightMM:     c.RailingHeightMM,
 		ComfortStepMM:       c.ComfortStepMM,
 		LandingWidthMM:      c.LandingWidthMM,
+		LandingDepthMM:      c.LandingDepthMM,
+		RoomWidthMM:         c.RoomWidthMM,
+		RoomLengthMM:        c.RoomLengthMM,
+		ApproachSpaceMM:     c.ApproachSpaceMM,
 		LowerStepCount:      c.LowerStepCount,
 		OuterRadiusMM:       c.OuterRadiusMM,
 		Current:             c.ID == current,
@@ -875,5 +996,21 @@ func toCalculationDTO(c *project.Calculation) calculationDTO {
 		Blocking:        c.Blocking,
 		CreatedAt:       c.CreatedAt,
 		Result:          c.Result,
+	}
+}
+
+// toSnapshotDTO — оборачивает рассчитанный Snapshot (без сохранения,
+// EDR-0008 Preview) в calculationDTO: сериализуем Snapshot в JSON здесь,
+// в транспортном слое (ADR-0006 запрещает encoding/json в application).
+func toSnapshotDTO(projectID string, snap project.Snapshot) calculationDTO {
+	b, err := json.Marshal(snap)
+	if err != nil {
+		b = []byte("{}")
+	}
+	return calculationDTO{
+		ProjectID: projectID,
+		Valid:     snap.Validation.Valid,
+		Blocking:  snap.Validation.Blocking,
+		Result:    b,
 	}
 }

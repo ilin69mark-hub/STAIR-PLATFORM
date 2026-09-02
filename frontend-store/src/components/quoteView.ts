@@ -8,7 +8,8 @@ import type {
   QuoteSpiral,
   QuoteUShape,
 } from '@shared/types'
-import type { PlanKind } from '@shared/schemes/StairPlan'
+
+export type PlanKind = 'straight' | 'l_shape' | 'u_shape' | 'spiral'
 
 export interface FlightView {
   StepCount: number
@@ -25,6 +26,9 @@ export interface FlightView {
   // Эффективная сторона перил (CONF-RAILING): 'none' скрывает перила на
   // схеме, отсутствие — legacy (рисуем по высоте).
   Railing?: string
+  // Габариты помещения для прижима прямого марша (EDR-0023, 1В→В).
+  RoomWidth?: number
+  RoomLength?: number
 }
 
 export interface SolverView {
@@ -33,10 +37,18 @@ export interface SolverView {
   lowerStepCount?: number
   upperStepCount?: number
   landingWidth?: number
+  landingDepth?: number
+  roomWidth?: number
+  roomLength?: number
   lowerRun?: number
   upperRun?: number
   lowerStringer?: number
   upperStringer?: number
+  // Перила по сегментам (CONF-RAILING): для плана L/U передаём сторону каждого
+  // сегмента, отрисовка ведётся по контуру (StairPlan).
+  railingLower?: string
+  railingLanding?: string
+  railingUpper?: string
   // Направление поворота (CONF-DIRECTION): 'left' | 'right' (план зеркалится).
   direction?: 'left' | 'right'
   outerRadius?: number
@@ -49,6 +61,10 @@ export interface SolverView {
   angularTotal?: number
   arcLength?: number
   comfortStep?: number
+  // approachSpace — свободное пространство перед первой ступенью прямого
+  // марша (мм). Равно сдвигу модели от стены (bbox.min.x); зона рисуется
+  // перед первой ступенью на плане (EDR-0023).
+  approachSpace?: number
 }
 
 export function quoteToFlight(f: QuoteFlight): FlightView {
@@ -65,22 +81,21 @@ export function quoteToFlight(f: QuoteFlight): FlightView {
     Riser: f.riser,
     StringerThickness: f.stringer_thickness_mm,
     Railing: f.railing,
+    // Габариты помещения для прижима прямого марша (EDR-0023, 1В→В).
+    RoomWidth: f.room_width_mm,
+    RoomLength: f.room_length_mm,
   }
 }
 
-// segmentsRailing — эффективная сторона перил маршей с площадкой (L/U):
-// перила отсутствуют только если во всех сегментах выбрано «без перил»;
-// смешанный выбор схема профиля показывает как обычно (один ряд).
-function segmentsRailing(
-  lower: string | undefined,
-  landing: string | undefined,
-  upper: string | undefined,
-): string | undefined {
-  const all = [lower, landing, upper]
-  return all.every((s) => s !== undefined) && all.every((s) => s === 'none') ? 'none' : undefined
-}
-
-export function solverOf(q: QuoteResult): SolverView {
+export function solverOf(q: QuoteResult, approachMM?: number): SolverView {
+  // Свободное пространство перед первой ступенью (EDR-0023): берём явно из
+  // ввода калькулятора (approachMM), иначе — из сдвига модели бэкенда
+  // (bbox.min.x). Дефолт 1000 мм задаётся в конфиге калькулятора.
+  const approachOf = (): number | undefined => {
+    if (approachMM != null && approachMM > 0) return approachMM
+    const b = q.geometry?.bbox?.min?.x
+    return b != null && b > 1 ? b : undefined
+  }
   // Сначала более конкретные типы: API всегда шлёт поле flight (для L/U/спирали
   // оно нулевое), поэтому проверка flight первой съедала бы все не-прямые типы.
   if (q.spiral) {
@@ -112,6 +127,9 @@ export function solverOf(q: QuoteResult): SolverView {
       angularTotal: s.angular_total_deg,
       arcLength: s.arc_length_mm,
       comfortStep: s.comfort_step_mm,
+      // Свободное пространство перед первой ступенью равно сдвигу модели
+      // от стены (bbox.min.x), задаваемому approachSpace (EDR-0023).
+      approachSpace: approachOf(),
     }
   }
   if (q.ushape) {
@@ -128,7 +146,7 @@ export function solverOf(q: QuoteResult): SolverView {
       RailingHeight: u.railing_height_mm,
       Riser: u.riser,
       StringerThickness: u.stringer_thickness_mm,
-      Railing: segmentsRailing(u.railing_lower, u.railing_landing, u.railing_upper),
+      Railing: undefined,
     }
     return {
       kind: 'u_shape',
@@ -140,7 +158,13 @@ export function solverOf(q: QuoteResult): SolverView {
       upperRun: u.upper_run_mm,
       lowerStringer: u.lower_stringer_mm,
       upperStringer: u.upper_stringer_mm,
+      railingLower: u.railing_lower,
+      railingLanding: u.railing_landing,
+      railingUpper: u.railing_upper,
       direction: u.direction as 'left' | 'right' | undefined,
+      // Свободное пространство перед первой ступенью равно сдвигу модели
+      // от стены (bbox.min.x), задаваемому approachSpace (EDR-0023).
+      approachSpace: approachOf(),
     }
   }
   if (q.lshape) {
@@ -157,7 +181,7 @@ export function solverOf(q: QuoteResult): SolverView {
       RailingHeight: l.railing_height_mm,
       Riser: l.riser,
       StringerThickness: l.stringer_thickness_mm,
-      Railing: segmentsRailing(l.railing_lower, l.railing_landing, l.railing_upper),
+      Railing: undefined,
     }
     return {
       kind: 'l_shape',
@@ -165,16 +189,27 @@ export function solverOf(q: QuoteResult): SolverView {
       lowerStepCount: l.lower_step_count,
       upperStepCount: l.upper_step_count,
       landingWidth: l.landing_width_mm,
+      landingDepth: l.landing_depth_mm,
+      roomWidth: l.room_width_mm,
+      roomLength: l.room_length_mm,
       lowerRun: l.lower_run_mm,
       upperRun: l.upper_run_mm,
       lowerStringer: l.lower_stringer_mm,
       upperStringer: l.upper_stringer_mm,
+      railingLower: l.railing_lower,
+      railingLanding: l.railing_landing,
+      railingUpper: l.railing_upper,
       direction: l.direction as 'left' | 'right' | undefined,
+      // Свободное пространство перед первой ступенью равно сдвигу модели
+      // от стены (bbox.min.x), задаваемому approachSpace (EDR-0023).
+      approachSpace: approachOf(),
     }
   }
   if (q.flight) {
     const f = quoteToFlight(q.flight)
-    return { kind: 'straight', flight: f }
+    // Свободное пространство перед первой ступенью равно сдвигу модели от
+    // стены (bbox.min.x), задаваемому approachSpace (EDR-0023).
+    return { kind: 'straight', flight: f, approachSpace: approachOf(), roomWidth: f.RoomWidth, roomLength: f.RoomLength }
   }
   return {}
 }

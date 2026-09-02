@@ -5,6 +5,7 @@ import type { Project } from '@shared/types'
 import { ProjectList } from './components/ProjectList'
 import { ProjectDetail } from './components/ProjectDetail'
 import { AdminPanel } from './components/AdminPanel'
+import { AuditPage } from './components/AuditPage'
 import { AuthPage } from './components/AuthPage'
 import { useAuth } from './auth/context'
 import { ApiError } from '@shared/types'
@@ -14,6 +15,7 @@ function App() {
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showAdmin, setShowAdmin] = useState(false)
+  const [showAudit, setShowAudit] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loadingList, setLoadingList] = useState(false)
 
@@ -50,6 +52,7 @@ function App() {
   const handleLogout = async () => {
     setSelectedId(null)
     setShowAdmin(false)
+    setShowAudit(false)
     await logout()
   }
 
@@ -57,6 +60,10 @@ function App() {
     return (
       <AdminPanel currentUserId={user.id} onBack={() => setShowAdmin(false)} />
     )
+  }
+
+  if (showAudit) {
+    return <AuditPage onBack={() => setShowAudit(false)} />
   }
 
   if (selectedId) {
@@ -81,6 +88,11 @@ function App() {
           {user.role === 'admin' && (
             <button className="btn" onClick={() => setShowAdmin(true)}>
               Администрирование
+            </button>
+          )}
+          {user.role === 'admin' && (
+            <button className="btn" onClick={() => setShowAudit(true)}>
+              Аудит действий
             </button>
           )}
           <button className="btn btn--ghost" onClick={handleLogout}>

@@ -76,6 +76,10 @@ export interface ConfigForm {
   railingHeightMM: string
   comfortStepMM: string
   landingWidthMM: string
+  landingDepthMM: string
+  roomWidthMM: string
+  roomLengthMM: string
+  approachSpaceMM: string
   lowerStepCountMM: string
   outerRadiusMM: string
   railing: RailingSide
@@ -99,6 +103,10 @@ export const defaultConfig: ConfigForm = {
   railingHeightMM: '900',
   comfortStepMM: '',
   landingWidthMM: '1000',
+  landingDepthMM: '1000',
+  roomWidthMM: '',
+  roomLengthMM: '',
+  approachSpaceMM: '1000',
   lowerStepCountMM: '6',
   outerRadiusMM: '800',
   railing: 'both',
@@ -126,9 +134,9 @@ const commonFields: Array<keyof ConfigForm> = [
 ]
 
 export const flightFields: Record<Flight, Array<keyof ConfigForm>> = {
-  straight: [...commonFields, 'railing'],
-  l_shape: [...commonFields, 'landingWidthMM', 'lowerStepCountMM', 'railingLower', 'railingLanding', 'railingUpper', 'direction'],
-  u_shape: [...commonFields, 'landingWidthMM', 'lowerStepCountMM', 'railingLower', 'railingLanding', 'railingUpper', 'direction'],
+  straight: [...commonFields, 'railing', 'roomWidthMM', 'roomLengthMM', 'approachSpaceMM'],
+  l_shape: [...commonFields, 'landingWidthMM', 'landingDepthMM', 'roomWidthMM', 'roomLengthMM', 'lowerStepCountMM', 'railingLower', 'railingLanding', 'railingUpper', 'direction', 'approachSpaceMM'],
+  u_shape: [...commonFields, 'landingWidthMM', 'landingDepthMM', 'roomWidthMM', 'roomLengthMM', 'lowerStepCountMM', 'railingLower', 'railingLanding', 'railingUpper', 'direction', 'approachSpaceMM'],
   spiral: [
     'widthMM',
     'heightMM',
@@ -138,7 +146,10 @@ export const flightFields: Record<Flight, Array<keyof ConfigForm>> = {
     'clearanceMM',
     'railingHeightMM',
     'outerRadiusMM',
+    'roomWidthMM',
+    'roomLengthMM',
     'spiralDirection',
+    'approachSpaceMM',
   ],
 }
 
@@ -221,6 +232,10 @@ export const fieldRules: Record<keyof ConfigForm, FieldRule> = {
   railingHeightMM: { min: 900, max: 2000 },
   comfortStepMM: { min: 600, max: 640, hint: 'шаг комфорта 600–640' },
   landingWidthMM: { min: 600, max: 3000, hint: 'Wp ≥ ширины марша' },
+  landingDepthMM: { min: 600, max: 5000, hint: 'глубина площадки (вдоль нижнего марша), ≥ ширины' },
+  roomWidthMM: { min: 0, max: 8000, hint: 'ширина помещения (X), 0 — без проверки' },
+  roomLengthMM: { min: 0, max: 8000, hint: 'длина помещения (Y), 0 — без проверки' },
+  approachSpaceMM: { min: 1000, max: 1200, hint: 'свободное пространство перед первой ступенью (норма 1000–1200 мм)' },
   lowerStepCountMM: { min: 1, max: 100 },
   outerRadiusMM: { min: 500, max: 5000, hint: 'R > W (радиус марша)' },
   railing: {},
@@ -277,14 +292,30 @@ export function validateForm(f: ConfigForm): FieldErrors {
     const rule = rulesFor(key, f.material)
     if (rule.min === undefined && rule.max === undefined) continue
     // Поля маршей с площадкой значимы только для l_shape/u_shape (EDR-0005/0006).
-    if (key === 'landingWidthMM' || key === 'lowerStepCountMM') {
+    if (
+      key === 'landingWidthMM' ||
+      key === 'landingDepthMM' ||
+      key === 'lowerStepCountMM'
+    ) {
       if (f.flight !== 'l_shape' && f.flight !== 'u_shape') continue
     }
+    // Параметры помещения значимы для всех типов марша (прямой, L, П,
+    // спираль) — fit-check выполняется геометрией для любого типа и
+    // обрабатываются ниже как необязательные (пустое = без проверки).
     // Наружный радиус значим только для спирали (EDR-0007).
     if (key === 'outerRadiusMM' && f.flight !== 'spiral') continue
-    // Шаг комфорта спираль считает сама (EDR-0007 §4.6).
+    // Свободное пространство перед первой ступенью значимо для ВСЕХ типов
+    // марша (EDR-0023): прямой, L, П, спираль. Параметр обязателен — пустое
+    // значение блокирует расчёт (ошибка «Укажите значение»), а не трактуется
+    // как дефолт 1000 мм (дефолт подставляется только в toRequest/при
+    // применении варианта, см. Constructor/ProjectDetail).
+    if (key === 'approachSpaceMM') {
+      // значимо для всех типов — проверяем как обычное обязательное поле
+    }
+    // Шаг комфорта и габариты помещения — необязательные (пустое = не задано).
     if (key === 'comfortStepMM' && f.flight === 'spiral') continue
-    const optional = key === 'comfortStepMM'
+    const optional =
+      key === 'comfortStepMM' || key === 'roomWidthMM' || key === 'roomLengthMM'
     const raw = f[key]
     if (String(raw).trim() === '') {
       if (!optional) errors[key] = 'Укажите значение'
@@ -325,7 +356,19 @@ export function toRequest(f: ConfigForm): Record<string, unknown> {
   // Параметры маршей с площадкой передаются только для l_shape/u_shape (EDR-0005/0006).
   if (f.flight === 'l_shape' || f.flight === 'u_shape') {
     req.landing_width_mm = Number(f.landingWidthMM)
+    req.landing_depth_mm = Number(f.landingDepthMM)
     req.lower_step_count = Number(f.lowerStepCountMM)
+  }
+  if (f.flight === 'l_shape' || f.flight === 'straight' || f.flight === 'u_shape' || f.flight === 'spiral') {
+    req.room_width_mm = Number(f.roomWidthMM)
+    req.room_length_mm = Number(f.roomLengthMM)
+  }
+  // Свободное пространство перед первой ступенью — для ВСЕХ типов марша
+  // (EDR-0023): прямой, L, П, спираль. Пустое значение трактуется как
+  // дефолт 1000 мм (как и в геометрии при approach == 0).
+  {
+    const a = (f.approachSpaceMM ?? '').trim()
+    req.approach_space_mm = a === '' ? 1000 : Number(a)
   }
   // Наружный радиус передаётся только для спирали (EDR-0007).
   if (f.flight === 'spiral') {

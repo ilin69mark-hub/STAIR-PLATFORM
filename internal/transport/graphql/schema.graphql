@@ -1,0 +1,364 @@
+# STAIR PLATFORM — GraphQL Schema
+# Схема для API расширенного взаимодействия (ENG-GQL-0001)
+
+"""
+Типы для GraphQL API STAIR PLATFORM.
+"""
+
+# scalar DateTime
+# scalar JSON
+
+"""
+Корневые типы запросов.
+"""
+type Query {
+  """
+  Получить конфигурацию лестницы по ID.
+  """
+  stairConfiguration(id: ID!): StairConfiguration
+
+  """
+  Получить список конфигураций проекта.
+  """
+  projectConfigurations(projectId: ID!): [StairConfiguration!]!
+
+  """
+  Получить результат анализа по ID.
+  """
+  analysis(id: ID!): AnalysisResult
+
+  """
+  Получить список вариантов оптимизации.
+  """
+  optimizationVariants(configId: ID!): [OptimizationVariant!]!
+
+  """
+  Получить статус pipeline.
+  """
+  pipelineStatus(configId: ID!): PipelineStatus
+
+  """
+  Получить документы конфигурации.
+  """
+  configurationDocuments(configId: ID!): [Document!]!
+
+  """
+  Поиск лестниц по параметрам.
+  """
+  searchStairs(params: SearchParams!): [StairConfiguration!]!
+}
+
+"""
+Корневые типы мутаций.
+"""
+type Mutation {
+  """
+  Создать новую конфигурацию лестницы.
+  """
+  createStairConfiguration(input: CreateStairInput!): StairConfiguration!
+
+  """
+  Обновить конфигурацию лестницы.
+  """
+  updateStairConfiguration(id: ID!, input: UpdateStairInput!): StairConfiguration!
+
+  """
+  Запустить анализ конфигурации.
+  """
+  runAnalysis(configId: ID!): AnalysisResult!
+
+  """
+  Запустить оптимизацию.
+  """
+  runOptimization(configId: ID!, params: OptimizationParams!): [OptimizationVariant!]!
+
+  """
+  Запустить генерацию документов.
+  """
+  generateDocuments(configId: ID!, types: [DocumentType!]!): [Document!]!
+
+  """
+  Экспорт в CNC формат.
+  """
+  exportCNC(configId: ID!, format: CNCFormat!): CNCJob!
+
+  """
+  Запустить pipeline расчёта.
+  """
+  runPipeline(configId: ID!): PipelineStatus!
+}
+
+"""
+Корневые типы подписок.
+"""
+type Subscription {
+  """
+  Подписка на обновления статуса pipeline.
+  """
+  pipelineStatusChanged(configId: ID!): PipelineStatus!
+
+  """
+  Подписка на обновления анализа.
+  """
+  analysisProgress(configId: ID!): AnalysisProgress!
+
+  """
+  Подписка на уведомления.
+  """
+  notifications(userId: ID!): Notification!
+}
+
+"""
+Типы данных.
+"""
+type StairConfiguration {
+  id: ID!
+  projectId: ID!
+  name: String!
+  width: Float!
+  height: Float!
+  flightType: FlightType!
+  stepCount: Int!
+  stepHeight: Float!
+  treadDepth: Float!
+  stringerThickness: Float!
+  stepThickness: Float!
+  status: ConfigStatus!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type AnalysisResult {
+  id: ID!
+  configId: ID!
+  status: AnalysisStatus!
+  flight: FlightType
+  stepCount: Int
+  angle: Float
+  riserHeight: Float
+  treadDepth: Float
+  comfortScore: Float
+  safetyScore: Float
+  issues: [ValidationIssue!]
+  createdAt: DateTime!
+}
+
+type OptimizationVariant {
+  id: ID!
+  configId: ID!
+  rank: Int!
+  stepHeight: Float!
+  treadDepth: Float!
+  comfortScore: Float!
+  safetyScore: Float!
+  materialCost: Float
+  selected: Boolean!
+}
+
+type PipelineStatus {
+  configId: ID!
+  status: PipelineStage!
+  stages: [PipelineStageInfo!]!
+  startedAt: DateTime
+  completedAt: DateTime
+  error: String
+}
+
+type PipelineStageInfo {
+  name: String!
+  status: PipelineStage!
+  startedAt: DateTime
+  completedAt: DateTime
+  error: String
+}
+
+type Document {
+  id: ID!
+  type: DocumentType!
+  format: DocumentFormat!
+  status: DocumentStatus!
+  title: String!
+  createdAt: DateTime!
+}
+
+type CNCJob {
+  id: ID!
+  configId: ID!
+  format: CNCFormat!
+  status: CNCJobStatus!
+  outputPath: String
+  createdAt: DateTime!
+}
+
+type ValidationIssue {
+  code: String!
+  severity: Severity!
+  element: String!
+  message: String!
+}
+
+type Notification {
+  id: ID!
+  type: NotificationType!
+  message: String!
+  data: JSON
+  createdAt: DateTime!
+}
+
+type SearchParams {
+  projectId: ID
+  minWidth: Float
+  maxWidth: Float
+  minHeight: Float
+  maxHeight: Float
+  flightType: FlightType
+  limit: Int
+  offset: Int
+}
+
+"""
+Перечисления.
+"""
+enum FlightType {
+  STRAIGHT
+  L_SHAPED
+  U_SHAPED
+  SPIRAL
+}
+
+enum ConfigStatus {
+  DRAFT
+  VALIDATED
+  OPTIMIZED
+  APPROVED
+  EXPORTED
+}
+
+enum AnalysisStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum PipelineStage {
+  PENDING
+  VALIDATION
+  ANALYSIS
+  OPTIMIZATION
+  MANUFACTURING
+  DOCUMENT
+  PRICING
+  COMPLETED
+  FAILED
+}
+
+enum DocumentType {
+  TECHNICAL_SPEC
+  DRAWING
+  LETTER
+  MANUFACTURING
+  ASSEMBLY
+  COST_ESTIMATE
+}
+
+enum DocumentFormat {
+  PDF
+  DOCX
+  HTML
+  JSON
+}
+
+enum DocumentStatus {
+  DRAFT
+  RENDERED
+  ARCHIVED
+}
+
+enum CNCFormat {
+  STEP
+  IGES
+  OBJ
+  THREE_MF
+  DXF
+  STL
+  CSV
+  JSON
+  XML
+}
+
+enum CNCJobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+enum Severity {
+  ERROR
+  WARNING
+}
+
+enum NotificationType {
+  PIPELINE_COMPLETED
+  PIPELINE_FAILED
+  DOCUMENT_GENERATED
+  EXPORT_READY
+  SYSTEM
+}
+
+"""
+Входные данные.
+"""
+input CreateStairInput {
+  projectId: ID!
+  name: String!
+  width: Float!
+  height: Float!
+  flightType: FlightType!
+  stepCount: Int
+  stepHeight: Float
+  treadDepth: Float
+  stringerThickness: Float
+  stepThickness: Float
+}
+
+input UpdateStairInput {
+  name: String
+  width: Float
+  height: Float
+  flightType: FlightType
+  stepCount: Int
+  stepHeight: Float
+  treadDepth: Float
+  stringerThickness: Float
+  stepThickness: Float
+}
+
+input OptimizationParams {
+  maxVariants: Int
+  optimizeFor: OptimizationTarget
+  constraints: OptimizationConstraints
+}
+
+enum OptimizationTarget {
+  COMFORT
+  SAFETY
+  COST
+  BALANCED
+}
+
+input OptimizationConstraints {
+  minStepHeight: Float
+  maxStepHeight: Float
+  minTreadDepth: Float
+  maxTreadDepth: Float
+  maxWidth: Float
+  maxHeight: Float
+}
+
+"""
+Скалярные типы (placeholder — реализуются в resolvers).
+"""
+scalar DateTime
+scalar JSON

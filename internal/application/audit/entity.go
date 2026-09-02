@@ -43,6 +43,22 @@ const (
 	ActionAiAssistEngineering   Action = "ai.assist.engineering"
 	ActionAiAssistManufacturing Action = "ai.assist.manufacturing"
 	ActionAiAssistPricing       Action = "ai.assist.pricing"
+
+	// Действия с расчётом лестницы (EDR-0023/0033 + клиентские клики):
+	// серверная эмиссия при расчёте и клиентские события (применение
+	// варианта/совета, изменение поля).
+	ActionStairCalculated        Action = "stair.calculated"
+	ActionStairConfigChanged     Action = "stair.config_changed"
+	ActionStairSuggestionApplied Action = "stair.suggestion_applied"
+	ActionStairVariationApplied  Action = "stair.variation_applied"
+
+	// Заказы (EDR-0027): изменение статуса администратором.
+	ActionOrderStatusChanged Action = "order.status_changed"
+
+	// Отзывы: CRUD операции администратора.
+	ActionTestimonialCreated Action = "testimonial.created"
+	ActionTestimonialUpdated Action = "testimonial.updated"
+	ActionTestimonialDeleted Action = "testimonial.deleted"
 )
 
 // Result — исход события.

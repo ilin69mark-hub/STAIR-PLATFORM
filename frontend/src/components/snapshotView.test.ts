@@ -49,10 +49,14 @@ describe('schematicOf railing (CONF-RAILING)', () => {
       mk({ railing_lower: 'none', railing_landing: 'none', railing_upper: 'none' }),
     )
     expect(allNone?.kind).toBe('l_shape')
-    expect(allNone?.railing).toBe('none')
+    expect(allNone?.solver.railingLower).toBe('none')
+    expect(allNone?.solver.railingLanding).toBe('none')
+    expect(allNone?.solver.railingUpper).toBe('none')
 
     const mixed = schematicOf(mk({ railing_lower: 'none', railing_landing: 'both', railing_upper: 'none' }))
-    expect(mixed?.railing).toBeUndefined()
+    expect(mixed?.solver.railingLower).toBe('none')
+    expect(mixed?.solver.railingLanding).toBe('both')
+    expect(mixed?.solver.railingUpper).toBe('none')
   })
 
   it('спираль несёт сторону перил (авто из направления)', () => {

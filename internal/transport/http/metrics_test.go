@@ -10,11 +10,13 @@ import (
 	"stairplatform/internal/infrastructure/metrics"
 )
 
-// TestMetricsPublic: /metrics доступен без аутентификации и без rate-limit.
-func TestMetricsPublic(t *testing.T) {
+// TestMetricsInternal: /metrics доступен только с внутренних IP.
+func TestMetricsInternal(t *testing.T) {
 	r := NewRouter(stair.NewService(), nil, testAuth{}, DefaultConfig())
 
+	// Используем localhost IP для доступа к internal endpoint
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
@@ -111,6 +113,7 @@ func TestMetricsStairPipeline(t *testing.T) {
 
 	// /metrics пишет оба реестра.
 	req = httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
 	rec = httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

@@ -76,7 +76,8 @@ func (s *Service) record(ctx context.Context, actorID, tenantID string, action a
 	})
 }
 
-// EmailPattern — минимальная проверка формата email.
+// emailPattern — минимальная проверка формата email.
+// Используется unified validation package.
 var emailPattern = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
 // sessionTTLFor возвращает TTL сессии по политике tenant (EDR-0016 §3.2).

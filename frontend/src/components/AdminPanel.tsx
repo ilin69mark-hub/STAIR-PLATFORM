@@ -682,7 +682,7 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
                     <tr key={o.id}>
                       <td>{o.id.slice(0, 8)}</td>
                       <td>
-                        <span className={`badge ${o.kind === 'consultation' ? 'badge--warn' : ''}`}>
+                        <span className={`badge ${o.kind === 'consultation' ? 'badge--warning' : ''}`}>
                           {o.kind === 'consultation' ? 'Консультация' : 'Заказ'}
                         </span>
                       </td>
@@ -927,7 +927,7 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
             {testimonials.length === 0 ? (
               <p className="muted">Отзывов пока нет. Добавьте первый ниже.</p>
             ) : (
-              <ul className="comments">
+              <ul className="comment-list">
                 {testimonials.map((t) => (
                   <li className="comment" key={t.id}>
                     <div className="comment__meta">

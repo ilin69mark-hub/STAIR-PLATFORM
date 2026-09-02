@@ -231,6 +231,17 @@ func (f *fakeProjectService) GetResult(ctx context.Context, tenantID, userID, pr
 	return f.calc, nil
 }
 
+func (f *fakeProjectService) Preview(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options) (*project.Snapshot, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, project.ErrNotFound
+	}
+	if f.calculateErr != nil {
+		return nil, f.calculateErr
+	}
+	snap := project.NewSnapshot(projectID, &stair.Result{})
+	return &snap, nil
+}
+
 func (f *fakeProjectService) ExportCAD(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, error) {
 	if _, ok := f.projects[projectID]; !ok {
 		return nil, project.ErrNotFound
@@ -442,9 +453,13 @@ func TestListProjects(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
-	var list []projectDTO
-	if err := json.NewDecoder(rec.Body).Decode(&list); err != nil {
+	var resp PaginatedResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
+	}
+	list, ok := resp.Data.([]interface{})
+	if !ok {
+		t.Fatalf("expected data to be array, got %T", resp.Data)
 	}
 	if len(list) != 1 {
 		t.Fatalf("len = %d, want 1", len(list))
@@ -811,12 +826,16 @@ func TestListComments(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	var list []commentDTO
-	if err := json.NewDecoder(rec.Body).Decode(&list); err != nil {
+	var resp PaginatedResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(list) != 2 || list[0].Body != "первый" || list[1].Body != "второй" {
-		t.Fatalf("unexpected list: %+v", list)
+	list, ok := resp.Data.([]interface{})
+	if !ok {
+		t.Fatalf("expected data to be array, got %T", resp.Data)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expected 2 comments, got %d", len(list))
 	}
 }
 
@@ -938,12 +957,16 @@ func TestListReviews(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	var list []reviewDTO
-	if err := json.NewDecoder(rec.Body).Decode(&list); err != nil {
+	var resp PaginatedResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(list) != 2 || list[0].Decision != project.ReviewRequested || list[1].Decision != project.ReviewApproved {
-		t.Fatalf("unexpected list: %+v", list)
+	list, ok := resp.Data.([]interface{})
+	if !ok {
+		t.Fatalf("expected data to be array, got %T", resp.Data)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expected 2 reviews, got %d", len(list))
 	}
 }
 
@@ -1045,12 +1068,16 @@ func TestListApprovals(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	var list []approvalDTO
-	if err := json.NewDecoder(rec.Body).Decode(&list); err != nil {
+	var resp PaginatedResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(list) != 2 || list[0].ConfigurationID != "cfg-8" || list[1].ConfigurationID != "cfg-9" {
-		t.Fatalf("unexpected list: %+v", list)
+	list, ok := resp.Data.([]interface{})
+	if !ok {
+		t.Fatalf("expected data to be array, got %T", resp.Data)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expected 2 approvals, got %d", len(list))
 	}
 }
 

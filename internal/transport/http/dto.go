@@ -27,6 +27,10 @@ type calculateRequest struct {
 	RailingHeightMM     float64 `json:"railing_height_mm"`
 	ComfortStepMM       float64 `json:"comfort_step_mm,omitempty"`
 	LandingWidthMM      float64 `json:"landing_width_mm,omitempty"`
+	LandingDepthMM      float64 `json:"landing_depth_mm,omitempty"`
+	RoomWidthMM         float64 `json:"room_width_mm,omitempty"`
+	RoomLengthMM        float64 `json:"room_length_mm,omitempty"`
+	ApproachSpaceMM     float64 `json:"approach_space_mm,omitempty"`
 	LowerStepCount      int     `json:"lower_step_count,omitempty"`
 	OuterRadiusMM       float64 `json:"outer_radius_mm,omitempty"`
 	Material            string  `json:"material,omitempty"`
@@ -106,6 +110,9 @@ type validationIssueDTO struct {
 	Param       string          `json:"param,omitempty"`
 	Guide       string          `json:"guide,omitempty"`
 	Suggestions []suggestionDTO `json:"suggestions,omitempty"`
+	// Variations — альтернативные конфигурации (варианты A/B/C) для
+	// неблокирующих нарушений (room_fit и т.п.), предлагаемые как выбор.
+	Variations []variationDTO `json:"variations,omitempty"`
 }
 
 // suggestionDTO — готовый вариант конфигурации, проходящий нормы
@@ -120,6 +127,19 @@ type suggestionDTO struct {
 	// OuterRadiusMm и WidthMm — для спиральных вариантов (EDR-0007).
 	OuterRadiusMm float64 `json:"outer_radius_mm,omitempty"`
 	WidthMm       float64 `json:"width_mm,omitempty"`
+}
+
+// variationDTO — альтернативная конфигурация (вариант A/B/C), устраняющая
+// неблокирующее нарушение. Config — переопределение полей формы (ключи как
+// в ConfigForm фронтенда, значения — строки); фронтенд сливает их в
+// текущий конфиг и пересчитывает (превью).
+type variationDTO struct {
+	ID          string            `json:"id"`
+	Title       string            `json:"title"`
+	Description string            `json:"description"`
+	Config      map[string]string `json:"config"`
+	Fits        bool              `json:"fits"`
+	Summary     string            `json:"summary"`
 }
 
 // validationDTO — итог валидации конфигурации.
@@ -194,6 +214,9 @@ type lshapeDTO struct {
 	LowerStringerMm     float64 `json:"lower_stringer_mm"`
 	UpperStringerMm     float64 `json:"upper_stringer_mm"`
 	LandingWidthMm      float64 `json:"landing_width_mm"`
+	LandingDepthMm      float64 `json:"landing_depth_mm"`
+	RoomWidthMm         float64 `json:"room_width_mm"`
+	RoomLengthMm        float64 `json:"room_length_mm"`
 	WidthMm             float64 `json:"width_mm"`
 	StepThicknessMm     float64 `json:"step_thickness_mm"`
 	RailingHeightMm     float64 `json:"railing_height_mm"`
@@ -413,6 +436,15 @@ func toValidationResult(r *stair.Result) validationDTO {
 				})
 			}
 		}
+		if len(i.Variations) > 0 {
+			dto.Variations = make([]variationDTO, 0, len(i.Variations))
+			for _, v := range i.Variations {
+				dto.Variations = append(dto.Variations, variationDTO{
+					ID: v.ID, Title: v.Title, Description: v.Description,
+					Config: v.Config, Fits: v.Fits, Summary: v.Summary,
+				})
+			}
+		}
 		issues = append(issues, dto)
 	}
 	return validationDTO{Valid: r.Validation.Valid, Blocking: r.Validation.Blocking, Issues: issues}
@@ -441,6 +473,8 @@ func toLShape(l *solver.LShapeResult, e configEcho) *lshapeDTO {
 		UpperHeightMm: l.UpperHeight.Millimeters(), LowerRunMm: l.LowerRun.Millimeters(),
 		UpperRunMm: l.UpperRun.Millimeters(), LowerStringerMm: l.LowerStringer.Millimeters(),
 		UpperStringerMm: l.UpperStringer.Millimeters(), LandingWidthMm: l.LandingWidth.Millimeters(),
+		LandingDepthMm: l.LandingDepth.Millimeters(), RoomWidthMm: l.RoomWidth.Millimeters(),
+		RoomLengthMm: l.RoomLength.Millimeters(),
 		StepThicknessMm: e.StepThicknessMm, RailingHeightMm: e.RailingHeightMm, Riser: e.Riser,
 		StringerThicknessMm: e.StringerThicknessMm,
 		RailingLower:        e.RailingLower, RailingLanding: e.RailingLanding,
@@ -589,6 +623,10 @@ func toConfig(req calculateRequest) (stair.Config, error) {
 		Clearance:         engineering.Length(req.ClearanceMM),
 		RailingHeight:     engineering.Length(req.RailingHeightMM),
 		LandingWidth:      engineering.Length(req.LandingWidthMM),
+		LandingDepth:      engineering.Length(req.LandingDepthMM),
+		RoomWidth:         engineering.Length(req.RoomWidthMM),
+		RoomLength:        engineering.Length(req.RoomLengthMM),
+		ApproachSpace:     engineering.Length(req.ApproachSpaceMM),
 		LowerStepCount:    req.LowerStepCount,
 		OuterRadius:       engineering.Length(req.OuterRadiusMM),
 		Material:          dommfg.MaterialCode(req.Material),

@@ -69,8 +69,10 @@ export function AuthPage() {
   return (
     <div className="page">
       <header className="page__header">
-        <h1 className="page__title">STAIR PLATFORM</h1>
-        <p className="page__subtitle">Вход в систему</p>
+        <div>
+          <h1 className="page__title">STAIR PLATFORM</h1>
+          <p className="page__subtitle">Вход в систему</p>
+        </div>
       </header>
 
       <div className="auth">

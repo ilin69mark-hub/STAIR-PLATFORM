@@ -26,6 +26,9 @@ type LShapeResult struct {
 	LowerStringer  engineering.Length // R1 — длина косоура нижнего марша
 	UpperStringer  engineering.Length // R2 — длина косоура верхнего марша
 	LandingWidth   engineering.Length // Wp — ширина площадки
+	LandingDepth   engineering.Length // Ld — глубина площадки (вдоль нижнего марша, X)
+	RoomWidth      engineering.Length // габарит помещения по X (мм), для fit-check
+	RoomLength     engineering.Length // габарит помещения по Y (мм), для fit-check
 }
 
 // Apply записывает результат расчёта L-образной лестницы в
@@ -39,6 +42,7 @@ func (r LShapeResult) Apply(cfg *engineering.StairConfiguration) {
 	cfg.StringerLength = r.LowerStringer
 	cfg.Angle = r.Angle
 	cfg.LandingWidth = r.LandingWidth
+	cfg.LandingDepth = r.LandingDepth
 	cfg.LowerStepCount = r.LowerStepCount
 }
 
@@ -243,6 +247,14 @@ func SolveCheckedLShape(cfg *engineering.StairConfiguration, set *constraint.Con
 			res.LandingWidth.Millimeters(), cfg.Width.Millimeters())
 	}
 	res.Apply(cfg)
+	// Эффективная глубина площадки (при 0 — равна ширине марша).
+	ld := cfg.LandingDepth
+	if ld.Millimeters() <= 0 {
+		ld = cfg.Width
+	}
+	res.LandingDepth = ld
+	res.RoomWidth = cfg.RoomWidth
+	res.RoomLength = cfg.RoomLength
 	vr := validation.Validate(cfg, set)
 	if vr.Blocking {
 		cfg.StepCount = 0

@@ -25,12 +25,40 @@ type Checker struct {
 	Timeout time.Duration
 }
 
+// HealthResult — результат проверки здоровья.
+type HealthResult struct {
+	Status   string            `json:"status"`
+	Checks   map[string]Check  `json:"checks"`
+}
+
+// Check — результат одной проверки.
+type Check struct {
+	Status   string        `json:"status"`
+	Duration time.Duration `json:"duration_ms"`
+	Message  string        `json:"message,omitempty"`
+}
+
 // Ready выполняет пробы и возвращает готовность инстанса. checks — имя
 // проверки → "ok" либо описание ошибки. Redis пропускается, если клиент не
 // сконфигурирован (необязательная зависимость, fallback EDR-0014).
 func (c *Checker) Ready(ctx context.Context) (bool, map[string]string) {
-	checks := make(map[string]string)
-	ready := true
+	result := c.CheckDeep(ctx)
+	ready := result.Status == "ok"
+	simple := make(map[string]string, len(result.Checks))
+	for name, ch := range result.Checks {
+		if ch.Status == "ok" {
+			simple[name] = "ok"
+		} else {
+			simple[name] = "error: " + ch.Message
+		}
+	}
+	return ready, simple
+}
+
+// CheckDeep выполняет глубокую проверку всех зависимостей с замером времени.
+func (c *Checker) CheckDeep(ctx context.Context) *HealthResult {
+	checks := make(map[string]Check)
+	overall := "ok"
 
 	timeout := c.Timeout
 	if timeout <= 0 {
@@ -38,24 +66,35 @@ func (c *Checker) Ready(ctx context.Context) (bool, map[string]string) {
 	}
 
 	if c.DB != nil {
-		if err := c.dbProbe(ctx, timeout); err != nil {
-			checks["database"] = "error: " + err.Error()
-			ready = false
+		start := time.Now()
+		err := c.dbProbe(ctx, timeout)
+		dur := time.Since(start)
+		if err != nil {
+			checks["database"] = Check{Status: "error", Duration: dur, Message: err.Error()}
+			overall = "degraded"
 		} else {
-			checks["database"] = "ok"
+			stats := c.DB.Stat()
+			checks["database"] = Check{
+				Status:   "ok",
+				Duration: dur,
+				Message:  formatPoolStats(stats),
+			}
 		}
 	}
 
 	if c.Redis != nil {
-		if err := c.redisProbe(ctx, timeout); err != nil {
-			checks["redis"] = "error: " + err.Error()
-			ready = false
+		start := time.Now()
+		err := c.redisProbe(ctx, timeout)
+		dur := time.Since(start)
+		if err != nil {
+			checks["redis"] = Check{Status: "error", Duration: dur, Message: err.Error()}
+			overall = "degraded"
 		} else {
-			checks["redis"] = "ok"
+			checks["redis"] = Check{Status: "ok", Duration: dur}
 		}
 	}
 
-	return ready, checks
+	return &HealthResult{Status: overall, Checks: checks}
 }
 
 // dbProbe выполняет SELECT 1 через пул (реальная проверка соединения).
@@ -71,4 +110,29 @@ func (c *Checker) redisProbe(ctx context.Context, timeout time.Duration) error {
 	pctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return c.Redis.Ping(pctx).Err()
+}
+
+// formatPoolStats форматирует расширенную статистику пула соединений.
+func formatPoolStats(stats *pgxpool.Stat) string {
+	return "totalConns=" + itoa(int(stats.TotalConns())) +
+		" idleConns=" + itoa(int(stats.IdleConns())) +
+		" acquiredConns=" + itoa(int(stats.AcquiredConns())) +
+		" maxConns=" + itoa(int(stats.MaxConns())) +
+		" emptyAcquireCount=" + itoa(int(stats.EmptyAcquireCount())) +
+		" canceledAcquireCount=" + itoa(int(stats.CanceledAcquireCount())) +
+		" acquiredCount=" + itoa(int(stats.AcquireCount()))
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	buf := [20]byte{}
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(buf[i:])
 }

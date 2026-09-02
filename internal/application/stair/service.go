@@ -20,6 +20,7 @@ import (
 	engprc "stairplatform/internal/engine/pricing"
 	"stairplatform/internal/engine/solver"
 	"stairplatform/internal/engine/validation"
+	"stairplatform/internal/engine/variation"
 	kerngeo "stairplatform/internal/geometry"
 )
 
@@ -40,6 +41,15 @@ type Config struct {
 	// LandingWidth и LowerStepCount — специфичны для маршей с площадкой
 	// (EDR-0005 L-образный, EDR-0006 П-образный).
 	LandingWidth   engineering.Length // мм — ширина площадки Wp (платформа) либо просвета (поворот)
+	LandingDepth   engineering.Length // мм — глубина площадки (вдоль нижнего марша, X)
+	RoomWidth      engineering.Length // мм — габарит помещения по X (для fit-check)
+	RoomLength     engineering.Length // мм — габарит помещения по Y (для fit-check)
+	// ApproachSpace — свободное пространство перед первой ступенью прямого
+	// марша (EDR-0023, норма 1000–1200 мм): зона, в которой человек должен
+	// встать перед началом подъёма. Учитывается в fit-check (марш сдвигается
+	// от стены на ApproachSpace) и в подборе вариантов. Только прямой марш
+	// (FlightStraight); для прочих типов не используется (0).
+	ApproachSpace  engineering.Length
 	LowerStepCount int                // n1 — число ступеней нижнего марша
 	// TurnKind — тип поворота для маршей с площадкой (L/U): площадка
 	// (platform, по умолчанию) либо поворотные ступени (winder, только U).
@@ -81,6 +91,8 @@ type Result struct {
 	Measurement    geometry.Measurement
 	GeometryIssues []kerngeo.ValidationIssue
 	Mesh           *kerngeo.Mesh                // preview mesh для визуализации (ENG-GEO-0008)
+	RailingMesh    *kerngeo.Mesh                // декоративные перила (отдельно, без каркаса в 3D)
+	RoomMesh       *kerngeo.Mesh                // декоративный «пол комнаты» (отдельно, для 3D)
 	Package        *dommfg.ManufacturingPackage // полные Parts/BOM/CutList/Nesting
 	Cost           *dommfg.ManufacturingCostDataset
 	Price          *domprc.PriceBreakdown
@@ -176,8 +188,15 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 		StepThicknessMm: cfg.StepThickness.Millimeters(),
 		Material:        cfg.Material,
 	}
+	// advise прогоняет результат через советник (готовые Suggestions) и
+	// навешивает интерактивные Variations (A/B/C) на блокирующие issue:
+	// GEO-ANGLE — собственный подбор числа ступеней и шага комфорта,
+	// остальные — преобразование Suggestions советника. Вызывается в обеих
+	// ветках (блокирующей и нет), поэтому варианты есть всегда.
 	advise := func(vr validation.Result) validation.Result {
-		return advisor.Advise(advIn, s.constraints, vr)
+		vrr := advisor.Advise(advIn, s.constraints, vr)
+		attachVariations(ctx, &vrr, c, s.constraints)
+		return vrr
 	}
 
 	res := &Result{}
@@ -289,7 +308,30 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 
 	res.Measurement = gen.Measurement
 	res.GeometryIssues = gen.Issues
+	// Невписываемость лестницы в периметр помещения (room_fit, неблокирующее
+	// предупреждение) поднимается в раздел валидации вместе с готовыми
+	// вариациями A/B/C (пакет variation), чтобы фронтенд мог показать
+	// интерактивные варианты выбора, а не только текст предупреждения.
+	for _, gi := range gen.Issues {
+		if gi.Code == "room_fit" {
+			res.Validation.Issues = append(res.Validation.Issues, validation.Issue{
+				ID:         "room_fit",
+				Code:       "room_fit",
+				Severity:   constraint.SeverityWarning,
+				Element:    "room",
+				Message:    gi.Message,
+				Variations: variation.ForRoomFit(ctx, c, s.constraints),
+			})
+			break
+		}
+	}
+	// Интерактивные вариации для остальных issue (угол наклона и готовые
+	// Suggestions советника) — поверх room_fit, чтобы охватить и случай,
+	// когда расчёт не заблокирован.
+	attachVariations(ctx, &res.Validation, c, s.constraints)
 	res.Mesh = gen.Mesh
+	res.RailingMesh = gen.RailingMesh
+	res.RoomMesh = gen.RoomMesh
 	res.Package = pkg
 	res.Cost = ds
 	res.Price = price
@@ -306,6 +348,27 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	res.TurnKind = c.TurnKind
 	res.WinderCount = c.WinderCount
 	return res, nil
+}
+
+// attachVariations навешивает интерактивные вариации (A/B/C) на issue
+// результата валидации. Для угла наклона (GEO-ANGLE) варианты подбираются
+// собственным перебором (variation.ForAngle), гарантированно даже когда
+// советник не может подобрать их при фиксированной проступи. Для остальных
+// issue готовые Suggestions советника превращаются в Variations через
+// variation.FromSuggestions. Issue, уже имеющие Variations (напр. room_fit),
+// не перезаписываются.
+func attachVariations(ctx context.Context, vr *validation.Result, c *engineering.StairConfiguration, set *constraint.ConstraintSet) {
+	for i := range vr.Issues {
+		it := &vr.Issues[i]
+		switch it.Code {
+		case constraint.GEO_ANGLE:
+			it.Variations = variation.ForAngle(ctx, c, set)
+		default:
+			if len(it.Variations) == 0 && len(it.Suggestions) > 0 {
+				it.Variations = variation.FromSuggestions(it, c)
+			}
+		}
+	}
 }
 
 // flightLabel нормализует тип марша в label метрики (пустое значение —
@@ -385,6 +448,15 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 	c.Clearance = cfg.Clearance
 	c.RailingHeight = cfg.RailingHeight
 	c.LandingWidth = cfg.LandingWidth
+	c.LandingDepth = cfg.LandingDepth
+	c.RoomWidth = cfg.RoomWidth
+	c.RoomLength = cfg.RoomLength
+	c.ApproachSpace = cfg.ApproachSpace
+	// Прямой марш: свободное пространство перед первой ступенью обязательно
+	// (норма 1000–1200 мм); пустое значение трактуется как 1000 мм.
+	if cfg.Flight == engineering.FlightStraight && c.ApproachSpace.Millimeters() == 0 {
+		c.ApproachSpace = engineering.Length(1000)
+	}
 	c.LowerStepCount = cfg.LowerStepCount
 	c.TurnKind = cfg.TurnKind
 	c.WinderCount = cfg.WinderCount

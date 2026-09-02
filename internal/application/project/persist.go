@@ -39,6 +39,8 @@ type Snapshot struct {
 	RailingUpper   string                                  `json:"railing_upper,omitempty"`
 	Measurement    geometry.Measurement                    `json:"measurement"`
 	Mesh           *kerngeo.Mesh                           `json:"mesh,omitempty"`
+	RailingMesh    *kerngeo.Mesh                           `json:"railing_mesh,omitempty"`
+	RoomMesh       *kerngeo.Mesh                           `json:"room_mesh,omitempty"`
 	IssueCount     int                                     `json:"issue_count"`
 	Manufacturing  *manufacturing.ManufacturingPackage     `json:"manufacturing,omitempty"`
 	Pricing        *pricing.PriceBreakdown                 `json:"pricing,omitempty"`
@@ -64,6 +66,8 @@ func NewSnapshot(projectID string, res *stair.Result) Snapshot {
 		RailingUpper:      string(res.RailingUpper),
 		Measurement:       res.Measurement,
 		Mesh:              res.Mesh,
+		RailingMesh:       res.RailingMesh,
+		RoomMesh:          res.RoomMesh,
 		IssueCount:        len(res.GeometryIssues),
 		Manufacturing:     res.Package,
 		Pricing:           res.Price,
@@ -86,6 +90,10 @@ func toConfigEntity(projectID string, cfg stair.Config, opts stair.Options) *Sta
 		RailingHeightMM:     cfg.RailingHeight.Millimeters(),
 		ComfortStepMM:       opts.ComfortStep,
 		LandingWidthMM:      cfg.LandingWidth.Millimeters(),
+		LandingDepthMM:      cfg.LandingDepth.Millimeters(),
+		RoomWidthMM:         cfg.RoomWidth.Millimeters(),
+		RoomLengthMM:        cfg.RoomLength.Millimeters(),
+		ApproachSpaceMM:     cfg.ApproachSpace.Millimeters(),
 		LowerStepCount:      cfg.LowerStepCount,
 		OuterRadiusMM:       cfg.OuterRadius.Millimeters(),
 	}
@@ -134,6 +142,22 @@ func fromConfigEntity(e *StairConfiguration) (stair.Config, stair.Options, error
 	if err != nil {
 		return stair.Config{}, stair.Options{}, err
 	}
+	landingDepth, err := mk(e.LandingDepthMM)
+	if err != nil {
+		return stair.Config{}, stair.Options{}, err
+	}
+	roomWidth, err := mk(e.RoomWidthMM)
+	if err != nil {
+		return stair.Config{}, stair.Options{}, err
+	}
+	roomLength, err := mk(e.RoomLengthMM)
+	if err != nil {
+		return stair.Config{}, stair.Options{}, err
+	}
+	approach, err := mk(e.ApproachSpaceMM)
+	if err != nil {
+		return stair.Config{}, stair.Options{}, err
+	}
 	outer, err := mk(e.OuterRadiusMM)
 	if err != nil {
 		return stair.Config{}, stair.Options{}, err
@@ -149,6 +173,10 @@ func fromConfigEntity(e *StairConfiguration) (stair.Config, stair.Options, error
 		Clearance:         clearance,
 		RailingHeight:     railing,
 		LandingWidth:      landing,
+		LandingDepth:      landingDepth,
+		RoomWidth:         roomWidth,
+		RoomLength:        roomLength,
+		ApproachSpace:     approach,
 		LowerStepCount:    e.LowerStepCount,
 		OuterRadius:       outer,
 	}

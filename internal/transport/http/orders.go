@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/order"
 )
@@ -166,7 +167,7 @@ type updateOrderStatusRequest struct {
 // handleAdminUpdateOrderStatus — PATCH /api/v1/admin/orders/{id}/status
 // (auth+admin). Смена статуса заказа менеджером.
 // 200 — заказ обновлён; 403 — нет права; 404 — заказ не найден; 422 — невалидный статус.
-func handleAdminUpdateOrderStatus(svc OrderService) http.HandlerFunc {
+func handleAdminUpdateOrderStatus(svc OrderService, auditSvc AuditService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !hasPermission(r, auth.PermissionOrdersManage) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
@@ -194,6 +195,17 @@ func handleAdminUpdateOrderStatus(svc OrderService) http.HandlerFunc {
 			}
 			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
+		}
+		// Audit: order status changed
+		if auditSvc != nil {
+			_ = auditSvc.Record(r.Context(), &audit.Event{
+				ActorID:    userID(r.Context()),
+				TenantID:   tenantID(r.Context()),
+				Action:     audit.ActionOrderStatusChanged,
+				ResourceID: id,
+				Result:     audit.ResultOK,
+				Detail:     fmt.Sprintf("status=%s", req.Status),
+			})
 		}
 		o, err := svc.Get(r.Context(), tenantID(r.Context()), id)
 		if err != nil {

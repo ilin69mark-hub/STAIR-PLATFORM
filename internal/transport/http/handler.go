@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/engine/solver"
 ) // maxBodyBytes — предельный размер тела запроса (защита от DoS,
@@ -57,7 +58,7 @@ func mapStairError(w http.ResponseWriter, err error) {
 // 400 — некорректный JSON;
 // 422 — невалидный вход (нельзя выполнить расчёт);
 // 500 — внутренняя ошибка конвейера.
-func handleCalculate(svc StairService) http.HandlerFunc {
+func handleCalculate(svc StairService, auditSvc AuditService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req calculateRequest
 		if err := decodeJSON(w, r, &req); err != nil {
@@ -82,8 +83,50 @@ func handleCalculate(svc StairService) http.HandlerFunc {
 			return
 		}
 
+		if auditSvc != nil {
+			recordCalculationAudit(r, auditSvc, cfg, res)
+		}
+
 		writeJSON(w, http.StatusOK, toResponse(res))
 	}
+}
+
+// recordCalculationAudit фиксирует событие расчёта лестницы (server-side
+// аудит). best-effort: ошибка журнала не ломает ответ расчёта.
+func recordCalculationAudit(r *http.Request, auditSvc AuditService, cfg stair.Config, res *stair.Result) {
+	detail := map[string]any{
+		"flight":   string(cfg.Flight),
+		"blocking": res.Validation.Blocking,
+	}
+	if res.Validation.Blocking {
+		issues := make([]map[string]any, 0, len(res.Validation.Issues))
+		for _, it := range res.Validation.Issues {
+			variants := make([]map[string]any, 0, len(it.Variations))
+			for _, v := range it.Variations {
+				variants = append(variants, map[string]any{
+					"id":            v.ID,
+					"fits":         v.Fits,
+					"passes_norms": v.PassesNorms,
+				})
+			}
+			issues = append(issues, map[string]any{
+				"code":     it.Code,
+				"variants": variants,
+			})
+		}
+		detail["issues"] = issues
+	}
+	b, _ := json.Marshal(detail)
+	e := &audit.Event{
+		ActorID:   userID(r.Context()),
+		TenantID:  tenantID(r.Context()),
+		Action:    audit.ActionStairCalculated,
+		Result:    audit.ResultOK,
+		Detail:    string(b),
+		RequestID: auditRequestID(r.Context()),
+		IP:        clientIP(r),
+	}
+	_ = auditSvc.Record(r.Context(), e)
 }
 
 // handleOptimize — POST /api/v1/stairs:optimize (EDR-0032).

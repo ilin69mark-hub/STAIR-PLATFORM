@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -35,8 +36,8 @@ func TestPublicQuoteSuccess(t *testing.T) {
 	if resp.Pricing == nil {
 		t.Fatal("pricing must be present for non-blocking result")
 	}
-	if resp.Pricing.FinalPriceRub != 3272189.90 {
-		t.Fatalf("final price = %v, want 3272189.90", resp.Pricing.FinalPriceRub)
+	if resp.Pricing.FinalPriceRub != 3271385.47 {
+		t.Fatalf("final price = %v, want 3271385.47", resp.Pricing.FinalPriceRub)
 	}
 
 	// Габаритная ширина марша приходит из конфигурации.
@@ -216,6 +217,53 @@ func TestPublicQuoteBlockingCarriesAdvice(t *testing.T) {
 	}
 	if !anyValid {
 		t.Fatalf("no suggestion inside norms: %+v", angle.Suggestions)
+	}
+}
+
+// TestPublicQuoteAngleCarriesVariations — регресс на сообщение пользователя:
+// блокирующее предупреждение про угол наклона должно сопровождаться
+// интерактивными вариациями (Variations), даже когда советник не может
+// подобрать их при фиксированной проступи.
+func TestPublicQuoteAngleCarriesVariations(t *testing.T) {
+	b := `{
+		"width_mm": 900,
+		"height_mm": 2700,
+		"flight": "straight",
+		"step_height_mm": 10,
+		"stringer_thickness_mm": 50,
+		"step_thickness_mm": 40,
+		"clearance_mm": 2500,
+		"railing_height_mm": 1000
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(b))
+	rec := httptest.NewRecorder()
+	testRouter().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+	var resp publicQuoteDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid response: %v", err)
+	}
+	var angle validationIssueDTO
+	found := false
+	for _, it := range resp.Validation.Issues {
+		if it.Code == string(constraint.GEO_ANGLE) {
+			angle = it
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("angle issue expected: %+v", resp.Validation.Issues)
+	}
+	if len(angle.Variations) == 0 {
+		t.Fatalf("angle issue must carry interactive variations: %+v", angle)
+	}
+	for _, v := range angle.Variations {
+		if v.Config == nil || v.Config["stepHeightMM"] == "" {
+			t.Fatalf("variation must carry config: %+v", v)
+		}
 	}
 }
 
@@ -441,4 +489,152 @@ func TestPublicQuoteMaterialThicknessBlocked(t *testing.T) {
 	if mat.Param == "" || mat.Guide == "" {
 		t.Fatalf("material issue must carry param/guide: %+v", mat)
 	}
+}
+
+// TestPublicQuoteAngle_UserScenario — сквозной регресс на жалобу пользователя:
+// марш блокируется по углу наклона (GEO-ANGLE, «Число ступеней»), и советник
+// обязан вернуть интерактивные Variations + Suggestions. Каждая вариация,
+// будучи применённой (слита в конфиг и пересчитана повторным запросом),
+// ДОЛЖНА снимать блокировку, причём сам GEO-ANGLE-issue исчезает. Прогоняется
+// для прямого, L- и U-образного маршей — результаты печатаются в терминале.
+func TestPublicQuoteAngle_UserScenario(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "straight",
+			body: `{
+				"width_mm": 1000, "height_mm": 3000, "flight": "straight",
+				"step_height_mm": 158, "stringer_thickness_mm": 50,
+				"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 900
+			}`,
+		},
+		{
+			name: "l_shape",
+			body: `{
+				"width_mm": 1000, "height_mm": 3000, "flight": "l_shape",
+				"landing_width_mm": 1200, "landing_depth_mm": 1500, "lower_step_count": 6,
+				"step_height_mm": 158, "stringer_thickness_mm": 50,
+				"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 900
+			}`,
+		},
+		{
+			name: "u_shape",
+			body: `{
+				"width_mm": 1000, "height_mm": 3000, "flight": "u_shape",
+				"landing_width_mm": 1200, "landing_depth_mm": 1500, "lower_step_count": 6,
+				"step_height_mm": 158, "stringer_thickness_mm": 50,
+				"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 900
+			}`,
+		},
+	}
+
+	// cfgKeyToRequest — ключи ConfigForm (camelCase) → ключи запроса (snake_case).
+	cfgKeyToRequest := map[string]string{
+		"flight": "flight", "heightMM": "height_mm", "widthMM": "width_mm",
+		"stepHeightMM": "step_height_mm", "comfortStepMM": "comfort_step_mm",
+		"landingWidthMM": "landing_width_mm", "landingDepthMM": "landing_depth_mm",
+		"lowerStepCountMM": "lower_step_count", "roomWidthMM": "room_width_mm",
+		"roomLengthMM": "room_length_mm", "approachSpaceMM": "approach_space_mm",
+		"outerRadiusMM": "outer_radius_mm",
+		"clearanceMm": "clearance_mm", "railingMm": "railing_height_mm",
+		"stringerThicknessMm": "stringer_thickness_mm", "stepThicknessMm": "step_thickness_mm",
+		"direction": "direction", "railingLower": "railing_lower",
+		"railingLanding": "railing_landing", "railingUpper": "railing_upper",
+		"railing": "railing", "spiralDirection": "spiral_direction",
+		"turnKind": "turn_kind", "winderCount": "winder_count",
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := postQuote(t, tc.body)
+			if !resp.Validation.Blocking {
+				t.Fatalf("[%s] expected blocking result, got %+v", tc.name, resp.Validation)
+			}
+			var angle validationIssueDTO
+			found := false
+			for _, it := range resp.Validation.Issues {
+				if it.Code == string(constraint.GEO_ANGLE) {
+					angle = it
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("[%s] GEO-ANGLE issue expected, got %+v", tc.name, resp.Validation.Issues)
+			}
+			if len(angle.Variations) == 0 {
+				t.Fatalf("[%s] GEO-ANGLE must carry interactive variations: %+v", tc.name, angle)
+			}
+			if len(angle.Suggestions) == 0 {
+				t.Logf("[%s] GEO-ANGLE: advisor Suggestions пусты (ожидаемо — варианты даёт ForAngle); полагаемся на Variations", tc.name)
+			}
+
+			t.Logf("[%s] заблокирован по GEO-ANGLE; предложено вариаций=%d, советов=%d:",
+				tc.name, len(angle.Variations), len(angle.Suggestions))
+			for _, v := range angle.Variations {
+				t.Logf("  ▸ вариация %q — %s", v.Title, v.Summary)
+			}
+
+			// Каждая вариация при повторном расчёте обязана снять блокировку
+			// и устранить сам GEO-ANGLE.
+			for i, v := range angle.Variations {
+				merged := mergeConfig(t, tc.body, v.Config, cfgKeyToRequest)
+				fixed := postQuote(t, merged)
+				if fixed.Validation.Blocking {
+					t.Fatalf("[%s] variation %d (%q) did not unblock: %+v",
+						tc.name, i, v.Title, fixed.Validation)
+				}
+				for _, it := range fixed.Validation.Issues {
+					if it.Code == string(constraint.GEO_ANGLE) {
+						t.Fatalf("[%s] variation %d (%q) left GEO-ANGLE issue: %+v",
+							tc.name, i, v.Title, it)
+					}
+				}
+				t.Logf("[%s] вариация %q → пересчёт НЕ блокируется (угол в норме)", tc.name, v.Title)
+			}
+		})
+	}
+}
+
+// postQuote шлёт тело расчёта на публичный эндпоинт и возвращает DTO.
+func postQuote(t *testing.T, body string) publicQuoteDTO {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	testRouter().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp publicQuoteDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid response: %v", err)
+	}
+	return resp
+}
+
+// mergeConfig сливает конфиг вариации (ключи ConfigForm) в исходный JSON
+// запроса, приводя ключи к snake_case формата calculateRequest.
+func mergeConfig(t *testing.T, original string, cfg map[string]string, keyMap map[string]string) string {
+	t.Helper()
+	var m map[string]any
+	if err := json.Unmarshal([]byte(original), &m); err != nil {
+		t.Fatalf("bad original json: %v", err)
+	}
+	for k, v := range cfg {
+		reqKey, ok := keyMap[k]
+		if !ok {
+			continue
+		}
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			m[reqKey] = f
+		} else {
+			m[reqKey] = v
+		}
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal merged: %v", err)
+	}
+	return string(b)
 }

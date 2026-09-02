@@ -20,7 +20,9 @@ type publicQuoteDTO struct {
 	Spiral     *spiralDTO    `json:"spiral,omitempty"`
 	Geometry   geometryDTO   `json:"geometry"`
 	Pricing    *pricingDTO   `json:"pricing,omitempty"`
-	Mesh       *kerngeo.Mesh `json:"mesh,omitempty"`
+	Mesh         *kerngeo.Mesh `json:"mesh,omitempty"`
+	RailingMesh  *kerngeo.Mesh `json:"railing_mesh,omitempty"`
+	RoomMesh     *kerngeo.Mesh `json:"room_mesh,omitempty"`
 }
 
 // handlePublicQuote — POST /api/v1/public/stairs:quote.
@@ -95,5 +97,7 @@ func toPublicQuote(res *stair.Result, cfg stair.Config) publicQuoteDTO {
 	price := toPricing(res.Price)
 	out.Pricing = &price
 	out.Mesh = res.Mesh
+	out.RailingMesh = res.RailingMesh
+	out.RoomMesh = res.RoomMesh
 	return out
 }

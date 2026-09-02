@@ -3,7 +3,37 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Constructor } from './Constructor'
 import { quoteApi } from '../api/store'
 import { renderWithAuth } from '../test/render'
-import type { QuoteResult } from '@shared/types'
+import type { QuoteResult, Variation } from '@shared/types'
+
+// blockedVariations — blocking-ответ с GEO-ANGLE, несущим одну вариацию
+// (имитация того, что отдаёт бэкенд через variation.ForAngle).
+function blockedVariations(cfg: Record<string, string>): QuoteResult {
+  const v: Variation = {
+    id: 'Угол 30°',
+    title: 'Угол 30°',
+    description: 'Сделать угол наклона в норме 30–45°.',
+    config: cfg,
+    fits: true,
+    summary: 'Угол 30,2°, 18 ступ., h 167 мм, b 620 мм',
+  }
+  return {
+    validation: {
+      valid: false,
+      blocking: true,
+      issues: [
+        {
+          code: 'GEO-ANGLE',
+          severity: 'error',
+          element: 'angle',
+          message: 'угол вне нормы',
+          guide: 'Угол наклона 26,7° вне нормы (30–45°). Измените число ступеней.',
+          param: 'Число ступеней',
+          variations: [v],
+        },
+      ],
+    },
+  }
+}
 
 const okQuote: QuoteResult = {
   validation: { valid: true, blocking: false, issues: [] },
@@ -327,5 +357,110 @@ describe('Constructor', () => {
     expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
     expect(screen.getByLabelText('Ширина марша (мм)')).toHaveValue('1263')
     expect(screen.getByLabelText('Радиус (мм)')).toHaveValue('1773')
+  })
+
+  it('вариация (straight) подставляет шаг комфорта и пересчитывает', async () => {
+    const spy = vi
+      .spyOn(quoteApi, 'calculate')
+      .mockResolvedValueOnce(
+        blockedVariations({ flight: 'straight', heightMM: '3000', widthMM: '1000', stepHeightMM: '166.67', comfortStepMM: '620' }),
+      )
+      .mockResolvedValue(okQuote)
+    await renderWithAuth(<Constructor />, null)
+    fillValid()
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await screen.findByText(/Расчёт остановлен/)
+    fireEvent.click(screen.getByRole('button', { name: /Угол 30°/ }))
+    await waitFor(() =>
+      expect(spy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ step_height_mm: 166.67, comfort_step_mm: 620, flight: 'straight' }),
+      ),
+    )
+    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
+  })
+
+  it('вариация (l_shape) меняет тип марша и подставляет площадку', async () => {
+    const spy = vi
+      .spyOn(quoteApi, 'calculate')
+      .mockResolvedValueOnce(
+        blockedVariations({
+          flight: 'l_shape', heightMM: '3000', widthMM: '1000', landingWidthMM: '1000',
+          landingDepthMM: '1500', lowerStepCountMM: '9', stepHeightMM: '166.67', comfortStepMM: '600',
+        }),
+      )
+      .mockResolvedValue(okQuote)
+    await renderWithAuth(<Constructor />, null)
+    fillValid()
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await screen.findByText(/Расчёт остановлен/)
+    fireEvent.click(screen.getByRole('button', { name: /Угол 30°/ }))
+    await waitFor(() =>
+      expect(spy).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          flight: 'l_shape', step_height_mm: 166.67, comfort_step_mm: 600,
+          landing_width_mm: 1000, lower_step_count: 9,
+        }),
+      ),
+    )
+    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
+  })
+
+  it('вариация (u_shape) меняет тип марша и подставляет площадку', async () => {
+    const spy = vi
+      .spyOn(quoteApi, 'calculate')
+      .mockResolvedValueOnce(
+        blockedVariations({
+          flight: 'u_shape', heightMM: '3000', widthMM: '1000', landingWidthMM: '1000',
+          landingDepthMM: '1500', lowerStepCountMM: '9', stepHeightMM: '166.67', comfortStepMM: '620',
+        }),
+      )
+      .mockResolvedValue(okQuote)
+    await renderWithAuth(<Constructor />, null)
+    fillValid()
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await screen.findByText(/Расчёт остановлен/)
+    fireEvent.click(screen.getByRole('button', { name: /Угол 30°/ }))
+    await waitFor(() =>
+      expect(spy).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          flight: 'u_shape', step_height_mm: 166.67, comfort_step_mm: 620,
+          landing_width_mm: 1000, lower_step_count: 9,
+        }),
+      ),
+    )
+    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
+  })
+
+  it('вариация не затирает выбор перил пустыми полями (clobbering)', async () => {
+    // Бэкенд отдаёт вариацию со всеми полями ConfigForm, в т.ч. пустыми
+    // (railing/direction не заданы для прямого марша). До фикса эти пустые
+    // строки перезаписывали выбор пользователя → форма невалидна → пересчёт
+    // падал. После фикса пустые значения пропускаются.
+    const spy = vi
+      .spyOn(quoteApi, 'calculate')
+      .mockResolvedValueOnce(
+        blockedVariations({
+          flight: 'straight', heightMM: '3000', widthMM: '1000', stepHeightMM: '166.67',
+          comfortStepMM: '620', railing: '', direction: '',
+        }),
+      )
+      .mockResolvedValue(okQuote)
+    await renderWithAuth(<Constructor />, null)
+    fillValid()
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await screen.findByText(/Расчёт остановлен/)
+    fireEvent.click(screen.getByRole('button', { name: /Угол 30°/ }))
+    await waitFor(() =>
+      expect(spy).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          step_height_mm: 166.67, comfort_step_mm: 620, flight: 'straight', railing: 'both',
+        }),
+      ),
+    )
+    // пустые поля вариации не должны попасть в запрос
+    const lastCall = spy.mock.calls[spy.mock.calls.length - 1][0] as Record<string, unknown>
+    expect(lastCall['railing']).toBe('both')
+    expect(lastCall['direction']).toBeUndefined()
+    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
   })
 })

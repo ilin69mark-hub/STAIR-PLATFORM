@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Calculation, OptimizeTarget, Project } from '@shared/types'
 import { ApiError } from '@shared/types'
 import { projectsApi } from '../api/projects'
@@ -22,6 +22,7 @@ import {
   type RatesForm,
 } from '@shared/config'
 import { ResultPanel } from './ResultPanel'
+import type { Variation } from '@shared/types'
 import { MembersPanel } from './MembersPanel'
 import { CommentsPanel } from './CommentsPanel'
 import { ReviewPanel } from './ReviewPanel'
@@ -29,6 +30,7 @@ import { ApprovalsPanel } from './ApprovalsPanel'
 import { VersionsPanel } from './VersionsPanel'
 import { AuditPanel } from './AuditPanel'
 import { AssistantPanel } from './AssistantPanel'
+import { logAction } from '@shared/api/audit'
 import type { ProjectStatus } from '@shared/types'
 
 interface Props {
@@ -47,6 +49,10 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
   const [busy, setBusy] = useState(false)
   const [optimizeTarget, setOptimizeTarget] = useState<OptimizeTarget>('price')
   const [optimizeMsg, setOptimizeMsg] = useState<string | null>(null)
+  // Превью вариации (A/B/C) без сохранения: перебор альтернатив перед
+  // тем, как пользователь выберет одну и зафиксирует её расчётом.
+  const [previewCalculation, setPreviewCalculation] = useState<Calculation | null>(null)
+  const [activeVariantId, setActiveVariantId] = useState<string | undefined>(undefined)
 
   const errors = validateForm(config)
   const hasHardErrors = Object.values(errors).some(
@@ -60,8 +66,20 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Не удалось загрузить проект'))
   }, [projectId])
 
-  const setField = (key: keyof ConfigForm, value: string | boolean) =>
+  const configChangeTimer = useRef<number | null>(null)
+  const setField = (key: keyof ConfigForm, value: string | boolean) => {
     setConfig((c) => ({ ...c, [key]: value }))
+    // Аудит изменения поля (debounce 600 мс, best-effort).
+    if (configChangeTimer.current) window.clearTimeout(configChangeTimer.current)
+    configChangeTimer.current = window.setTimeout(() => {
+      logAction({
+        action: 'stair.config_changed',
+        resource_type: 'stair',
+        resource_id: projectId,
+        detail: JSON.stringify({ field: key }),
+      })
+    }, 600)
+  }
 
   const setRate = (key: keyof RatesForm, value: string) =>
     setRates((r) => ({ ...r, [key]: value }))
@@ -140,6 +158,51 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
     window.location.href = projectsApi.exportUrl(projectId)
   }
 
+  // applyVariation — пользователь выбрал вариант A/B/C: сливаем его конфиг
+  // в форму и рассчитываем БЕЗ сохранения (preview), показывая результат
+  // как превью. Можно перебирать варианты, пока не выберется подходящий.
+  const applyVariation = async (v: Variation) => {
+    const next = { ...config, ...v.config } as ConfigForm
+    // Прямой марш: свободное пространство перед первой ступенью обязательно
+    // (норма 1000–1200 мм); пустое/отсутствующее значение — 1000 мм по умолчанию.
+    if ((next.approachSpaceMM ?? '').trim() === '') {
+      next.approachSpaceMM = '1000'
+    }
+    setConfig(next)
+    setActiveVariantId(v.id)
+    logAction({
+      action: 'stair.variation_applied',
+      resource_type: 'stair',
+      resource_id: projectId,
+      detail: JSON.stringify({ id: v.id, title: v.title }),
+    })
+    setBusy(true)
+    setError(null)
+    try {
+      const body = { ...toRequest(next) }
+      const ratesReq = toRatesRequest(rates)
+      if (ratesReq) body.rates = ratesReq
+      const calc = await projectsApi.preview(projectId, body)
+      setPreviewCalculation(calc)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Не удалось рассчитать вариант')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // applyPreview — зафиксировать выбранный вариант как сохранённый расчёт.
+  const applyPreview = async () => {
+    setPreviewCalculation(null)
+    setActiveVariantId(undefined)
+    await handleCalculate()
+  }
+
+  const closePreview = () => {
+    setPreviewCalculation(null)
+    setActiveVariantId(undefined)
+  }
+
   const handleStatusChange = (status: ProjectStatus) => {
     setProject((p) => (p ? { ...p, status } : p))
   }
@@ -213,7 +276,21 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
         <AssistantPanel config={config} rates={rates} />
       </div>
 
-      {calculation && <ResultPanel snapshot={calculation.result} />}
+      {calculation && <ResultPanel snapshot={calculation.result} onApplyVariation={applyVariation} activeVariantId={activeVariantId} />}
+      {previewCalculation && (
+        <section className="panel">
+          <h2 className="panel__title">Превью варианта</h2>
+          <ResultPanel snapshot={previewCalculation.result} onApplyVariation={applyVariation} activeVariantId={activeVariantId} />
+          <div className="row row--actions">
+            <button className="btn btn--primary" onClick={applyPreview} disabled={busy}>
+              Применить вариант
+            </button>
+            <button className="btn" onClick={closePreview} disabled={busy}>
+              Отмена
+            </button>
+          </div>
+        </section>
+      )}
     </div>
   )
 }
@@ -235,6 +312,10 @@ const configLabels: Record<string, string> = {
   railingHeightMM: 'Высота ограждения, мм',
   comfortStepMM: 'Шаг комфорта S, мм',
   landingWidthMM: 'Ширина площадки Wp, мм',
+  landingDepthMM: 'Глубина площадки, мм',
+  roomWidthMM: 'Ширина помещения (X) — направление марша (длина + свободное место), мм',
+  roomLengthMM: 'Длина помещения (Y) — ширина марша, мм',
+  approachSpaceMM: 'Свободное пространство перед маршем, мм',
   lowerStepCountMM: 'Ступеней нижнего марша (n1)',
   outerRadiusMM: 'Наружный радиус R, мм',
   railing: 'Перила',

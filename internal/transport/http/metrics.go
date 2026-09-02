@@ -7,8 +7,12 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"stairplatform/internal/application/stair"
+	"stairplatform/internal/infrastructure/circuitbreaker"
 	"stairplatform/internal/infrastructure/metrics"
+	"stairplatform/internal/infrastructure/security"
 )
 
 // Глобальный реестр метрик HTTP-слоя (EDR-0021 §3.4). Пакетная переменная:
@@ -27,13 +31,28 @@ var (
 	goMemAlloc     = httpMetricsReg.Gauge("go_memstats_alloc_bytes", "Memory allocated")
 	processUptime  = httpMetricsReg.Gauge("process_uptime_seconds", "Process uptime")
 	processStarted = time.Now()
+
+	// DB pool metrics
+	dbPoolActive    = httpMetricsReg.Gauge("db_pool_active_connections", "Active DB connections")
+	dbPoolIdle      = httpMetricsReg.Gauge("db_pool_idle_connections", "Idle DB connections")
+	dbPoolMax       = httpMetricsReg.Gauge("db_pool_max_connections", "Max DB connections")
+	dbPoolOpen      = httpMetricsReg.Gauge("db_pool_open_connections", "Open DB connections")
+	dbPoolWaitCount = httpMetricsReg.Counter("db_pool_wait_count_total", "DB pool wait count")
 )
 
-var (
-	// regionLabel — текущий регион (STAIR_REGION); "" — по умолчанию.
-	regionLabel   = ""
-	instanceLabel = ""
-)
+// metricsConfig хранит конфигурацию метрик (region, instance).
+type metricsConfig struct {
+	region   string
+	instance string
+}
+
+var metricsCfg = &metricsConfig{}
+
+// SetMetricsConfig устанавливает конфигурацию метрик (вызывается из applyConfig).
+func SetMetricsConfig(region, instance string) {
+	metricsCfg.region = region
+	metricsCfg.instance = instance
+}
 
 // uuidSegment — сегмент пути, являющийся UUID (канонизация label path,
 // EDR-0021 инвариант 4).
@@ -76,7 +95,7 @@ func joinPath(segs []string) string {
 // metricLabels собирает label-значения для векторов (method,path,status +
 // region,node).
 func metricLabels(method, path, status string) []string {
-	return []string{method, path, status, regionLabel, instanceLabel}
+	return []string{method, path, status, metricsCfg.region, metricsCfg.instance}
 }
 
 // recordHTTPMetrics регистрирует метрику завершённого HTTP-запроса
@@ -97,10 +116,23 @@ func refreshRuntimeMetrics() {
 	processUptime.Set(time.Since(processStarted).Seconds())
 }
 
+// CollectDBPoolMetrics собирает метрики пула БД (вызывается периодически).
+func CollectDBPoolMetrics(pool *pgxpool.Pool) {
+	if pool == nil {
+		return
+	}
+	stat := pool.Stat()
+	dbPoolActive.Set(float64(stat.AcquiredConns()))
+	dbPoolIdle.Set(float64(stat.IdleConns()))
+	dbPoolMax.Set(float64(stat.MaxConns()))
+	dbPoolOpen.Set(float64(stat.TotalConns()))
+	dbPoolWaitCount.With().Add(int64(stat.EmptyAcquireCount()))
+}
+
 // handleMetrics — GET /metrics (Prometheus text-format, EDR-0021 §6).
 // Публичный: не требует auth/CSRF/rate-limit (мониторинг не должен
-// блокироваться). Пишет HTTP-реестр и реестр прикладного слоя расчёта
-// (stair_calculate_duration_seconds и др., B2, EDR-0033 §3.2).
+// блокироваться). Пишет HTTP-реестр, реестр прикладного слоя расчёта,
+// circuit breaker и rate limiter метрики.
 func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	refreshRuntimeMetrics()
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
@@ -110,5 +142,25 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	}
 	if err := stair.ServiceMetricsReg.Write(w); err != nil {
 		writeError(w, http.StatusInternalServerError, "metrics", "Не удалось сохранить метрики.")
+		return
+	}
+	// Circuit breaker metrics
+	if err := circuitbreaker.CBRegistry.Write(w); err != nil {
+		writeError(w, http.StatusInternalServerError, "metrics", "Не удалось сохранить CB метрики.")
+		return
+	}
+	// Rate limiter metrics
+	if err := security.RateLimitRegistry.Write(w); err != nil {
+		writeError(w, http.StatusInternalServerError, "metrics", "Не удалось сохранить rate limit метрики.")
+		return
+	}
+	// Compression metrics
+	if err := compressionRegistry.Write(w); err != nil {
+		writeError(w, http.StatusInternalServerError, "metrics", "Не удалось сохранить compression метрики.")
+		return
+	}
+	// Response cache metrics
+	if err := cacheRegistry.Write(w); err != nil {
+		writeError(w, http.StatusInternalServerError, "metrics", "Не удалось сохранить cache метрики.")
 	}
 }

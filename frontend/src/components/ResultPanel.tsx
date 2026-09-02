@@ -1,10 +1,11 @@
 import { lazy, Suspense, useState } from 'react'
-import type { Pricing, Snapshot } from '@shared/types'
+import type { Pricing, Snapshot, Variation } from '@shared/types'
 import { fmt } from '@shared/format'
 import { exportCsv } from '../lib/export'
 import { StairProfile } from '@shared/schemes/StairProfile'
 import { StairPlan } from '@shared/schemes/StairPlan'
 import { NestingMap } from '@shared/schemes/NestingMap'
+import { VariationPicker } from '@shared/components/VariationPicker'
 import { schematicOf } from './snapshotView'
 
 const GeometryViewer = lazy(() =>
@@ -13,9 +14,12 @@ const GeometryViewer = lazy(() =>
 
 interface Props {
   snapshot: Snapshot
+  // onApplyVariation — применить выбранный вариант (A/B/C) как превью.
+  onApplyVariation?: (v: Variation) => void
+  activeVariantId?: string
 }
 
-export function ResultPanel({ snapshot }: Props) {
+export function ResultPanel({ snapshot, onApplyVariation, activeVariantId }: Props) {
   const s = snapshot
   const stopped = !s.manufacturing || !s.pricing
 
@@ -32,7 +36,11 @@ export function ResultPanel({ snapshot }: Props) {
         </p>
       </section>
 
-      <ValidationPanel issues={s.validation.Issues} />
+      <ValidationPanel
+        issues={s.validation.Issues}
+        onApplyVariation={onApplyVariation}
+        activeVariantId={activeVariantId}
+      />
 
       {!stopped && (
         <>
@@ -60,6 +68,12 @@ function SolverDrawings({ snapshot }: { snapshot: Snapshot }) {
   const [tab, setTab] = useState<'profile' | 'plan' | 'threed'>('profile')
   const sch = schematicOf(snapshot)
   if (!sch) return null
+
+  // Фиолетовая линия верха марша на 3D: суммарный подъём марша.
+  const stairTop =
+    sch.flight && sch.kind !== 'spiral'
+      ? { rise: sch.flight.StepHeight * sch.flight.StepCount }
+      : undefined
 
   // Профиль (вид сбоку) осмыслен только для прямого марша; L/U/спираль
   // показываем планом по умолчанию.
@@ -94,7 +108,17 @@ function SolverDrawings({ snapshot }: { snapshot: Snapshot }) {
       {activeTab === 'threed' && (
         snapshot.mesh ? (
           <Suspense fallback={<p className="muted">Загрузка 3D…</p>}>
-            <GeometryViewer mesh={snapshot.mesh} />
+            <GeometryViewer
+              mesh={snapshot.mesh}
+              roomMesh={snapshot.room_mesh}
+              railingMesh={snapshot.railing_mesh}
+              stairTop={stairTop}
+              flight={sch?.kind}
+              direction={sch?.solver?.direction}
+              roomWidth={sch?.solver?.roomWidth}
+              roomLength={sch?.solver?.roomLength}
+              approachSpace={sch?.solver?.approachSpace}
+            />
           </Suspense>
         ) : (
           <p className="muted">Модель 3D недоступна для этого снапшота.</p>
@@ -104,7 +128,15 @@ function SolverDrawings({ snapshot }: { snapshot: Snapshot }) {
   )
 }
 
-function ValidationPanel({ issues }: { issues: Snapshot['validation']['Issues'] }) {
+function ValidationPanel({
+  issues,
+  onApplyVariation,
+  activeVariantId,
+}: {
+  issues: Snapshot['validation']['Issues']
+  onApplyVariation?: (v: Variation) => void
+  activeVariantId?: string
+}) {
   if (!issues || issues.length === 0) {
     return (
       <section className="panel">
@@ -113,6 +145,11 @@ function ValidationPanel({ issues }: { issues: Snapshot['validation']['Issues'] 
       </section>
     )
   }
+  // Готовые варианты (advisor) и вариации (A/B/C) могут относиться сразу к
+  // нескольким issue с одинаковым набором — чтобы не дублировать списки,
+  // показываем их только для ПЕРВОГО подходящего issue.
+  const firstSugg = issues.find((i) => i.Suggestions && i.Suggestions.length > 0)
+  const firstVar = issues.find((i) => i.Variations && i.Variations.length > 0)
   return (
     <section className="panel">
       <h2 className="panel__title">Валидация</h2>
@@ -140,23 +177,31 @@ function ValidationPanel({ issues }: { issues: Snapshot['validation']['Issues'] 
           ))}
         </tbody>
       </table>
-      {issues.some((i) => i.Suggestions && i.Suggestions.length > 0) && (
+      {firstSugg && (
         <h3 className="panel__sub">Подходящие варианты конфигурации</h3>
       )}
-      {issues
-        .filter((i) => i.Suggestions && i.Suggestions.length > 0)
-        .map((i, idx) => (
-          <div className="issue-suggestions" key={idx}>
-            {i.Suggestions!.map((s, si) => (
-              <div className="suggestion" key={si}>
-                <span>
-                  {s.StepCount} ступ. · h {fmt.mm(s.StepHeightMm)} · проступь{' '}
-                  {fmt.mm(s.TreadDepthMm)} · угол {s.AngleDeg.toFixed(1)}°
-                </span>
-              </div>
-            ))}
-          </div>
-        ))}
+      {firstSugg && (
+        <div className="issue-suggestions">
+          {firstSugg.Suggestions!.map((s, si) => (
+            <div className="suggestion" key={si}>
+              <span>
+                {s.StepCount} ступ. · h {fmt.mm(s.StepHeightMm)} · проступь{' '}
+                {fmt.mm(s.TreadDepthMm)} · угол {s.AngleDeg.toFixed(1)}°
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {firstVar && onApplyVariation && (
+        <div className="variations">
+          <h3 className="panel__sub">Варианты решения (выберите подходящий)</h3>
+          <VariationPicker
+            variations={firstVar.Variations!}
+            onApply={onApplyVariation}
+            activeId={activeVariantId}
+          />
+        </div>
+      )}
     </section>
   )
 }
@@ -235,6 +280,20 @@ function LShapePanel({ snapshot }: { snapshot: Snapshot }) {
           <dt>Ширина площадки Wp</dt>
           <dd>{fmt.mm(l.LandingWidth)}</dd>
         </div>
+        {l.LandingDepth !== undefined && (
+          <div>
+            <dt>Глубина площадки</dt>
+            <dd>{fmt.mm(l.LandingDepth)}</dd>
+          </div>
+        )}
+        {l.RoomWidth !== undefined && l.RoomLength !== undefined && (
+          <div>
+            <dt>Помещение (X × Y)</dt>
+            <dd>
+              {fmt.mm(l.RoomWidth)} × {fmt.mm(l.RoomLength)}
+            </dd>
+          </div>
+        )}
         <div>
           <dt>Нижний марш (L1 × R1)</dt>
           <dd>
@@ -376,6 +435,15 @@ function SpiralPanel({ snapshot }: { snapshot: Snapshot }) {
 
 function GeometryPanel({ snapshot }: { snapshot: Snapshot }) {
   const m = snapshot.measurement!
+  const sch = schematicOf(snapshot)
+  // Фиолетовая линия верха марша на 3D (прямой марш): суммарный подъём и ширина.
+  const stairTop =
+    snapshot.flight
+      ? {
+          rise: snapshot.flight.StepHeight * snapshot.flight.StepCount,
+        }
+      : undefined
+
   return (
     <section className="panel">
       <h2 className="panel__title">Геометрия</h2>
@@ -406,7 +474,17 @@ function GeometryPanel({ snapshot }: { snapshot: Snapshot }) {
       )}
       {snapshot.mesh && (
         <Suspense fallback={<p className="muted">Загрузка 3D…</p>}>
-          <GeometryViewer mesh={snapshot.mesh} />
+          <GeometryViewer
+            mesh={snapshot.mesh}
+            roomMesh={snapshot.room_mesh}
+            railingMesh={snapshot.railing_mesh}
+            stairTop={stairTop}
+            flight={sch?.kind}
+            direction={sch?.solver?.direction}
+            roomWidth={sch?.solver?.roomWidth}
+            roomLength={sch?.solver?.roomLength}
+            approachSpace={sch?.solver?.approachSpace}
+          />
         </Suspense>
       )}
     </section>

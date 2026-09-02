@@ -7,6 +7,18 @@ frontend/*
 frontend/shared/*
 !frontend/shared/src
 !frontend/shared/src/*
+# admin-фронт (frontend) собирается в deployments/admin.Dockerfile — вернуть в
+# контекст сборки только необходимые файлы. node_modules/dist остаются
+# исключёнными (не re-include), тяжёлые артефакты в образ не попадают.
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/index.html
+!frontend/vite.config.ts
+!frontend/tsconfig.json
+!frontend/tsconfig.app.json
+!frontend/tsconfig.node.json
+!frontend/src
+!frontend/public
 configs
 coverage.out
 coverage.html

@@ -85,11 +85,11 @@ func TestManufacturePartDimensions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// косоур-гребёнка: 4077.7×2660×50 (седла на низ проступи, спинка до пола).
+	// косоур-гребёнка: 4050×2660×50 (седла на низ проступи, спинка до пола).
 	if p := findPart(pkg, "STR-01"); p != nil {
-		if !nearlyEqual(p.Length.Millimeters(), 4077.73501) || !nearlyEqual(p.Width.Millimeters(), 2660) ||
+		if !nearlyEqual(p.Length.Millimeters(), 4050) || !nearlyEqual(p.Width.Millimeters(), 2660) ||
 			!nearlyEqual(p.Thickness.Millimeters(), 50) {
-			t.Fatalf("stringer dims = %v×%v×%v, want 4077.735×2660×50",
+			t.Fatalf("stringer dims = %v×%v×%v, want 4050×2660×50",
 				p.Length.Millimeters(), p.Width.Millimeters(), p.Thickness.Millimeters())
 		}
 	} else {
@@ -149,7 +149,7 @@ func TestManufactureBOM(t *testing.T) {
 		length   float64
 		width    float64
 	}{
-		{"Stringer", 2, 4077.73501, 2660},
+		{"Stringer", 2, 4050, 2660},
 		{"Tread", 15, 900, 310},
 		{"Riser", 15, 900, 140},
 	}

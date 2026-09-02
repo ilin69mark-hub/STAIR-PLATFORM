@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"strings"
@@ -72,6 +73,18 @@ type Config struct {
 	// Testimonials — сервис отзывов клиентов (клиентский сайт); nil —
 	// маршруты testimonials и admin/testimonials не регистрируются.
 	Testimonials TestimonialService
+	// WebSocketHandler — handler для WebSocket подключений; nil —
+	// маршрут /ws не регистрируется.
+	WebSocketHandler *WebSocketHandler
+	// GraphQLHandler — handler для GraphQL запросов; nil —
+	// маршрут /graphql не регистрируется.
+	GraphQLHandler *GraphQLHTTPHandler
+	// SecurityConfig — конфигурация security middleware; nil —
+	// security headers не добавляются.
+	SecurityConfig *SecurityConfig
+	// StripeWebhookService — сервис обработки Stripe webhook; nil —
+	// маршрут /api/v1/payments/stripe/webhook не регистрируется.
+	StripeWebhookService StripeWebhookService
 }
 
 // DefaultConfig возвращает конфигурацию по умолчанию.
@@ -103,6 +116,15 @@ func requireAuth(svc AuthService) func(http.Handler) http.Handler {
 					writeError(w, http.StatusUnauthorized, "unauthorized", "Неверный API-ключ.")
 					return
 				}
+				// Per-API-key rate limiting
+				if authRateLimiter != nil {
+					if !authRateLimiter.Allow("apikey:"+key.ID) {
+						w.Header().Set("Retry-After", "60")
+						writeError(w, http.StatusTooManyRequests, "rate_limit_exceeded",
+							"Превышен лимит запросов для API ключа.")
+						return
+					}
+				}
 				next.ServeHTTP(w, r.WithContext(withApiKey(r.Context(), key)))
 				return
 			}
@@ -116,6 +138,15 @@ func requireAuth(svc AuthService) func(http.Handler) http.Handler {
 				clearSessionCookies(w)
 				writeError(w, http.StatusUnauthorized, "unauthorized", "Сессия истекла или недействительна.")
 				return
+			}
+			// Per-user rate limiting для authenticated запросов
+			if authRateLimiter != nil {
+				if !authRateLimiter.Allow("user:" + u.ID) {
+					w.Header().Set("Retry-After", "60")
+					writeError(w, http.StatusTooManyRequests, "rate_limit_exceeded",
+						"Превышен лимит запросов.")
+					return
+				}
 			}
 			if rotatedToken != "" {
 				// Сессия ротирована: выдаём новый session-cookie (httpOnly).
@@ -189,6 +220,7 @@ type rateLimiter struct {
 	limit    int
 	window   time.Duration
 	attempts map[string]*rateBucket
+	cancel   context.CancelFunc
 }
 
 type rateBucket struct {
@@ -196,11 +228,43 @@ type rateBucket struct {
 	resetAt time.Time
 }
 
-func newRateLimiter(limit int, window time.Duration) *rateLimiter {
-	return &rateLimiter{
+func newRateLimiter(ctx context.Context, limit int, window time.Duration) *rateLimiter {
+	ctx, cancel := context.WithCancel(ctx)
+	l := &rateLimiter{
 		limit:    limit,
 		window:   window,
 		attempts: make(map[string]*rateBucket),
+		cancel:   cancel,
+	}
+	go l.cleanup(ctx)
+	return l
+}
+
+// cleanup.periodically removes expired entries to prevent memory leak.
+func (l *rateLimiter) cleanup(ctx context.Context) {
+	ticker := time.NewTicker(l.window / 2)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			l.mu.Lock()
+			now := time.Now()
+			for ip, b := range l.attempts {
+				if now.After(b.resetAt) {
+					delete(l.attempts, ip)
+				}
+			}
+			l.mu.Unlock()
+		}
+	}
+}
+
+// Stop останавливает cleanup goroutine.
+func (l *rateLimiter) Stop() {
+	if l.cancel != nil {
+		l.cancel()
 	}
 }
 
@@ -226,6 +290,8 @@ func (l *rateLimiter) Allow(ip string) bool { return l.allow(ip) }
 func limitRate(l RateLimiter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !l.Allow(clientIP(r)) {
+			// Добавляем Retry-After header (стандарт для 429)
+			w.Header().Set("Retry-After", "60")
 			writeError(w, http.StatusTooManyRequests, "rate_limited", "Слишком много запросов, попробуйте позже")
 			return
 		}

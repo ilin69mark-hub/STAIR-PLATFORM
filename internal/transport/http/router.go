@@ -1,8 +1,10 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 )
 
 // NewRouter собирает маршруты API v1. svc — прикладной сервис расчёта,
@@ -29,10 +31,13 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handleHealth)
-	mux.HandleFunc("GET /metrics", handleMetrics)
+	mux.Handle("GET /metrics", InternalOnlyMiddleware(http.HandlerFunc(handleMetrics)))
 	if readiness != nil {
 		mux.HandleFunc("GET /ready", handleReady(readiness))
 	}
+	// Swagger UI (internal only)
+	mux.Handle("GET /swagger", InternalOnlyMiddleware(http.HandlerFunc(handleSwaggerUI)))
+	mux.Handle("GET /docs/openapi/swagger.yaml", InternalOnlyMiddleware(http.HandlerFunc(handleSwaggerSpec)))
 	mux.Handle("POST /api/v1/auth/register", limitRate(registerLimiter, handleRegister(authSvc)))
 	mux.Handle("POST /api/v1/auth/login", limitRate(loginLimiter, handleLogin(authSvc)))
 
@@ -62,7 +67,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	mux.Handle("PATCH /api/v1/admin/users/{id}", authMutating(handleUpdateUser(authSvc)))
 	mux.Handle("GET /api/v1/admin/overview", authProtected(handleAdminOverview(authSvc, projects)))
 	mux.Handle("GET /api/v1/admin/settings", authProtected(handleGetSettings(authSvc)))
-	mux.Handle("PUT /api/v1/admin/settings", authMutating(handleUpdateSettings(authSvc)))
+	mux.Handle("PUT /api/v1/admin/settings", authMutating(handleUpdateSettings(authSvc, auditsvc)))
 	mux.Handle("GET /api/v1/admin/export", authProtected(handleExport(authSvc, projects, auditsvc)))
 	mux.Handle("GET /api/v1/admin/api-keys", authProtected(handleListApiKeys(authSvc)))
 	mux.Handle("POST /api/v1/admin/api-keys", authMutating(handleCreateApiKey(authSvc)))
@@ -71,9 +76,11 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	if auditsvc != nil {
 		mux.Handle("GET /api/v1/audit", authProtected(handleListTenantAudit(auditsvc)))
 		mux.Handle("GET /api/v1/projects/{id}/audit", authProtected(handleListProjectAudit(projects, auditsvc)))
+		// Клиентские события (клики, применение вариантов) — mutating (CSRF).
+		mux.Handle("POST /api/v1/audit", authMutating(handleRecordAudit(auditsvc)))
 	}
 
-	mux.Handle("POST /api/v1/stairs:calculate", authProtected(handleCalculate(svc)))
+	mux.Handle("POST /api/v1/stairs:calculate", authProtected(handleCalculate(svc, auditsvc)))
 	mux.Handle("POST /api/v1/stairs:optimize", authProtected(handleOptimize(svc)))
 	if assistantSvc != nil {
 		// AI-ассистенты (Phase D, D1–D4): design/engineering/manufacturing/pricing.
@@ -85,15 +92,15 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		mux.Handle("POST /api/v1/orders", authMutating(handleCreateOrder(ordersSvc)))
 		mux.Handle("GET /api/v1/orders", authProtected(handleListMyOrders(ordersSvc)))
 		mux.Handle("GET /api/v1/admin/orders", authProtected(handleAdminListOrders(ordersSvc)))
-		mux.Handle("PATCH /api/v1/admin/orders/{id}/status", authMutating(handleAdminUpdateOrderStatus(ordersSvc)))
+		mux.Handle("PATCH /api/v1/admin/orders/{id}/status", authMutating(handleAdminUpdateOrderStatus(ordersSvc, auditsvc)))
 	}
 	if testimonials := cfg.Testimonials; testimonials != nil {
 		// Отзывы клиентов (Store): публичные — для лендинга, admin — для менеджера.
 		mux.Handle("GET /api/v1/public/testimonials", handlePublicListTestimonials(testimonials, authSvc))
 		mux.Handle("GET /api/v1/admin/testimonials", authProtected(handleAdminListTestimonials(testimonials)))
-		mux.Handle("POST /api/v1/admin/testimonials", authMutating(handleAdminCreateTestimonial(testimonials)))
-		mux.Handle("PATCH /api/v1/admin/testimonials/{id}", authMutating(handleAdminUpdateTestimonial(testimonials)))
-		mux.Handle("DELETE /api/v1/admin/testimonials/{id}", authMutating(handleAdminDeleteTestimonial(testimonials)))
+		mux.Handle("POST /api/v1/admin/testimonials", authMutating(handleAdminCreateTestimonial(testimonials, auditsvc)))
+		mux.Handle("PATCH /api/v1/admin/testimonials/{id}", authMutating(handleAdminUpdateTestimonial(testimonials, auditsvc)))
+		mux.Handle("DELETE /api/v1/admin/testimonials/{id}", authMutating(handleAdminDeleteTestimonial(testimonials, auditsvc)))
 	}
 	if jobsSvc != nil {
 		mux.Handle("POST /api/v1/stairs:calculate/async", authMutating(handleCalculateAsync(jobsSvc)))
@@ -120,6 +127,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	mux.Handle("GET /api/v1/projects/{id}/configurations/{configID}", authProtected(handleGetConfiguration(projects)))
 	mux.Handle("POST /api/v1/projects/{id}/configurations/{configID}/restore", authMutating(handleRestoreConfiguration(projects)))
 	mux.Handle("POST /api/v1/projects/{id}/calculate", authMutating(handleCalculateProject(projects)))
+	mux.Handle("POST /api/v1/projects/{id}/preview", authMutating(handlePreviewProject(projects)))
 	mux.Handle("POST /api/v1/projects/{id}/optimize", authMutating(handleOptimizeProject(projects)))
 	mux.Handle("GET /api/v1/projects/{id}/export", authProtected(handleExportProject(projects)))
 	mux.Handle("GET /api/v1/projects/{id}/export/cad", authProtected(handleExportCAD(projects)))
@@ -148,6 +156,11 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		mux.Handle("GET /api/v1/payments/{id}", authProtected(handleGetPayment(payments)))
 	}
 
+	// Stripe webhook endpoint (публичный; Stripe-Signature верификация).
+	if cfg.StripeWebhookService != nil {
+		mux.HandleFunc("POST /api/v1/payments/stripe/webhook", handleStripeWebhook(cfg.StripeWebhookService))
+	}
+
 	if analytics != nil {
 		mux.Handle("GET /api/v1/admin/analytics/usage", authProtected(handleUsageAnalytics(analytics)))
 		mux.Handle("GET /api/v1/admin/analytics/projects", authProtected(handleProjectsAnalytics(analytics)))
@@ -155,8 +168,48 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		mux.Handle("GET /api/v1/admin/analytics/cost", authProtected(handleCostAnalytics(analytics)))
 	}
 
+	// WebSocket endpoint (EDR-0038)
+	if cfg.WebSocketHandler != nil {
+		mux.HandleFunc("GET /ws", cfg.WebSocketHandler.HandleWebSocket)
+	}
+
+	// GraphQL endpoint
+	if cfg.GraphQLHandler != nil {
+		mux.Handle("POST /graphql", cfg.GraphQLHandler)
+		mux.Handle("GET /graphql", cfg.GraphQLHandler)
+	}
+
 	mux.HandleFunc("GET /", handleNotFound)
-	return withLogging(mux)
+
+	// Cache policies по путям
+	cachePolicies := map[string]CachePolicy{
+		"/api/v1/":                  CacheNoCache,   // API — no cache
+		"/api/v1/projects/":         CacheShort,     // проекты — 5 min
+		"/api/v1/configs/":          CacheShort,     // конфигурации — 5 min
+		"/api/v1/assortments/":      CacheMedium,    // ассортимент — 1 hour
+		"/api/v1/materials/":        CacheMedium,    // материалы — 1 hour
+		"/api/v1/profiles/":         CacheMedium,    // профили — 1 hour
+		"/api/v1/stairs/":           CacheShort,     // лестницы — 5 min
+		"/api/v1/auth/":             CacheNoCache,   // авторизация — no cache
+		"/api/v1/health":            CacheNoCache,   // health check — no cache
+		"/static/":                  CacheLong,      // статика — 1 day
+		"/assets/":                  CacheImmutable, // webpack assets — immutable
+	}
+
+	// Response cache для read-heavy GET-запросов (5min TTL, 512 entries)
+	respCache := ResponseCacheMiddleware(ResponseCacheConfig{
+		MaxEntries: 512,
+		DefaultTTL: 5 * time.Minute,
+		Methods:    []string{http.MethodGet},
+	})
+
+	// Deduplication для тяжёлых операций
+	dedup := DeduplicateMiddleware(DeduplicateByKey)
+
+	// Security middleware (CORS, HSTS, CSP)
+	secMiddleware := SecurityMiddleware(cfg.SecurityConfig)
+
+	return TraceMiddleware(VersionMiddleware(PanicRecoveryMiddleware(RouteTimeoutMiddleware(DefaultAPIRouteTimeouts())(CompressionMiddleware(BodySizeLimitDefault()(CacheMiddleware(cachePolicies)(respCache(dedup(secMiddleware(withLogging(mux)))))))))))
 }
 
 // applyConfig применяет конфигурацию HTTP-слоя (глобальные переключатели
@@ -186,11 +239,12 @@ func applyConfig(cfg Config) {
 	}
 	maxBodyBytes = cfg.MaxBodyBytes
 	region = cfg.Region
-	regionLabel = cfg.Region
-	instanceLabel = cfg.InstanceID
-	loginLimiter = newRateLimiterStrategy(cfg.RedisAddr, cfg.LoginRateLimit, cfg.LoginRateWindow)
-	registerLimiter = newRateLimiterStrategy(cfg.RedisAddr, cfg.RegisterRateLimit, cfg.RegisterRateWindow)
-	quoteLimiter = newRateLimiterStrategy(cfg.RedisAddr, cfg.QuoteRateLimit, cfg.QuoteRateWindow)
+	SetMetricsConfig(cfg.Region, cfg.InstanceID)
+	loginLimiter = newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.LoginRateLimit, cfg.LoginRateWindow)
+	registerLimiter = newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.RegisterRateLimit, cfg.RegisterRateWindow)
+	quoteLimiter = newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.QuoteRateLimit, cfg.QuoteRateWindow)
+	// Authenticated rate limiter: 200 req/min per user/API key
+	authRateLimiter = newRateLimiterStrategy(context.Background(), cfg.RedisAddr, 200, time.Minute)
 	paymentsWebhookSecret = cfg.PaymentsWebhookSecret
 }
 
@@ -198,6 +252,10 @@ var (
 	loginLimiter    RateLimiter
 	registerLimiter RateLimiter
 	quoteLimiter    RateLimiter
+	// apiKeyLimiter — per-API-key rate limiter (map[keyID]RateLimiter)
+	apiKeyLimiter = make(map[string]RateLimiter)
+	// authRateLimiter — rate limiter для всех authenticated запросов
+	authRateLimiter RateLimiter
 	region          string
 	// paymentsWebhookSecret — секрет верификации входящего webhook PSP
 	// (EDR-0027 §3.4); глобал из-за единственного публичного маршрута,
@@ -206,9 +264,10 @@ var (
 )
 
 func handleHealth(w http.ResponseWriter, _ *http.Request) {
-	resp := map[string]string{
+	resp := map[string]any{
 		"status":  "ok",
 		"service": "stair-platform-api",
+		"version": "1.0.0",
 	}
 	if region != "" {
 		resp["region"] = region

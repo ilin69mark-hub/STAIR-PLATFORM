@@ -5,6 +5,16 @@ linters:
   enable:
     - bodyclose
     - unconvert
+    - errcheck
+    - gosimple
+    - staticcheck
+    - unused
+    - ineffassign
+    - gosec
+    - exhaustive
+    - prealloc
+    - unparam
+    - whitespace
   exclusions:
     generated: lax
     paths:

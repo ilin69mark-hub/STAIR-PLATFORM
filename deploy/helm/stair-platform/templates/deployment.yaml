@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "stair-platform.fullname" . }}
+  labels:
+    {{- include "stair-platform.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "stair-platform.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "stair-platform.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "stair-platform.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          env:
+            - name: STAIR_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "stair-platform.fullname" . }}-secrets
+                  key: database-url
+            - name: STAIR_HTTP_ADDR
+              value: ":{{ .Values.service.port }}"
+            - name: STAIR_DB_MAX_CONNS
+              value: {{ .Values.database.maxConns | quote }}
+            - name: STAIR_DB_MIN_CONNS
+              value: {{ .Values.database.minConns | quote }}
+            - name: STAIR_DB_MAX_CONN_LIFETIME
+              value: {{ .Values.database.maxConnLifetime | quote }}
+            - name: STAIR_DB_MAX_CONN_IDLE_TIME
+              value: {{ .Values.database.maxConnIdleTime | quote }}
+            - name: STAIR_SESSION_TTL
+              value: {{ .Values.security.sessionTTL | quote }}
+            - name: STAIR_CORS_ORIGINS
+              value: {{ .Values.security.corsOrigins | quote }}
+            - name: STAIR_HSTS_ENABLED
+              value: {{ .Values.security.hstsEnabled | quote }}
+            - name: STAIR_COOKIE_SECURE
+              value: {{ .Values.security.cookieSecure | quote }}
+            {{- if .Values.redis.addr }}
+            - name: STAIR_REDIS_ADDR
+              value: {{ .Values.redis.addr | quote }}
+            {{- end }}
+            {{- if .Values.monitoring.tracingEnabled }}
+            - name: STAIR_TRACING_ENABLED
+              value: "true"
+            - name: STAIR_TRACING_ENDPOINT
+              value: {{ .Values.monitoring.tracingEndpoint | quote }}
+            - name: STAIR_TRACING_SAMPLE_RATE
+              value: {{ .Values.monitoring.tracingSampleRate | quote }}
+            {{- end }}
+            {{- if .Values.debug.logging }}
+            - name: STAIR_DEBUG_LOGGING
+              value: "true"
+            {{- end }}
+            {{- if .Values.payments.stripeSecretKey }}
+            - name: STAIR_STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "stair-platform.fullname" . }}-secrets
+                  key: stripe-secret-key
+            - name: STAIR_STRIPE_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "stair-platform.fullname" . }}-secrets
+                  key: stripe-webhook-secret
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -76,91 +76,6 @@ describe('QuoteResult', () => {
     expect(screen.queryByText('3D-модель')).not.toBeInTheDocument()
   })
 
-  it('«без перил» прячет перила на схеме профиля', () => {
-    const noRail: QuoteResultType = {
-      ...okQuote,
-      flight: { ...okQuote.flight!, railing: 'none' },
-    }
-    const { container } = render(<QuoteResult quote={noRail} />)
-    expect(container.querySelector('.scheme__caption')?.textContent).not.toContain('перила')
-    expect(container.querySelectorAll('.scheme__railing').length).toBe(0)
-  })
-
-  it('переключает 2D-схему: профиль и вид сверху', () => {
-    render(<QuoteResult quote={okQuote} />)
-    // По умолчанию профиль.
-    expect(screen.getByRole('img', { name: 'Боковой профиль прямого марша' })).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Вид сверху' }))
-    expect(screen.getByRole('img', { name: 'Вид сверху (план) лестницы' })).toBeInTheDocument()
-    expect(screen.queryByRole('img', { name: 'Боковой профиль прямого марша' })).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Профиль' }))
-    expect(screen.getByRole('img', { name: 'Боковой профиль прямого марша' })).toBeInTheDocument()
-  })
-
-  it('L-образный марш: только план, без вкладки «Профиль»', () => {
-    const lQuote: QuoteResultType = {
-      validation: { valid: true, blocking: false, issues: [] },
-      lshape: {
-        step_count: 15,
-        lower_step_count: 6,
-        upper_step_count: 9,
-        step_height_mm: 180,
-        tread_depth_mm: 270,
-        angle_deg: 30,
-        lower_height_mm: 1080,
-        upper_height_mm: 1620,
-        lower_run_mm: 1620,
-        upper_run_mm: 2430,
-        lower_stringer_mm: 1870.9,
-        upper_stringer_mm: 2805.9,
-        landing_width_mm: 1000,
-        width_mm: 900,
-        step_thickness_mm: 40,
-        railing_height_mm: 900,
-        riser: true,
-        stringer_thickness_mm: 50,
-      },
-    }
-    render(<QuoteResult quote={lQuote} />)
-    // Нет мёртвой вкладки «Профиль»…
-    expect(screen.queryByRole('button', { name: 'Профиль' })).not.toBeInTheDocument()
-    // …а схема по умолчанию — план L.
-    expect(screen.getByRole('img', { name: 'Вид сверху (план) лестницы' })).toBeInTheDocument()
-    expect(screen.getByText(/L₁ 1 620 мм/)).toBeInTheDocument()
-  })
-
-  it('П-образный марш: только план, без вкладки «Профиль»', () => {
-    const uQuote: QuoteResultType = {
-      validation: { valid: true, blocking: false, issues: [] },
-      ushape: {
-        step_count: 15,
-        lower_step_count: 6,
-        upper_step_count: 9,
-        step_height_mm: 180,
-        tread_depth_mm: 270,
-        angle_deg: 30,
-        lower_height_mm: 1080,
-        upper_height_mm: 1620,
-        lower_run_mm: 1620,
-        upper_run_mm: 2430,
-        lower_stringer_mm: 1870.9,
-        upper_stringer_mm: 2805.9,
-        landing_width_mm: 1000,
-        width_mm: 900,
-        step_thickness_mm: 40,
-        railing_height_mm: 900,
-        riser: true,
-        stringer_thickness_mm: 50,
-      },
-    }
-    render(<QuoteResult quote={uQuote} />)
-    expect(screen.queryByRole('button', { name: 'Профиль' })).not.toBeInTheDocument()
-    expect(screen.getByRole('img', { name: 'Вид сверху (план) лестницы' })).toBeInTheDocument()
-    expect(screen.getByText(/L₁ 1 620 мм/)).toBeInTheDocument()
-  })
-
   it('показывает объяснение, что поправить, и кнопку применения варианта', () => {
     const onApply = vi.fn()
     const suggestion = {
@@ -197,6 +112,107 @@ describe('QuoteResult', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Применить эти значения' }))
     expect(onApply).toHaveBeenCalledWith(suggestion)
+  })
+
+  it('блок GEO-ANGLE с variations: рендерит «Варианты решения» и применяет вариант', () => {
+    const onApply = vi.fn()
+    const variation = (id: string, summary: string): any => ({
+      id,
+      title: id,
+      description: 'Сделать угол наклона в норме 30–45°.',
+      config: { flight: 'straight', heightMM: '3000', widthMM: '1000', stepHeightMM: '166.67', comfortStepMM: '620' },
+      fits: true,
+      summary,
+    })
+    const blocked: QuoteResultType = {
+      validation: {
+        valid: false,
+        blocking: true,
+        issues: [
+          {
+            code: 'GEO-ANGLE',
+            severity: 'error',
+            element: 'angle',
+            message: 'угол вне нормы',
+            guide: 'Угол наклона 26,7° вне нормы (30–45°). Измените число ступеней.',
+            param: 'Число ступеней',
+            variations: [variation('Угол 30°', 'Угол 30,2°, 18 ступ., h 167 мм, b 620 мм'), variation('Угол 35°', 'Угол 35,3°, 16 ступ., h 188 мм, b 640 мм')],
+          },
+        ],
+      },
+    }
+    render(<QuoteResult quote={blocked} onApplyVariation={onApply} />)
+    expect(screen.getByText(/Варианты решения \(выберите подходящий\)/)).toBeInTheDocument()
+    const btns = screen.getAllByRole('button', { name: /Угол/ })
+    expect(btns.length).toBe(2)
+    fireEvent.click(btns[0])
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ id: 'Угол 30°' }))
+  })
+
+  it('L-образный марш: варианты несут площадку и применяются', () => {
+    const onApply = vi.fn()
+    const blocked: QuoteResultType = {
+      validation: {
+        valid: false,
+        blocking: true,
+        issues: [
+          {
+            code: 'GEO-ANGLE',
+            severity: 'error',
+            element: 'angle',
+            message: 'угол вне нормы',
+            param: 'Число ступеней',
+            variations: [
+              {
+                id: 'Угол 32°',
+                title: 'Угол 32°',
+                description: 'Сделать угол наклона в норме.',
+                config: { flight: 'l_shape', heightMM: '3000', widthMM: '1000', landingWidthMM: '1000', landingDepthMM: '1500', lowerStepCountMM: '9', stepHeightMM: '166.67', comfortStepMM: '600' },
+                fits: true,
+                summary: 'Угол 32,0°, 18 ступ., h 167 мм, b 600 мм',
+              },
+            ],
+          },
+        ],
+      },
+    }
+    render(<QuoteResult quote={blocked} onApplyVariation={onApply} />)
+    expect(screen.getByText(/Варианты решения/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Угол 32°/ }))
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ id: 'Угол 32°' }))
+  })
+
+  it('П-образный марш: варианты несут площадку и применяются', () => {
+    const onApply = vi.fn()
+    const blocked: QuoteResultType = {
+      validation: {
+        valid: false,
+        blocking: true,
+        issues: [
+          {
+            code: 'GEO-ANGLE',
+            severity: 'error',
+            element: 'angle',
+            message: 'угол вне нормы',
+            param: 'Число ступеней',
+            variations: [
+              {
+                id: 'Угол 30°',
+                title: 'Угол 30°',
+                description: 'Сделать угол наклона в норме.',
+                config: { flight: 'u_shape', heightMM: '3000', widthMM: '1000', landingWidthMM: '1000', landingDepthMM: '1500', lowerStepCountMM: '9', stepHeightMM: '166.67', comfortStepMM: '620' },
+                fits: true,
+                summary: 'Угол 30,2°, 18 ступ., h 167 мм, b 620 мм',
+              },
+            ],
+          },
+        ],
+      },
+    }
+    render(<QuoteResult quote={blocked} onApplyVariation={onApply} />)
+    expect(screen.getByText(/Варианты решения/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Угол 30°/ }))
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ id: 'Угол 30°' }))
   })
 
   it('спиральный марш показывает варианты с радиусом и применяет их', () => {

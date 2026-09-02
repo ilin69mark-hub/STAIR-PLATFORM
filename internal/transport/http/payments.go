@@ -20,6 +20,11 @@ type PaymentService interface {
 	HandleWebhook(ctx context.Context, secret, tsUnix, sigValue string, body []byte) (*payments.PaymentEvent, error)
 }
 
+// StripeWebhookService — интерфейс для Stripe-специфичной обработки webhook.
+type StripeWebhookService interface {
+	HandleStripeWebhook(ctx context.Context, payload []byte, signature string) error
+}
+
 // ---- DTO ----
 
 type paymentIntentDTO struct {
@@ -172,6 +177,39 @@ func handlePaymentWebhook(svc PaymentService) http.HandlerFunc {
 		switch {
 		case errors.Is(err, payments.ErrInvalidSignature):
 			writeError(w, http.StatusUnauthorized, "invalid_signature", "Не удалось проверить подпись webhook.")
+		case errors.Is(err, payments.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Платёж не найден.")
+		case errors.Is(err, payments.ErrInvalid):
+			writeError(w, http.StatusConflict, "invalid_input", userInputMessage(err))
+		case err != nil:
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+		default:
+			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		}
+	}
+}
+
+// handleStripeWebhook — POST /api/v1/payments/stripe/webhook (публичный).
+// Обрабатывает Stripe-специфичные webhook events с форматом подписи t=timestamp,v1=signature.
+// 200 — принято; 401 — невалидная подпись; 500 — внутренняя ошибка.
+func handleStripeWebhook(svc StripeWebhookService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_body", "Не удалось прочитать тело запроса.")
+			return
+		}
+
+		signature := r.Header.Get("Stripe-Signature")
+		if signature == "" {
+			writeError(w, http.StatusBadRequest, "missing_signature", "Отсутствует заголовок Stripe-Signature.")
+			return
+		}
+
+		err = svc.HandleStripeWebhook(r.Context(), body, signature)
+		switch {
+		case errors.Is(err, payments.ErrInvalidSignature):
+			writeError(w, http.StatusUnauthorized, "invalid_signature", "Не удалось проверить подпись Stripe webhook.")
 		case errors.Is(err, payments.ErrNotFound):
 			writeError(w, http.StatusNotFound, "not_found", "Платёж не найден.")
 		case errors.Is(err, payments.ErrInvalid):

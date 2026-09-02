@@ -115,7 +115,22 @@ type StairConfiguration struct {
 	// ступеней нижнего марша и ширина площадки. Используются только при
 	// Flight == FlightLShape || Flight == FlightUShape.
 	LowerStepCount int
-	LandingWidth   Length
+	LandingWidth   Length // Wp — ширина площадки (вдоль верхнего марша, Y в плане)
+	// LandingDepth — глубина площадки L/U-марша (вдоль нижнего марша, X в
+	// плане). При 0 трактуется как Width (площадка квадратная). Для площадочных
+	// маршей должно быть >= Width (проверяется в Validate).
+	LandingDepth Length
+	// RoomWidth / RoomLength — габариты помещения (периметр, мм) для
+	// визуальной проверки вписываемости лестницы (fit-check). Не влияют на
+	// геометрию марша; нулевые значения — проверка не выполняется.
+	RoomWidth  Length
+	RoomLength Length
+	// ApproachSpace — свободное пространство перед первой ступенью прямого
+	// марша (EDR-0023, норма 1000–1200 мм). Учитывается в fit-check: прямой
+	// марш сдвигается от стены на ApproachSpace, поэтому требуемая ширина
+	// помещения = длина забега + ApproachSpace. Используется только при
+	// Flight == FlightStraight; для прочих типов не учитывается (0).
+	ApproachSpace Length
 	// TurnKind — тип поворота для маршей с площадкой (L/U): площадка
 	// (TurnPlatform) либо поворотные ступени (TurnWinder, только U-образный,
 	// EDR-0006 §4). Пустое значение — площадка (обратная совместимость).
@@ -189,6 +204,29 @@ func (c *StairConfiguration) Validate() error {
 	if c.LandingWidth.Millimeters() < 0 {
 		return fmt.Errorf("stair: landing width must not be negative")
 	}
+	if c.LandingDepth.Millimeters() < 0 {
+		return fmt.Errorf("stair: landing depth must not be negative")
+	}
+	if c.RoomWidth.Millimeters() < 0 {
+		return fmt.Errorf("stair: room width must not be negative")
+	}
+	if c.RoomLength.Millimeters() < 0 {
+		return fmt.Errorf("stair: room length must not be negative")
+	}
+	if c.ApproachSpace.Millimeters() < 0 {
+		return fmt.Errorf("stair: approach space must not be negative")
+	}
+	if c.Flight == FlightStraight {
+		// Свободное пространство перед маршем обязательно в диапазоне 1000–1200 мм
+		// (пустое/нулевое значение трактуется как 1000, см. buildConfiguration).
+		a := c.ApproachSpace.Millimeters()
+		if a == 0 {
+			a = 1000
+		}
+		if a < 1000 || a > 1200 {
+			return fmt.Errorf("stair: approach space must be within 1000–1200 mm for %s", c.Flight)
+		}
+	}
 	if c.TurnKind != "" && !c.TurnKind.Valid() {
 		return fmt.Errorf("stair: invalid turn kind (platform|winder)")
 	}
@@ -208,6 +246,9 @@ func (c *StairConfiguration) Validate() error {
 		} else {
 			if c.LandingWidth.Millimeters() < c.Width.Millimeters() {
 				return fmt.Errorf("stair: landing width must be at least the flight width for %s", c.Flight)
+			}
+			if c.LandingDepth.Millimeters() > 0 && c.LandingDepth.Millimeters() < c.Width.Millimeters() {
+				return fmt.Errorf("stair: landing depth must be at least the flight width for %s", c.Flight)
 			}
 			if c.LowerStepCount < 1 || c.LowerStepCount >= c.StepCount {
 				return fmt.Errorf("stair: lower step count must be in [1, %d] for %s", c.StepCount-1, c.Flight)

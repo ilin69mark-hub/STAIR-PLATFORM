@@ -1,0 +1,96 @@
+# Default values for stair-platform
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/stairplatform/api
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: api.stairplatform.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Database configuration
+database:
+  url: ""
+  maxConns: 10
+  minConns: 1
+  maxConnLifetime: "1h"
+  maxConnIdleTime: "30m"
+
+# Redis configuration (optional)
+redis:
+  addr: ""
+
+# Security
+security:
+  sessionTTL: "86400"
+  corsOrigins: "http://localhost:3000,http://localhost:5173"
+  hstsEnabled: false
+  cookieSecure: false
+
+# Monitoring
+monitoring:
+  tracingEnabled: false
+  tracingEndpoint: ""
+  tracingSampleRate: 0.1
+
+# Debug (NEVER enable in production)
+debug:
+  logging: false
+  pprofEnabled: false
+
+# Payments
+payments:
+  stripeSecretKey: ""
+  stripeWebhookSecret: ""
+
+# OIDC (optional, for SSO)
+oidc:
+  issuerUrl: ""
+  clientId: ""
+  clientSecret: ""
+  redirectUrl: ""

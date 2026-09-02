@@ -34,6 +34,10 @@ func (f *fakeAuditService) ListTenantAudit(_ context.Context, _ string) ([]*audi
 	return f.events, nil
 }
 
+func (f *fakeAuditService) Record(_ context.Context, _ *audit.Event) error {
+	return nil
+}
+
 // testRouterWithAudit собирает роутер с fake-проектами и fake-аудитом.
 func testRouterWithAudit(p ProjectService, a AuditService) http.Handler {
 	return NewRouter(stair.NewService(), p, testAuth{}, DefaultConfig(), a)

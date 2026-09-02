@@ -289,6 +289,32 @@ func (s *Service) Calculate(ctx context.Context, tenantID, userID, projectID str
 	return calc, err
 }
 
+// Preview рассчитывает конфигурацию без сохранения (EDR-0008, превью
+// вариаций). Требуется членство с правом project.read. Результат тот же,
+// что у Calculate, но расчёт и конфигурация НЕ попадают в репозиторий —
+// пользователь перебирает альтернативы, не порождая сохранённых ревизий.
+func (s *Service) Preview(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options) (*Snapshot, error) {
+	me, ok, err := s.member(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if !me.Role.HasPermission(PermissionProjectRead) {
+		s.record(ctx, tenantID, userID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "preview: reader required")
+		return nil, ErrForbidden
+	}
+	// Выполняем конвейер без сохранения. Сериализация Snapshot в JSON
+	// выполняется транспортным слоем (ADR-0006: encoding/json вне application).
+	res, err := s.calc.Calculate(ctx, cfg, opts)
+	if err != nil {
+		return nil, fmt.Errorf("project: preview: %w", err)
+	}
+	snap := NewSnapshot(projectID, res)
+	return &snap, nil
+}
+
 // GetResult возвращает последний расчёт проекта внутри tenant. Требуется членство.
 func (s *Service) GetResult(ctx context.Context, tenantID, userID, projectID string) (*Calculation, error) {
 	if _, ok, err := s.member(ctx, tenantID, userID, projectID); err != nil {

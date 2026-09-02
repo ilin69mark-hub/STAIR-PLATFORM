@@ -1,0 +1,455 @@
+openapi: "3.0.3"
+info:
+  title: "STAIR Platform API"
+  description: "API for stair configuration, pricing, and manufacturing"
+  version: "1.0.0"
+  contact:
+    name: "STAIR Platform"
+
+servers:
+  - url: "http://localhost:8080/api/v1"
+    description: "Local development"
+  - url: "https://api.stairplatform.com/api/v1"
+    description: "Production"
+
+tags:
+  - name: "auth"
+    description: "Authentication & registration"
+  - name: "projects"
+    description: "Project management"
+  - name: "stairs"
+    description: "Stair configurations"
+  - name: "configs"
+    description: "Configuration management"
+  - name: "payments"
+    description: "Payment processing"
+  - name: "orders"
+    description: "Order management"
+  - name: "testimonials"
+    description: "Client testimonials"
+  - name: "analytics"
+    description: "Usage analytics"
+  - name: "health"
+    description: "Health checks"
+  - name: "metrics"
+    description: "Prometheus metrics"
+
+paths:
+  /auth/register:
+    post:
+      tags: ["auth"]
+      summary: "Register new user"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["email", "password"]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+                name:
+                  type: string
+      responses:
+        "201":
+          description: "User registered"
+        "409":
+          description: "Email already exists"
+        "422":
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/login:
+    post:
+      tags: ["auth"]
+      summary: "Login"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["email", "password"]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        "200":
+          description: "Login successful"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  user:
+                    $ref: "#/components/schemas/User"
+        "401":
+          description: "Invalid credentials"
+
+  /projects:
+    get:
+      tags: ["projects"]
+      summary: "List projects"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: "page"
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: "limit"
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        "200":
+          description: "Projects list"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projects:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Project"
+                  total:
+                    type: integer
+    post:
+      tags: ["projects"]
+      summary: "Create project"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["name"]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        "201":
+          description: "Project created"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
+  /projects/{id}:
+    get:
+      tags: ["projects"]
+      summary: "Get project by ID"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: "id"
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: "Project details"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          description: "Project not found"
+
+  /stairs:
+    get:
+      tags: ["stairs"]
+      summary: "List stairs"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Stairs list"
+    post:
+      tags: ["stairs"]
+      summary: "Create stair configuration"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StairConfig"
+      responses:
+        "201":
+          description: "Stair created"
+
+  /stairs/{id}/calculate:
+    post:
+      tags: ["stairs"]
+      summary: "Calculate stair pricing"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: "id"
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: "Calculation result"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PricingResult"
+
+  /health:
+    get:
+      tags: ["health"]
+      summary: "Health check"
+      responses:
+        "200":
+          description: "Health OK"
+
+  /ready:
+    get:
+      tags: ["health"]
+      summary: "Readiness check"
+      responses:
+        "200":
+          description: "Ready"
+        "503":
+          description: "Not ready"
+
+  /metrics:
+    get:
+      tags: ["metrics"]
+      summary: "Prometheus metrics"
+      responses:
+        "200":
+          description: "Metrics in Prometheus format"
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /orders:
+    post:
+      tags: ["orders"]
+      summary: "Create order"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderRequest"
+      responses:
+        "201":
+          description: "Order created"
+        "422":
+          description: "Validation error"
+    get:
+      tags: ["orders"]
+      summary: "List my orders"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Orders list"
+
+  /admin/orders:
+    get:
+      tags: ["orders"]
+      summary: "Admin list orders"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Orders list"
+
+  /public/testimonials:
+    get:
+      tags: ["testimonials"]
+      summary: "Public testimonials"
+      responses:
+        "200":
+          description: "Testimonials list"
+
+  /admin/analytics/usage:
+    get:
+      tags: ["analytics"]
+      summary: "Usage analytics"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Usage analytics"
+
+  /admin/analytics/projects:
+    get:
+      tags: ["analytics"]
+      summary: "Projects analytics"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: "Projects analytics"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: "http"
+      scheme: "bearer"
+      bearerFormat: "JWT"
+
+  schemas:
+    User:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          type: string
+          enum: ["user", "admin"]
+
+    Project:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    StairConfig:
+      type: "object"
+      properties:
+        project_id:
+          type: string
+          format: uuid
+        width:
+          type: number
+          format: double
+        height:
+          type: number
+          format: double
+        steps:
+          type: integer
+          minimum: 3
+          maximum: 30
+        material_id:
+          type: string
+          format: uuid
+
+    OrderRequest:
+      type: "object"
+      required: ["name", "phone"]
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        message:
+          type: string
+
+    PricingResult:
+      type: "object"
+      properties:
+        material_cost:
+          type: number
+          format: double
+        labor_cost:
+          type: number
+          format: double
+        total:
+          type: number
+          format: double
+        currency:
+          type: string
+          default: "RUB"
+
+    Error:
+      type: "object"
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+
+  headers:
+    X-RateLimit-Limit:
+      description: "Request limit"
+      schema:
+        type: integer
+    X-RateLimit-Remaining:
+      description: "Remaining requests"
+      schema:
+        type: integer
+    X-RateLimit-Reset:
+      description: "Reset timestamp"
+      schema:
+        type: integer
+    X-Request-ID:
+      description: "Request ID"
+      schema:
+        type: string
+    X-API-Version:
+      description: "API version"
+      schema:
+        type: string
+    X-Trace-Id:
+      description: "Trace ID"
+      schema:
+        type: string

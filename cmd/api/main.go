@@ -9,14 +9,17 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	domevents "stairplatform/internal/domain/events"
 	"stairplatform/internal/application/analytics"
 	appast "stairplatform/internal/application/assistant"
 	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/auth"
+	"stairplatform/internal/infrastructure/circuitbreaker"
 	"stairplatform/internal/application/integrations"
 	"stairplatform/internal/application/jobs"
 	orderapp "stairplatform/internal/application/order"
@@ -27,17 +30,34 @@ import (
 	"stairplatform/internal/application/stair"
 	appstorage "stairplatform/internal/application/storage"
 	"stairplatform/internal/infrastructure/database"
+	"stairplatform/internal/infrastructure/events"
 	"stairplatform/internal/infrastructure/health"
 	"stairplatform/internal/infrastructure/oidc"
 	paymentsinfra "stairplatform/internal/infrastructure/payments"
 	"stairplatform/internal/infrastructure/queue"
 	infstorage "stairplatform/internal/infrastructure/storage"
+	"stairplatform/internal/infrastructure/tracing"
 	transporthttp "stairplatform/internal/transport/http"
+	ws "stairplatform/internal/transport/websocket"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+
+	// Initialize tracing if enabled
+	tracingShutdown, err := tracing.InitTracer(context.Background(), tracing.Config{
+		Enabled:     os.Getenv("STAIR_TRACING_ENABLED") == "true",
+		ServiceName: "stair-platform",
+		Endpoint:    os.Getenv("STAIR_TRACING_ENDPOINT"),
+		SampleRate:  envFloat64("STAIR_TRACING_SAMPLE_RATE", 0.1),
+		Environment: envOr("STAIR_ENVIRONMENT", "development"),
+	})
+	if err != nil {
+		slog.Error("failed to init tracing", "error", err)
+		os.Exit(1)
+	}
+	defer tracingShutdown(context.Background())
 
 	instanceID := os.Getenv("STAIR_INSTANCE_ID")
 	shutdownTimeout := envDuration("STAIR_SHUTDOWN_TIMEOUT", 10*time.Second)
@@ -55,16 +75,38 @@ func main() {
 		os.Exit(1)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	pool, err := database.Connect(ctx, database.DefaultConfig(dbURL))
-	cancel()
+	defer cancel()
+	dbCfg := database.EnvConfig(dbURL,
+		envInt("STAIR_DB_MAX_CONNS", 10),
+		envInt("STAIR_DB_MIN_CONNS", 1),
+		envDuration("STAIR_DB_MAX_CONN_LIFETIME", time.Hour),
+		envDuration("STAIR_DB_MAX_CONN_IDLE_TIME", 30*time.Minute),
+	)
+	pool, err := database.Connect(ctx, dbCfg)
 	if err != nil {
 		slog.Error("database connect failed", "error", err)
 		os.Exit(1)
 	}
 	defer pool.Close()
 
+	// Периодический сбор метрик пула БД (каждые 30 секунд)
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				transporthttp.CollectDBPoolMetrics(pool)
+			}
+		}
+	}()
+
 	// Применяем миграции при старте (идемпотентно).
-	if err := database.Migrate(ctx, pool, "migrations", "up"); err != nil {
+	migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer migrateCancel()
+	if err := database.Migrate(migrateCtx, pool, "migrations", "up"); err != nil {
 		slog.Error("database migrate failed", "error", err)
 		os.Exit(1)
 	}
@@ -121,13 +163,45 @@ func main() {
 
 	// Payments (EDR-0027 §3.3): платёжные интенты + входящий webhook PSP.
 	// maxAge=0 → верификатор использует MaxTimestampAge (5 мин).
+	var paymentProvider payments.Provider
+	if stripeKey := os.Getenv("STAIR_STRIPE_SECRET_KEY"); stripeKey != "" {
+		sp := paymentsinfra.NewStripeProvider(stripeKey, os.Getenv("STAIR_STRIPE_WEBHOOK_SECRET"))
+		adapter := paymentsinfra.NewStripeAdapter(sp)
+		// Оборачиваем в CircuitBreaker для отказоустойчивости
+		cb := circuitbreaker.New("stripe", circuitbreaker.Settings{
+			FailureThreshold: envInt("STAIR_CB_FAILURE_THRESHOLD", 5),
+			SuccessThreshold: envInt("STAIR_CB_SUCCESS_THRESHOLD", 3),
+			Timeout:          envDuration("STAIR_CB_TIMEOUT", 30*time.Second),
+			MaxRequests:      envInt("STAIR_CB_MAX_REQUESTS", 3),
+		})
+		paymentProvider = paymentsinfra.NewCBStripeAdapter(adapter, cb)
+		slog.Info("payments: using Stripe provider with circuit breaker")
+	} else {
+		paymentProvider = paymentsinfra.NewMockProvider(envString("STAIR_PAYMENT_BASE_URL", "http://localhost:8080"))
+		slog.Info("payments: using mock provider")
+	}
 	paymentSvc := payments.NewService(
 		database.NewPaymentRepository(pool),
-		paymentsinfra.NewMockProvider(envString("STAIR_PAYMENT_BASE_URL", "http://localhost:8080")),
+		paymentProvider,
 		paymentsinfra.NewVerifier(),
 		0,
 	)
 	paymentWebhookSecret := os.Getenv("STAIR_PAYMENT_WEBHOOK_SECRET")
+
+	// Stripe webhook service (при наличии Stripe ключей)
+	var stripeWebhookService transporthttp.StripeWebhookService
+	if stripeKey := os.Getenv("STAIR_STRIPE_SECRET_KEY"); stripeKey != "" {
+		sp := paymentsinfra.NewStripeProvider(stripeKey, os.Getenv("STAIR_STRIPE_WEBHOOK_SECRET"))
+		adapter := paymentsinfra.NewStripeAdapter(sp)
+		stripeWebhookService = paymentsinfra.NewStripeWebhookService(adapter, logger)
+		slog.Info("stripe webhook service enabled")
+	}
+
+	// WebSocket + EventBridge для real-time updates
+	hub := ws.NewHub()
+	go hub.Run()
+	eb := ws.NewEventBridge(&eventBusAdapter{bus: events.NewBus()}, hub)
+	eb.Start()
 
 	// Retail orders (Store): розничные заказы-лиды клиентского сайта.
 	ordersSvc := orderapp.NewService(database.NewOrderRepository(pool))
@@ -169,6 +243,12 @@ func main() {
 		Assistant:             assistantSvc,
 		Orders:                ordersSvc,
 		Testimonials:          testimonialSvc,
+		WebSocketHandler:      transporthttp.NewWebSocketHandler(hub, logger, &authTokenValidator{authSvc}),
+		SecurityConfig: &transporthttp.SecurityConfig{
+			AllowedOrigins: envStringSlice("STAIR_CORS_ORIGINS", []string{"http://localhost:3000"}),
+			EnableHSTS:     envBool("STAIR_HSTS_ENABLED", false),
+		},
+		StripeWebhookService: stripeWebhookService,
 	}
 
 	// Readiness (EDR-0018 §3.2): SELECT 1 + Redis PING.
@@ -212,13 +292,35 @@ func main() {
 		slog.Info("shutdown signal received", "signal", sig.String())
 	}
 
+	// Graceful shutdown — порядок важен: WebSocket → HTTP → Queue → DB
+	shutdownStart := time.Now()
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancelShutdown()
+
+	// 1. Останавливаем WebSocket hub (прекращаем обработку WS)
+	hub.StopGracefully()
+	slog.Info("shutdown: websocket hub stopped")
+
+	// 2. Останавливаем HTTP server (прекращаем принимать новые запросы)
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		slog.Error("graceful shutdown failed", "error", err)
-		os.Exit(1)
+		slog.Error("shutdown: http server failed", "error", err)
+	} else {
+		slog.Info("shutdown: http server stopped")
 	}
-	slog.Info("api server stopped")
+
+	// 3. Закрываем Redis connection
+	if queueBackend != nil {
+		queueBackend.Close()
+		slog.Info("shutdown: queue backend closed")
+	}
+
+	// 4. Закрываем пул БД
+	if pool != nil {
+		pool.Close()
+		slog.Info("shutdown: database pool closed")
+	}
+
+	slog.Info("shutdown complete", "duration", time.Since(shutdownStart).String())
 }
 
 // newRootHandler собирает корневой mux: API-роутер и, при
@@ -229,17 +331,19 @@ func newRootHandler(api http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/", api)
 	if envBool("STAIR_PPROF_ENABLED", false) {
-		mux.HandleFunc("/debug/pprof/", pprof.Index)
-		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
-		mux.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
-		mux.Handle("/debug/pprof/heap", pprof.Handler("heap"))
-		mux.Handle("/debug/pprof/allocs", pprof.Handler("allocs"))
-		mux.Handle("/debug/pprof/threadcreate", pprof.Handler("threadcreate"))
-		mux.Handle("/debug/pprof/block", pprof.Handler("block"))
-		mux.Handle("/debug/pprof/mutex", pprof.Handler("mutex"))
+		// pprof защищен InternalOnlyMiddleware — доступ только из внутренней сети
+		internalOnly := transporthttp.InternalOnlyMiddleware
+		mux.Handle("/debug/pprof/", internalOnly(http.HandlerFunc(pprof.Index)))
+		mux.Handle("/debug/pprof/cmdline", internalOnly(http.HandlerFunc(pprof.Cmdline)))
+		mux.Handle("/debug/pprof/profile", internalOnly(http.HandlerFunc(pprof.Profile)))
+		mux.Handle("/debug/pprof/symbol", internalOnly(http.HandlerFunc(pprof.Symbol)))
+		mux.Handle("/debug/pprof/trace", internalOnly(http.HandlerFunc(pprof.Trace)))
+		mux.Handle("/debug/pprof/goroutine", internalOnly(pprof.Handler("goroutine")))
+		mux.Handle("/debug/pprof/heap", internalOnly(pprof.Handler("heap")))
+		mux.Handle("/debug/pprof/allocs", internalOnly(pprof.Handler("allocs")))
+		mux.Handle("/debug/pprof/threadcreate", internalOnly(pprof.Handler("threadcreate")))
+		mux.Handle("/debug/pprof/block", internalOnly(pprof.Handler("block")))
+		mux.Handle("/debug/pprof/mutex", internalOnly(pprof.Handler("mutex")))
 		slog.Info("pprof profiling enabled", "path", "/debug/pprof/")
 	}
 	return mux
@@ -262,6 +366,26 @@ func envBool(key string, def bool) bool {
 		return def
 	}
 	return b
+}
+
+func envFloat64(key string, def float64) float64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return def
+	}
+	return f
+}
+
+func envOr(key, def string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	return v
 }
 
 func envInt(key string, def int) int {
@@ -347,4 +471,42 @@ func (b *apiQueueBackend) Close() {
 	if b.rl != nil {
 		_ = b.rl.Close()
 	}
+}
+
+// eventBusAdapter адаптирует events.Bus к интерфейсу EventBridge
+// (метод Subscribe с func(ctx, event) error вместо events.Handler).
+type eventBusAdapter struct {
+	bus *events.Bus
+}
+
+func (a *eventBusAdapter) Subscribe(typ domevents.EventType, handler func(ctx context.Context, event domevents.Event) error) string {
+	return a.bus.Subscribe(typ, handler)
+}
+
+func envStringSlice(key string, def []string) []string {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	parts := []string{}
+	for _, s := range strings.Split(v, ",") {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			parts = append(parts, s)
+		}
+	}
+	return parts
+}
+
+// authTokenValidator adapts auth.Service to TokenValidator interface.
+type authTokenValidator struct {
+	svc *auth.Service
+}
+
+func (v *authTokenValidator) Authenticate(ctx context.Context, token string) (string, error) {
+	user, _, err := v.svc.Authenticate(ctx, token)
+	if err != nil {
+		return "", err
+	}
+	return user.ID, nil
 }

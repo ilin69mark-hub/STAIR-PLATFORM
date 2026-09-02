@@ -16,17 +16,14 @@ export interface SolverSchematic {
   railing?: string
 }
 
-// segmentsRailing — эффективная сторона перил маршей с площадкой (L/U):
-// «без перил» только когда все сегменты без перил; смешанный выбор профиль
-// показывает как обычно.
-function segmentsRailing(
-  s: Snapshot,
-): string | undefined {
-  const all = [s.railing_lower, s.railing_landing, s.railing_upper]
-  return all.every((v) => v !== undefined) && all.every((v) => v === 'none') ? 'none' : undefined
-}
-
-export function schematicOf(s: Snapshot): SolverSchematic | null {
+export function schematicOf(s: Snapshot, approachMM?: number): SolverSchematic | null {
+  // Свободное пространство перед первой ступенью (EDR-0023): предпочитаем
+  // явный ввод калькулятора (approachMM), иначе — сдвиг модели (bbox.min.x).
+  const approachOf = (): number | undefined => {
+    if (approachMM != null && approachMM > 0) return approachMM
+    const b = s.measurement?.BoundingBox?.Min.X
+    return b != null && b > 1 ? b : undefined
+  }
   const extras = {
     StepThickness: s.step_thickness,
     RailingHeight: s.railing_height,
@@ -59,6 +56,9 @@ export function schematicOf(s: Snapshot): SolverSchematic | null {
         angularStep: (sp.AngularStep * 180) / Math.PI,
         angularTotal: (sp.AngularTotal * 180) / Math.PI,
         arcLength: sp.ArcLength,
+        // Свободное пространство перед первой ступенью равно сдвигу модели
+        // от стены (BoundingBox.Min.X), задаваемому approachSpace (EDR-0023).
+        approachSpace: approachOf(),
       },
       railing: s.railing,
     }
@@ -83,9 +83,15 @@ export function schematicOf(s: Snapshot): SolverSchematic | null {
         landingWidth: u.LandingWidth,
         lowerRun: u.LowerRun,
         upperRun: u.UpperRun,
+        railingLower: s.railing_lower,
+        railingLanding: s.railing_landing,
+        railingUpper: s.railing_upper,
         direction: u.direction as 'left' | 'right' | undefined,
+        // Свободное пространство перед первой ступенью равно сдвигу модели
+        // от стены (BoundingBox.Min.X), задаваемому approachSpace (EDR-0023).
+        approachSpace: approachOf(),
       },
-      railing: segmentsRailing(s),
+      railing: undefined,
     }
   }
   if (s.lshape) {
@@ -106,11 +112,28 @@ export function schematicOf(s: Snapshot): SolverSchematic | null {
         lowerStepCount: l.LowerStepCount,
         upperStepCount: l.UpperStepCount,
         landingWidth: l.LandingWidth,
+        landingDepth: l.LandingDepth,
+        roomWidth: l.RoomWidth,
+        roomLength: l.RoomLength,
+        // Вписываемость лестницы в помещение: габаритный бокс (мир, X — горизонталь,
+        // Y — высота) сравнивается с заданным периметром (комната от начала координат).
+        roomFits:
+          (l.RoomWidth ?? 0) > 0 &&
+          (l.RoomLength ?? 0) > 0 &&
+          s.measurement?.BoundingBox != null &&
+          s.measurement.BoundingBox.Max.X <= (l.RoomWidth ?? 0) + 1e-6 &&
+          s.measurement.BoundingBox.Max.Y <= (l.RoomLength ?? 0) + 1e-6,
         lowerRun: l.LowerRun,
         upperRun: l.UpperRun,
+        railingLower: s.railing_lower,
+        railingLanding: s.railing_landing,
+        railingUpper: s.railing_upper,
         direction: l.direction as 'left' | 'right' | undefined,
+        // Свободное пространство перед первой ступенью равно сдвигу модели
+        // от стены (BoundingBox.Min.X), задаваемому approachSpace (EDR-0023).
+        approachSpace: approachOf(),
       },
-      railing: segmentsRailing(s),
+      railing: undefined,
     }
   }
   if (s.flight) {
@@ -127,7 +150,15 @@ export function schematicOf(s: Snapshot): SolverSchematic | null {
         Width: DEFAULT_WIDTH,
         ...extras,
       },
-      solver: {},
+      solver: {
+        // Свободное пространство перед первой ступенью равно сдвигу модели
+        // от стены (BoundingBox.Min.X), который задаётся параметром approachSpace.
+        approachSpace: approachOf(),
+        // Габариты помещения для прямого марша (EDR-0023): чтобы прижать
+        // ребро 1В к стене В, нужны размеры комнаты.
+        roomWidth: f.RoomWidth,
+        roomLength: f.RoomLength,
+      },
       railing: s.railing,
     }
   }

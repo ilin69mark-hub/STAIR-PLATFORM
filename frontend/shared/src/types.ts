@@ -322,6 +322,19 @@ export interface SnapshotSuggestion {
   AngleDeg: number
 }
 
+// Variation — альтернативная конфигурация (вариант A/B/C), устраняющая
+// неблокирующее нарушение (напр. невписываемость в помещение). Config —
+// переопределение полей формы (ключи как в ConfigForm, значения — строки);
+// фронтенд сливает их в текущий конфиг и пересчитывает (превью).
+export interface Variation {
+  id: string
+  title: string
+  description: string
+  config: Record<string, string>
+  fits: boolean
+  summary: string
+}
+
 export interface ValidationIssue {
   ID?: string
   Code: string
@@ -335,6 +348,7 @@ export interface ValidationIssue {
   Param?: string
   Guide?: string
   Suggestions?: SnapshotSuggestion[]
+  Variations?: Variation[]
 }
 
 export interface ValidationResult {
@@ -354,6 +368,11 @@ export interface FlightResult {
   RailingHeight?: number
   Riser?: boolean
   StringerThickness?: number
+  // Габариты помещения для прижима лестницы к стене (EDR-0023, room_fit).
+  // Для прямого марша задаются явно (как у L-образной), чтобы при визуализации
+  // ребро 1В можно было прижать к дальней стене В.
+  RoomWidth?: number
+  RoomLength?: number
 }
 
 export interface LShapeResult {
@@ -370,6 +389,9 @@ export interface LShapeResult {
   LowerStringer: number
   UpperStringer: number
   LandingWidth: number
+  LandingDepth?: number
+  RoomWidth?: number
+  RoomLength?: number
   // Направление поворота (CONF-DIRECTION): 'left' | 'right' (план зеркалится).
   direction?: 'left' | 'right'
 }
@@ -542,6 +564,8 @@ export interface Snapshot {
   railing_upper?: string
   measurement?: Measurement
   mesh?: Mesh
+  railing_mesh?: Mesh
+  room_mesh?: Mesh
   issue_count: number
   manufacturing?: Manufacturing
   pricing?: Pricing
@@ -664,6 +688,7 @@ export interface QuoteIssue {
   param?: string
   guide?: string
   suggestions?: QuoteSuggestion[]
+  variations?: Variation[]
 }
 
 export interface QuoteValidation {
@@ -686,6 +711,10 @@ export interface QuoteFlight {
   stringer_thickness_mm: number
   // Сторона перил (CONF-RAILING): none|left|right|both.
   railing?: string
+  // Габариты помещения для прижима лестницы к стене (EDR-0023).
+  // Для прямого марша задаются явно, чтобы визуализировать прижатие 1В→В.
+  room_width_mm?: number
+  room_length_mm?: number
 }
 
 export interface QuoteLShape {
@@ -702,6 +731,9 @@ export interface QuoteLShape {
   lower_stringer_mm: number
   upper_stringer_mm: number
   landing_width_mm: number
+  landing_depth_mm?: number
+  room_width_mm?: number
+  room_length_mm?: number
   width_mm: number
   step_thickness_mm: number
   railing_height_mm: number
@@ -813,6 +845,8 @@ export interface QuoteResult {
   geometry?: QuoteGeometry
   pricing?: QuotePricing
   mesh?: Mesh
+  railing_mesh?: Mesh
+  room_mesh?: Mesh
 }
 
 // ---- Order (store/админка): /api/v1/orders ----

@@ -175,6 +175,12 @@ func BuildLShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, 
 	n1 := cfg.LowerStepCount
 	n2 := cfg.StepCount - n1
 	wp := cfg.LandingWidth.Millimeters()
+	// Глубина площадки (вдоль нижнего марша, X в плане). При 0 — квадратная
+	// (равна ширине марша W).
+	ld := cfg.LandingDepth.Millimeters()
+	if ld <= 0 {
+		ld = w
+	}
 	// EDR-0005 §4.5: H1 = n1·h — уровень площадки.
 	h1 := float64(n1) * h
 
@@ -205,14 +211,14 @@ func BuildLShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, 
 	lowerTransform := kerngeo.Identity()
 	upperTransform := kerngeo.Translate(l1+w, wp, h1).Mul(kerngeo.RotateZ(math.Pi / 2))
 	if left {
-		landingX0 = 0
+		landingX0 = w - ld
 		lowerTransform = kerngeo.Translate(w+l1, w, 0).Mul(kerngeo.RotateZ(math.Pi))
 		upperTransform = kerngeo.Translate(w, wp, h1).Mul(kerngeo.RotateZ(math.Pi / 2))
 	}
 
 	// площадка: горизонтальная плита толщиной st на высоте H1, план
-	// [landingX0, landingX0+W]×[0, Wp] (EDR-0005 §4.8), роль "landing".
-	landing, err := buildLanding(w, wp, landingX0, h1, st)
+	// [landingX0, landingX0+Ld]×[0, Wp] (EDR-0005 §4.8), роль "landing".
+	landing, err := buildLanding(ld, wp, landingX0, h1, st)
 	if err != nil {
 		return nil, err
 	}
@@ -539,13 +545,13 @@ func stringerProfile(n int, b, h, st, yOff, t float64) []kerngeo.Point3 {
 	pts = append(pts, kerngeo.NewPoint3(float64(n)*b, yOff, float64(n)*h-st))
 
 	// Спинка: линия посадочных мест, сдвинутая на толщину t по нормали
-	// вниз (поперёк марша в плоскости XZ). Сзади срез перпендикулярен
-	// маршу из головы пилы, спереди спинка упирается в пол (z = 0).
+	// вниз (поперёк марша в плоскости XZ). Верхний срез вертикален
+	// (перпендикулярен полу, как нижний), спинка упирается в пол (z = 0).
 	L := math.Hypot(b, h)
 	pTop := kerngeo.NewPoint3(
-		float64(n)*b+t*h/L, // (n·b, n·h−st) + t·(h, −b)/L
+		float64(n)*b,                // верхний срез вертикален (x = n·b)
 		yOff,
-		float64(n)*h-st-t*b/L,
+		float64(n)*h-st-t*b/L,       // z = n·h − st − t·b/L
 	)
 	fx := pTop.X - pTop.Z/h*b
 	if fx < 0 {

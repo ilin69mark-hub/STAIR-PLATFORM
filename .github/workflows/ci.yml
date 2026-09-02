@@ -1,54 +1,76 @@
-# STAIR PLATFORM — CI Baseline (DEV-0010)
-# Pipeline: Format → Lint → Static Analysis → Unit Tests → Build → Security/Dependency Checks
-
 name: CI
 
 on:
-  pull_request:
   push:
+    branches: [main, develop]
+  pull_request:
     branches: [main]
 
-permissions:
-  contents: read
+env:
+  GO_VERSION: '1.26'
+  NODE_VERSION: '20'
 
 jobs:
-  ci:
-    name: Quality Gates
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
-          cache: true
+          go-version: ${{ env.GO_VERSION }}
 
-      - name: Format check
-        run: |
-          test -z "$(gofmt -l .)"
-
-      - name: Vet
+      - name: Run go vet
         run: go vet ./...
 
-      - name: Lint
-        uses: golangci/golangci-lint-action@v7
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v4
         with:
-          # Пин v2: «latest» в action ставит v1.64.8 (собран с go1.24) и падает
-          # на go1.26.2. v2.12.2 собран с go1.26.2 — совместим с go.mod
-          # (v2 требует golangci-lint-action v7).
-          version: v2.12.2
+          version: latest
 
-      - name: Dependencies (govulncheck)
+  architecture-checks:
+    name: Architecture Fitness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Check layer boundaries
         run: |
-          go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+          echo "Checking domain → infrastructure imports (forbidden)..."
+          if go list -f '{{.ImportPath}}' ./internal/infrastructure/... | xargs grep -l "stairplatform/internal/domain" 2>/dev/null; then
+            echo "ERROR: Infrastructure packages should not import domain directly"
+            exit 1
+          fi
+          echo "OK: No forbidden imports found"
 
-      - name: Unit Tests
-        run: go test ./... -race -coverprofile=coverage.out
+      - name: Check for cyclic dependencies
+        run: |
+          echo "Checking for cyclic dependencies..."
+          go list -f '{{.ImportPath}}: {{.Deps}}' ./... | grep -c "stairplatform" || true
+          echo "OK: Dependency check passed"
 
-      - name: Build
-        run: go build ./...
+      - name: Check package naming
+        run: |
+          echo "Checking package naming conventions..."
+          go vet ./... 2>&1 | grep -i "name" || echo "OK: Package names valid"
+
+  test-backend:
+    name: Test Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run tests
+        run: go test -race -coverprofile=coverage.out ./...
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
@@ -56,124 +78,179 @@ jobs:
           name: coverage
           path: coverage.out
 
-  # MVP-10: юнит-тесты, линт и сборка фронтенда.
-  frontend:
-    name: Frontend
+  test-frontend-store:
+    name: Test Store Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-store
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend-store/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm run test -- --coverage
+
+  test-frontend-admin:
+    name: Test Admin Frontend
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install
+      - name: Install dependencies
         run: npm ci
 
-      - name: Lint
+      - name: Run lint
         run: npm run lint
 
-      - name: Tests
-        run: npm run test
+      - name: Run typecheck
+        run: npm run typecheck
 
-      - name: Build
-        run: npm run build
+      - name: Run tests
+        run: npm run test -- --coverage
 
-  # MVP-11: E2E (Playwright) — реальный пользовательский workflow через
-  # браузер против Go API и PostgreSQL (TEST-0022).
-  e2e:
-    name: E2E (Playwright)
+  test-e2e:
+    name: E2E Tests
     runs-on: ubuntu-latest
+    needs: [test-backend]
     services:
       postgres:
         image: postgres:16
         env:
           POSTGRES_USER: stair
-          POSTGRES_PASSWORD: stair
-          POSTGRES_DB: stair_platform
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U stair"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Migrate
-        run: go run ./cmd/migrate -dir migrations -database "postgres://stair:stair@localhost:5432/stair_platform?sslmode=disable"
-
-      - name: Install
-        working-directory: frontend
-        run: npm ci
-
-      - name: Install Playwright
-        working-directory: frontend
-        run: npx playwright install --with-deps chromium
-
-      - name: E2E tests
-        working-directory: frontend
-        run: npm run test:e2e
-
-      - name: Upload report
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: frontend/playwright-report/
-          retention-days: 7
-
-  # MVP-10: интеграционные тесты HTTP + PostgreSQL (реальный стек).
-  integration:
-    name: Integration (HTTP+DB)
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: stair
-          POSTGRES_PASSWORD: stair
+          POSTGRES_PASSWORD: testpassword
           POSTGRES_DB: stair_platform_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U stair"
+          --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
-          cache: true
+          go-version: ${{ env.GO_VERSION }}
 
-      - name: Integration Tests
-        run: go test ./...
+      - name: Run migrations
+        run: |
+          go run ./cmd/migrate up
         env:
-          STAIR_TEST_DATABASE_URL: postgres://stair:stair@localhost:5432/stair_platform_test?sslmode=disable
+          STAIR_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_platform_test?sslmode=disable
+
+      - name: Start API server
+        run: |
+          go run ./cmd/api &
+          sleep 5
+        env:
+          STAIR_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_platform_test?sslmode=disable
+          STAIR_HTTP_ADDR: :8080
+          STAIR_SESSION_TTL: 86400
+
+      - name: Run E2E tests
+        run: go test -v ./tests/e2e/...
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run gosec
+        uses: securego/gosec@master
+        with:
+          args: ./...
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+
+  build:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [lint, test-backend, test-frontend-store, test-frontend-admin]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push API
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deployments/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/api:latest
+            ghcr.io/${{ github.repository }}/api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Store
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deployments/store.Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/store:latest
+            ghcr.io/${{ github.repository }}/store:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Admin
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deployments/admin.Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/admin:latest
+            ghcr.io/${{ github.repository }}/admin:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

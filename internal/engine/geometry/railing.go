@@ -51,9 +51,35 @@ func railingEnabled(rh float64, side engineering.RailingSide) bool {
 	return rh > 0 && side.Valid() && side != engineering.RailingNone
 }
 
+// edgeInset сдвигает координату кромки внутрь ступени на halfSize, чтобы
+// наружная грань детали (поручня или стойки) совпала с кромкой ступени.
+// edge=0 (лево) → halfSize; edge=W (право) → W−halfSize.
+func edgeInset(edge, w, halfSize float64) float64 {
+	if edge < w/2 {
+		return halfSize
+	}
+	return w - halfSize
+}
+
+// landingInset сдвигает точку периметра площадки внутрь на halfSize
+// perpendicular кромке, на которой находится точка.
+func landingInset(p kerngeo.Point3, leftEdgeX, rightEdgeX, wp, halfSize float64) kerngeo.Point3 {
+	switch {
+	case math.Abs(p.Y) < kerngeo.Precision:
+		return kerngeo.NewPoint3(p.X, halfSize, p.Z)
+	case math.Abs(p.Y-wp) < kerngeo.Precision:
+		return kerngeo.NewPoint3(p.X, wp-halfSize, p.Z)
+	case math.Abs(p.X-leftEdgeX) < kerngeo.Precision:
+		return kerngeo.NewPoint3(leftEdgeX+halfSize, p.Y, p.Z)
+	case math.Abs(p.X-rightEdgeX) < kerngeo.Precision:
+		return kerngeo.NewPoint3(rightEdgeX-halfSize, p.Y, p.Z)
+	}
+	return p
+}
+
 // flipSide меняет левую/правую сторону местами: применяется, когда сегмент
 // повёрнут на нечётное число четверть-оборотов (90°/180°/270°) и локальная
-// сторона, видимая пользователю по ходу подъёма, обратна кромке в локальных
+// сторона, видимая пользователем по ходу подъёма, обратна кромке в локальных
 // координатах (CONF-DIRECTION).
 func flipSide(s engineering.RailingSide) engineering.RailingSide {
 	switch s {
@@ -129,7 +155,8 @@ func railAlong(a, b kerngeo.Point3) *kerngeo.Solid {
 }
 
 // balusterAt строит вертикальную стойку в точке (x, y) от высоты z0 на
-// height вверх. Возвращает nil при вырожденной высоте или ошибке экструзии.
+// height вверх. Верхняя грань горизонтальна (для площадок и спиралей).
+// Возвращает nil при вырожденной высоте или ошибке экструзии.
 func balusterAt(x, y, z0, height float64) *kerngeo.Solid {
 	if height <= kerngeo.Precision {
 		return nil
@@ -148,28 +175,79 @@ func balusterAt(x, y, z0, height float64) *kerngeo.Solid {
 	return s.WithRole(roleBaluster)
 }
 
+// hexFace создаёт грань-четырёхугольник из 4 точек.
+func hexFace(a, b, c, d kerngeo.Point3) *kerngeo.Face {
+	v0 := kerngeo.NewVertex(a)
+	v1 := kerngeo.NewVertex(b)
+	v2 := kerngeo.NewVertex(c)
+	v3 := kerngeo.NewVertex(d)
+	e0 := kerngeo.NewEdge(v0, v1)
+	e1 := kerngeo.NewEdge(v1, v2)
+	e2 := kerngeo.NewEdge(v2, v3)
+	e3 := kerngeo.NewEdge(v3, v0)
+	return kerngeo.NewFace(kerngeo.NewWire(e0, e1, e2, e3))
+}
+
+// balusterAtSloped строит стойку с наклонной верхней гранью под углом
+// slope = rise/run (тангенс угла поручня). Нижняя грань горизонтальна
+// на z0; верхняя наклонена: z = z0 + height + slope*(x_local − x).
+// Используется для прямых маршей, где поручень идёт под углом h/b.
+func balusterAtSloped(x, y, z0, height, slope float64) *kerngeo.Solid {
+	if height <= kerngeo.Precision {
+		return nil
+	}
+	hw := balusterSize / 2
+	zBase := z0
+	zTopLow := z0 + height + slope*(-hw)
+	zTopHigh := z0 + height + slope*(+hw)
+	b := [4]kerngeo.Point3{
+		kerngeo.NewPoint3(x-hw, y-hw, zBase),
+		kerngeo.NewPoint3(x+hw, y-hw, zBase),
+		kerngeo.NewPoint3(x+hw, y+hw, zBase),
+		kerngeo.NewPoint3(x-hw, y+hw, zBase),
+	}
+	t := [4]kerngeo.Point3{
+		kerngeo.NewPoint3(x-hw, y-hw, zTopLow),
+		kerngeo.NewPoint3(x+hw, y-hw, zTopHigh),
+		kerngeo.NewPoint3(x+hw, y+hw, zTopHigh),
+		kerngeo.NewPoint3(x-hw, y+hw, zTopLow),
+	}
+	faces := []*kerngeo.Face{
+		hexFace(b[0], b[3], b[2], b[1]),
+		hexFace(t[0], t[1], t[2], t[3]),
+		hexFace(b[0], b[1], t[1], t[0]),
+		hexFace(b[1], b[2], t[2], t[1]),
+		hexFace(b[2], b[3], t[3], t[2]),
+		hexFace(b[3], b[0], t[0], t[3]),
+	}
+	return kerngeo.NewSolidRole(roleBaluster, kerngeo.NewShell(faces...))
+}
+
 // straightRailingSolids строит декоративные перила прямого сегмента в
 // локальных координатах (x — подъём от 0 до n·b, y — ширина [0, w], z —
-// высота до n·h). Поручень — наклонный брус по линии носиков: от
-// (0, edge, rh) до (n·b, edge, n·h+rh); стойки — вертикальные бруски в
-// каждом носике (x = k·b, z ∈ [k·h, k·h+rh]).
+// высота до n·h). Поручень и стойки сдвинуты на центры ступеней ((k−0.5)·b)
+// по X и внутрь по Y (edgeInset), чтобы балясины не выступали за кромки и
+// не утопали в следующую ступень.
 func straightRailingSolids(n int, b, h, rh, w float64, side engineering.RailingSide) []*kerngeo.Solid {
 	sides := railingSides(side, w)
 	if len(sides) == 0 || rh <= 0 || n <= 0 {
 		return nil
 	}
-	run := float64(n) * b
 	H := float64(n) * h
 	var sols []*kerngeo.Solid
+	slope := h / b
+		railOverhang := b / 2
 	for _, edge := range sides {
-		A := kerngeo.NewPoint3(0, edge, rh)
-		B := kerngeo.NewPoint3(run, edge, H+rh)
+		railY := edgeInset(edge, w, railWidth/2)
+		balY := edgeInset(edge, w, balusterSize/2)
+		A := kerngeo.NewPoint3(b/2-railOverhang, railY, h+rh-slope*railOverhang)
+		B := kerngeo.NewPoint3((float64(n)-0.5)*b+railOverhang, railY, H+rh+slope*railOverhang)
 		if s := railAlong(A, B); s != nil {
 			sols = append(sols, s)
 		}
 		for k := 1; k <= n; k++ {
-			x := float64(k) * b
-			if s := balusterAt(x, edge, float64(k)*h, rh); s != nil {
+			x := (float64(k) - 0.5) * b
+			if s := balusterAtSloped(x, balY, float64(k)*h, rh, slope); s != nil {
 				sols = append(sols, s)
 			}
 		}
@@ -229,11 +307,10 @@ func landingRailingSolids(w, wp, rh, h1, b float64, x0 float64, left, closeFar b
 			kerngeo.NewPoint3(bx, by, zBase),
 		})
 	}
-	// Края площадки в плане (rightEdgeX-leftEdgeX = w).
-	leftEdgeX, rightEdgeX := 0.0, w
-	if !left {
-		leftEdgeX, rightEdgeX = x0, x0+w
-	}
+	// Края площадки в плане (rightEdgeX-leftEdgeX = w — X-пролёт площадки).
+	// Левый/правый края определяются переданным x0 (для левого поворота L-марша
+	// это w−ld, чтобы площадка совпадала с геометрией buildLanding).
+	leftEdgeX, rightEdgeX := x0, x0+w
 	// flightSideX — вертикаль, к которой примыкает нижний марш; на ней
 	// Y∈[0,w] — проход, остальное (Y∈[w,wp]) при wp>w — внешний участок,
 	// который при выборе этой стороны тоже огораживается.
@@ -277,7 +354,9 @@ func landingRailingSolids(w, wp, rh, h1, b float64, x0 float64, left, closeFar b
 
 	var sols []*kerngeo.Solid
 	for i := range top {
-		if s := railAlong(top[i][0], top[i][1]); s != nil {
+		p0 := landingInset(top[i][0], leftEdgeX, rightEdgeX, wp, railWidth/2)
+		p1 := landingInset(top[i][1], leftEdgeX, rightEdgeX, wp, railWidth/2)
+		if s := railAlong(p0, p1); s != nil {
 			sols = append(sols, s)
 		}
 	}
@@ -303,6 +382,7 @@ func landingRailingSolids(w, wp, rh, h1, b float64, x0 float64, left, closeFar b
 					dd = L
 				}
 				p := p0.Add(dir.Scale(dd))
+				p = landingInset(p, leftEdgeX, rightEdgeX, wp, balusterSize/2)
 				if s := balusterAt(p.X, p.Y, h1, rh); s != nil {
 					sols = append(sols, s)
 				}
@@ -346,10 +426,11 @@ func winderRailingSolids(w, h, rh float64, n1, nw int, l1, wp float64, left bool
 
 	zRail := h1 + float64(nw)*h + rh
 	segs := nw + 1
+	rRail := ro - railWidth/2
 	var pts []kerngeo.Point3
 	for i := 0; i <= segs; i++ {
 		a := a0 + math.Pi*float64(i)/float64(segs)
-		pts = append(pts, kerngeo.NewPoint3(ox+ro*math.Cos(a), oy+ro*math.Sin(a), zRail))
+		pts = append(pts, kerngeo.NewPoint3(ox+rRail*math.Cos(a), oy+rRail*math.Sin(a), zRail))
 	}
 	var sols []*kerngeo.Solid
 	for i := 0; i+1 < len(pts); i++ {
@@ -370,6 +451,8 @@ func buildSpiralRailing(cfg *engineering.StairConfiguration, rh float64) []*kern
 		return nil
 	}
 	R := cfg.OuterRadius.Millimeters()
+	rRail := R - railWidth/2
+	rBal := R - balusterSize/2
 	h := cfg.StepHeight.Millimeters()
 	n := cfg.StepCount
 	delta := FullTurnSpiral / float64(n)
@@ -380,7 +463,7 @@ func buildSpiralRailing(cfg *engineering.StairConfiguration, rh float64) []*kern
 	pts := make([]kerngeo.Point3, 0, n+1)
 	for k := 0; k <= n; k++ {
 		a := sign * float64(k) * delta
-		pts = append(pts, kerngeo.NewPoint3(R*math.Cos(a), R*math.Sin(a), float64(k)*h+rh))
+		pts = append(pts, kerngeo.NewPoint3(rRail*math.Cos(a), rRail*math.Sin(a), float64(k)*h+rh))
 	}
 	var sols []*kerngeo.Solid
 	for i := 0; i < n; i++ {
@@ -388,7 +471,7 @@ func buildSpiralRailing(cfg *engineering.StairConfiguration, rh float64) []*kern
 			sols = append(sols, s)
 		}
 		a := sign * (float64(i) + 0.5) * delta
-		if s := balusterAt(R*math.Cos(a), R*math.Sin(a), float64(i+1)*h, rh); s != nil {
+		if s := balusterAt(rBal*math.Cos(a), rBal*math.Sin(a), float64(i+1)*h, rh); s != nil {
 			sols = append(sols, s)
 		}
 	}
@@ -427,6 +510,10 @@ func buildLURNailing(cfg *engineering.StairConfiguration, rh float64) ([]*kernge
 	b := cfg.TreadDepth.Millimeters()
 	h := cfg.StepHeight.Millimeters()
 	wp := cfg.LandingWidth.Millimeters()
+	ld := cfg.LandingDepth.Millimeters()
+	if ld <= 0 {
+		ld = w
+	}
 	n1 := cfg.LowerStepCount
 	n2 := cfg.StepCount - n1
 	h1 := float64(n1) * h
@@ -472,16 +559,19 @@ func buildLURNailing(cfg *engineering.StairConfiguration, rh float64) ([]*kernge
 		}
 	} else if railingEnabled(rh, cfg.RailingLanding) {
 		x0 := l1
+		landingXExt := ld
 		if left {
-			x0 = 0
+			if cfg.Flight == engineering.FlightLShape {
+				x0 = w - ld
+			}
+			// для U-образного x0 остаётся 0 (площадка [0, W]×[0, 2W])
 		}
 		// Платформенная площадка L-марша: дальняя кромка Y=wp открыта
 		// (верхний марш отходит от неё), поэтому контур «Г», а не «П»,
-		// чтобы перила не перекрывали проход ко второму маршу. Для
-		// U-марша площадка охватывает 2·W и оба марша примыкают к одной
-		// боковой кромке, дальнюю кромку оставляем (closeFar=true).
+		// чтобы перила не перекрывали проход ко второму маршу. X-пролёт
+		// площадки = ld (глубина), Y-размер = landingY (ширина Wp / 2W).
 		closeFar := cfg.Flight == engineering.FlightUShape
-		sols = append(sols, landingRailingSolids(w, landingY, rh, h1, b, x0, left, closeFar, cfg.RailingLanding)...)
+		sols = append(sols, landingRailingSolids(landingXExt, landingY, rh, h1, b, x0, left, closeFar, cfg.RailingLanding)...)
 	}
 
 	// Верхний марш.

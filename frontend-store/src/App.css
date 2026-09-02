@@ -595,6 +595,16 @@ body {
   stroke-linejoin: round;
 }
 
+/* Свободное пространство перед первой ступенью (EDR-0023): штриховая
+   зона-«зазор» справа от марша на плане. */
+.scheme__approach {
+  fill: #fff3bf;
+  fill-opacity: 0.6;
+  stroke: #f08c00;
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+}
+
 .scheme__stringer {
   fill: #ff6b6b;
   stroke: #c92a2a;
@@ -654,6 +664,57 @@ body {
   fill: #ced4da;
   stroke: #868e96;
   stroke-width: 2;
+}
+
+.scheme__room {
+  fill: rgba(77, 171, 247, 0.08);
+  stroke: #4dabf7;
+  stroke-width: 1.5;
+  stroke-dasharray: 7 5;
+}
+
+.scheme__room--overflow {
+  fill: rgba(255, 107, 107, 0.10);
+  stroke: #fa5252;
+  stroke-width: 2;
+  stroke-dasharray: 7 5;
+}
+
+/* Временная цвето-буквенная разметка периметра и рёбер (debug, см. scheme-annot.ts).
+   Цвета задаются inline; здесь только толщины/шрифты. */
+.scheme__wall {
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.scheme__wlabel {
+  font-size: 16px;
+  font-weight: 800;
+  font-family: inherit;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 3px;
+}
+
+.scheme__edge {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.scheme__elabel {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: inherit;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 2.5px;
+}
+
+.scheme__warntext {
+  fill: #fa5252;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .scheme__dir {

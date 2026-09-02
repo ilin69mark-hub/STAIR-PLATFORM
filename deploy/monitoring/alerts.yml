@@ -1,0 +1,83 @@
+groups:
+  - name: stair-platform
+    rules:
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High latency detected"
+          description: "95th percentile latency is {{ $value }}s (threshold: 2s)"
+
+      - alert: CircuitBreakerOpen
+        expr: circuit_breaker_state > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Circuit breaker is open"
+          description: "Circuit breaker {{ $labels.name }} is in open state"
+
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes / 1024 / 1024 > 512
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value }}MB (threshold: 512MB)"
+
+      - alert: HighCPUUsage
+        expr: rate(process_cpu_seconds_total[5m]) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value | humanizePercentage }} (threshold: 80%)"
+
+      - alert: DatabasePoolExhausted
+        expr: db_pool_active_connections / db_pool_max_connections > 0.9
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database pool nearly exhausted"
+          description: "Active connections: {{ $value | humanizePercentage }} of max"
+
+      - alert: DatabasePoolWaitHigh
+        expr: rate(db_pool_wait_count_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database pool has wait events"
+          description: "Clients are waiting for connections: {{ $value }}/s"
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down"
+          description: "Redis connection failed"
+
+      - alert: HighRateLimitHits
+        expr: rate(rate_limit_hits_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High rate limit hits"
+          description: "Rate limit hits: {{ $value }}/s"

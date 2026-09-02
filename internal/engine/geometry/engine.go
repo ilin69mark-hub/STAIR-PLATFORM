@@ -21,10 +21,12 @@ type Measurement struct {
 // preview mesh, отчёт валидации и измерения. Mesh и измерения являются
 // производными величинами и никогда не являются источником истины.
 type GenerationResult struct {
-	Model       *kerngeo.Compound
-	Mesh        *kerngeo.Mesh
-	Issues      []kerngeo.ValidationIssue
-	Measurement Measurement
+	Model        *kerngeo.Compound
+	Mesh         *kerngeo.Mesh
+	RailingMesh  *kerngeo.Mesh
+	RoomMesh     *kerngeo.Mesh
+	Issues       []kerngeo.ValidationIssue
+	Measurement  Measurement
 }
 
 // Generate строит параметрическую B-Rep модель марша (прямого,
@@ -61,6 +63,24 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 	}
 	if err != nil {
 		return nil, err
+	}
+	// Свободное пространство перед первой ступенью (EDR-0023) — для ВСЕХ
+	// типов марша (прямой, L, П, спираль). Сдвигаем модель от стены на
+	// ApproachSpace по оси X, оставляя перед входом (первой ступенью) свободную
+	// зону; требуемая ширина помещения автоматически учитывается в fit-check
+	// (ниже), так как зона входит в габаритный бокс модели.
+	approach := cfg.ApproachSpace.Millimeters()
+	if approach == 0 {
+		approach = 1000
+	}
+	if approach > 0 {
+		t := kerngeo.Translate(approach, 0, 0)
+		solids := model.Solids()
+		shifted := make([]*kerngeo.Solid, len(solids))
+		for i, s := range solids {
+			shifted[i] = kerngeo.TransformSolid(s, t)
+		}
+		model = kerngeo.NewCompound(shifted...)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("geometry: %w", ctx.Err())
@@ -138,7 +158,59 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 	if err := appendRailingMesh(result, cfg); err != nil {
 		return nil, err
 	}
+
+	// Декоративный «пол комнаты» и проверка вписываемости лестницы в заданный
+	// периметр (fit-check). Пол не входит в несущую модель и не влияет на
+	// измерения; передаётся отдельным RoomMesh, чтобы 3D-вьювер мог
+	// отрисовать периметр помещения выделенным цветом. Если габариты лестницы
+	// превышают заданные размеры помещения — неблокирующее предупреждение.
+	if cfg.RoomWidth.Millimeters() > 0 && cfg.RoomLength.Millimeters() > 0 {
+		rw := cfg.RoomWidth.Millimeters()
+		rl := cfg.RoomLength.Millimeters()
+		if room := buildRoomSolid(rw, rl); room != nil {
+			if verts, tris, rerr := meshSolid(room, kerngeo.NewTessellationCache()); rerr == nil {
+				rb := 0
+				result.RoomMesh = &kerngeo.Mesh{}
+				result.RoomMesh.Vertices = append(result.RoomMesh.Vertices, verts...)
+				for _, tr := range tris {
+					if aerr := result.RoomMesh.AddTriangle(rb+tr[0], rb+tr[1], rb+tr[2]); aerr != nil {
+						return nil, aerr
+					}
+				}
+			}
+		}
+		bb := result.Measurement.BoundingBox
+		if bb.Max.X > rw+kerngeo.Precision || bb.Max.Y > rl+kerngeo.Precision {
+			result.Issues = append(result.Issues, kerngeo.ValidationIssue{
+				Code:     "room_fit",
+				Severity: kerngeo.SeverityWarning,
+				Element:  "room",
+				Message: fmt.Sprintf(
+					"Лестница не помещается в заданный периметр помещения: нужно помещение не менее %.0f×%.0f мм (X — направление марша, Y — ширина марша), сейчас %d×%d мм",
+					bb.Max.X, bb.Max.Y, int(rw), int(rl),
+				),
+			})
+		}
+	}
+
 	return result, nil
+}
+
+// buildRoomSolid строит тонкую декоративную плиту «пола комнаты» размером
+// rw×rl (мм) в плоскости XY на уровне z≈0, роль "room". Используется только
+// для визуализации периметра помещения в 3D-вьювере.
+func buildRoomSolid(rw, rl float64) *kerngeo.Solid {
+	p := []kerngeo.Point3{
+		kerngeo.NewPoint3(0, 0, -20),
+		kerngeo.NewPoint3(rw, 0, -20),
+		kerngeo.NewPoint3(rw, rl, -20),
+		kerngeo.NewPoint3(0, rl, -20),
+	}
+	s, err := kerngeo.Extrude(p, kerngeo.NewVector3(0, 0, 1), 20)
+	if err != nil {
+		return nil
+	}
+	return s.WithRole("room")
 }
 
 // appendRailingMesh строит декоративные тела перил (BuildRailingDecor) и
@@ -149,7 +221,26 @@ func appendRailingMesh(result *GenerationResult, cfg *engineering.StairConfigura
 	if err != nil {
 		return fmt.Errorf("geometry: railing decor: %w", err)
 	}
-	base := len(result.Mesh.Vertices)
+	// Марш сдвинут от стены на ApproachSpace (EDR-0023) для ВСЕХ типов: перила
+	// строятся в исходных координатах, поэтому сдвигаем декор синхронно с маршем,
+	// иначе перила визуально «отрываются» от марша на 3D-отрисовке.
+	approach := cfg.ApproachSpace.Millimeters()
+	if approach == 0 {
+		approach = 1000
+	}
+	if approach != 0 {
+		t := kerngeo.Translate(approach, 0, 0)
+		for i, s := range decor {
+			decor[i] = kerngeo.TransformSolid(s, t)
+		}
+	}
+	// Перила вынесены в отдельный RailingMesh (как RoomMesh): 3D-вьювер
+	// рисует их сплошным материалом БЕЗ каркаса (EdgesGeometry), чтобы между
+	// балясинами и поручнями не появлялись лишние линии (см. GeometryViewer).
+	if result.RailingMesh == nil {
+		result.RailingMesh = &kerngeo.Mesh{}
+	}
+	base := len(result.RailingMesh.Vertices)
 	for _, solid := range decor {
 		cache := kerngeo.NewTessellationCache()
 		for _, issue := range kerngeo.ValidateCached(solid, cache) {
@@ -160,9 +251,9 @@ func appendRailingMesh(result *GenerationResult, cfg *engineering.StairConfigura
 		if err != nil {
 			return fmt.Errorf("geometry: railing mesh: %w", err)
 		}
-		result.Mesh.Vertices = append(result.Mesh.Vertices, verts...)
+		result.RailingMesh.Vertices = append(result.RailingMesh.Vertices, verts...)
 		for _, tr := range tris {
-			if err := result.Mesh.AddTriangle(base+tr[0], base+tr[1], base+tr[2]); err != nil {
+			if err := result.RailingMesh.AddTriangle(base+tr[0], base+tr[1], base+tr[2]); err != nil {
 				return fmt.Errorf("geometry: railing mesh triangle: %w", err)
 			}
 		}

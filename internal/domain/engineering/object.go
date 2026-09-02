@@ -38,27 +38,32 @@ const (
 )
 
 // DomainEvent — неизменяемое доменное событие (DOM-0007).
+// Расширенный envelope для event-driven архитектуры (ARCH-0012).
 type DomainEvent struct {
-	Type      string
-	ObjectID  string
-	Revision  string
-	Timestamp string
+	Type          string
+	ObjectID      string
+	Revision      string
+	Timestamp     string
+	CorrelationID string // цепочка вызовов (трассировка через pipeline)
+	Source        string // какой engine/domain создал событие
+	Actor         string // кто инициировал действие
 }
 
 // EngineeringObject — корень Engineering Domain Model (ADR-0015).
 // Каждый объект имеет ID, ревизию, жизненный цикл, параметры,
 // ограничения, метаданные, события и историю.
 type EngineeringObject struct {
-	mu       sync.RWMutex
-	ID       string
-	Kind     ObjectKind
-	State    EngineeringState
-	Owner    string
-	Current  *Revision
-	Params   map[string]*Parameter
-	Metadata map[string]string
-	events   []DomainEvent
-	history  []*Revision
+	mu            sync.RWMutex
+	ID            string
+	Kind          ObjectKind
+	State         EngineeringState
+	Owner         string
+	Current       *Revision
+	Params        map[string]*Parameter
+	Metadata      map[string]string
+	events        []DomainEvent
+	history       []*Revision
+	correlationID string // трассировка pipeline (устанавливается извне)
 }
 
 // NewObject создаёт инженерный объект со стартовой ревизией.
@@ -160,11 +165,29 @@ func (o *EngineeringObject) History() []*Revision {
 	return out
 }
 
+// SetCorrelationID устанавливает correlation ID для трассировки pipeline.
+// Используется application layer при запуске pipeline расчёта.
+func (o *EngineeringObject) SetCorrelationID(id string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.correlationID = id
+}
+
+// CorrelationID возвращает текущий correlation ID.
+func (o *EngineeringObject) CorrelationID() string {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.correlationID
+}
+
 func (o *EngineeringObject) record(typ, objectID string) {
 	o.events = append(o.events, DomainEvent{
-		Type:     typ,
-		ObjectID: objectID,
-		Revision: o.Current.ID,
+		Type:          typ,
+		ObjectID:      objectID,
+		Revision:      o.Current.ID,
+		CorrelationID: o.correlationID,
+		Source:        "engineering",
+		Actor:         o.Owner,
 	})
 }
 

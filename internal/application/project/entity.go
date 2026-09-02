@@ -42,8 +42,12 @@ type StairConfiguration struct {
 	ClearanceMM         float64
 	RailingHeightMM     float64
 	ComfortStepMM       float64
-	LandingWidthMM      float64
-	LowerStepCount      int
+	LandingWidthMM       float64
+	LandingDepthMM       float64
+	RoomWidthMM          float64
+	RoomLengthMM         float64
+	ApproachSpaceMM      float64
+	LowerStepCount       int
 	OuterRadiusMM       float64
 	CreatedAt           time.Time
 	UpdatedAt           time.Time

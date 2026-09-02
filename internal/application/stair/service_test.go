@@ -96,11 +96,11 @@ func TestCalculateValidPipeline(t *testing.T) {
 	}
 
 	// Финальная цена эталонного конвейера (100 ₽/кг, ставки по умолчанию).
-	if res.Price.FinalPrice.Minor() != 327218990 {
-		t.Fatalf("final price = %d, want 327218990", res.Price.FinalPrice.Minor())
+	if res.Price.FinalPrice.Minor() != 327138547 {
+		t.Fatalf("final price = %d, want 327138547", res.Price.FinalPrice.Minor())
 	}
-	if res.Price.FinalPrice.Major(domprc.CurrencyRUB) != 3272189.90 {
-		t.Fatalf("final price = %.2f rub, want 3272189.90", res.Price.FinalPrice.Major(domprc.CurrencyRUB))
+	if res.Price.FinalPrice.Major(domprc.CurrencyRUB) != 3271385.47 {
+		t.Fatalf("final price = %.2f rub, want 3271385.47", res.Price.FinalPrice.Major(domprc.CurrencyRUB))
 	}
 }
 
@@ -465,8 +465,8 @@ func TestCalculateLShapePipeline(t *testing.T) {
 	if res.Mesh == nil || len(res.Mesh.Vertices) == 0 {
 		t.Fatal("l_shape pipeline must produce preview mesh")
 	}
-	if math.Abs(res.Measurement.Volume-338451360.854) > 1 {
-		t.Fatalf("volume = %v, want 338451360.854", res.Measurement.Volume)
+	if math.Abs(res.Measurement.Volume-331300172.899) > 1 {
+		t.Fatalf("volume = %v, want 331300172.899", res.Measurement.Volume)
 	}
 	if res.Price == nil || res.Price.FinalPrice.Minor() <= 0 {
 		t.Fatal("l_shape pipeline must produce price")
@@ -572,8 +572,8 @@ func TestCalculateUShapePipeline(t *testing.T) {
 	if res.Mesh == nil || len(res.Mesh.Vertices) == 0 {
 		t.Fatal("u_shape pipeline must produce preview mesh")
 	}
-	if math.Abs(res.Measurement.Volume-353751360.854) > 1 {
-		t.Fatalf("volume = %v, want 353751360.854", res.Measurement.Volume)
+	if math.Abs(res.Measurement.Volume-346600172.899) > 1 {
+		t.Fatalf("volume = %v, want 346600172.899", res.Measurement.Volume)
 	}
 	if res.Price == nil || res.Price.FinalPrice.Minor() <= 0 {
 		t.Fatal("u_shape pipeline must produce price")

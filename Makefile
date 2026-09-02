@@ -8,14 +8,34 @@ COMPOSE   ?= docker compose
 NPM       ?= npm
 
 # Host-side DB URL (used by migrate/seed/run). Default matches docker-compose.
-STAIR_DATABASE_URL ?= postgres://stair:stair@localhost:5432/stair_platform?sslmode=disable
+STAIR_DATABASE_URL ?= postgres://stair:stair@127.0.0.1:5432/stair_platform?sslmode=disable
 
-.PHONY: setup up stop run test coverage coverage-check migrate seed lint build fmt vet env-up env-down clean frontend-install frontend-test frontend-build fe
+.PHONY: setup up stop run test coverage coverage-check migrate seed lint build fmt vet env-up env-down clean frontend-install frontend-test frontend-build fe store admin frontends store-logs admin-logs
 
-## start everything except frontend (PostgreSQL + Redis + API in Docker) and apply migrations
+## start the whole stack (PostgreSQL + Redis + API + store + admin frontends),
+## rebuild images, apply migrations. Frontends: store :3000, admin :5174.
 up: env-up
 	$(GO) run ./cmd/migrate -dir migrations -database "$(STAIR_DATABASE_URL)"
-	@echo "Stack up: API on http://localhost:8080. Frontend: make fe"
+	@echo "Stack up: API :8080, store :3000, admin :5174. Frontend dev server: make fe"
+
+## rebuild & restart the store frontend container (part of the stack)
+store:
+	$(COMPOSE) -f deployments/docker-compose.yml up -d --build store
+
+## rebuild & restart the admin frontend container (part of the stack)
+admin:
+	$(COMPOSE) -f deployments/docker-compose.yml up -d --build admin
+
+## rebuild & restart both frontend containers
+frontends: store admin
+
+## tail logs of the store frontend
+store-logs:
+	$(COMPOSE) -f deployments/docker-compose.yml logs -f store
+
+## tail logs of the admin frontend
+admin-logs:
+	$(COMPOSE) -f deployments/docker-compose.yml logs -f admin
 
 ## stop everything (Docker stack)
 stop: env-down

@@ -141,6 +141,12 @@ type userDTO struct {
 	TenantID string `json:"tenant_id"`
 }
 
+// authResponse — ответ при register/login (содержит токен в body для e2e клиентов).
+type authResponse struct {
+	User  userDTO `json:"user"`
+	Token string  `json:"token"`
+}
+
 func toUserDTO(u *auth.User) userDTO {
 	return userDTO{ID: u.ID, Email: u.Email, Name: u.Name, Role: string(u.Role), TenantID: u.TenantID}
 }
@@ -170,7 +176,7 @@ func handleRegister(svc AuthService) http.HandlerFunc {
 			return
 		}
 		setSessionCookies(w, token)
-		writeJSON(w, http.StatusCreated, toUserDTO(u))
+		writeJSON(w, http.StatusCreated, authResponse{User: toUserDTO(u), Token: token})
 	}
 }
 
@@ -198,7 +204,7 @@ func handleLogin(svc AuthService) http.HandlerFunc {
 			return
 		}
 		setSessionCookies(w, token)
-		writeJSON(w, http.StatusOK, toUserDTO(u))
+		writeJSON(w, http.StatusOK, authResponse{User: toUserDTO(u), Token: token})
 	}
 }
 
