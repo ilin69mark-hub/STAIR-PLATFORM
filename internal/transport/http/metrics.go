@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"runtime"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -107,13 +108,38 @@ func recordHTTPMetrics(method, path string, status int, dur time.Duration) {
 	httpDuration.With(metricLabels(method, p, st)...).Observe(dur.Seconds())
 }
 
+// runtimeMetricsCache кэширует runtime-метрики для избежания
+// ReadMemStats на каждый /metrics запрос.
+var runtimeMetricsCache = struct {
+	lastUpdate time.Time
+	goroutines int
+	memAlloc   uint64
+	mu         sync.Mutex
+}{}
+
 // refreshRuntimeMetrics обновляет runtime-gauges (goroutines, mem, uptime).
+// Кэширует результат на 10 секунд — ReadMemStats это stop-the-world.
 func refreshRuntimeMetrics() {
+	runtimeMetricsCache.mu.Lock()
+	defer runtimeMetricsCache.mu.Unlock()
+
+	if time.Since(runtimeMetricsCache.lastUpdate) < 10*time.Second {
+		// Используем кэшированные значения.
+		goGoroutines.Set(float64(runtimeMetricsCache.goroutines))
+		goMemAlloc.Set(float64(runtimeMetricsCache.memAlloc))
+		processUptime.Set(time.Since(processStarted).Seconds())
+		return
+	}
+
 	goGoroutines.Set(float64(runtime.NumGoroutine()))
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	goMemAlloc.Set(float64(m.Alloc))
 	processUptime.Set(time.Since(processStarted).Seconds())
+
+	runtimeMetricsCache.lastUpdate = time.Now()
+	runtimeMetricsCache.goroutines = runtime.NumGoroutine()
+	runtimeMetricsCache.memAlloc = m.Alloc
 }
 
 // CollectDBPoolMetrics собирает метрики пула БД (вызывается периодически).

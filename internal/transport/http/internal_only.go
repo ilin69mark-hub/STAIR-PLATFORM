@@ -3,7 +3,6 @@ package http
 import (
 	"net"
 	"net/http"
-	"strings"
 )
 
 // InternalOnlyMiddleware ограничивает доступ только с внутренних IP.
@@ -41,22 +40,9 @@ func InternalOnlyMiddleware(next http.Handler) http.Handler {
 }
 
 // extractIP извлекает IP адрес из Request.
+// Для внутренних endpoints используется только RemoteAddr (TCP source),
+// чтобы X-Forwarded-For не мог быть подделан атакующим.
 func extractIP(r *http.Request) string {
-	// Проверяем X-Forwarded-For
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// X-Forwarded-For: client, proxy1, proxy2
-		parts := strings.Split(xff, ",")
-		if len(parts) > 0 {
-			return strings.TrimSpace(parts[0])
-		}
-	}
-
-	// Проверяем X-Real-IP
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return strings.TrimSpace(xri)
-	}
-
-	// Используем RemoteAddr
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

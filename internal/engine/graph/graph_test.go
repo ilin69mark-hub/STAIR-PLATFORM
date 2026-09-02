@@ -24,6 +24,14 @@ func TestAddNodeAndLookup(t *testing.T) {
 	}
 }
 
+func TestAddNodeEmptyID(t *testing.T) {
+	g := New()
+	err := g.AddNode(Node{ID: ""})
+	if err == nil {
+		t.Fatal("expected error for empty node ID")
+	}
+}
+
 func TestAddEdgeRequiresNodes(t *testing.T) {
 	g := New()
 	g.AddNode(Node{ID: "a"})
@@ -37,13 +45,11 @@ func TestAddEdgeRequiresNodes(t *testing.T) {
 		t.Fatalf("expected 1 edge, got %d", g.EdgeCount())
 	}
 
-	// добавление ребра для несуществующего узла паникует.
-	defer func() {
-		if recover() == nil {
-			t.Fatal("expected panic on edge with missing node")
-		}
-	}()
-	g.AddEdge(Edge{From: "a", To: "missing"})
+	// добавление ребра для несуществующего узла возвращает ошибку.
+	err := g.AddEdge(Edge{From: "a", To: "missing"})
+	if err == nil {
+		t.Fatal("expected error on edge with missing node")
+	}
 }
 
 func TestRemoveNodeRemovesIncidentEdges(t *testing.T) {

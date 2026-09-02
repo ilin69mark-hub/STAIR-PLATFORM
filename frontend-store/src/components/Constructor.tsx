@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ConfigForm } from '@shared/config'
 import { defaultConfig, directionOptions, flightOptions, materialOptions, railingForSpiral, railingLabel, railingOptions, rulesFor, spiralDirectionOptions, toRequest, validateForm, type FieldErrors, type FieldRule } from '@shared/config'
 import type { QuoteResult, QuoteSuggestion, Variation } from '@shared/types'
@@ -114,9 +114,9 @@ const emptyConfig: ConfigForm = {
 // Конструктор: параметры лестницы → предварительный расчёт (анонимно).
 export function Constructor() {
   const [config, setConfig] = useState<ConfigForm>(emptyConfig)
-  // Ошибки считаем сразу: пустые обязательные поля подсвечиваются красным
-  // при первом показе, не только после ввода/клика.
-  const [errors, setErrors] = useState<FieldErrors>(() => validateForm(emptyConfig))
+  // Ошибки не показываем до первого взаимодействия пользователя.
+  const [errors, setErrors] = useState<FieldErrors>({})
+  const [touched, setTouched] = useState(false)
   const [quote, setQuote] = useState<QuoteResult | null>(null)
   const [request, setRequest] = useState<Record<string, unknown> | null>(null)
   const [status, setStatus] = useState<string | null>(null)
@@ -166,9 +166,18 @@ export function Constructor() {
   }
 
   const configChangeTimer = useRef<number | null>(null)
+
+  // Очистка debounce таймера при unmount.
+  useEffect(() => {
+    return () => {
+      if (configChangeTimer.current) window.clearTimeout(configChangeTimer.current)
+    }
+  }, [])
+
   const update = (k: keyof ConfigForm, v: string) => {
     const next = { ...config, [k]: v }
     setConfig(next)
+    setTouched(true)
     setErrors(validateForm(next))
     // Аудит изменения поля (debounce 600 мс, best-effort).
     if (configChangeTimer.current) window.clearTimeout(configChangeTimer.current)
@@ -308,13 +317,13 @@ export function Constructor() {
                     id={`cfg-${k}`}
                     type="text"
                     inputMode="decimal"
-                    className={errors[k] ? 'field-invalid' : undefined}
+                    className={touched && errors[k] ? 'field-invalid' : undefined}
                     value={config[k] as string}
                     onChange={(e) => update(k, e.target.value)}
                   />
                 )}
                 {hintOf(k) && <span className="sub">{hintOf(k)}</span>}
-                {errors[k] && <span className="error">{errors[k]}</span>}
+                {touched && errors[k] && <span className="error">{errors[k]}</span>}
               </div>
             ))}
             <div className="field" hidden={config.flight !== 'spiral'}>

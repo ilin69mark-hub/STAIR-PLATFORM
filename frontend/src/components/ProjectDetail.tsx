@@ -67,6 +67,14 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
   }, [projectId])
 
   const configChangeTimer = useRef<number | null>(null)
+
+  // Очистка debounce таймера при unmount.
+  useEffect(() => {
+    return () => {
+      if (configChangeTimer.current) window.clearTimeout(configChangeTimer.current)
+    }
+  }, [])
+
   const setField = (key: keyof ConfigForm, value: string | boolean) => {
     setConfig((c) => ({ ...c, [key]: value }))
     // Аудит изменения поля (debounce 600 мс, best-effort).

@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -299,16 +300,10 @@ func limitRate(l RateLimiter, next http.Handler) http.Handler {
 	})
 }
 
-// clientIP извлекает IP клиента (X-Forwarded-For для прокси; RemoteAddr — base).
+// clientIP извлекает IP клиента из RemoteAddr.
+// X-Forwarded-For не используется, чтобы rate limiting нельзя было
+// обойти через поддельный заголовок (SEC).
 func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		for i := 0; i < len(xff); i++ {
-			if xff[i] == ',' {
-				return xff[:i]
-			}
-		}
-		return xff
-	}
 	host, _, err := splitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
@@ -317,14 +312,10 @@ func clientIP(r *http.Request) string {
 }
 
 func splitHostPort(addr string) (string, string, error) {
-	// Локальная реализация для избежания лишних зависимостей.
-	host := addr
-	port := ""
-	for i := 0; i < len(addr); i++ {
-		if addr[i] == ':' {
-			host, port = addr[:i], addr[i+1:]
-			break
-		}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		// Если нет порта — это просто host.
+		return addr, "", nil
 	}
 	return host, port, nil
 }

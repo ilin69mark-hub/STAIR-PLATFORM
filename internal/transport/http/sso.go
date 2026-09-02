@@ -67,13 +67,28 @@ func handleSsoCallback(svc AuthService) http.HandlerFunc {
 		}
 		setSessionCookies(w, token)
 		target := "/"
-		if red := r.URL.Query().Get("redirect"); red != "" {
+		if red := r.URL.Query().Get("redirect"); red != "" && isSafeRedirect(red) {
 			target = red
 		}
 		w.Header().Set("Location", target)
 		_ = u
 		w.WriteHeader(http.StatusFound)
 	}
+}
+
+// isSafeRedirect проверяет что redirect URL безопасен — только relative paths
+// без scheme:// (защита от Open Redirect).
+func isSafeRedirect(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	// Отклоняем абсолютные URL (http://evil.com, //evil.com)
+	if parsed.IsAbs() || (len(raw) > 1 && raw[0] == '/' && raw[1] == '/') {
+		return false
+	}
+	// Разрешаем только paths начинающиеся с /
+	return len(raw) > 0 && raw[0] == '/'
 }
 
 // handleSsoConfig — GET /api/v1/auth/sso/config (public). Информирует

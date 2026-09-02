@@ -67,9 +67,8 @@ func (h *GraphQLHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		req.Operation = r.URL.Query().Get("operationName")
 	}
 
-	// Выполняем запрос через встроенный handler
-	ctx := context.Background()
-	h.ServeHTTPWithContext(ctx, w, r, req)
+	// Выполняем запрос через встроенный handler с контекстом запроса (содержит auth данные).
+	h.ServeHTTPWithContext(r.Context(), w, r, req)
 }
 
 // ServeHTTPWithContext выполняет GraphQL запрос с контекстом.

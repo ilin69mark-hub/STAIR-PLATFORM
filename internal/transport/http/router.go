@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -173,10 +174,10 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		mux.HandleFunc("GET /ws", cfg.WebSocketHandler.HandleWebSocket)
 	}
 
-	// GraphQL endpoint
+	// GraphQL endpoint — требует аутентификации (SEC).
 	if cfg.GraphQLHandler != nil {
-		mux.Handle("POST /graphql", cfg.GraphQLHandler)
-		mux.Handle("GET /graphql", cfg.GraphQLHandler)
+		mux.Handle("POST /graphql", authProtected(cfg.GraphQLHandler))
+		mux.Handle("GET /graphql", authProtected(cfg.GraphQLHandler))
 	}
 
 	mux.HandleFunc("GET /", handleNotFound)
@@ -252,8 +253,6 @@ var (
 	loginLimiter    RateLimiter
 	registerLimiter RateLimiter
 	quoteLimiter    RateLimiter
-	// apiKeyLimiter — per-API-key rate limiter (map[keyID]RateLimiter)
-	apiKeyLimiter = make(map[string]RateLimiter)
 	// authRateLimiter — rate limiter для всех authenticated запросов
 	authRateLimiter RateLimiter
 	region          string
@@ -284,5 +283,8 @@ func handleNotFound(w http.ResponseWriter, _ *http.Request) {
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		// Логируем ошибку кодирования —响应 будет обрезан/повреждён.
+		slog.Error("writeJSON: encode failed", "error", err)
+	}
 }

@@ -45,11 +45,14 @@ func NewEventGraph(publisher EventPublisher, hooks ...GraphEventHooks) *EventGra
 }
 
 // AddNode добавляет узел и вызывает hooks.
-func (eg *EventGraph) AddNode(ctx context.Context, n Node) {
-	eg.Graph.AddNode(n)
+func (eg *EventGraph) AddNode(ctx context.Context, n Node) error {
+	if err := eg.Graph.AddNode(n); err != nil {
+		return err
+	}
 	if eg.hooks.OnNodeAdded != nil {
 		eg.hooks.OnNodeAdded(ctx, n)
 	}
+	return nil
 }
 
 // RemoveNode удаляет узел и вызывает hooks.
@@ -65,11 +68,14 @@ func (eg *EventGraph) RemoveNode(ctx context.Context, id string) bool {
 }
 
 // AddEdge добавляет ребро и вызывает hooks.
-func (eg *EventGraph) AddEdge(ctx context.Context, e Edge) {
-	eg.Graph.AddEdge(e)
+func (eg *EventGraph) AddEdge(ctx context.Context, e Edge) error {
+	if err := eg.Graph.AddEdge(e); err != nil {
+		return err
+	}
 	if eg.hooks.OnEdgeAdded != nil {
 		eg.hooks.OnEdgeAdded(ctx, e)
 	}
+	return nil
 }
 
 // MarkClean снимает dirty-статус и вызывает hooks.

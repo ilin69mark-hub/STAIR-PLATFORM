@@ -534,8 +534,10 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 			HasMin:  true,
 			Message: "Радиус спирали не превышает ширину марша",
 			Guide: fmt.Sprintf(
-				"Наружный радиус спирали %.0f мм должен быть больше ширины марша %.0f мм (радиус колонны должен оставаться положительным).",
-				c.OuterRadius.Millimeters(), c.Width.Millimeters()),
+				"Наружный радиус спирали %.0f мм должен быть больше ширины марша %.0f мм. Колонна в центре спирали имеет радиус = радиус − ширина марша; при %.0f мм колонна исчезает. Увеличьте радиус минимум до %.0f мм или уменьшите ширину марша.",
+				c.OuterRadius.Millimeters(), c.Width.Millimeters(),
+				c.OuterRadius.Millimeters()-c.Width.Millimeters(),
+				c.Width.Millimeters()+1),
 			Fix: fmt.Sprintf("Увеличьте радиус спирали минимум до %.0f мм", c.Width.Millimeters()+1),
 		}
 	}

@@ -3,6 +3,8 @@
 // разрешение зависимостей, инкрементальное обновление, снапшоты.
 package graph
 
+import "fmt"
+
 const (
 	// NodeStateDirty — узел изменён и требует пересчёта зависимых.
 	NodeStateDirty = "dirty"
@@ -59,9 +61,9 @@ func (g *Graph) NodeCount() int { return len(g.nodes) }
 func (g *Graph) EdgeCount() int { return len(g.edges) }
 
 // AddNode добавляет или обновляет узел и отмечает его dirty.
-func (g *Graph) AddNode(n Node) {
+func (g *Graph) AddNode(n Node) error {
 	if n.ID == "" {
-		panic("graph: node id must not be empty")
+		return fmt.Errorf("graph: node id must not be empty")
 	}
 	n.Version++
 	n.State = NodeStateDirty
@@ -71,6 +73,7 @@ func (g *Graph) AddNode(n Node) {
 		g.incoming[n.ID] = make(map[string]struct{})
 	}
 	g.revision++
+	return nil
 }
 
 // Node возвращает узел и признак его существования (O(1)).
@@ -104,9 +107,9 @@ func (g *Graph) RemoveNode(id string) bool {
 }
 
 // AddEdge добавляет ребро from → to.
-func (g *Graph) AddEdge(e Edge) {
+func (g *Graph) AddEdge(e Edge) error {
 	if !g.HasNode(e.From) || !g.HasNode(e.To) {
-		panic("graph: edge requires existing nodes")
+		return fmt.Errorf("graph: edge requires existing nodes (%s -> %s)", e.From, e.To)
 	}
 	if e.ID == "" {
 		e.ID = e.From + "->" + e.To
@@ -115,6 +118,7 @@ func (g *Graph) AddEdge(e Edge) {
 	g.outgoing[e.From][e.To] = struct{}{}
 	g.incoming[e.To][e.From] = struct{}{}
 	g.revision++
+	return nil
 }
 
 // Edge возвращает ребро по ID.

@@ -76,7 +76,11 @@ export function Landing({ onStart }: Props) {
 // Testimonials — опубликованные отзывы клиентов (из админки).
 function Testimonials({ items, error }: { items: TestimonialDTO[]; error: string | null }) {
   if (error) {
-    return null
+    return (
+      <section className="testimonials">
+        <p className="sub" style={{ textAlign: 'center', opacity: 0.6 }}>{error}</p>
+      </section>
+    )
   }
   if (items.length === 0) {
     return null

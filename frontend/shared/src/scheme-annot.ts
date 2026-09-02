@@ -15,7 +15,7 @@
 export type Side = 'top' | 'bottom' | 'right' | 'left'
 
 // Единый выключатель всей разметки (для лёгкого удаления перед релизом).
-export const ANNOTATE = true
+export const ANNOTATE = false
 
 // Стороны периметра помещения: фиксированная палитра (цвет → буква).
 export const WALLS: Record<Side, { key: string; color: string }> = {

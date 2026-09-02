@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -240,12 +241,12 @@ func (p *StripeProvider) ParseWebhookEvent(payload []byte) (*StripeWebhookEvent,
 func (p *StripeProvider) makeRequest(ctx context.Context, method, path string, data map[string]string) (*http.Response, error) {
 	var body io.Reader
 	if data != nil {
-		// Формируем form-urlencoded data
-		form := make([]string, 0, len(data))
+		// Формируем form-urlencoded data с правильным URL-кодированием
+		values := url.Values{}
 		for k, v := range data {
-			form = append(form, k+"="+v)
+			values.Set(k, v)
 		}
-		body = strings.NewReader(strings.Join(form, "&"))
+		body = strings.NewReader(values.Encode())
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, p.baseURL+path, body)

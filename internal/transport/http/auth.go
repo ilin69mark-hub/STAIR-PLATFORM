@@ -253,7 +253,7 @@ func setSessionCookie(w http.ResponseWriter, token string) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Secure:   cookieSecure,
 		Expires:  time.Now().Add(24 * time.Hour),
 	})
@@ -273,10 +273,11 @@ func sessionToken(r *http.Request) string {
 }
 
 // newCSRF генерирует случайный nonce для double-submit CSRF.
+// crypto/rand failure означает критический сбой системы — паника.
 func newCSRF() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		return ""
+		panic("csrf: crypto/rand failed: " + err.Error())
 	}
 	return hex.EncodeToString(b[:])
 }

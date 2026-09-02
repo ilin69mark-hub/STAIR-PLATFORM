@@ -36,7 +36,9 @@ func (m *ParametricModel) Add(p *Parameter) error {
 		return fmt.Errorf("parametric model: duplicate parameter %s", p.ID)
 	}
 	m.params[p.ID] = p
-	m.g.AddNode(graph.Node{ID: p.ID, Type: "parameter"})
+	if err := m.g.AddNode(graph.Node{ID: p.ID, Type: "parameter"}); err != nil {
+		return fmt.Errorf("parametric model: %w", err)
+	}
 	return nil
 }
 
@@ -49,7 +51,9 @@ func (m *ParametricModel) AddDependency(dep, of string) error {
 	if _, ok := m.params[of]; !ok {
 		return fmt.Errorf("parametric model: unknown parameter %s", of)
 	}
-	m.g.AddEdge(graph.Edge{From: dep, To: of})
+	if err := m.g.AddEdge(graph.Edge{From: dep, To: of}); err != nil {
+		return fmt.Errorf("parametric model: %w", err)
+	}
 	if m.g.HasCycle() {
 		m.g.RemoveEdge(dep, of)
 		return fmt.Errorf("parametric model: dependency %s -> %s creates a cycle", dep, of)
@@ -69,7 +73,9 @@ func (m *ParametricModel) Set(id string, value any) error {
 	}
 	p.Value = value
 	p.State = StateDefined
-	m.g.AddNode(graph.Node{ID: id, Type: "parameter"})
+	if err := m.g.AddNode(graph.Node{ID: id, Type: "parameter"}); err != nil {
+		return fmt.Errorf("parametric model: %w", err)
+	}
 	return nil
 }
 

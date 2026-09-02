@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { adminApi } from '../api/admin'
 import { analyticsApi } from '../api/analytics'
-import { fmt } from '@shared/format'
 import type {
   AdminOverview,
   AdminPolicy,
@@ -17,23 +16,19 @@ import type {
 } from '@shared/types'
 import { ApiError } from '@shared/types'
 
+import { OverviewPanel } from './admin/OverviewPanel'
+import { UsersPanel } from './admin/UsersPanel'
+import { PolicyPanel } from './admin/PolicyPanel'
+import { ExportPanel } from './admin/ExportPanel'
+import { UsageAnalyticsPanel, ProjectsAnalyticsPanel, ManufacturingPanel, CostAnalyticsPanel } from './admin/AnalyticsPanel'
+import { OrdersPanel } from './admin/OrdersPanel'
+import { ApiKeysPanel } from './admin/ApiKeysPanel'
+import { TestimonialsPanel } from './admin/TestimonialsPanel'
+
 interface Props {
   currentUserId: string
   onBack: () => void
 }
-
-const roleLabels: Record<string, string> = { user: 'Пользователь', admin: 'Администратор' }
-const statusLabels: Record<string, string> = { active: 'Активен', disabled: 'Заблокирован' }
-
-// Статусы заказов клиентского сайта (store).
-const orderStatusOptions = [
-  { value: 'new', label: 'Новый' },
-  { value: 'priced', label: 'Оценён' },
-  { value: 'confirmed', label: 'Подтверждён' },
-  { value: 'in_progress', label: 'В работе' },
-  { value: 'completed', label: 'Выполнен' },
-  { value: 'cancelled', label: 'Отменён' },
-] as const
 
 const emptyPolicy: AdminPolicy = {
   min_password_length: 8,
@@ -53,14 +48,6 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-
-  const [keyName, setKeyName] = useState('')
-  const [keyScopes, setKeyScopes] = useState('users.list')
-  const [newToken, setNewToken] = useState<string | null>(null)
-
-  const [tAuthor, setTAuthor] = useState('')
-  const [tText, setTText] = useState('')
-  const [tRating, setTRating] = useState(5)
 
   const [usage, setUsage] = useState<UsageReport | null>(null)
   const [usageGranularity, setUsageGranularity] = useState<UsageGranularity>('day')
@@ -152,7 +139,6 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
     setLoading(true)
     setError(null)
     try {
-      // listOrders может быть недоступен для не-admin (403) — панель admin.
       const [ov, us, pl, ks, ordersResp, tms] = await Promise.all([
         adminApi.overview(),
         adminApi.listUsers(),
@@ -182,11 +168,9 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
     void loadCost('day')
   }, [load, loadUsage, loadProjects, loadManufacturing, loadCost])
 
-  const clearNotice = () => setNotice(null)
-
   const handleUpdateUser = async (id: string, body: { role?: 'user' | 'admin'; status?: 'active' | 'disabled' }) => {
     setError(null)
-    clearNotice()
+    setNotice(null)
     try {
       await adminApi.updateUser(id, body)
       setNotice('Пользователь обновлён')
@@ -199,7 +183,7 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
   const handleSavePolicy = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
-    clearNotice()
+    setNotice(null)
     try {
       await adminApi.updateSettings(policy)
       setNotice('Политика безопасности сохранена')
@@ -212,100 +196,19 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
   const setPolicyField = (key: keyof AdminPolicy, value: string | boolean | number) =>
     setPolicy((p) => ({ ...p, [key]: value as never }))
 
-  const handleCreateKey = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    clearNotice()
-    setNewToken(null)
-    try {
-      const scopes = keyScopes
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean)
-      const resp = await adminApi.createApiKey({ name: keyName.trim(), scopes })
-      setKeyName('')
-      setKeyScopes('users.list')
-      if (resp.token) setNewToken(resp.token)
-      void load()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Не удалось создать API-ключ')
-    }
-  }
-
-  const handleRevokeKey = async (id: string) => {
-    setError(null)
-    clearNotice()
-    try {
-      await adminApi.revokeApiKey(id)
-      setNotice('API-ключ отозван')
-      void load()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Не удалось отозвать ключ')
-    }
-  }
-
   const handleExport = (scope: string, format: 'json' | 'csv') => {
     window.location.href = adminApi.exportUrl(scope, format)
   }
 
   const handleOrderStatus = async (id: string, status: string) => {
     setError(null)
-    clearNotice()
+    setNotice(null)
     try {
       await adminApi.updateOrderStatus(id, status)
       setNotice('Статус заказа обновлён')
       void load()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не удалось обновить статус заказа')
-    }
-  }
-
-  const handleAddTestimonial = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    clearNotice()
-    try {
-      await adminApi.createTestimonial({
-        author: tAuthor.trim(),
-        text: tText.trim(),
-        rating: tRating,
-      })
-      setTAuthor('')
-      setTText('')
-      setTRating(5)
-      setNotice('Отзыв добавлен. Опубликуйте его для лендинга.')
-      void load()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Не удалось добавить отзыв')
-    }
-  }
-
-  const handleToggleTestimonial = async (t: TestimonialDTO) => {
-    setError(null)
-    clearNotice()
-    try {
-      await adminApi.updateTestimonial(t.id, {
-        author: t.author,
-        text: t.text,
-        rating: t.rating,
-        published: !t.published,
-      })
-      setNotice(t.published ? 'Отзыв скрыт с лендинга' : 'Отзыв опубликован на лендинге')
-      void load()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Не удалось обновить отзыв')
-    }
-  }
-
-  const handleDeleteTestimonial = async (id: string) => {
-    setError(null)
-    clearNotice()
-    try {
-      await adminApi.deleteTestimonial(id)
-      setNotice('Отзыв удалён')
-      void load()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Не удалось удалить отзыв')
     }
   }
 
@@ -323,699 +226,39 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
 
       {error && <div className="alert alert--error">{error}</div>}
       {notice && <div className="alert alert--ok">{notice}</div>}
-      {newToken && (
-        <div className="alert alert--warn">
-          <strong>Сохраните токен сейчас</strong> — он показывается один раз:
-          <code className="token-code">{newToken}</code>
-        </div>
-      )}
 
       {loading ? (
         <p className="muted">Загрузка…</p>
       ) : (
         <>
-          <section className="panel">
-            <h2 className="panel__title">Обзор</h2>
-            {overview && (
-              <dl className="kv">
-                <div>
-                  <dt>Пользователи</dt>
-                  <dd>{overview.users}</dd>
-                </div>
-                <div>
-                  <dt>Активных / заблокированных</dt>
-                  <dd>
-                    {overview.active_users} / {overview.disabled_users}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Администраторы</dt>
-                  <dd>{overview.admins}</dd>
-                </div>
-                <div>
-                  <dt>Проекты</dt>
-                  <dd>{overview.projects}</dd>
-                </div>
-                <div>
-                  <dt>API-ключи (активных)</dt>
-                  <dd>
-                    {overview.active_api_keys} / {overview.total_api_keys}
-                  </dd>
-                </div>
-              </dl>
-            )}
-          </section>
-
-          <section className="panel">
-            <h2 className="panel__title">Пользователи</h2>
-            <ul className="member-list">
-              {users.map((u) => (
-                <li className="member" key={u.id}>
-                  <span className="member__id">
-                    <strong>{u.name || u.email}</strong>
-                    <span className="muted">
-                      {' '}
-                      · {u.email} · {u.id}
-                    </span>
-                  </span>
-                  <select
-                    className="member__role"
-                    aria-label={`Роль ${u.email}`}
-                    value={u.role}
-                    disabled={u.id === currentUserId}
-                    onChange={(e) => handleUpdateUser(u.id, { role: e.target.value as 'user' | 'admin' })}
-                  >
-                    {Object.entries(roleLabels).map(([v, l]) => (
-                      <option key={v} value={v}>
-                        {l}
-                      </option>
-                    ))}
-                  </select>
-                  {u.id !== currentUserId ? (
-                    <select
-                      className="member__role"
-                      aria-label={`Статус ${u.email}`}
-                      value={u.status}
-                      onChange={(e) =>
-                        handleUpdateUser(u.id, { status: e.target.value as 'active' | 'disabled' })
-                      }
-                    >
-                      {Object.entries(statusLabels).map(([v, l]) => (
-                        <option key={v} value={v}>
-                          {l}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span className="member__role member__role--static">
-                      {statusLabels[u.status]} · это вы
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <section className="panel">
-            <h2 className="panel__title">Политика безопасности</h2>
-            <form onSubmit={handleSavePolicy}>
-              <div className="config-grid">
-                <div className="field">
-                  <label className="field__label" htmlFor="min-len">
-                    Минимальная длина пароля
-                  </label>
-                  <input
-                    id="min-len"
-                    className="field__input"
-                    type="number"
-                    min={8}
-                    max={128}
-                    value={policy.min_password_length}
-                    onChange={(e) => setPolicyField('min_password_length', Number(e.target.value))}
-                  />
-                </div>
-                <div className="field">
-                  <label className="field__label" htmlFor="session-ttl">
-                    TTL сессии (секунды)
-                  </label>
-                  <input
-                    id="session-ttl"
-                    className="field__input"
-                    type="number"
-                    min={300}
-                    max={86400}
-                    value={policy.session_ttl_seconds}
-                    onChange={(e) => setPolicyField('session_ttl_seconds', Number(e.target.value))}
-                  />
-                </div>
-                <div className="field">
-                  <label className="field__label" htmlFor="rate-limit">
-                    Лимит входа (попыток/мин)
-                  </label>
-                  <input
-                    id="rate-limit"
-                    className="field__input"
-                    type="number"
-                    min={1}
-                    max={1000}
-                    value={policy.login_rate_limit_per_min}
-                    onChange={(e) => setPolicyField('login_rate_limit_per_min', Number(e.target.value))}
-                  />
-                </div>
-                <div className="field">
-                  <label className="field__label">
-                    <input
-                      type="checkbox"
-                      checked={policy.require_number}
-                      onChange={(e) => setPolicyField('require_number', e.target.checked)}
-                    />{' '}
-                    Требовать цифру в пароле
-                  </label>
-                </div>
-                <div className="field">
-                  <label className="field__label">
-                    <input
-                      type="checkbox"
-                      checked={policy.require_upper}
-                      onChange={(e) => setPolicyField('require_upper', e.target.checked)}
-                    />{' '}
-                    Требовать заглавную букву
-                  </label>
-                </div>
-              </div>
-              <div className="row--actions">
-                <button className="btn btn--primary" type="submit">
-                  Сохранить политику
-                </button>
-              </div>
-            </form>
-          </section>
-
-          <section className="panel">
-            <h2 className="panel__title">Экспорт данных</h2>
-            <p className="muted">Выгрузка данных tenant в JSON или CSV (только для администратора).</p>
-            <div className="row--actions">
-              {(['users', 'projects', 'audit'] as const).map((scope) => (
-                <span key={scope}>
-                  <button className="btn" onClick={() => handleExport(scope, 'json')}>
-                    {scope} · JSON
-                  </button>{' '}
-                  <button className="btn" onClick={() => handleExport(scope, 'csv')}>
-                    {scope} · CSV
-                  </button>
-                </span>
-              ))}
-            </div>
-          </section>
-
-          <section className="panel">
-            <h2 className="panel__title">Аналитика использования</h2>
-            <p className="muted">Активность tenant за выбранное окно (право analytics.read, EDR-0028).</p>
-            <div className="row--actions">
-              {(['day', 'week', 'month'] as UsageGranularity[]).map((g) => (
-                <button
-                  key={g}
-                  className={g === usageGranularity ? 'btn btn--primary' : 'btn'}
-                  onClick={() => {
-                    setUsageGranularity(g)
-                    void loadUsage(g)
-                  }}
-                >
-                  {g === 'day' ? 'День' : g === 'week' ? 'Неделя' : 'Месяц'}
-                </button>
-              ))}
-            </div>
-            {usageLoading ? (
-              <p className="muted">Загрузка…</p>
-            ) : usage ? (
-              <>
-                <dl className="kv">
-                  <div>
-                    <dt>Пользователи / активные</dt>
-                    <dd>
-                      {usage.totals.users} / {usage.totals.active_users}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Проекты</dt>
-                    <dd>{usage.totals.projects}</dd>
-                  </div>
-                  <div>
-                    <dt>Расчёты</dt>
-                    <dd>{usage.totals.calculations}</dd>
-                  </div>
-                  <div>
-                    <dt>Входы / экспорты / оплаты</dt>
-                    <dd>
-                      {usage.totals.logins} / {usage.totals.exports} / {usage.totals.payments}
-                    </dd>
-                  </div>
-                </dl>
-                <p className="muted">
-                  Период: {usage.from} — {usage.to}
-                </p>
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Дата</th>
-                      <th>Входы</th>
-                      <th>Активные</th>
-                      <th>Проекты</th>
-                      <th>Расчёты</th>
-                      <th>Экспорты</th>
-                      <th>Оплаты</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {usage.series.map((p) => (
-                      <tr key={p.bucket}>
-                        <td>{p.bucket}</td>
-                        <td>{p.logins}</td>
-                        <td>{p.active_users}</td>
-                        <td>{p.projects_created}</td>
-                        <td>{p.calculations}</td>
-                        <td>{p.exports}</td>
-                        <td>{p.payments}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </>
-            ) : null}
-          </section>
-
-          <section className="panel">
-            <h2 className="panel__title">Проекты</h2>
-            <p className="muted">Сводка по проектам tenant (EDR-0029).</p>
-            {projectsLoading ? (
-              <p className="muted">Загрузка…</p>
-            ) : projects ? (
-              <>
-                <dl className="kv">
-                  <div>
-                    <dt>Проекты (в окне)</dt>
-                    <dd>
-                      {projects.totals.projects} ({projects.totals.projects_created})
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Статусы</dt>
-                    <dd>
-                      {projects.totals.by_status.draft ?? 0} черновиков ·{' '}
-                      {projects.totals.by_status.in_review ?? 0} на ревью ·{' '}
-                      {projects.totals.by_status.approved ?? 0} утверждено
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>С расчётом / валидных</dt>
-                    <dd>
-                      {projects.totals.projects_with_calculation} / {projects.totals.valid_projects}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Конфигурации / расчёты / комментарии</dt>
-                    <dd>
-                      {projects.totals.configurations} / {projects.totals.calculations} /{' '}
-                      {projects.totals.comments}
-                    </dd>
-                  </div>
-                </dl>
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Проект</th>
-                      <th>Статус</th>
-                      <th>Конфигурации</th>
-                      <th>Расчёты</th>
-                      <th>Последний расчёт</th>
-                      <th>Комментарии</th>
-                      <th>Участники</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {projects.projects.map((p) => (
-                      <tr key={p.id}>
-                        <td>
-                          <strong>{p.name}</strong>
-                          <span className="muted"> · {p.status}</span>
-                        </td>
-                        <td>{p.status}</td>
-                        <td>{p.configurations}</td>
-                        <td>{p.calculations}</td>
-                        <td>
-                          {p.latest_calculation_valid === null
-                            ? '—'
-                            : p.latest_calculation_valid
-                              ? 'валиден'
-                              : 'ошибки'}
-                        </td>
-                        <td>{p.comments}</td>
-                        <td>{p.members}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </>
-            ) : null}
-          </section>
-
-          <section className="panel">
-            <h2 className="panel__title">Заказы (store)</h2>
-            <p className="muted">Лиды клиентского сайта: заказы из конструктора и консультации.</p>
-            {orders.length === 0 ? (
-              <p className="muted">Заказов пока нет.</p>
-            ) : (
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>№</th>
-                    <th>Тип</th>
-                    <th>Клиент</th>
-                    <th>Email / телефон</th>
-                    <th>Детали</th>
-                    <th>Статус</th>
-                    <th>Создан</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orders.map((o) => (
-                    <tr key={o.id}>
-                      <td>{o.id.slice(0, 8)}</td>
-                      <td>
-                        <span className={`badge ${o.kind === 'consultation' ? 'badge--warning' : ''}`}>
-                          {o.kind === 'consultation' ? 'Консультация' : 'Заказ'}
-                        </span>
-                      </td>
-                      <td>{o.contact.name}</td>
-                      <td>
-                        {o.contact.email}
-                        {o.contact.phone ? <span className="muted"> · {o.contact.phone}</span> : null}
-                      </td>
-                      <td>{orderDetails(o)}</td>
-                      <td>
-                        <select
-                          className="member__role"
-                          aria-label={`Статус заказа ${o.id}`}
-                          value={o.status}
-                          onChange={(e) => void handleOrderStatus(o.id, e.target.value)}
-                        >
-                          {orderStatusOptions.map((s) => (
-                            <option key={s.value} value={s.value}>
-                              {s.label}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>{new Date(o.created_at).toLocaleString('ru-RU')}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </section>
-
-          <section className="panel">
-            <h2 className="panel__title">Производство</h2>
-            <p className="muted">Агрегация производственных данных из снапшотов расчётов (EDR-0030).</p>
-            <div className="row--actions">
-              {(['day', 'week', 'month'] as UsageGranularity[]).map((g) => (
-                <button
-                  key={g}
-                  className={g === mfgGranularity ? 'btn btn--primary' : 'btn'}
-                  onClick={() => {
-                    setMfgGranularity(g)
-                    void loadManufacturing(g)
-                  }}
-                >
-                  {g === 'day' ? 'День' : g === 'week' ? 'Неделя' : 'Месяц'}
-                </button>
-              ))}
-            </div>
-            {mfgLoading ? (
-              <p className="muted">Загрузка…</p>
-            ) : mfg ? (
-              <>
-                <dl className="kv">
-                  <div>
-                    <dt>Расчёты / детали</dt>
-                    <dd>
-                      {mfg.totals.calculations} / {mfg.totals.parts}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>BOM / карта раскроя / листы</dt>
-                    <dd>
-                      {mfg.totals.bom_lines} / {mfg.totals.cut_items} / {mfg.totals.sheets}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Утилизация</dt>
-                    <dd>{(mfg.totals.utilization * 100).toFixed(1)}%</dd>
-                  </div>
-                  <div>
-                    <dt>Площади деталей / листов / отходы (м²)</dt>
-                    <dd>
-                      {(mfg.totals.part_area / 1e6).toFixed(2)} /{' '}
-                      {(mfg.totals.sheet_area / 1e6).toFixed(2)} /{' '}
-                      {(mfg.totals.waste_area / 1e6).toFixed(2)}
-                    </dd>
-                  </div>
-                  {Object.keys(mfg.totals.materials).length > 0 && (
-                    <div>
-                      <dt>Материалы</dt>
-                      <dd>
-                        {Object.entries(mfg.totals.materials)
-                          .map(([m, n]) => `${m}: ${n}`)
-                          .join(', ')}
-                      </dd>
-                    </div>
-                  )}
-                </dl>
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Дата</th>
-                      <th>Расчёты</th>
-                      <th>Детали</th>
-                      <th>Листы</th>
-                      <th>Утилизация</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {mfg.series.map((p) => (
-                      <tr key={p.bucket}>
-                        <td>{p.bucket}</td>
-                        <td>{p.calculations}</td>
-                        <td>{p.parts}</td>
-                        <td>{p.sheets}</td>
-                        <td>{(p.utilization * 100).toFixed(1)}%</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </>
-            ) : null}
-          </section>
-
-          <section className="panel">
-            <h2 className="panel__title">Стоимость</h2>
-            <p className="muted">Финансовые метрики из ценовых брейкдаунов расчётов (EDR-0031).</p>
-            <div className="row--actions">
-              {(['day', 'week', 'month'] as UsageGranularity[]).map((g) => (
-                <button
-                  key={g}
-                  className={g === costGranularity ? 'btn btn--primary' : 'btn'}
-                  onClick={() => {
-                    setCostGranularity(g)
-                    void loadCost(g)
-                  }}
-                >
-                  {g === 'day' ? 'День' : g === 'week' ? 'Неделя' : 'Месяц'}
-                </button>
-              ))}
-            </div>
-            {costLoading ? (
-              <p className="muted">Загрузка…</p>
-            ) : cost ? (
-              <>
-                <dl className="kv">
-                  <div>
-                    <dt>Расчёты</dt>
-                    <dd>{cost.totals.calculations}</dd>
-                  </div>
-                  <div>
-                    <dt>Себестоимость (материал/машина/труд/накладные)</dt>
-                    <dd>
-                      {cost.totals.material} / {cost.totals.machine} / {cost.totals.labor} /{' '}
-                      {cost.totals.overhead}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Итоговая цена / средняя</dt>
-                    <dd>
-                      {cost.totals.final_price} / {cost.totals.avg_final_price.toFixed(2)} {cost.totals.currency}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Прибыль / налог</dt>
-                    <dd>
-                      {cost.totals.margin} / {cost.totals.tax}
-                    </dd>
-                  </div>
-                </dl>
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Дата</th>
-                      <th>Расчёты</th>
-                      <th>Итоговая цена</th>
-                      <th>Средняя</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cost.series.map((p) => (
-                      <tr key={p.bucket}>
-                        <td>{p.bucket}</td>
-                        <td>{p.calculations}</td>
-                        <td>{p.final_price}</td>
-                        <td>{p.avg_final_price.toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </>
-            ) : null}
-          </section>
-
-          <section className="panel">
-            <h2 className="panel__title">API-ключи</h2>
-            <p className="muted">
-              Service-токены для интеграций. Токен показывается один раз при создании.
-            </p>
-            {keys.length === 0 ? (
-              <p className="muted">API-ключей пока нет.</p>
-            ) : (
-              <ul className="comment-list">
-                {keys.map((k) => (
-                  <li className="comment" key={k.id}>
-                    <div className="comment__meta">
-                      <span className="comment__author">
-                        {k.name} · {k.scopes.join(', ')}
-                      </span>
-                      <span className="comment__date">
-                        {k.revoked_at ? 'Отозван' : 'Активен'}
-                      </span>
-                    </div>
-                    <p className="comment__body">
-                      <span className="muted">
-                        создан {new Date(k.created_at).toLocaleString('ru-RU')}
-                        {k.last_used_at && ` · использован ${new Date(k.last_used_at).toLocaleString('ru-RU')}`}
-                      </span>
-                    </p>
-                    {!k.revoked_at && (
-                      <button className="btn btn--danger btn--sm" onClick={() => handleRevokeKey(k.id)}>
-                        Отозвать
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-            <form className="member-add" onSubmit={handleCreateKey}>
-              <input
-                className="field__input"
-                placeholder="Имя ключа (например, CI)"
-                value={keyName}
-                onChange={(e) => setKeyName(e.target.value)}
-                required
-              />
-              <input
-                className="field__input"
-                placeholder="Scopes через запятую (users.list)"
-                value={keyScopes}
-                onChange={(e) => setKeyScopes(e.target.value)}
-              />
-              <button className="btn btn--primary" type="submit">
-                Создать ключ
-              </button>
-            </form>
-          </section>
-
-          <section className="panel">
-            <h2 className="panel__title">Отзывы (store)</h2>
-            <p className="muted">Отзывы клиентов на лендинге. Опубликованные видны всем посетителям.</p>
-            {testimonials.length === 0 ? (
-              <p className="muted">Отзывов пока нет. Добавьте первый ниже.</p>
-            ) : (
-              <ul className="comment-list">
-                {testimonials.map((t) => (
-                  <li className="comment" key={t.id}>
-                    <div className="comment__meta">
-                      <span className="comment__author">
-                        {t.author} · {'★'.repeat(t.rating)}
-                        <span className="badge badge--sm">{t.published ? 'Опубликован' : 'Черновик'}</span>
-                      </span>
-                      <span className="comment__date">
-                        {new Date(t.created_at).toLocaleString('ru-RU')}
-                      </span>
-                    </div>
-                    <p className="comment__body">{t.text}</p>
-                    <div className="comment__actions">
-                      <button className="btn btn--sm" onClick={() => void handleToggleTestimonial(t)}>
-                        {t.published ? 'Скрыть' : 'Опубликовать'}
-                      </button>
-                      <button
-                        className="btn btn--danger btn--sm"
-                        onClick={() => void handleDeleteTestimonial(t.id)}
-                      >
-                        Удалить
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <form className="member-add" onSubmit={handleAddTestimonial}>
-              <input
-                className="field__input"
-                placeholder="Автор (имя клиента)"
-                value={tAuthor}
-                onChange={(e) => setTAuthor(e.target.value)}
-                required
-              />
-              <input
-                className="field__input"
-                placeholder="Текст отзыва"
-                value={tText}
-                onChange={(e) => setTText(e.target.value)}
-                required
-              />
-              <select
-                className="member__role"
-                aria-label="Оценка отзыва"
-                value={tRating}
-                onChange={(e) => setTRating(Number(e.target.value))}
-              >
-                <option value={5}>5 ★</option>
-                <option value={4}>4 ★</option>
-                <option value={3}>3 ★</option>
-                <option value={2}>2 ★</option>
-                <option value={1}>1 ★</option>
-              </select>
-              <button className="btn btn--primary" type="submit">
-                Добавить отзыв
-              </button>
-            </form>
-          </section>
+          <OverviewPanel overview={overview} />
+          <UsersPanel users={users} currentUserId={currentUserId} onUpdate={handleUpdateUser} />
+          <PolicyPanel policy={policy} onChange={setPolicyField} onSave={handleSavePolicy} />
+          <ExportPanel onExport={handleExport} />
+          <UsageAnalyticsPanel
+            usage={usage}
+            loading={usageLoading}
+            granularity={usageGranularity}
+            onChangeGranularity={(g) => { setUsageGranularity(g); void loadUsage(g) }}
+          />
+          <ProjectsAnalyticsPanel projects={projects} loading={projectsLoading} />
+          <OrdersPanel orders={orders} onStatusChange={handleOrderStatus} />
+          <ManufacturingPanel
+            mfg={mfg}
+            loading={mfgLoading}
+            granularity={mfgGranularity}
+            onChangeGranularity={(g) => { setMfgGranularity(g); void loadManufacturing(g) }}
+          />
+          <CostAnalyticsPanel
+            cost={cost}
+            loading={costLoading}
+            granularity={costGranularity}
+            onChangeGranularity={(g) => { setCostGranularity(g); void loadCost(g) }}
+          />
+          <ApiKeysPanel keys={keys} onRefresh={() => void load()} onError={setError} onNotice={setNotice} />
+          <TestimonialsPanel testimonials={testimonials} onRefresh={() => void load()} onError={setError} onNotice={setNotice} />
         </>
       )}
     </div>
   )
-}
-
-function configSize(o: OrderDTO): string {
-  const c = o.config as { width_mm?: number; height_mm?: number } | null | undefined
-  if (c && typeof c.width_mm === 'number' && typeof c.height_mm === 'number') {
-    return `${c.width_mm} × ${c.height_mm} мм`
-  }
-  return '—'
-}
-
-function priceOf(o: OrderDTO): string {
-  const p = o.price as { final_price_rub?: number } | null | undefined
-  if (p && typeof p.final_price_rub === 'number') return fmt.rubMajor(p.final_price_rub)
-  return '—'
-}
-
-function orderDetails(o: OrderDTO): string {
-  if (o.kind === 'consultation') {
-    const c = o.config as { question?: string } | null | undefined
-    return c && typeof c.question === 'string' ? c.question : '—'
-  }
-  const size = configSize(o)
-  const price = priceOf(o)
-  if (size === '—' && price === '—') return '—'
-  if (size === '—') return price
-  if (price === '—') return size
-  return `${size} · ${price}`
 }

@@ -89,17 +89,12 @@ func main() {
 	}
 	defer pool.Close()
 
-	// Периодический сбор метрик пула БД (каждые 30 секунд)
+	// Периодический сбор метрик пула БД (каждые 30 секунд).
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				transporthttp.CollectDBPoolMetrics(pool)
-			}
+		for range ticker.C {
+			transporthttp.CollectDBPoolMetrics(pool)
 		}
 	}()
 
@@ -120,7 +115,6 @@ func main() {
 	// STAIR_REDIS_ADDR, иначе in-memory (single-instance). Queue нужна
 	// интеграциям (ERP quote, EDR-0023) и воркеру.
 	queueBackend := newAPIQueueBackend(os.Getenv("STAIR_REDIS_ADDR"))
-	defer queueBackend.Close()
 
 	stairSvc := stair.NewService()
 	projectSvc := project.NewService(
@@ -164,6 +158,7 @@ func main() {
 	// Payments (EDR-0027 §3.3): платёжные интенты + входящий webhook PSP.
 	// maxAge=0 → верификатор использует MaxTimestampAge (5 мин).
 	var paymentProvider payments.Provider
+	var stripeWebhookService transporthttp.StripeWebhookService
 	if stripeKey := os.Getenv("STAIR_STRIPE_SECRET_KEY"); stripeKey != "" {
 		sp := paymentsinfra.NewStripeProvider(stripeKey, os.Getenv("STAIR_STRIPE_WEBHOOK_SECRET"))
 		adapter := paymentsinfra.NewStripeAdapter(sp)
@@ -175,6 +170,7 @@ func main() {
 			MaxRequests:      envInt("STAIR_CB_MAX_REQUESTS", 3),
 		})
 		paymentProvider = paymentsinfra.NewCBStripeAdapter(adapter, cb)
+		stripeWebhookService = paymentsinfra.NewStripeWebhookService(adapter, logger)
 		slog.Info("payments: using Stripe provider with circuit breaker")
 	} else {
 		paymentProvider = paymentsinfra.NewMockProvider(envString("STAIR_PAYMENT_BASE_URL", "http://localhost:8080"))
@@ -187,15 +183,6 @@ func main() {
 		0,
 	)
 	paymentWebhookSecret := os.Getenv("STAIR_PAYMENT_WEBHOOK_SECRET")
-
-	// Stripe webhook service (при наличии Stripe ключей)
-	var stripeWebhookService transporthttp.StripeWebhookService
-	if stripeKey := os.Getenv("STAIR_STRIPE_SECRET_KEY"); stripeKey != "" {
-		sp := paymentsinfra.NewStripeProvider(stripeKey, os.Getenv("STAIR_STRIPE_WEBHOOK_SECRET"))
-		adapter := paymentsinfra.NewStripeAdapter(sp)
-		stripeWebhookService = paymentsinfra.NewStripeWebhookService(adapter, logger)
-		slog.Info("stripe webhook service enabled")
-	}
 
 	// WebSocket + EventBridge для real-time updates
 	hub := ws.NewHub()
