@@ -31,26 +31,32 @@ func TestStairCalculation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("registration request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var registerResp struct {
 		Token string `json:"token"`
 	}
-	json.NewDecoder(resp.Body).Decode(&registerResp)
-	client.SetToken(registerResp.Token)
+	if err := json.NewDecoder(resp.Body).Decode(&registerResp); err != nil {
+		t.Fatal(err)
+	}
 
 	// Калькулируем лестницу (используем :calculate вместо /calculate)
 	calcInput := map[string]interface{}{
-		"width_mm":  900,
-		"height_mm": 2700,
-		"flight":    "straight",
+		"width_mm":              900,
+		"height_mm":             2700,
+		"flight":                "straight",
+		"step_height_mm":        180,
+		"stringer_thickness_mm": 50,
+		"step_thickness_mm":     40,
+		"clearance_mm":          2500,
+		"railing_height_mm":     1000,
 	}
 
 	resp2, err := client.Post("/api/v1/stairs:calculate", calcInput)
 	if err != nil {
 		t.Fatalf("calculate stair request failed: %v", err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 
 	if resp2.StatusCode != http.StatusOK {
 		body, _ := ReadBody(resp2)
@@ -107,26 +113,34 @@ func TestStairCalculationWithValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("registration request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var registerResp struct {
 		Token string `json:"token"`
 	}
-	json.NewDecoder(resp.Body).Decode(&registerResp)
-	client.SetToken(registerResp.Token)
+	if err := json.NewDecoder(resp.Body).Decode(&registerResp); err != nil {
+		t.Fatal(err)
+	}
 
 	// Калькулируем лестницу с валидацией
 	calcInput := map[string]interface{}{
-		"width_mm":  1200,
-		"height_mm": 3000,
-		"flight":    "l_shape",
+		"width_mm":              1200,
+		"height_mm":             3000,
+		"flight":                "l_shape",
+		"step_height_mm":        180,
+		"stringer_thickness_mm": 50,
+		"step_thickness_mm":     40,
+		"clearance_mm":          2500,
+		"railing_height_mm":     1000,
+		"lower_step_count":      8,
+		"landing_width_mm":      1200,
 	}
 
 	resp2, err := client.Post("/api/v1/stairs:calculate", calcInput)
 	if err != nil {
 		t.Fatalf("calculate stair request failed: %v", err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 
 	if resp2.StatusCode != http.StatusOK {
 		body, _ := ReadBody(resp2)
@@ -134,9 +148,9 @@ func TestStairCalculationWithValidation(t *testing.T) {
 	}
 
 	var calcResp struct {
-		Flight struct {
+		LShape struct {
 			StepCount int `json:"step_count"`
-		} `json:"flight"`
+		} `json:"lshape"`
 		Validation struct {
 			Valid  bool `json:"valid"`
 			Issues []struct {
@@ -152,7 +166,14 @@ func TestStairCalculationWithValidation(t *testing.T) {
 	}
 
 	// L-shape должна иметь step count > 0
-	if calcResp.Flight.StepCount == 0 {
-		t.Error("expected step count > 0")
+	if calcResp.LShape.StepCount == 0 {
+		if len(calcResp.Validation.Issues) > 0 {
+			t.Errorf("expected step count > 0, got %d (%s: %s)",
+				calcResp.LShape.StepCount,
+				calcResp.Validation.Issues[0].Code,
+				calcResp.Validation.Issues[0].Message)
+		} else {
+			t.Errorf("expected step count > 0, got %d", calcResp.LShape.StepCount)
+		}
 	}
 }

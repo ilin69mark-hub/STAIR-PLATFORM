@@ -32,6 +32,7 @@ func TestLayerIsolation(t *testing.T) {
 		if strings.HasSuffix(file, "_test.go") {
 			continue
 		}
+		// #nosec G304 -- file приходит из filepath.Glob("*.go") текущей директории теста.
 		b, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatalf("read %s: %v", file, err)
@@ -63,6 +64,7 @@ func TestEngineDependsOnDomainsOnly(t *testing.T) {
 		if strings.HasSuffix(file, "_test.go") {
 			continue
 		}
+		// #nosec G304 -- file приходит из filepath.Glob("*.go") текущей директории теста.
 		b, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)

@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -62,14 +63,14 @@ func startIdp(t *testing.T) *idpHarness {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/.well-known/openid-configuration"):
-			json.NewEncoder(w).Encode(map[string]string{
+			_ = json.NewEncoder(w).Encode(map[string]string{
 				"issuer":                 h.issuer,
 				"authorization_endpoint": h.issuer + "/authorize",
 				"token_endpoint":         h.issuer + "/token",
 				"jwks_uri":               h.issuer + "/jwks",
 			})
 		case strings.HasSuffix(r.URL.Path, "/jwks"):
-			json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{{
+			_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{{
 				"kid": kid, "kty": "RSA", "n": n, "e": e,
 			}}})
 		case strings.HasSuffix(r.URL.Path, "/token"):
@@ -78,7 +79,7 @@ func startIdp(t *testing.T) *idpHarness {
 			if id == "" {
 				id = "missing"
 			}
-			json.NewEncoder(w).Encode(map[string]string{"id_token": id})
+			_ = json.NewEncoder(w).Encode(map[string]string{"id_token": id})
 		default:
 			http.Error(w, "not found", http.StatusNotFound)
 		}
@@ -92,31 +93,21 @@ func startIdp(t *testing.T) *idpHarness {
 func (h *idpHarness) Close() { h.srv.Close() }
 
 func bigEndianBytes(e int) []byte {
-	var b [4]byte
-	b[0] = byte(e >> 24)
-	b[1] = byte(e >> 16)
-	b[2] = byte(e >> 8)
-	b[3] = byte(e)
-	// Отсекаем ведущие нули.
-	start := 0
-	for start < 3 && b[start] == 0 {
-		start++
-	}
-	return b[start:]
+	return new(big.Int).SetInt64(int64(e)).Bytes()
 }
 
 // rawToken — промежуточный захват для token endpoint (поле в harness).
 func (h *idpHarness) setRawToken(raw string) { h.rawToken = raw }
 
 // (idpHarness) idToken собирает валидный id_token для claims + nonce.
-func (h *idpHarness) idToken(t *testing.T, nonce, sub, email string) string {
+func (h *idpHarness) idToken(t *testing.T, email string) string {
 	t.Helper()
 	payload := map[string]any{
 		"iss":   h.issuer,
 		"aud":   h.clientID,
-		"sub":   sub,
+		"sub":   "sub-abc",
 		"exp":   time.Now().Add(5 * time.Minute).Unix(),
-		"nonce": nonce,
+		"nonce": "nonce-1",
 		"email": email,
 		"name":  "OIDC User",
 	}
@@ -139,7 +130,7 @@ func TestVerifyIDTokenHappyPath(t *testing.T) {
 	h := startIdp(t)
 	defer h.Close()
 	c := newClient(t, h, h.clientID)
-	raw := h.idToken(t, "nonce-1", "sub-abc", "user@example.com")
+	raw := h.idToken(t, "user@example.com")
 	claims, err := c.VerifyIDToken(context.Background(), raw, "nonce-1")
 	if err != nil {
 		t.Fatalf("VerifyIDToken: %v", err)
@@ -157,7 +148,7 @@ func TestVerifyIDTokenRejectsBadSignature(t *testing.T) {
 	defer h.Close()
 	c := newClient(t, h, h.clientID)
 	// Подпись повреждена.
-	raw := h.idToken(t, "nonce-1", "sub-abc", "user@example.com")
+	raw := h.idToken(t, "user@example.com")
 	parts := strings.Split(raw, ".")
 	raw = parts[0] + "." + parts[1] + "." + base64.RawURLEncoding.EncodeToString([]byte{1, 2, 3})
 	if _, err := c.VerifyIDToken(context.Background(), raw, "nonce-1"); err == nil {
@@ -169,7 +160,7 @@ func TestVerifyIDTokenRejectsNonce(t *testing.T) {
 	h := startIdp(t)
 	defer h.Close()
 	c := newClient(t, h, h.clientID)
-	raw := h.idToken(t, "nonce-1", "sub-abc", "user@example.com")
+	raw := h.idToken(t, "user@example.com")
 	if _, err := c.VerifyIDToken(context.Background(), raw, "wrong-nonce"); err == nil {
 		t.Fatal("expected nonce mismatch")
 	}
@@ -180,7 +171,7 @@ func TestVerifyIDTokenRejectsAudience(t *testing.T) {
 	defer h.Close()
 	// Клиент с другим client_id.
 	c := newClient(t, h, "other-client")
-	raw := h.idToken(t, "nonce-1", "sub-abc", "user@example.com")
+	raw := h.idToken(t, "user@example.com")
 	if _, err := c.VerifyIDToken(context.Background(), raw, "nonce-1"); err == nil {
 		t.Fatal("expected audience mismatch")
 	}
@@ -190,7 +181,7 @@ func TestExchangeGetsIDToken(t *testing.T) {
 	h := startIdp(t)
 	defer h.Close()
 	c := newClient(t, h, h.clientID)
-	raw := h.idToken(t, "nonce-1", "sub-abc", "sso@example.com")
+	raw := h.idToken(t, "sso@example.com")
 	h.setRawToken(raw)
 	got, err := c.Exchange(context.Background(), "auth-code", "pkce-verifier")
 	if err != nil {

@@ -174,15 +174,6 @@ func TestBuildSpiralFlightDirection(t *testing.T) {
 
 // --- CONF-RAILING: декоративные перила только в preview mesh ---
 
-// countDecomposedRoles возвращает количество тел по ролям в Compound.
-func countDecomposedRoles(model *kerngeo.Compound) map[string]int {
-	m := map[string]int{}
-	for _, s := range model.Solids() {
-		m[s.Role()]++
-	}
-	return m
-}
-
 // boundingBoxOf строит габарит набора тел (для декоративных перил).
 func boundingBoxOf(solids []*kerngeo.Solid) kerngeo.BBox {
 	var pts []kerngeo.Point3

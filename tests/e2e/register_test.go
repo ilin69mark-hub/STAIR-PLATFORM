@@ -33,7 +33,7 @@ func TestUserRegistration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("registration request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := ReadBody(resp)
@@ -62,15 +62,12 @@ func TestUserRegistration(t *testing.T) {
 		t.Error("expected token")
 	}
 
-	// Сохраняем token для后续 тестов
-	client.SetToken(registerResp.Token)
-
 	// Проверяем что можем получить профиль
 	resp2, err := client.Get("/api/v1/auth/me")
 	if err != nil {
 		t.Fatalf("get profile request failed: %v", err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 
 	if resp2.StatusCode != http.StatusOK {
 		body, _ := ReadBody(resp2)
@@ -103,7 +100,7 @@ func TestUserLogin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("registration request failed: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := ReadBody(resp)
@@ -120,7 +117,7 @@ func TestUserLogin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("login request failed: %v", err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 
 	if resp2.StatusCode != http.StatusOK {
 		body, _ := ReadBody(resp2)

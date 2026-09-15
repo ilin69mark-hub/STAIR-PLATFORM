@@ -159,7 +159,7 @@ func TestByUser_Authenticated(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "192.168.1.1:12345"
 	ctx := req.Context()
-	ctx = context.WithValue(ctx, "user_id", "user-123")
+	ctx = context.WithValue(ctx, ctxUserID, "user-123")
 	req = req.WithContext(ctx)
 
 	result := ByUser(req)
@@ -306,7 +306,7 @@ func TestByUserEndpoint_Authenticated(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
 	req.RemoteAddr = "192.168.1.1:12345"
 	ctx := req.Context()
-	ctx = context.WithValue(ctx, "user_id", "user-123")
+	ctx = context.WithValue(ctx, ctxUserID, "user-123")
 	req = req.WithContext(ctx)
 
 	result := ByUserEndpoint(req)

@@ -146,7 +146,7 @@ func winderCountInputError(nw int) *InputError {
 
 // upperStepInputError — верхний марш не содержит ступеней после разбивки
 // (n1 + nw съедают все ступени; нужно n2 ≥ 1).
-func upperStepInputError(n2, n, nw int) *InputError {
+func upperStepInputError(n, nw int) *InputError {
 	return inputError(
 		constraint.GEO_LOWER_STEP, "Нижних/поворотных ступеней",
 		"Верхний марш не содержит ступеней",

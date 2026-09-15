@@ -426,7 +426,7 @@ export function GeometryViewer({
         container.removeChild(renderer.domElement)
       }
     }
-  }, [mesh, roomMesh])
+  }, [mesh, roomMesh, railingMesh, approachSpace, roomWidth, roomLength, direction, stairTop, flight, stepThickness])
 
   return (
     <div className="viewer">

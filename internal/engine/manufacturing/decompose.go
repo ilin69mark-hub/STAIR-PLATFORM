@@ -193,6 +193,8 @@ func classify(dims [3]float64, role string) (dommfg.PartKind, float64, float64, 
 func partNumber(kind dommfg.PartKind, seq int) dommfg.PartNumber {
 	prefix := "STR"
 	switch kind {
+	case dommfg.PartStringer:
+		prefix = "STR"
 	case dommfg.PartTread:
 		prefix = "TRD"
 	case dommfg.PartRiser:

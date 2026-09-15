@@ -182,7 +182,9 @@ func TestSearchStairs(t *testing.T) {
 			Height:     2700,
 			FlightType: "straight",
 		}
-		resolver.Mutation().CreateStairConfiguration(context.Background(), input)
+		if _, err := resolver.Mutation().CreateStairConfiguration(context.Background(), input); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
@@ -223,7 +225,9 @@ func TestConfigurationDocuments(t *testing.T) {
 	created, _ := resolver.Mutation().CreateStairConfiguration(context.Background(), input)
 
 	// Генерируем документы
-	resolver.Mutation().GenerateDocuments(context.Background(), created.ID, []string{"technical_spec"})
+	if _, err := resolver.Mutation().GenerateDocuments(context.Background(), created.ID, []string{"technical_spec"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	// Получаем документы
 	docs, err := resolver.Query().ConfigurationDocuments(context.Background(), created.ID)

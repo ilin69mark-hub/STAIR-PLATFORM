@@ -8,7 +8,7 @@ on:
 
 env:
   GO_VERSION: '1.26'
-  NODE_VERSION: '20'
+  NODE_VERSION: '22'
 
 jobs:
   lint:
@@ -39,14 +39,17 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Check layer boundaries
+      - name: Check layer boundaries (domain must not depend on outer layers)
         run: |
-          echo "Checking domain → infrastructure imports (forbidden)..."
-          if go list -f '{{.ImportPath}}' ./internal/infrastructure/... | xargs grep -l "stairplatform/internal/domain" 2>/dev/null; then
-            echo "ERROR: Infrastructure packages should not import domain directly"
+          echo "Checking domain → outer layers imports (forbidden)..."
+          VIOLATIONS=$(go list -f '{{.ImportPath}} {{join .Imports " "}}' ./internal/domain/... \
+            | grep -E " (stairplatform/internal/(application|engine|transport|infrastructure|geometry))" || true)
+          if [ -n "$VIOLATIONS" ]; then
+            echo "ERROR: Domain packages must not import outer layers (ADR-0006):"
+            echo "$VIOLATIONS"
             exit 1
           fi
-          echo "OK: No forbidden imports found"
+          echo "OK: No forbidden domain imports found"
 
       - name: Check for cyclic dependencies
         run: |

@@ -92,7 +92,9 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
   const setRate = (key: keyof RatesForm, value: string) =>
     setRates((r) => ({ ...r, [key]: value }))
 
-  const handleCalculate = async () => {
+  // handleCalculate — отправляет расчёт и сохраняет результат в проекте.
+  // Возвращает true при успешном сохранении.
+  const handleCalculate = async (): Promise<boolean> => {
     setBusy(true)
     setError(null)
     setOptimizeMsg(null)
@@ -104,8 +106,10 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
       setCalculation(calc)
       setSavedAt(new Date())
       onChanged()
+      return true
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Не удалось выполнить расчёт')
+      return false
     } finally {
       setBusy(false)
     }
@@ -200,10 +204,13 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
   }
 
   // applyPreview — зафиксировать выбранный вариант как сохранённый расчёт.
+  // Превью очищаем только ПОСЛЕ успешного расчёта: при ошибке пользователь
+  // должен сохранить текущий превью-результат.
   const applyPreview = async () => {
+    const ok = await handleCalculate()
+    if (!ok) return
     setPreviewCalculation(null)
     setActiveVariantId(undefined)
-    await handleCalculate()
   }
 
   const closePreview = () => {

@@ -103,27 +103,27 @@ func (r *Registry) Write(w io.Writer) error {
 	names := sortedKeys(r.counters)
 	for _, n := range names {
 		cv := r.counters[n]
-		fmt.Fprintf(bw, "# HELP %s %s\n", cv.name, r.counterHelp[n])
-		fmt.Fprintf(bw, "# TYPE %s counter\n", cv.name)
+		_, _ = fmt.Fprintf(bw, "# HELP %s %s\n", cv.name, r.counterHelp[n])
+		_, _ = fmt.Fprintf(bw, "# TYPE %s counter\n", cv.name)
 		cv.mu.RLock()
 		for _, key := range sortedKeys(cv.vecs) {
 			c := cv.vecs[key]
-			fmt.Fprintf(bw, "%s%s %d\n", cv.name, labelSelector(cv.labels, key), c.v.Load())
+			_, _ = fmt.Fprintf(bw, "%s%s %d\n", cv.name, labelSelector(cv.labels, key), c.v.Load())
 		}
 		cv.mu.RUnlock()
 	}
 
 	for _, n := range sortedKeys(r.gauges) {
 		g := r.gauges[n]
-		fmt.Fprintf(bw, "# HELP %s %s\n", n, r.gaugeHelp[n])
-		fmt.Fprintf(bw, "# TYPE %s gauge\n", n)
-		fmt.Fprintf(bw, "%s %s\n", n, strconv.FormatFloat(g.Value(), 'g', -1, 64))
+		_, _ = fmt.Fprintf(bw, "# HELP %s %s\n", n, r.gaugeHelp[n])
+		_, _ = fmt.Fprintf(bw, "# TYPE %s gauge\n", n)
+		_, _ = fmt.Fprintf(bw, "%s %s\n", n, strconv.FormatFloat(g.Value(), 'g', -1, 64))
 	}
 
 	for _, n := range sortedKeys(r.histograms) {
 		hv := r.histograms[n]
-		fmt.Fprintf(bw, "# HELP %s %s\n", hv.name, r.histogramHelp[n])
-		fmt.Fprintf(bw, "# TYPE %s histogram\n", hv.name)
+		_, _ = fmt.Fprintf(bw, "# HELP %s %s\n", hv.name, r.histogramHelp[n])
+		_, _ = fmt.Fprintf(bw, "# TYPE %s histogram\n", hv.name)
 		hv.mu.RLock()
 		for _, key := range sortedKeys(hv.vecs) {
 			h := hv.vecs[key]
@@ -134,15 +134,15 @@ func (r *Registry) Write(w io.Writer) error {
 				n := h.bucketCounts[ub]
 				h.mu.RUnlock()
 				cumul += n
-				fmt.Fprintf(bw, "%s_bucket%s le=\"%s\" %d\n", hv.name, sel, formatBound(ub), cumul)
+				_, _ = fmt.Fprintf(bw, "%s_bucket%s le=\"%s\" %d\n", hv.name, sel, formatBound(ub), cumul)
 			}
 			h.mu.RLock()
 			total := h.count
 			sum := h.sum
 			h.mu.RUnlock()
-			fmt.Fprintf(bw, "%s_bucket%s le=%q %d\n", hv.name, sel, "+Inf", total)
-			fmt.Fprintf(bw, "%s_sum%s %s\n", hv.name, sel, strconv.FormatFloat(sum, 'g', -1, 64))
-			fmt.Fprintf(bw, "%s_count%s %d\n", hv.name, sel, total)
+			_, _ = fmt.Fprintf(bw, "%s_bucket%s le=%q %d\n", hv.name, sel, "+Inf", total)
+			_, _ = fmt.Fprintf(bw, "%s_sum%s %s\n", hv.name, sel, strconv.FormatFloat(sum, 'g', -1, 64))
+			_, _ = fmt.Fprintf(bw, "%s_count%s %d\n", hv.name, sel, total)
 		}
 		hv.mu.RUnlock()
 	}

@@ -134,5 +134,7 @@ type busAdapter struct {
 }
 
 func (b *busAdapter) Publish(ctx context.Context, event domevents.Event) {
-	b.bus.Publish(ctx, event)
+	if err := b.bus.Publish(ctx, event); err != nil {
+		panic(err)
+	}
 }

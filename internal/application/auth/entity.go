@@ -68,6 +68,8 @@ func (r Role) Permissions() []Permission {
 			PermissionAnalyticsRead, PermissionOrdersList, PermissionOrdersManage,
 			PermissionTestimonialsList, PermissionTestimonialsManage,
 		}
+	case RoleUser:
+		return nil
 	default:
 		return nil
 	}

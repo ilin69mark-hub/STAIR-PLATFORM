@@ -75,8 +75,8 @@ func TestBezierCreation(t *testing.T) {
 		P2: Point3{X: 2, Y: 1, Z: 0},
 		P3: Point3{X: 3, Y: 0, Z: 0},
 	}
-	if b == nil {
-		t.Fatal("expected non-nil bezier")
+	if len(ValidateBezier(b)) != 0 {
+		t.Fatal("expected valid bezier")
 	}
 }
 

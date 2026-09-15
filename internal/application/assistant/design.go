@@ -44,7 +44,9 @@ func (p DesignPriority) target() stair.OptimizeTarget {
 		return stair.TargetMaterial
 	case PriorityPrice:
 		return stair.TargetPrice
-	default: // comfort
+	case PriorityComfort: // comfort
+		return stair.TargetPrice
+	default:
 		return stair.TargetPrice
 	}
 }
@@ -78,6 +80,8 @@ var flightOrders = []engineering.FlightType{
 // flightTitle — русское название типа марша.
 func flightTitle(f engineering.FlightType) string {
 	switch f {
+	case engineering.FlightStraight:
+		return "прямой марш"
 	case engineering.FlightLShape:
 		return "L-образный марш (с площадкой)"
 	case engineering.FlightUShape:
@@ -271,6 +275,9 @@ func buildTradeoffs(cands []candidate, best candidate, prio DesignPriority) []st
 		case PriorityComfort:
 			out = append(out, fmt.Sprintf("%s: шаг комфорта %g мм (норматив 600–640 мм)",
 				flightTitle(c.flight), c.comfort))
+		case PriorityPrice, PriorityCost, PriorityMaterial:
+			out = append(out, fmt.Sprintf("%s: %g %s",
+				flightTitle(c.flight), c.price, moneyCodeOf(c)))
 		default:
 			out = append(out, fmt.Sprintf("%s: %g %s",
 				flightTitle(c.flight), c.price, moneyCodeOf(c)))
@@ -374,8 +381,8 @@ func buildDesignIntent(d DesignRequest, prio DesignPriority, cands []candidate, 
 		if c.flight == best.flight {
 			mark = "*"
 		}
-		b.WriteString(fmt.Sprintf(" %s %s: цена=%g, комфорт=%g\n",
-			mark, flightTitle(c.flight), c.price, c.comfort))
+		fmt.Fprintf(&b, " %s %s: цена=%g, комфорт=%g\n",
+			mark, flightTitle(c.flight), c.price, c.comfort)
 	}
 	if len(notes) > 0 {
 		b.WriteString("Примечания: " + strings.Join(notes, "; ") + "\n")

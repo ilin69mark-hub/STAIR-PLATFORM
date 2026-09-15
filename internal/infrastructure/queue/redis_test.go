@@ -25,7 +25,7 @@ func testRedisClient(t *testing.T) *redis.Client {
 // TestRedisQueueRoundTrip: LPUSH/BRPOP FIFO через Redis List.
 func TestRedisQueueRoundTrip(t *testing.T) {
 	client := testRedisClient(t)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	key := "test-jobq-" + time.Now().UTC().Format("150405.000000000")
 	q := NewRedisQueue(client, key, time.Second)

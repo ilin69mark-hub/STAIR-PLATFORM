@@ -4,16 +4,20 @@ import { expect, test } from '@playwright/test'
 // Требует живого API на :8080 (docker compose) с существующим user@user.ru.
 
 const EMAIL = process.env.STORE_E2E_EMAIL ?? 'user@user.ru'
-const PASSWORD = process.env.STORE_E2E_PASSWORD ?? 'user123'
+// Пароль регистрируется с учётом политики API (минимум 8 символов).
+const PASSWORD = process.env.STORE_E2E_PASSWORD ?? 'user1234'
 
 // Поля формы не предзаполнены — заполняем валидные значения перед расчётом.
+// Высота ступени и шаг комфорта скрыты (рассчитываются автоматически);
+// габариты помещения заполняем, чтобы расчёт шёл сразу без запроса.
 async function fillForm(page: import('@playwright/test').Page) {
   await page.getByLabel('Ширина марша (мм)').fill('900')
   await page.getByLabel('Высота (мм)').fill('2700')
-  await page.getByLabel('Высота ступени (мм)').fill('180')
-  await page.getByLabel('Толщина ступени (мм)').fill('40')
+  await page.getByLabel('Толщина ступени (мм)').fill('6')
   await page.getByLabel('Просвет (мм)').fill('2000')
   await page.getByLabel('Высота перил (мм)').fill('900')
+  await page.getByLabel('Ширина помещения (мм)').fill('3000')
+  await page.getByLabel('Длина помещения (мм)').fill('4200')
 }
 
 test('ландинг → конструктор → анонимный расчёт', async ({ page }) => {

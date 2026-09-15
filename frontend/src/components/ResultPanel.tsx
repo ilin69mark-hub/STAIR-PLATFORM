@@ -50,12 +50,12 @@ export function ResultPanel({ snapshot, onApplyVariation, activeVariantId }: Pro
             <UShapePanel snapshot={s} />
           ) : s.spiral ? (
             <SpiralPanel snapshot={s} />
-          ) : (
+          ) : s.flight ? (
             <FlightPanel snapshot={s} />
-          )}
-          <GeometryPanel snapshot={s} />
-          <ManufacturingPanel snapshot={s} />
-          <PricingPanel snapshot={s} pricing={s.pricing!} />
+          ) : null}
+          {s.measurement && <GeometryPanel snapshot={s} />}
+          {s.manufacturing && <ManufacturingPanel snapshot={s} />}
+          {s.pricing && <PricingPanel snapshot={s} pricing={s.pricing} />}
         </>
       )}
     </div>
@@ -181,9 +181,9 @@ function ValidationPanel({
       {firstSugg && (
         <h3 className="panel__sub">Подходящие варианты конфигурации</h3>
       )}
-      {firstSugg && (
+      {firstSugg && firstSugg.Suggestions && (
         <div className="issue-suggestions">
-          {firstSugg.Suggestions!.map((s, si) => (
+          {firstSugg.Suggestions.map((s, si) => (
             <div className="suggestion" key={si}>
               <span>
                 {s.StepCount} ступ. · h {fmt.mm(s.StepHeightMm)} · проступь{' '}
@@ -193,11 +193,11 @@ function ValidationPanel({
           ))}
         </div>
       )}
-      {firstVar && onApplyVariation && (
+      {firstVar && firstVar.Variations && onApplyVariation && (
         <div className="variations">
           <h3 className="panel__sub">Варианты решения (выберите подходящий)</h3>
           <VariationPicker
-            variations={firstVar.Variations!}
+            variations={firstVar.Variations}
             onApply={onApplyVariation}
             activeId={activeVariantId}
           />
@@ -208,7 +208,8 @@ function ValidationPanel({
 }
 
 function FlightPanel({ snapshot }: { snapshot: Snapshot }) {
-  const f = snapshot.flight!
+  const f = snapshot.flight
+  if (!f) return null
   return (
     <section className="panel">
       <h2 className="panel__title">Марш (Solver)</h2>
@@ -246,7 +247,8 @@ function FlightPanel({ snapshot }: { snapshot: Snapshot }) {
 // LShapePanel — результат Solver L-образной лестницы (EDR-0005):
 // два марша, площадка между ними на высоте H1.
 function LShapePanel({ snapshot }: { snapshot: Snapshot }) {
-  const l = snapshot.lshape!
+  const l = snapshot.lshape
+  if (!l) return null
   return (
     <section className="panel">
       <h2 className="panel__title">L-образный марш (Solver)</h2>
@@ -319,7 +321,8 @@ function LShapePanel({ snapshot }: { snapshot: Snapshot }) {
 // UShapePanel — результат Solver П-образной лестницы (EDR-0006):
 // два параллельных марша, площадка между ними на высоте H1.
 function UShapePanel({ snapshot }: { snapshot: Snapshot }) {
-  const u = snapshot.ushape!
+  const u = snapshot.ushape
+  if (!u) return null
   return (
     <section className="panel">
       <h2 className="panel__title">П-образный марш (Solver)</h2>
@@ -379,7 +382,8 @@ function UShapePanel({ snapshot }: { snapshot: Snapshot }) {
 // SpiralPanel — результат Solver спиральной лестницы с центральной колонной
 // (EDR-0007): веерные проступи вокруг оси Z, полный поворот 360°.
 function SpiralPanel({ snapshot }: { snapshot: Snapshot }) {
-  const sp = snapshot.spiral!
+  const sp = snapshot.spiral
+  if (!sp) return null
   return (
     <section className="panel">
       <h2 className="panel__title">Спиральный марш (Solver)</h2>
@@ -435,7 +439,8 @@ function SpiralPanel({ snapshot }: { snapshot: Snapshot }) {
 }
 
 function GeometryPanel({ snapshot }: { snapshot: Snapshot }) {
-  const m = snapshot.measurement!
+  const m = snapshot.measurement
+  if (!m) return null
   const sch = schematicOf(snapshot)
   // Фиолетовая линия верха марша на 3D (прямой марш): суммарный подъём и ширина.
   const stairTop =
@@ -494,7 +499,8 @@ function GeometryPanel({ snapshot }: { snapshot: Snapshot }) {
 }
 
 function ManufacturingPanel({ snapshot }: { snapshot: Snapshot }) {
-  const mfg = snapshot.manufacturing!
+  const mfg = snapshot.manufacturing
+  if (!mfg) return null
   const nesting = mfg.Nesting
 
   return (

@@ -304,18 +304,10 @@ func limitRate(l RateLimiter, next http.Handler) http.Handler {
 // X-Forwarded-For не используется, чтобы rate limiting нельзя было
 // обойти через поддельный заголовок (SEC).
 func clientIP(r *http.Request) string {
-	host, _, err := splitHostPort(r.RemoteAddr)
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
+		// Если нет порта — это просто host.
 		return r.RemoteAddr
 	}
 	return host
-}
-
-func splitHostPort(addr string) (string, string, error) {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		// Если нет порта — это просто host.
-		return addr, "", nil
-	}
-	return host, port, nil
 }

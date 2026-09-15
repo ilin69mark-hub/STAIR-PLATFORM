@@ -89,9 +89,10 @@ type webhookPayload struct {
 	Currency    string `json:"currency"`
 }
 
-// HandleWebhook верифицирует подпись входящего webhook, находит интент по
-// (provider, checkout_id), проверяет сумму/валюту, переводит статус и пишет
-// событие в журнал. Возвращает созданное событие.
+// HandleWebhook верифицирует подпись входящего webhook, затем вызывает
+// common webhook-конвейер: находит интент по (provider, checkout_id),
+// проверяет сумму/валюту, переводит статус и пишет событие в журнал.
+// Возвращает созданное событие.
 func (s *Service) HandleWebhook(ctx context.Context, secret, tsUnix, sigValue string, body []byte) (*PaymentEvent, error) {
 	if s.verifier == nil {
 		return nil, fmt.Errorf("%w: verifier not configured", ErrInvalid)
@@ -108,30 +109,49 @@ func (s *Service) HandleWebhook(ctx context.Context, secret, tsUnix, sigValue st
 		return nil, fmt.Errorf("%w: provider and checkout_id required", ErrInvalid)
 	}
 
-	intent, err := s.repo.GetIntentByProviderCheckout(ctx, ev.Provider, ev.CheckoutID)
+	return s.applyVerifiedEvent(ctx, ev.Provider, ev.CheckoutID, ev.Status, ev.AmountMinor, ev.Currency, body)
+}
+
+// ApplyVerifiedEvent применяет событие PSP, подпись которого уже проверена
+// (Stripe-вебхук: sub-специфичная подпись проверяется в инфраструктуре до
+// вызова). Реализация интерфейса IntentProcessor (infrastructure/payments).
+// Общая логика с HandleWebhook — переход статуса и журнал событий.
+func (s *Service) ApplyVerifiedEvent(ctx context.Context, provider, checkoutID, status string, amountMinor int64, currency string, raw []byte) error {
+	_, err := s.applyVerifiedEvent(ctx, provider, checkoutID, status, amountMinor, currency, raw)
+	return err
+}
+
+// applyVerifiedEvent — общий webhook-конвейер (EDR-0027 §3.4): интент по
+// (provider, checkout_id), проверка суммы/валюты, смена статуса, журнал.
+func (s *Service) applyVerifiedEvent(ctx context.Context, provider, checkoutID, status string, amountMinor int64, currency string, body []byte) (*PaymentEvent, error) {
+	if provider == "" || checkoutID == "" {
+		return nil, fmt.Errorf("%w: provider and checkout_id required", ErrInvalid)
+	}
+
+	intent, err := s.repo.GetIntentByProviderCheckout(ctx, provider, checkoutID)
 	if err != nil {
 		return nil, err // ErrNotFound прокидывается.
 	}
 
 	// Проверяем сумму/валюту события против созданного интента.
-	if ev.AmountMinor != intent.AmountMinor || !strings.EqualFold(ev.Currency, intent.Currency) {
+	if amountMinor != intent.AmountMinor || !strings.EqualFold(currency, intent.Currency) {
 		return nil, fmt.Errorf("%w: amount mismatch", ErrInvalid)
 	}
 
-	status, eventType, err := resolveStatus(ev.Status)
+	newStatus, eventType, err := resolveStatus(status)
 	if err != nil {
 		return nil, err
 	}
 
 	now := s.now().UTC()
 	var paidAt *time.Time
-	if status == StatusPaid {
+	if newStatus == StatusPaid {
 		paidAt = &now
 	}
-	if err := s.repo.UpdateStatus(ctx, intent.TenantID, intent.ID, status, paidAt); err != nil {
+	if err := s.repo.UpdateStatus(ctx, intent.TenantID, intent.ID, newStatus, paidAt); err != nil {
 		return nil, err
 	}
-	intent.Status = status
+	intent.Status = newStatus
 	intent.PaidAt = paidAt
 
 	event := &PaymentEvent{

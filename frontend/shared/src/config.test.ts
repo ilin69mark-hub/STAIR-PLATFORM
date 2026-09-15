@@ -156,12 +156,15 @@ describe('validateForm', () => {
   })
 
   it('пределы толщины ступени зависят от материала', () => {
-    expect(validateForm({ ...defaultConfig, stepThicknessMM: '61' }).stepThicknessMM).toBe(
-      'Не более 60',
+    expect(validateForm({ ...defaultConfig, stepThicknessMM: '9' }).stepThicknessMM).toBe(
+      'Не более 8',
     )
-    expect(validateForm({ ...defaultConfig, stepThicknessMM: '1' }).stepThicknessMM).toBe(
-      'Не менее 2',
+    expect(validateForm({ ...defaultConfig, stepThicknessMM: '2' }).stepThicknessMM).toBe(
+      'Не менее 3',
     )
+    const alum = { ...defaultConfig, material: 'ALUM-5083' as const }
+    expect(validateForm({ ...alum, stepThicknessMM: '61' }).stepThicknessMM).toBe('Не более 60')
+    expect(validateForm({ ...alum, stepThicknessMM: '1' }).stepThicknessMM).toBe('Не менее 2')
     const wood = { ...defaultConfig, material: 'WOOD-OAK' as const }
     expect(validateForm({ ...wood, stepThicknessMM: '15' }).stepThicknessMM).toBe('Не менее 20')
     expect(validateForm({ ...wood, stepThicknessMM: '61' }).stepThicknessMM).toBe('Не более 60')
@@ -197,7 +200,7 @@ describe('rulesFor', () => {
   })
 
   it('толщина ступени и высота берутся из предела материала', () => {
-    expect(rulesFor('stepThicknessMM', 'STEEL-S235')).toEqual({ min: 2, max: 60 })
+    expect(rulesFor('stepThicknessMM', 'STEEL-S235')).toEqual({ min: 3, max: 8 })
     expect(rulesFor('stepThicknessMM', 'ALUM-5083')).toEqual({ min: 2, max: 60 })
     expect(rulesFor('stepThicknessMM', 'WOOD-OAK')).toEqual({ min: 20, max: 60 })
     expect(rulesFor('heightMM', 'STEEL-S235').max).toBe(6000)

@@ -235,7 +235,8 @@ func handleMe() http.HandlerFunc {
 // смог бы прочитать session-токен (нарушение httpOnly).
 func setSessionCookies(w http.ResponseWriter, token string) {
 	setSessionCookie(w, token)
-	http.SetCookie(w, &http.Cookie{
+	// CSRF-cookie намеренно доступен JS (double-submit) и не является session-токеном.
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: HttpOnly=false намеренно; Secure/sameSite заданы
 		Name:     csrfCookieName,
 		Value:    newCSRF(),
 		Path:     "/",
@@ -248,7 +249,7 @@ func setSessionCookies(w http.ResponseWriter, token string) {
 // setSessionCookie выставляет только session-cookie (httpOnly). Используется
 // при ротации сессии (EDR-0014 §3.1), когда csrf-cookie менять не нужно.
 func setSessionCookie(w http.ResponseWriter, token string) {
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure управляется STAIR_COOKIE_SECURE
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
@@ -261,7 +262,15 @@ func setSessionCookie(w http.ResponseWriter, token string) {
 
 func clearSessionCookies(w http.ResponseWriter) {
 	for _, name := range []string{sessionCookieName, csrfCookieName} {
-		http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: "/", MaxAge: -1})
+		http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure управляется STAIR_COOKIE_SECURE
+			Name:     name,
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   cookieSecure,
+		})
 	}
 }
 

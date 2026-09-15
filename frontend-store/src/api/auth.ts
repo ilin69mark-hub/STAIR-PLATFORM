@@ -15,9 +15,16 @@ export interface LoginRequest {
   password: string
 }
 
+interface AuthResponse {
+  user: User
+  token: string
+}
+
 export const authApi = {
-  register: (body: RegisterRequest) => post<User>('/api/v1/auth/register', body),
-  login: (body: LoginRequest) => post<User>('/api/v1/auth/login', body),
+  register: (body: RegisterRequest) =>
+    post<AuthResponse>('/api/v1/auth/register', body).then((r) => r.user),
+  login: (body: LoginRequest) =>
+    post<AuthResponse>('/api/v1/auth/login', body).then((r) => r.user),
   logout: () => post<undefined>('/api/v1/auth/logout', {}),
   me: () => get<User>('/api/v1/auth/me'),
 }

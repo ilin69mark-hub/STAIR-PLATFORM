@@ -69,9 +69,9 @@ coverage-check:
 migrate:
 	$(GO) run ./cmd/migrate -dir migrations -database "$(STAIR_DATABASE_URL)"
 
-## seed demo data
+## seed demo data (own version table: schema_migrations_seeds)
 seed:
-	$(GO) run ./cmd/migrate -dir migrations/seeds -database "$(STAIR_DATABASE_URL)"
+	$(GO) run ./cmd/migrate -dir migrations/seeds -table schema_migrations_seeds -database "$(STAIR_DATABASE_URL)"
 
 ## lint
 lint:

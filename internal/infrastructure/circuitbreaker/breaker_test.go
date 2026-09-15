@@ -34,7 +34,7 @@ func TestCircuitBreakerOpensOnFailures(t *testing.T) {
 
 	// Fail 3 times
 	for i := 0; i < 3; i++ {
-		cb.Execute(func() error { return errors.New("fail") })
+		_ = cb.Execute(func() error { return errors.New("fail") })
 	}
 
 	if cb.State() != StateOpen {
@@ -55,8 +55,8 @@ func TestCircuitBreakerHalfOpenAfterTimeout(t *testing.T) {
 	})
 
 	// Open the circuit
-	cb.Execute(func() error { return errors.New("fail") })
-	cb.Execute(func() error { return errors.New("fail") })
+	_ = cb.Execute(func() error { return errors.New("fail") })
+	_ = cb.Execute(func() error { return errors.New("fail") })
 
 	if cb.State() != StateOpen {
 		t.Fatalf("expected open, got %v", cb.State())
@@ -79,14 +79,14 @@ func TestCircuitBreakerClosesFromHalfOpen(t *testing.T) {
 	})
 
 	// Open
-	cb.Execute(func() error { return errors.New("fail") })
-	cb.Execute(func() error { return errors.New("fail") })
+	_ = cb.Execute(func() error { return errors.New("fail") })
+	_ = cb.Execute(func() error { return errors.New("fail") })
 
 	time.Sleep(100 * time.Millisecond)
 
 	// Succeed from half-open
-	cb.Execute(func() error { return nil })
-	cb.Execute(func() error { return nil })
+	if err := cb.Execute(func() error { return nil }); err != nil { t.Fatal(err) }
+	if err := cb.Execute(func() error { return nil }); err != nil { t.Fatal(err) }
 
 	if cb.State() != StateClosed {
 		t.Fatalf("expected closed, got %v", cb.State())
@@ -101,13 +101,13 @@ func TestCircuitBreakerOpensFromHalfOpen(t *testing.T) {
 	})
 
 	// Open
-	cb.Execute(func() error { return errors.New("fail") })
-	cb.Execute(func() error { return errors.New("fail") })
+	_ = cb.Execute(func() error { return errors.New("fail") })
+	_ = cb.Execute(func() error { return errors.New("fail") })
 
 	time.Sleep(100 * time.Millisecond)
 
 	// Fail from half-open
-	cb.Execute(func() error { return errors.New("fail again") })
+	_ = cb.Execute(func() error { return errors.New("fail again") })
 
 	if cb.State() != StateOpen {
 		t.Fatalf("expected open, got %v", cb.State())
@@ -123,8 +123,8 @@ func TestCircuitBreakerHalfOpenMaxRequests(t *testing.T) {
 	})
 
 	// Open
-	cb.Execute(func() error { return errors.New("fail") })
-	cb.Execute(func() error { return errors.New("fail") })
+	_ = cb.Execute(func() error { return errors.New("fail") })
+	_ = cb.Execute(func() error { return errors.New("fail") })
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -163,8 +163,8 @@ func TestCircuitBreakerOnStateChange(t *testing.T) {
 		called.Store(true)
 	})
 
-	cb.Execute(func() error { return errors.New("fail") })
-	cb.Execute(func() error { return errors.New("fail") })
+	_ = cb.Execute(func() error { return errors.New("fail") })
+	_ = cb.Execute(func() error { return errors.New("fail") })
 
 	if !called.Load() {
 		t.Fatal("expected state change callback")
@@ -182,10 +182,12 @@ func TestCircuitBreakerConcurrent(t *testing.T) {
 
 	var failures atomic.Int32
 	for i := 0; i < 100; i++ {
-		go cb.Execute(func() error {
-			failures.Add(1)
-			return errors.New("fail")
-		})
+		go func() {
+			_ = cb.Execute(func() error {
+				failures.Add(1)
+				return errors.New("fail")
+			})
+		}()
 	}
 
 	time.Sleep(100 * time.Millisecond)

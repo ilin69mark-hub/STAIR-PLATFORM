@@ -611,7 +611,7 @@ func toPricing(b *domprc.PriceBreakdown) pricingDTO {
 
 // ---- converters: request → application ----
 
-func toConfig(req calculateRequest) (stair.Config, error) {
+func toConfig(req calculateRequest) stair.Config {
 	cfg := stair.Config{
 		Width:             engineering.Length(req.WidthMM),
 		Height:            engineering.Length(req.HeightMM),
@@ -637,7 +637,7 @@ func toConfig(req calculateRequest) (stair.Config, error) {
 		Direction:         engineering.TurnDirection(req.Direction),
 		SpiralDir:         engineering.SpiralDirection(req.SpiralDirection),
 	}
-	return cfg, nil
+	return cfg
 }
 
 func toOptions(req calculateRequest) (stair.Options, error) {

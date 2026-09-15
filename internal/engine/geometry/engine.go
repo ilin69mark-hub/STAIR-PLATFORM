@@ -52,6 +52,8 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 	var model *kerngeo.Compound
 	var err error
 	switch cfg.Flight {
+	case engineering.FlightStraight:
+		model, err = BuildStraightFlight(cfg)
 	case engineering.FlightLShape:
 		model, err = BuildLShapeFlight(cfg)
 	case engineering.FlightUShape:

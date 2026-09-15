@@ -84,13 +84,14 @@ func paymentsTestSetup() (*fakePaymentService, *fakeProjectService) {
 }
 
 // signedWebhookRequest строит автентично подписанный webhook-запрос через
-// mock-провайдера (бэкенд, отправленный «внешним PSP»).
-func signedWebhookRequest(p *paymentsinfra.MockProvider, method, path string, ev paymentsinfra.WebhookEvent) *http.Request {
+// mock-провайдера (бэкенд, отправленный «внешним PSP»). Webhook-запросы всегда
+// идут методом POST на фиксированный путь.
+func signedWebhookRequest(p *paymentsinfra.MockProvider, ev paymentsinfra.WebhookEvent) *http.Request {
 	body, ts, sig, err := p.SignWebhook("test-secret", ev)
 	if err != nil {
 		panic(err)
 	}
-	r := httptest.NewRequest(method, path, io.NopCloser(strings.NewReader(string(body))))
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/payments/webhook", io.NopCloser(strings.NewReader(string(body))))
 	r.Header.Set(integrations.HeaderTimestamp, ts)
 	r.Header.Set(integrations.HeaderSignature, sig)
 	return r
@@ -216,7 +217,7 @@ func TestPaymentWebhook(t *testing.T) {
 	s, projects := paymentsTestSetup()
 	router := testRouterWithPayments(projects, s)
 	p := paymentsinfra.NewMockProvider("https://pay.example.com")
-	req := signedWebhookRequest(p, http.MethodPost, "/api/v1/payments/webhook", paymentsinfra.WebhookEvent{
+	req := signedWebhookRequest(p, paymentsinfra.WebhookEvent{
 		EventType: "payment.succeeded", Provider: "mock", CheckoutID: "chk-1",
 		Status: "paid", AmountMinor: 5000, Currency: "USD",
 	})
@@ -235,7 +236,7 @@ func TestPaymentWebhookBadSignature(t *testing.T) {
 	s.webhookErr = payments.ErrInvalidSignature
 	router := testRouterWithPayments(projects, s)
 	p := paymentsinfra.NewMockProvider("https://pay.example.com")
-	req := signedWebhookRequest(p, http.MethodPost, "/api/v1/payments/webhook", paymentsinfra.WebhookEvent{
+	req := signedWebhookRequest(p, paymentsinfra.WebhookEvent{
 		EventType: "payment.succeeded", Provider: "mock", CheckoutID: "chk-1",
 		Status: "paid", AmountMinor: 5000, Currency: "USD",
 	})
@@ -251,7 +252,7 @@ func TestPaymentWebhookNotFound(t *testing.T) {
 	s.webhookErr = payments.ErrNotFound
 	router := testRouterWithPayments(projects, s)
 	p := paymentsinfra.NewMockProvider("https://pay.example.com")
-	req := signedWebhookRequest(p, http.MethodPost, "/api/v1/payments/webhook", paymentsinfra.WebhookEvent{
+	req := signedWebhookRequest(p, paymentsinfra.WebhookEvent{
 		EventType: "payment.succeeded", Provider: "mock", CheckoutID: "ghost",
 		Status: "paid", AmountMinor: 5000, Currency: "USD",
 	})
@@ -267,7 +268,7 @@ func TestPaymentWebhookInvalidBody(t *testing.T) {
 	s.webhookErr = payments.ErrInvalid
 	router := testRouterWithPayments(projects, s)
 	p := paymentsinfra.NewMockProvider("https://pay.example.com")
-	req := signedWebhookRequest(p, http.MethodPost, "/api/v1/payments/webhook", paymentsinfra.WebhookEvent{
+	req := signedWebhookRequest(p, paymentsinfra.WebhookEvent{
 		EventType: "payment.succeeded", Provider: "mock", CheckoutID: "chk-1",
 		Status: "weird", AmountMinor: 100, Currency: "USD",
 	})

@@ -107,7 +107,7 @@ func (q *DLQ) RetryAll(ctx context.Context, bus *Bus) int {
 
 		// Повторно публикуем событие (handler уже известен из entry).
 		// Используем оригинальный handler — простой повторный вызов.
-		err := bus.invokeWithRetry(ctx, handlerEntry{id: entry.HandlerID}, entry.Event, entry.CorrelationID)
+		err := bus.invokeWithRetry(ctx, handlerEntry{id: entry.HandlerID}, entry.Event)
 		if err != nil {
 			entry.RetryCount++
 			remaining = append(remaining, entry)

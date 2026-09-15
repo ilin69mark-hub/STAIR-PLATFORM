@@ -54,16 +54,21 @@ func DeduplicateMiddleware(keyFunc func(*http.Request) string) func(http.Handler
 	}
 }
 
-// DeduplicateByKey возвращает ключ для дедупликации по user_id + path.
+// DeduplicateByKey возвращает ключ для дедупликации мутирующих запросов
+// (POST/PUT/PATCH/DELETE). Read-only методы (GET/HEAD/OPTIONS) не
+// дедуплицируются: кэш ответов уже закрывает повторяющиеся чтения, а
+// ложный ключ не должен отсекать параллельные GET.
+//
+// Ключ строится по IP + метод + путь. user_id намеренно НЕ используется:
+// дедупликация выполняется снаружи mux, тогда как аутентификация —
+// внутри, поэтому контекст на этом этапе ещё не содержит авторизованного
+// пользователя.
 func DeduplicateByKey(r *http.Request) string {
-	uid := ""
-	if id := r.Context().Value("user_id"); id != nil {
-		uid, _ = id.(string)
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return ""
 	}
-	if uid == "" {
-		uid = dedupIP(r)
-	}
-	return uid + ":" + r.Method + ":" + r.URL.Path
+	return dedupIP(r) + ":" + r.Method + ":" + r.URL.Path
 }
 
 // dedupIP извлекает IP из RemoteAddr.

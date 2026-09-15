@@ -113,7 +113,7 @@ func writeSTEP(w io.Writer, m *kerngeo.Mesh) error {
 	vertexStart := 10
 	for i, v := range m.Vertices {
 		id := vertexStart + i
-		b.WriteString(fmt.Sprintf("#%d = CARTESIAN_POINT('', (%.6f, %.6f, %.6f));\n", id, v.X, v.Y, v.Z))
+		fmt.Fprintf(&b, "#%d = CARTESIAN_POINT('', (%.6f, %.6f, %.6f));\n", id, v.X, v.Y, v.Z)
 	}
 
 	// Грани (closed shell)
@@ -124,10 +124,10 @@ func writeSTEP(w io.Writer, m *kerngeo.Mesh) error {
 		v2 := vertexStart + tri[1]
 		v3 := vertexStart + tri[2]
 		_ = v3 // used in edge references
-		b.WriteString(fmt.Sprintf("#%d = FACE_BOUND('', '', #%d, .T.);\n", id+1000, id+500))
-		b.WriteString(fmt.Sprintf("#%d = FACE_OUTER_BOUND('', '', #%d, .T.);\n", id+500, id+200))
-		b.WriteString(fmt.Sprintf("#%d = ORIENTED_EDGE('', *, *, #%d, .T.);\n", id+200, id+100))
-		b.WriteString(fmt.Sprintf("#%d = EDGE_CURVE('', #%d, #%d, #999, .T.);\n", id+100, v1, v2))
+		fmt.Fprintf(&b, "#%d = FACE_BOUND('', '', #%d, .T.);\n", id+1000, id+500)
+		fmt.Fprintf(&b, "#%d = FACE_OUTER_BOUND('', '', #%d, .T.);\n", id+500, id+200)
+		fmt.Fprintf(&b, "#%d = ORIENTED_EDGE('', *, *, #%d, .T.);\n", id+200, id+100)
+		fmt.Fprintf(&b, "#%d = EDGE_CURVE('', #%d, #%d, #999, .T.);\n", id+100, v1, v2)
 	}
 
 	b.WriteString("ENDSEC;\n")
@@ -149,8 +149,8 @@ func writeIGES(w io.Writer, m *kerngeo.Mesh) error {
 	// Directory entries for vertices (type 116 = POINT)
 	for i, v := range m.Vertices {
 		seq := 1 + i*2
-		b.WriteString(fmt.Sprintf("%3dG 116,%.6f,%.6f,%.6f,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n", seq, v.X, v.Y, v.Z))
-		b.WriteString(fmt.Sprintf("%3dG     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n", seq+1))
+		fmt.Fprintf(&b, "%3dG 116,%.6f,%.6f,%.6f,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n", seq, v.X, v.Y, v.Z)
+		fmt.Fprintf(&b, "%3dG     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n", seq+1)
 	}
 
 	// Directory entries for faces (type 102 = COMPOSITE CURVE)
@@ -158,8 +158,8 @@ func writeIGES(w io.Writer, m *kerngeo.Mesh) error {
 	for i, tri := range m.Triangles {
 		seq := faceDirStart + i*2
 		v1, v2, v3 := tri[0]+1, tri[1]+1, tri[2]+1
-		b.WriteString(fmt.Sprintf("%3dG 102,3,116,%d,116,%d,116,%d,0\n", seq, v1, v2, v3))
-		b.WriteString(fmt.Sprintf("%3dG     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n", seq+1))
+		fmt.Fprintf(&b, "%3dG 102,3,116,%d,116,%d,116,%d,0\n", seq, v1, v2, v3)
+		fmt.Fprintf(&b, "%3dG     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n", seq+1)
 	}
 
 	// Terminate section
@@ -173,11 +173,11 @@ func writeIGES(w io.Writer, m *kerngeo.Mesh) error {
 func writeOBJ(w io.Writer, m *kerngeo.Mesh) error {
 	var b strings.Builder
 	b.WriteString("# Stairplatform OBJ export\n")
-	b.WriteString(fmt.Sprintf("# Vertices: %d, Faces: %d\n", len(m.Vertices), len(m.Triangles)))
+	fmt.Fprintf(&b, "# Vertices: %d, Faces: %d\n", len(m.Vertices), len(m.Triangles))
 	b.WriteString("o StairMesh\n")
 
 	for _, v := range m.Vertices {
-		b.WriteString(fmt.Sprintf("v %.6f %.6f %.6f\n", v.X, v.Y, v.Z))
+		fmt.Fprintf(&b, "v %.6f %.6f %.6f\n", v.X, v.Y, v.Z)
 	}
 
 	// Вычисляем нормали по умолчанию
@@ -192,13 +192,13 @@ func writeOBJ(w io.Writer, m *kerngeo.Mesh) error {
 		if l > 0 {
 			nx, ny, nz = nx/l, ny/l, nz/l
 		}
-		b.WriteString(fmt.Sprintf("vn %.6f %.6f %.6f\n", nx, ny, nz))
+		fmt.Fprintf(&b, "vn %.6f %.6f %.6f\n", nx, ny, nz)
 	}
 
 	for i, tri := range m.Triangles {
 		n := i + 1
-		b.WriteString(fmt.Sprintf("f %d//%d %d//%d %d//%d\n",
-			tri[0]+1, n, tri[1]+1, n, tri[2]+1, n))
+		fmt.Fprintf(&b, "f %d//%d %d//%d %d//%d\n",
+			tri[0]+1, n, tri[1]+1, n, tri[2]+1, n)
 	}
 
 	_, err := io.WriteString(w, b.String())
@@ -220,17 +220,17 @@ func write3MF(w io.Writer, m *kerngeo.Mesh) error {
 		V3      int      `xml:"v3,attr"`
 	}
 	type vertices struct {
-		XMLName  xml.Name   `xml:"vertices"`
-		Vertices []vertex   `xml:"vertex"`
+		XMLName  xml.Name `xml:"vertices"`
+		Vertices []vertex `xml:"vertex"`
 	}
 	type triangles struct {
-		XMLName  xml.Name    `xml:"triangles"`
+		XMLName   xml.Name   `xml:"triangles"`
 		Triangles []triangle `xml:"triangle"`
 	}
 	type mesh struct {
-		XMLName  xml.Name  `xml:"mesh"`
-		V        vertices  `xml:"vertices"`
-		T        triangles `xml:"triangles"`
+		XMLName xml.Name  `xml:"mesh"`
+		V       vertices  `xml:"vertices"`
+		T       triangles `xml:"triangles"`
 	}
 	type object struct {
 		XMLName xml.Name `xml:"object"`

@@ -34,7 +34,7 @@ func (h *GraphQLHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Только POST и GET
 	if r.Method != http.MethodPost && r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(gqlhttp.Response{
+		_ = json.NewEncoder(w).Encode(gqlhttp.Response{
 			Errors: []gqlhttp.Error{{Message: "method not allowed"}},
 		})
 		return
@@ -47,16 +47,16 @@ func (h *GraphQLHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(gqlhttp.Response{
+			_ = json.NewEncoder(w).Encode(gqlhttp.Response{
 				Errors: []gqlhttp.Error{{Message: "failed to read request body"}},
 			})
 			return
 		}
-		defer r.Body.Close()
+		defer func() { _ = r.Body.Close() }()
 
 		if err := json.Unmarshal(body, &req); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(gqlhttp.Response{
+			_ = json.NewEncoder(w).Encode(gqlhttp.Response{
 				Errors: []gqlhttp.Error{{Message: "invalid JSON"}},
 			})
 			return

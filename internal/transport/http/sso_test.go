@@ -26,7 +26,7 @@ func TestSsoConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET config: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -49,7 +49,7 @@ func TestSsoConfigDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET config: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var cfg auth.SsoConfig
 	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -72,7 +72,7 @@ func TestSsoBeginRedirects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET sso: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusFound {
 		t.Fatalf("status = %d, want 302", resp.StatusCode)
 	}
@@ -91,7 +91,7 @@ func TestSsoBeginDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET sso: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", resp.StatusCode)
 	}
@@ -109,7 +109,7 @@ func TestSsoCallbackSetsSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET callback: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusFound {
 		t.Fatalf("status = %d, want 302", resp.StatusCode)
 	}
@@ -140,7 +140,7 @@ func TestSsoCallbackMissingParams(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET callback: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", resp.StatusCode)
 	}
@@ -162,7 +162,7 @@ func TestSsoCallbackDenied(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET callback: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", resp.StatusCode)
 	}

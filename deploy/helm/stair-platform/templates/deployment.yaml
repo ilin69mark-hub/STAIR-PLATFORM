@@ -50,46 +50,15 @@ spec:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5
+          envFrom:
+            - configMapRef:
+                name: {{ include "stair-platform.fullname" . }}-config
           env:
             - name: STAIR_DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: {{ include "stair-platform.fullname" . }}-secrets
                   key: database-url
-            - name: STAIR_HTTP_ADDR
-              value: ":{{ .Values.service.port }}"
-            - name: STAIR_DB_MAX_CONNS
-              value: {{ .Values.database.maxConns | quote }}
-            - name: STAIR_DB_MIN_CONNS
-              value: {{ .Values.database.minConns | quote }}
-            - name: STAIR_DB_MAX_CONN_LIFETIME
-              value: {{ .Values.database.maxConnLifetime | quote }}
-            - name: STAIR_DB_MAX_CONN_IDLE_TIME
-              value: {{ .Values.database.maxConnIdleTime | quote }}
-            - name: STAIR_SESSION_TTL
-              value: {{ .Values.security.sessionTTL | quote }}
-            - name: STAIR_CORS_ORIGINS
-              value: {{ .Values.security.corsOrigins | quote }}
-            - name: STAIR_HSTS_ENABLED
-              value: {{ .Values.security.hstsEnabled | quote }}
-            - name: STAIR_COOKIE_SECURE
-              value: {{ .Values.security.cookieSecure | quote }}
-            {{- if .Values.redis.addr }}
-            - name: STAIR_REDIS_ADDR
-              value: {{ .Values.redis.addr | quote }}
-            {{- end }}
-            {{- if .Values.monitoring.tracingEnabled }}
-            - name: STAIR_TRACING_ENABLED
-              value: "true"
-            - name: STAIR_TRACING_ENDPOINT
-              value: {{ .Values.monitoring.tracingEndpoint | quote }}
-            - name: STAIR_TRACING_SAMPLE_RATE
-              value: {{ .Values.monitoring.tracingSampleRate | quote }}
-            {{- end }}
-            {{- if .Values.debug.logging }}
-            - name: STAIR_DEBUG_LOGGING
-              value: "true"
-            {{- end }}
             {{- if .Values.payments.stripeSecretKey }}
             - name: STAIR_STRIPE_SECRET_KEY
               valueFrom:

@@ -41,6 +41,8 @@ func railingSides(side engineering.RailingSide, w float64) []float64 {
 		return []float64{w}
 	case engineering.RailingBoth:
 		return []float64{0, w}
+	case engineering.RailingNone:
+		return nil
 	default:
 		return nil
 	}
@@ -87,6 +89,8 @@ func flipSide(s engineering.RailingSide) engineering.RailingSide {
 		return engineering.RailingRight
 	case engineering.RailingRight:
 		return engineering.RailingLeft
+	case engineering.RailingNone, engineering.RailingBoth:
+		return s
 	default:
 		return s
 	}

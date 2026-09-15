@@ -1,7 +1,6 @@
 package http
 
 import (
-	"net/http"
 	"strconv"
 	"strings"
 )
@@ -22,22 +21,6 @@ func (ve ValidationErrors) Error() string {
 		msgs[i] = e.Field + ": " + e.Message
 	}
 	return strings.Join(msgs, "; ")
-}
-
-// writeValidationError отправляет 422 с деталями по полям.
-func writeValidationError(w http.ResponseWriter, errors ValidationErrors) {
-	writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
-		"error": map[string]any{
-			"code":    "validation_error",
-			"message": "Validation failed",
-			"details": errors,
-		},
-	})
-}
-
-// writeValidationErrorSingle отправляет 422 для одной ошибки поля.
-func writeValidationErrorSingle(w http.ResponseWriter, field, message string) {
-	writeValidationError(w, ValidationErrors{{Field: field, Message: message}})
 }
 
 // ValidateRequired проверяет обязательное поле.

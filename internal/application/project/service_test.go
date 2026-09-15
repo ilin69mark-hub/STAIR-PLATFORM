@@ -286,8 +286,8 @@ func (f *fakeRepo) DeleteComment(ctx context.Context, tenantID, projectID, comme
 }
 
 // setStatus форсирует статус проекта в тестовом репозитории (вспомогательное).
-func (f *fakeRepo) setStatus(tenantID, projectID, status string) {
-	if p, ok := f.projects[key(tenantID, projectID)]; ok {
+func (f *fakeRepo) setStatus(projectID, status string) {
+	if p, ok := f.projects[key(testTenant, projectID)]; ok {
 		p.Status = status
 	}
 }
@@ -1073,7 +1073,7 @@ func TestReviewPermissions(t *testing.T) {
 		t.Fatalf("editor sign-off: want ErrForbidden, got %v", err)
 	}
 	// Owner не может подписать собственный запрос (self-approve).
-	repo.setStatus(testTenant, p.ID, StatusDraft)
+	repo.setStatus(p.ID, StatusDraft)
 	own, err := svc.RequestReview(context.Background(), testTenant, testOwner, p.ID, "мой запрос")
 	if err != nil {
 		t.Fatalf("RequestReview(owner): %v", err)
@@ -1082,12 +1082,12 @@ func TestReviewPermissions(t *testing.T) {
 		t.Fatalf("self-approve: want ErrForbidden, got %v", err)
 	}
 	// Подпись из draft — ErrConflict.
-	repo.setStatus(testTenant, p.ID, StatusDraft)
+	repo.setStatus(p.ID, StatusDraft)
 	ed, err := svc.RequestReview(context.Background(), testTenant, "u-editor", p.ID, "ещё раз")
 	if err != nil {
 		t.Fatalf("RequestReview: %v", err)
 	}
-	repo.setStatus(testTenant, p.ID, StatusDraft)
+	repo.setStatus(p.ID, StatusDraft)
 	if _, err := svc.SignOffReview(context.Background(), testTenant, testOwner, p.ID, ed.ID, ""); err != ErrConflict {
 		t.Fatalf("sign-off from draft: want ErrConflict, got %v", err)
 	}
@@ -1133,13 +1133,13 @@ func TestRequestChangesReturn(t *testing.T) {
 	}
 
 	// Calculate в in_review блокируется (ErrConflict).
-	repo.setStatus(testTenant, p.ID, StatusInReview)
+	repo.setStatus(p.ID, StatusInReview)
 	cfg := testConfig()
 	if _, err := svc.Calculate(context.Background(), testTenant, testOwner, p.ID, cfg, stair.Options{}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("Calculate in_review: want ErrConflict, got %v", err)
 	}
 	// Calculate из approved-статуса после решения допустим.
-	repo.setStatus(testTenant, p.ID, StatusApproved)
+	repo.setStatus(p.ID, StatusApproved)
 	if _, err := svc.Calculate(context.Background(), testTenant, testOwner, p.ID, cfg, stair.Options{}); err != nil {
 		t.Fatalf("Calculate approved: %v", err)
 	}

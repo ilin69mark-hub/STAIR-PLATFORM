@@ -4,15 +4,19 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e/tests',
-  fullyParallel: true,
+  fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // Серийная гонка: бэкенд дедуплицирует тяжёлые POST (расчёт quote) по
+  // IP+метод+путь и параллельные e2e с одного IP получали 429
+  // «duplicate request in progress» (флаки). Одного воркера достаточно.
+  workers: 1,
   reporter: process.env.CI
     ? [['list'], ['html', { open: 'never' }]]
     : 'list',
   use: {
-    baseURL: 'http://localhost:5174',
+    // Локальная разработка — Vite dev (:5174); готовый стек (Docker) — store :3000.
+    baseURL: process.env.STORE_BASE_URL || 'http://localhost:5174',
     trace: 'on-first-retry',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],

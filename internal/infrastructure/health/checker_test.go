@@ -24,7 +24,7 @@ func TestReadySkipsNilProviders(t *testing.T) {
 // TestReadyRedisError: клиент Redis на несуществующий порт → не готов.
 func TestReadyRedisError(t *testing.T) {
 	client := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	c := &Checker{
 		Redis:   client,

@@ -97,7 +97,7 @@ export const defaultConfig: ConfigForm = {
   material: 'STEEL-S235',
   stepHeightMM: '180',
   stringerThicknessMM: '50',
-  stepThicknessMM: '40',
+  stepThicknessMM: '6',
   riser: true,
   clearanceMM: '80',
   railingHeightMM: '900',
@@ -248,7 +248,8 @@ export const fieldRules: Record<keyof ConfigForm, FieldRule> = {
 
 // Материал-зависимые пределы (синхронизированы с каталогом MFG-0005 и
 // эневлопом листов MFG-0012 на бэкенде):
-// - шаг/косоур — толщины выпуска материала (сталь/алюминий 2–60, дуб 20–60);
+// - толщина ступени: выпуск материала (сталь 3–8, алюминий 2–60, дуб 20–60);
+// - косоур — толщины выпуска материала (до 60 мм);
 // - ширина марша — лист для проступей (3000 мм для всех материалов);
 // - высота подъёма — крупнейший лист для косоура (сталь 6000, алюм/дуб 4550).
 export const materialLimits: Record<
@@ -258,7 +259,7 @@ export const materialLimits: Record<
   'STEEL-S235': {
     widthMM: { max: 3000 },
     heightMM: { max: 6000 },
-    stepThicknessMM: { min: 2, max: 60 },
+    stepThicknessMM: { min: 3, max: 8 },
     stringerThicknessMM: { max: 60 },
   },
   'ALUM-5083': {

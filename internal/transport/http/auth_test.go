@@ -225,7 +225,7 @@ func TestRequireAuthRejectsAnonymous(t *testing.T) {
 func TestRequireAuthRejectsInvalidToken(t *testing.T) {
 	router := authTestRouter(newFakeAuth())
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "bad-token"})
+	req.AddCookie(testCookie(sessionCookieName, "bad-token"))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
@@ -236,7 +236,7 @@ func TestRequireAuthRejectsInvalidToken(t *testing.T) {
 func TestRequireAuthAcceptsValidToken(t *testing.T) {
 	router := NewRouter(stair.NewService(), newFakeProjectService(), newFakeAuth(), DefaultConfig())
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "token-1"})
+	req.AddCookie(testCookie(sessionCookieName, "token-1"))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -249,7 +249,7 @@ func TestCSRFRequiredOnMutating(t *testing.T) {
 	// Есть session, но нет csrf → 403.
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects",
 		strings.NewReader(`{"name":"A"}`))
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "token-1"})
+	req.AddCookie(testCookie(sessionCookieName, "token-1"))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
@@ -261,8 +261,8 @@ func TestCSRFMismatchRejected(t *testing.T) {
 	router := authTestRouter(newFakeAuth())
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects",
 		strings.NewReader(`{"name":"A"}`))
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "token-1"})
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-1"})
+	req.AddCookie(testCookie(sessionCookieName, "token-1"))
+	req.AddCookie(testCookie(csrfCookieName, "csrf-1"))
 	req.Header.Set(csrfHeader, "csrf-wrong")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -391,8 +391,8 @@ func TestCSRFRejectsCrossOriginRequest(t *testing.T) {
 	router := authTestRouter(newFakeAuth())
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/v1/projects",
 		strings.NewReader(`{"name":"A"}`))
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "token-1"})
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-1"})
+	req.AddCookie(testCookie(sessionCookieName, "token-1"))
+	req.AddCookie(testCookie(csrfCookieName, "csrf-1"))
 	req.Header.Set(csrfHeader, "csrf-1")
 	req.Header.Set("Origin", "http://evil.example")
 	rec := httptest.NewRecorder()
@@ -406,8 +406,8 @@ func TestCSRFAllowsSameOriginRequest(t *testing.T) {
 	router := NewRouter(stair.NewService(), newFakeProjectService(), newFakeAuth(), DefaultConfig())
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/v1/projects",
 		strings.NewReader(`{"name":"A"}`))
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "token-1"})
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-1"})
+	req.AddCookie(testCookie(sessionCookieName, "token-1"))
+	req.AddCookie(testCookie(csrfCookieName, "csrf-1"))
 	req.Header.Set(csrfHeader, "csrf-1")
 	req.Header.Set("Origin", "http://localhost")
 	rec := httptest.NewRecorder()

@@ -732,11 +732,7 @@ func handleCalculateProject(svc ProjectService) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
-		cfg, err := toConfig(req)
-		if err != nil {
-			writeInputError(w, "invalid_input", err)
-			return
-		}
+		cfg := toConfig(req)
 		opts, err := toOptions(req)
 		if err != nil {
 			writeInputError(w, "invalid_rates", err)
@@ -773,11 +769,7 @@ func handlePreviewProject(svc ProjectService) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
-		cfg, err := toConfig(req)
-		if err != nil {
-			writeInputError(w, "invalid_input", err)
-			return
-		}
+		cfg := toConfig(req)
 		opts, err := toOptions(req)
 		if err != nil {
 			writeInputError(w, "invalid_rates", err)
@@ -813,11 +805,7 @@ func handleOptimizeProject(svc ProjectService) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
-		cfg, err := toConfig(req.calculateRequest)
-		if err != nil {
-			writeInputError(w, "invalid_input", err)
-			return
-		}
+		cfg := toConfig(req.calculateRequest)
 		opts, err := toOptions(req.calculateRequest)
 		if err != nil {
 			writeInputError(w, "invalid_rates", err)
@@ -878,9 +866,12 @@ func handleExportProject(svc ProjectService) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Content-Disposition", `attachment; filename="project-export.json"`)
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(calc.Result)
+		// G705: результат — серверный JSON-снапшот, отдаётся как attachment
+		// с application/json + nosniff, поэтому рендер как HTML невозможен.
+		_, _ = w.Write(calc.Result) //nolint:gosec // G705: download-only JSON, см. выше
 	}
 }
 

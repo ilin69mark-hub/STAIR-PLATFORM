@@ -19,7 +19,7 @@ func TestTimeoutMiddleware_SetsDeadline(t *testing.T) {
 		if remaining > 100*time.Millisecond {
 			t.Errorf("expected deadline ~100ms, got %v", remaining)
 		}
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
@@ -33,7 +33,7 @@ func TestTimeoutMiddleware_SetsDeadline(t *testing.T) {
 
 func TestTimeoutMiddleware_FastHandler(t *testing.T) {
 	handler := TimeoutMiddleware(100*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
@@ -47,7 +47,7 @@ func TestTimeoutMiddleware_FastHandler(t *testing.T) {
 
 func TestTimeoutWithDefault(t *testing.T) {
 	handler := TimeoutWithDefault()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
@@ -61,7 +61,7 @@ func TestTimeoutWithDefault(t *testing.T) {
 
 func TestTimeoutAPI(t *testing.T) {
 	handler := TimeoutAPI()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
@@ -75,7 +75,7 @@ func TestTimeoutAPI(t *testing.T) {
 
 func TestTimeoutLong(t *testing.T) {
 	handler := TimeoutLong()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
@@ -125,7 +125,7 @@ func TestRouteTimeoutMiddleware(t *testing.T) {
 	cfg.Set("/fast", 50*time.Millisecond)
 
 	handler := RouteTimeoutMiddleware(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/fast", nil)
@@ -144,11 +144,12 @@ func TestDefaultAPIRouteTimeouts(t *testing.T) {
 		path    string
 		timeout time.Duration
 	}{
-		{"/api/v1/health", 5 * time.Second},
+		{"/health", 5 * time.Second},
 		{"/api/v1/auth/login", 10 * time.Second},
-		{"/api/v1/projects", 15 * time.Second},
-		{"/api/v1/stairs/calculate", 60 * time.Second},
-		{"/api/v1/documents/generate", 120 * time.Second},
+		{"/api/v1/stairs:calculate", 60 * time.Second},
+		{"/api/v1/stairs:optimize", 60 * time.Second},
+		{"/api/v1/projects/abc-123/calculate", 60 * time.Second},
+		{"/api/v1/projects/abc-123/export/cad", 120 * time.Second},
 	}
 	for _, tt := range tests {
 		if cfg.Get(tt.path) != tt.timeout {

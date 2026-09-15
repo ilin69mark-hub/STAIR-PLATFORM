@@ -33,7 +33,7 @@ func TestLayerIsolation(t *testing.T) {
 		if strings.HasSuffix(file, "_test.go") {
 			continue
 		}
-		b, err := os.ReadFile(file)
+		b, err := os.ReadFile(file) //nolint:gosec // test reads local package source files
 		if err != nil {
 			t.Fatalf("read %s: %v", file, err)
 		}

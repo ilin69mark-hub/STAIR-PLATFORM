@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import './App.css'
 import { useAuth } from './auth/context'
 import { Landing } from './components/Landing'
@@ -11,16 +11,58 @@ import { CONTACTS } from './config'
 type Route = 'landing' | 'constructor' | 'cabinet'
 type LegalRoute = 'offer' | 'privacy' | 'cookies'
 
+function routeFromHash(hash: string): Pick<AppState, 'route' | 'legal'> {
+  const h = hash.replace(/^#/, '')
+  switch (h) {
+    case 'constructor':
+      return { route: 'constructor', legal: null }
+    case 'cabinet':
+      return { route: 'cabinet', legal: null }
+    case 'offer':
+    case 'privacy':
+    case 'cookies':
+      return { route: 'landing', legal: h }
+    default:
+      return { route: 'landing', legal: null }
+  }
+}
+
+interface AppState {
+  route: Route
+  legal: LegalRoute | null
+}
+
 function App() {
   const { user } = useAuth()
-  const [route, setRoute] = useState<Route>('landing')
-  const [legal, setLegal] = useState<LegalRoute | null>(null)
+  const [{ route, legal }, setState] = useState<AppState>(() => routeFromHash(window.location.hash))
+
+  useEffect(() => {
+    const sync = () => setState(routeFromHash(window.location.hash))
+    window.addEventListener('hashchange', sync)
+    return () => window.removeEventListener('hashchange', sync)
+  }, [])
+
+  const syncHash = (r: Route, l: LegalRoute | null) => {
+    const target = l ? `#${l}` : r === 'landing' ? window.location.pathname : `#${r}`
+    history.replaceState(null, '', target)
+  }
 
   const open = (r: Route) => {
-    setLegal(null)
-    setRoute(r)
+    setState({ route: r, legal: null })
+    syncHash(r, null)
   }
-  const openLegal = (k: InfoPageKind) => setLegal(k)
+  const openLegal = (k: InfoPageKind) => {
+    setState((s) => {
+      syncHash(s.route, k)
+      return { route: s.route, legal: k }
+    })
+  }
+  const closeLegal = () => {
+    setState((s) => {
+      syncHash(s.route, null)
+      return { route: s.route, legal: null }
+    })
+  }
 
   return (
     <div className="store">
@@ -57,7 +99,7 @@ function App() {
 
       <main className="store-main">
         {legal !== null ? (
-          <InfoPage kind={legal} onBack={() => setLegal(null)} />
+          <InfoPage kind={legal} onBack={closeLegal} />
         ) : (
           <>
             {route === 'landing' && <Landing onStart={() => open('constructor')} />}

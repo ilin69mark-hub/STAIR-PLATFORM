@@ -27,6 +27,7 @@ func TestNewRootHandlerPProfEnabled(t *testing.T) {
 	root := newRootHandler(http.NotFoundHandler())
 
 	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil)
+	req.RemoteAddr = "127.0.0.1:12345" // InternalOnlyMiddleware пропускает только внутренние IP
 	rec := httptest.NewRecorder()
 	root.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

@@ -5,9 +5,22 @@ import (
 	"testing"
 )
 
+func addNode(t *testing.T, g *Graph, n Node) {
+	t.Helper()
+	if err := g.AddNode(n); err != nil {
+		t.Fatalf("AddNode(%q): %v", n.ID, err)
+	}
+}
+func addEdge(t *testing.T, g *Graph, e Edge) {
+	t.Helper()
+	if err := g.AddEdge(e); err != nil {
+		t.Fatalf("AddEdge(%s→%s): %v", e.From, e.To, err)
+	}
+}
+
 func TestAddNodeAndLookup(t *testing.T) {
 	g := New()
-	g.AddNode(Node{ID: "a", Type: "parameter"})
+	addNode(t, g, Node{ID: "a", Type: "parameter"})
 
 	if g.NodeCount() != 1 {
 		t.Fatalf("expected 1 node, got %d", g.NodeCount())
@@ -34,9 +47,9 @@ func TestAddNodeEmptyID(t *testing.T) {
 
 func TestAddEdgeRequiresNodes(t *testing.T) {
 	g := New()
-	g.AddNode(Node{ID: "a"})
-	g.AddNode(Node{ID: "b"})
-	g.AddEdge(Edge{From: "a", To: "b"})
+	addNode(t, g, Node{ID: "a"})
+	addNode(t, g, Node{ID: "b"})
+	addEdge(t, g, Edge{From: "a", To: "b"})
 
 	if !g.HasNode("b") {
 		t.Fatal("node b missing")
@@ -54,11 +67,11 @@ func TestAddEdgeRequiresNodes(t *testing.T) {
 
 func TestRemoveNodeRemovesIncidentEdges(t *testing.T) {
 	g := New()
-	g.AddNode(Node{ID: "a"})
-	g.AddNode(Node{ID: "b"})
-	g.AddNode(Node{ID: "c"})
-	g.AddEdge(Edge{From: "a", To: "b"})
-	g.AddEdge(Edge{From: "b", To: "c"})
+	addNode(t, g, Node{ID: "a"})
+	addNode(t, g, Node{ID: "b"})
+	addNode(t, g, Node{ID: "c"})
+	addEdge(t, g, Edge{From: "a", To: "b"})
+	addEdge(t, g, Edge{From: "b", To: "c"})
 
 	if !g.RemoveNode("b") {
 		t.Fatal("failed to remove b")
@@ -71,11 +84,11 @@ func TestRemoveNodeRemovesIncidentEdges(t *testing.T) {
 func TestTopologicalSort(t *testing.T) {
 	g := New()
 	for _, id := range []string{"a", "b", "c", "d"} {
-		g.AddNode(Node{ID: id})
+		addNode(t, g, Node{ID: id})
 	}
-	g.AddEdge(Edge{From: "a", To: "b"})
-	g.AddEdge(Edge{From: "a", To: "c"})
-	g.AddEdge(Edge{From: "c", To: "d"})
+	addEdge(t, g, Edge{From: "a", To: "b"})
+	addEdge(t, g, Edge{From: "a", To: "c"})
+	addEdge(t, g, Edge{From: "c", To: "d"})
 
 	order, err := g.TopologicalSort()
 	if err != nil {
@@ -89,10 +102,10 @@ func TestTopologicalSort(t *testing.T) {
 
 func TestCycleDetection(t *testing.T) {
 	g := New()
-	g.AddNode(Node{ID: "a"})
-	g.AddNode(Node{ID: "b"})
-	g.AddEdge(Edge{From: "a", To: "b"})
-	g.AddEdge(Edge{From: "b", To: "a"})
+	addNode(t, g, Node{ID: "a"})
+	addNode(t, g, Node{ID: "b"})
+	addEdge(t, g, Edge{From: "a", To: "b"})
+	addEdge(t, g, Edge{From: "b", To: "a"})
 
 	if !g.HasCycle() {
 		t.Fatal("expected cycle to be detected")
@@ -105,11 +118,11 @@ func TestCycleDetection(t *testing.T) {
 func TestTransitiveDependents(t *testing.T) {
 	g := New()
 	for _, id := range []string{"a", "b", "c", "d"} {
-		g.AddNode(Node{ID: id})
+		addNode(t, g, Node{ID: id})
 	}
-	g.AddEdge(Edge{From: "a", To: "b"})
-	g.AddEdge(Edge{From: "b", To: "c"})
-	g.AddEdge(Edge{From: "c", To: "d"})
+	addEdge(t, g, Edge{From: "a", To: "b"})
+	addEdge(t, g, Edge{From: "b", To: "c"})
+	addEdge(t, g, Edge{From: "c", To: "d"})
 
 	deps := g.TransitiveDependents("a")
 	expected := []string{"b", "c", "d"}
@@ -120,9 +133,9 @@ func TestTransitiveDependents(t *testing.T) {
 
 func TestTransitiveDependentsSkipsSelf(t *testing.T) {
 	g := New()
-	g.AddNode(Node{ID: "a"})
-	g.AddNode(Node{ID: "b"})
-	g.AddEdge(Edge{From: "a", To: "b"})
+	addNode(t, g, Node{ID: "a"})
+	addNode(t, g, Node{ID: "b"})
+	addEdge(t, g, Edge{From: "a", To: "b"})
 
 	deps := g.TransitiveDependents("b")
 	if len(deps) != 0 {
@@ -133,11 +146,11 @@ func TestTransitiveDependentsSkipsSelf(t *testing.T) {
 func TestSchedulerPartialRebuild(t *testing.T) {
 	g := New()
 	for _, id := range []string{"p1", "p2", "g", "m"} {
-		g.AddNode(Node{ID: id, Type: "parameter"})
+		addNode(t, g, Node{ID: id, Type: "parameter"})
 	}
-	g.AddEdge(Edge{From: "p1", To: "g", Type: "depends_on"})
-	g.AddEdge(Edge{From: "p2", To: "g", Type: "depends_on"})
-	g.AddEdge(Edge{From: "g", To: "m", Type: "depends_on"})
+	addEdge(t, g, Edge{From: "p1", To: "g", Type: "depends_on"})
+	addEdge(t, g, Edge{From: "p2", To: "g", Type: "depends_on"})
+	addEdge(t, g, Edge{From: "g", To: "m", Type: "depends_on"})
 
 	rec := NewScheduler(g)
 	plan, err := rec.Plan("p1")
@@ -152,11 +165,11 @@ func TestSchedulerPartialRebuild(t *testing.T) {
 
 func TestSchedulerExecutesOncePerNode(t *testing.T) {
 	g := New()
-	g.AddNode(Node{ID: "a"})
-	g.AddNode(Node{ID: "b"})
-	g.AddNode(Node{ID: "c"})
-	g.AddEdge(Edge{From: "a", To: "c"})
-	g.AddEdge(Edge{From: "b", To: "c"})
+	addNode(t, g, Node{ID: "a"})
+	addNode(t, g, Node{ID: "b"})
+	addNode(t, g, Node{ID: "c"})
+	addEdge(t, g, Edge{From: "a", To: "c"})
+	addEdge(t, g, Edge{From: "b", To: "c"})
 
 	rec := NewScheduler(g)
 	calls := make(map[string]int)
@@ -178,12 +191,12 @@ func TestSchedulerExecutesOncePerNode(t *testing.T) {
 
 func TestSnapshotRestore(t *testing.T) {
 	g := New()
-	g.AddNode(Node{ID: "a"})
-	g.AddNode(Node{ID: "b"})
-	g.AddEdge(Edge{From: "a", To: "b"})
+	addNode(t, g, Node{ID: "a"})
+	addNode(t, g, Node{ID: "b"})
+	addEdge(t, g, Edge{From: "a", To: "b"})
 	snap := g.Snapshot()
 
-	g.AddNode(Node{ID: "c"})
+	addNode(t, g, Node{ID: "c"})
 	if g.NodeCount() != 3 {
 		t.Fatalf("expected 3 nodes, got %d", g.NodeCount())
 	}
@@ -196,13 +209,13 @@ func TestSnapshotRestore(t *testing.T) {
 
 func TestDeterministicOrder(t *testing.T) {
 	g := New()
-	g.AddNode(Node{ID: "z"})
-	g.AddNode(Node{ID: "a"})
-	g.AddNode(Node{ID: "m"})
-	g.AddNode(Node{ID: "b"})
-	g.AddEdge(Edge{From: "a", To: "b"})
-	g.AddEdge(Edge{From: "z", To: "m"})
-	g.AddEdge(Edge{From: "m", To: "b"})
+	addNode(t, g, Node{ID: "z"})
+	addNode(t, g, Node{ID: "a"})
+	addNode(t, g, Node{ID: "m"})
+	addNode(t, g, Node{ID: "b"})
+	addEdge(t, g, Edge{From: "a", To: "b"})
+	addEdge(t, g, Edge{From: "z", To: "m"})
+	addEdge(t, g, Edge{From: "m", To: "b"})
 
 	o1, _ := g.TopologicalSort()
 	o2, _ := g.TopologicalSort()
@@ -223,15 +236,15 @@ func TestDeterministicOrder(t *testing.T) {
 
 func TestDirtyDetection(t *testing.T) {
 	g := New()
-	g.AddNode(Node{ID: "a"})
-	g.AddNode(Node{ID: "b"})
+	addNode(t, g, Node{ID: "a"})
+	addNode(t, g, Node{ID: "b"})
 	g.MarkClean("a")
 	g.MarkClean("b")
 
 	if len(g.DirtyNodes()) != 0 {
 		t.Fatalf("expected no dirty nodes, got %v", g.DirtyNodes())
 	}
-	g.AddNode(Node{ID: "a"}) // повторное добавление помечает dirty
+	addNode(t, g, Node{ID: "a"}) // повторное добавление помечает dirty
 	dirty := g.DirtyNodes()
 	if len(dirty) != 1 || dirty[0] != "a" {
 		t.Fatalf("expected [a] dirty, got %v", dirty)

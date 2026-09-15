@@ -24,7 +24,7 @@ func NewFileStore(root string) (*FileStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("storage: filesystem root: %w", err)
 	}
-	if err := os.MkdirAll(abs, 0o755); err != nil {
+	if err := os.MkdirAll(abs, 0o750); err != nil {
 		return nil, fmt.Errorf("storage: create root: %w", err)
 	}
 	return &FileStore{root: abs}, nil
@@ -48,10 +48,10 @@ func (f *FileStore) Put(_ context.Context, key string, data []byte, _ string) er
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 		return fmt.Errorf("storage: mkdir: %w", err)
 	}
-	if err := os.WriteFile(p, data, 0o644); err != nil {
+	if err := os.WriteFile(p, data, 0o600); err != nil {
 		return fmt.Errorf("storage: write: %w", err)
 	}
 	return nil
@@ -63,6 +63,7 @@ func (f *FileStore) Get(_ context.Context, key string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// #nosec G304 -- file store reads objects by validated key under root.
 	data, err := os.ReadFile(p)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, ErrNotFound

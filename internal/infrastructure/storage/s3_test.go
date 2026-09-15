@@ -28,7 +28,7 @@ func TestS3StorePutGetDelete(t *testing.T) {
 	})
 	mux.HandleFunc("GET /bucket/", func(w http.ResponseWriter, r *http.Request) {
 		gotMethod, gotKey = r.Method, r.URL.Path
-		w.Write([]byte("payload"))
+		_, _ = w.Write([]byte("payload"))
 	})
 	mux.HandleFunc("DELETE /bucket/", func(w http.ResponseWriter, r *http.Request) {
 		gotMethod, gotKey = r.Method, r.URL.Path

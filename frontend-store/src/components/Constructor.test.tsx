@@ -75,10 +75,11 @@ const blockedWithAdvice: QuoteResult = {
 const validValues: Record<string, string> = {
   'Ширина марша (мм)': '900',
   'Высота (мм)': '2700',
-  'Высота ступени (мм)': '180',
-  'Толщина ступени (мм)': '40',
+  'Толщина ступени (мм)': '6',
   'Просвет (мм)': '2000',
   'Высота перил (мм)': '900',
+  'Ширина помещения (мм)': '3000',
+  'Длина помещения (мм)': '4200',
 }
 
 function fillValid() {
@@ -125,8 +126,7 @@ describe('Constructor', () => {
 
   it('показывает подсказки для ступени и перил', async () => {
     await renderWithAuth(<Constructor />, null)
-    expect(screen.getByText('Комфортно: 150–190 мм')).toBeInTheDocument()
-    expect(screen.getByText('Мин 2 / макс 60 мм')).toBeInTheDocument()
+    expect(screen.getByText('Мин 3 / макс 8 мм')).toBeInTheDocument()
     expect(screen.getByText('Рекомендуем 900–1100 мм')).toBeInTheDocument()
   })
 
@@ -239,6 +239,8 @@ describe('Constructor', () => {
     await renderWithAuth(<Constructor />, null)
     fillValid()
     fireEvent.change(screen.getByLabelText('Материал'), { target: { value: 'WOOD-OAK' } })
+    // Толщина ступени 6 мм допустима для стали, для дуба — нет (min 20).
+    fireEvent.change(screen.getByLabelText('Толщина ступени (мм)'), { target: { value: '30' } })
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
     expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
     await waitFor(() =>
@@ -264,25 +266,29 @@ describe('Constructor', () => {
     expect(screen.queryByLabelText('Радиус (мм)')).not.toBeVisible()
   })
 
-  it('шаг комфорта виден для прямого и L, скрыт для спирали', async () => {
+  it('высота ступени и шаг комфорта скрыты: рассчитываются автоматически', async () => {
     await renderWithAuth(<Constructor />, null)
+    expect(screen.queryByLabelText('Высота ступени (мм)')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Шаг комфорта (мм)')).not.toBeInTheDocument()
+
     const flight = screen.getByLabelText('Тип лестницы')
-
-    expect(screen.getByLabelText('Шаг комфорта (мм)')).toBeVisible()
-
     fireEvent.change(flight, { target: { value: 'l_shape' } })
-    expect(screen.getByLabelText('Шаг комфорта (мм)')).toBeVisible()
+    expect(screen.queryByLabelText('Шаг комфорта (мм)')).not.toBeInTheDocument()
 
     fireEvent.change(flight, { target: { value: 'spiral' } })
-    expect(screen.queryByLabelText('Шаг комфорта (мм)')).not.toBeVisible()
+    expect(screen.queryByLabelText('Шаг комфорта (мм)')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Радиус (мм)')).toBeVisible()
   })
 
-  it('подсвечивает пустые обязательные поля при старте', async () => {
+  it('подсвечивает пустые обязательные поля после ввода', async () => {
     await renderWithAuth(<Constructor />, null)
-    const errors = screen.getAllByText('Укажите значение')
-    expect(errors.length).toBeGreaterThanOrEqual(6)
+    // Ошибки показываются после первого изменения поля (touched-подход):
+    // сперва вводим значение ширины, затем очищаем — форма уже touched.
     const width = screen.getByLabelText('Ширина марша (мм)')
+    fireEvent.change(width, { target: { value: '900' } })
+    fireEvent.change(width, { target: { value: '' } })
+    const errors = screen.getAllByText('Укажите значение')
+    expect(errors.length).toBeGreaterThanOrEqual(5)
     expect(width).toHaveClass('field-invalid')
     // Скрытые поля не участвуют в валидации прямого марша.
     expect(screen.queryByLabelText('Ширина площадки (мм)')).not.toHaveClass('field-invalid')
@@ -292,6 +298,51 @@ describe('Constructor', () => {
     await renderWithAuth(<Constructor />, null)
     fillValid()
     expect(screen.queryByText('Укажите значение')).not.toBeInTheDocument()
+  })
+
+  it('без габаритов помещения спрашивает; «Продолжить без площади» продолжает', async () => {
+    const spy = vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote)
+    await renderWithAuth(<Constructor />, null)
+    fillValid()
+    // Очищаем габариты помещения, чтобы сработал запрос подтверждения.
+    fireEvent.change(screen.getByLabelText('Ширина помещения (мм)'), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText('Длина помещения (мм)'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    expect(await screen.findByText(/Корректный расчёт/)).toBeInTheDocument()
+    expect(spy).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Продолжить без площади' }))
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
+
+    // Выбор запоминается на сессию: повторный расчёт не спрашивает снова.
+    fireEvent.change(screen.getByLabelText('Высота (мм)'), { target: { value: '2800' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2))
+  })
+
+  it('«Внести данные площади» подсвечивает и фокусирует комнатные поля', async () => {
+    const spy = vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote)
+    await renderWithAuth(<Constructor />, null)
+    fillValid()
+    fireEvent.change(screen.getByLabelText('Ширина помещения (мм)'), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText('Длина помещения (мм)'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await screen.findByText(/Корректный расчёт/)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Внести данные площади' }))
+    expect(screen.queryByText(/Корректный расчёт/)).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Ширина помещения (мм)')).toHaveClass('field-invalid')
+    expect(screen.getByLabelText('Длина помещения (мм)')).toHaveClass('field-invalid')
+    expect(screen.getAllByText(/Укажите (ширину|длину) помещения/)).toHaveLength(2)
+    expect(spy).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText('Ширина помещения (мм)'), { target: { value: '3000' } })
+    expect(screen.queryByText('Укажите ширину помещения')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Длина помещения (мм)'), { target: { value: '4200' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
   })
 
   it('кнопка «Применить» подставляет значения и снимает блокировку', async () => {
@@ -311,7 +362,8 @@ describe('Constructor', () => {
       expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ step_height_mm: 166.7 })),
     )
     expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
-    expect(screen.getByLabelText('Высота ступени (мм)')).toHaveValue('166.7')
+    // Высота ступени больше не показывается полем ввода — применяется скрытый таргет.
+    expect(screen.queryByLabelText('Высота ступени (мм)')).not.toBeInTheDocument()
   })
 
   it('спираль: «Применить» подставляет ширину и радиус и снимает блокировку', async () => {
@@ -359,7 +411,7 @@ describe('Constructor', () => {
     expect(screen.getByLabelText('Радиус (мм)')).toHaveValue('1773')
   })
 
-  it('вариация (straight) подставляет шаг комфорта и пересчитывает', async () => {
+  it('вариация (straight) подставляет высоту ступени и пересчитывает', async () => {
     const spy = vi
       .spyOn(quoteApi, 'calculate')
       .mockResolvedValueOnce(
@@ -373,9 +425,12 @@ describe('Constructor', () => {
     fireEvent.click(screen.getByRole('button', { name: /Угол 30°/ }))
     await waitFor(() =>
       expect(spy).toHaveBeenLastCalledWith(
-        expect.objectContaining({ step_height_mm: 166.67, comfort_step_mm: 620, flight: 'straight' }),
+        expect.objectContaining({ step_height_mm: 166.67, flight: 'straight' }),
       ),
     )
+    // Шаг комфорта из варианта не применяется — дефолт 630 на бэкенде.
+    const lastCall = spy.mock.calls[spy.mock.calls.length - 1][0] as Record<string, unknown>
+    expect(lastCall['comfort_step_mm']).toBeUndefined()
     expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
   })
 
@@ -397,11 +452,13 @@ describe('Constructor', () => {
     await waitFor(() =>
       expect(spy).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          flight: 'l_shape', step_height_mm: 166.67, comfort_step_mm: 600,
+          flight: 'l_shape', step_height_mm: 166.67,
           landing_width_mm: 1000, lower_step_count: 9,
         }),
       ),
     )
+    const lastCall = spy.mock.calls[spy.mock.calls.length - 1][0] as Record<string, unknown>
+    expect(lastCall['comfort_step_mm']).toBeUndefined()
     expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
   })
 
@@ -423,11 +480,13 @@ describe('Constructor', () => {
     await waitFor(() =>
       expect(spy).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          flight: 'u_shape', step_height_mm: 166.67, comfort_step_mm: 620,
+          flight: 'u_shape', step_height_mm: 166.67,
           landing_width_mm: 1000, lower_step_count: 9,
         }),
       ),
     )
+    const lastCall = spy.mock.calls[spy.mock.calls.length - 1][0] as Record<string, unknown>
+    expect(lastCall['comfort_step_mm']).toBeUndefined()
     expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
   })
 
@@ -453,14 +512,54 @@ describe('Constructor', () => {
     await waitFor(() =>
       expect(spy).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          step_height_mm: 166.67, comfort_step_mm: 620, flight: 'straight', railing: 'both',
+          step_height_mm: 166.67, flight: 'straight', railing: 'both',
         }),
       ),
     )
-    // пустые поля вариации не должны попасть в запрос
+    // пустые поля вариации не должны попасть в запрос; шаг комфорта — дефолт
     const lastCall = spy.mock.calls[spy.mock.calls.length - 1][0] as Record<string, unknown>
     expect(lastCall['railing']).toBe('both')
     expect(lastCall['direction']).toBeUndefined()
+    expect(lastCall['comfort_step_mm']).toBeUndefined()
+    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
+  })
+
+  it('исходный марш остаётся в галерее и возвращается по клику', async () => {
+    const spy = vi
+      .spyOn(quoteApi, 'calculate')
+      .mockResolvedValueOnce(
+        blockedVariations({
+          flight: 'l_shape', heightMM: '3000', widthMM: '1000',
+          landingWidthMM: '1000', landingDepthMM: '1500', lowerStepCountMM: '9',
+          stepHeightMM: '166.67',
+        }),
+      )
+      .mockResolvedValue(okQuote)
+    await renderWithAuth(<Constructor />, null)
+    fillValid()
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await screen.findByText(/Расчёт остановлен/)
+
+    // Галерея: исходный «Прямой марш» (выбран) + альтернатива от бэкенда.
+    expect(screen.getByText('Выбран')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Прямой марш/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Угол 30°/ })).toBeInTheDocument()
+
+    // Выбираем L-образный вариант — он становится снапшотом, прямой остаётся.
+    fireEvent.click(screen.getByRole('button', { name: /Угол 30°/ }))
+    await waitFor(() =>
+      expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ flight: 'l_shape' })),
+    )
+    expect(screen.getByRole('button', { name: /Прямой марш/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /L-образный марш/ })).toBeInTheDocument()
+
+    // Возврат к исходному прямому маршу — полное восстановление конфига.
+    fireEvent.click(screen.getByRole('button', { name: /Прямой марш/ }))
+    await waitFor(() =>
+      expect(spy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ width_mm: 900, height_mm: 2700, flight: 'straight' }),
+      ),
+    )
     expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
   })
 })

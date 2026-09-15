@@ -9,6 +9,10 @@ import (
 	"stairplatform/internal/infrastructure/metrics"
 )
 
+type userIDCtxKey string
+
+const ctxUserID userIDCtxKey = "user_id"
+
 var (
 	// RateLimitRegistry — глобальный реестр метрик rate limiter.
 	RateLimitRegistry = metrics.NewRegistry()
@@ -160,7 +164,7 @@ func ByEndpoint(r *http.Request) string {
 
 // ByUser возвращает ключ по user ID (если аутентифицирован) или IP.
 func ByUser(r *http.Request) string {
-	if uid := r.Context().Value("user_id"); uid != nil {
+	if uid := r.Context().Value(ctxUserID); uid != nil {
 		if id, ok := uid.(string); ok && id != "" {
 			return "user:" + id
 		}
@@ -170,7 +174,7 @@ func ByUser(r *http.Request) string {
 
 // ByUserEndpoint возвращает ключ по user ID + endpoint.
 func ByUserEndpoint(r *http.Request) string {
-	if uid := r.Context().Value("user_id"); uid != nil {
+	if uid := r.Context().Value(ctxUserID); uid != nil {
 		if id, ok := uid.(string); ok && id != "" {
 			return "user:" + id + ":" + r.URL.Path
 		}

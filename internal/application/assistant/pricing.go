@@ -77,19 +77,19 @@ func priceFindings(res *stair.Result) []Finding {
 		out = append(out, Finding{Severity: "warning", Element: "себестоимость", Message: "нулевая себестоимость"})
 		return out
 	}
-	if share, _ := shareOf(b.Material, b.ProductionCost, cur); share > prcMaterialShareWarn {
+	if share := shareOf(b.Material, b.ProductionCost, cur); share > prcMaterialShareWarn {
 		out = append(out, Finding{
 			Severity: "warning", Element: "материалы",
 			Message: fmt.Sprintf("доля материалов в себестоимости %.0f%% — высокая материалоёмкость", share*100),
 		})
 	}
-	if share, _ := shareOf(b.Overhead, b.ProductionCost, cur); share > prcOverheadWarn {
+	if share := shareOf(b.Overhead, b.ProductionCost, cur); share > prcOverheadWarn {
 		out = append(out, Finding{
 			Severity: "info", Element: "накладные",
 			Message: fmt.Sprintf("накладные составляют %.0f%% себестоимости", share*100),
 		})
 	}
-	margin, _ := shareOf(b.Margin, b.FinalPrice, cur)
+	margin := shareOf(b.Margin, b.FinalPrice, cur)
 	if margin > prcMarginWarn {
 		out = append(out, Finding{
 			Severity: "info", Element: "маржа",
@@ -106,21 +106,22 @@ func priceFindings(res *stair.Result) []Finding {
 }
 
 // shareOf — доля части в целом (major-единицы, 0..1); 0 при некорректном base.
-func shareOf(part, base domprc.Money, cur domprc.Currency) (float64, float64) {
+func shareOf(part, base domprc.Money, cur domprc.Currency) float64 {
 	bm := base.Major(cur)
 	if bm <= 0 {
-		return 0, 0
+		return 0
 	}
-	return part.Major(cur) / bm, part.Major(cur)
+	return part.Major(cur) / bm
 }
 
 // priceRating — оценка экономической привлекательности (0..1).
 func priceRating(findings []Finding) float64 {
 	rating := 1.0
 	for _, f := range findings {
-		if f.Severity == "warning" {
+		switch f.Severity {
+		case "warning":
 			rating -= 0.3
-		} else if f.Severity == "info" {
+		case "info":
 			rating -= 0.1
 		}
 	}
@@ -147,13 +148,13 @@ func priceSuggestions(res *stair.Result) []Suggestion {
 	var out []Suggestion
 	b := res.Price
 	cur := b.Currency
-	if share, _ := shareOf(b.Material, b.ProductionCost, cur); share > prcMaterialShareWarn {
+	if share := shareOf(b.Material, b.ProductionCost, cur); share > prcMaterialShareWarn {
 		out = append(out, Suggestion{
 			Message:   "Снизьте материалоёмкость: другой материал/раскрой (см. мануфактурный ассистент) уменьшит цену.",
 			Rationale: "доминирование материала в себестоимости",
 		})
 	}
-	if share, _ := shareOf(b.Margin, b.FinalPrice, cur); share > 0 && share < prcMarginInfo {
+	if share := shareOf(b.Margin, b.FinalPrice, cur); share > 0 && share < prcMarginInfo {
 		out = append(out, Suggestion{
 			Message:   "Маржа ниже 10%: пересмотрите цену или сократите постоянные издержки.",
 			Rationale: "тонкая маржа ограничивает запас прочности",

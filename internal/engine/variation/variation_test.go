@@ -413,10 +413,10 @@ func TestRoomFitBBoxIncludesApproach(t *testing.T) {
 			c1.RoomLength = fitL
 			c2.RoomWidth = fitW
 			c2.RoomLength = fitL
-			if got := buildRoomFit(c1, nil); len(got) != 0 {
+			if got := buildRoomFit(c1); len(got) != 0 {
 				t.Fatalf("expected no room_fit for a1=%v, got %v", a1, got)
 			}
-			if got := buildRoomFit(c2, nil); len(got) == 0 {
+			if got := buildRoomFit(c2); len(got) == 0 {
 				t.Fatalf("expected room_fit for a2=%v (bbox wider by %v mm, room fits a1 but not a2), got none", a2, delta)
 			}
 		})

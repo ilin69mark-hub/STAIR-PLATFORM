@@ -75,19 +75,27 @@ export function ReviewPanel({ projectId, status, onStatusChange }: Props) {
       'Не удалось запросить ревью',
     )
 
-  const handleSignOff = () =>
+  // pending — активное (запрошенное) ревью. Кнопки «Подписать» /
+  // «Вернуть на доработку» отрисовываются только при status === 'in_review'
+  // и наличии pending, но защищаемся и здесь: pending могло измениться
+  // к моменту клика (async-операция между рендером и вызовом).
+  const handleSignOff = () => {
+    if (!pending) return
     run(
-      () => projectsApi.signOffReview(projectId, pending!.id, { comment: comment.trim() }),
+      () => projectsApi.signOffReview(projectId, pending.id, { comment: comment.trim() }),
       'approved',
       'Не удалось подписать ревью',
     )
+  }
 
-  const handleChanges = () =>
+  const handleChanges = () => {
+    if (!pending) return
     run(
-      () => projectsApi.requestChanges(projectId, pending!.id, { comment: comment.trim() }),
+      () => projectsApi.requestChanges(projectId, pending.id, { comment: comment.trim() }),
       'changes_requested',
       'Не удалось вернуть на доработку',
     )
+  }
 
   const showActions =
     (status === 'draft' || status === 'changes_requested') && canRequest && !pending

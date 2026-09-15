@@ -8,29 +8,16 @@ import { QuoteResult as QuoteResultView } from './QuoteResult'
 import { OrderForm } from './OrderForm'
 import { logAction } from '@shared/api/audit'
 
-const orderFields: Array<keyof ConfigForm> = [
-  'widthMM',
-  'heightMM',
-  'flight',
-  'material',
-  'stepHeightMM',
-  'stepThicknessMM',
-  'clearanceMM',
-  'railingHeightMM',
-  'railing',
-  'railingLower',
-  'railingLanding',
-  'railingUpper',
-  'direction',
-  'spiralDirection',
-  'landingWidthMM',
-  'landingDepthMM',
-  'roomWidthMM',
-  'roomLengthMM',
-  'approachSpaceMM',
-  'lowerStepCountMM',
-  'outerRadiusMM',
-  'comfortStepMM',
+// Поля формы сгруппированы в смысловые блоки (секции). Шаг комфорта и высота
+// ступени из формы убраны: высота ступени подставляется целевую (180 мм) и
+// фактически рассчитывается геометрией, шаг комфорта — дефолт 630 (EDR-0001).
+const fieldSections: Array<{ title: string; fields: Array<keyof ConfigForm> }> = [
+  { title: 'Основные размеры', fields: ['widthMM', 'heightMM', 'flight', 'material'] },
+  { title: 'Ступени', fields: ['stepThicknessMM', 'clearanceMM'] },
+  { title: 'Перила', fields: ['railingHeightMM', 'railing', 'railingLower', 'railingLanding', 'railingUpper'] },
+  { title: 'Поворот и площадка', fields: ['direction', 'landingWidthMM', 'landingDepthMM', 'lowerStepCountMM'] },
+  { title: 'Помещение', fields: ['roomWidthMM', 'roomLengthMM', 'approachSpaceMM'] },
+  { title: 'Спираль', fields: ['outerRadiusMM', 'spiralDirection'] },
 ]
 
 const labels: Record<keyof ConfigForm, string> = {
@@ -62,16 +49,14 @@ const labels: Record<keyof ConfigForm, string> = {
 
 const hints: Partial<Record<keyof ConfigForm, string>> = {
   flight: 'Выберите тип марша',
-  stepHeightMM: 'Комфортно: 150–190 мм',
   riser: 'Подступенок — вертикальная грань под ступенью. Его высота равна высоте ступени и рассчитывается автоматически.',
   clearanceMM: 'Рекомендуем ≥ 2000 мм',
   railingHeightMM: 'Рекомендуем 900–1100 мм',
-  comfortStepMM: '600–640 мм (опционально)',
   outerRadiusMM: 'Только для спирали',
   landingDepthMM: 'Глубина площадки вдоль нижнего марша (X в плане). Должна быть ≥ ширины марша.',
-    roomWidthMM: 'Ширина помещения (X) — направление марша: длина забега + свободное место (1000–1200 мм). 0 — без проверки вписываемости.',
-    roomLengthMM: 'Длина помещения (Y) — ширина марша. 0 — без проверки вписываемости.',
-    approachSpaceMM: 'Свободная зона перед первой ступенью (норма 1000–1200 мм).',
+  roomWidthMM: 'Ширина помещения (X) — направление марша: длина забега + свободное место (1000–1200 мм). 0 — без проверки вписываемости.',
+  roomLengthMM: 'Длина помещения (Y) — ширина марша. 0 — без проверки вписываемости.',
+  approachSpaceMM: 'Свободная зона перед первой ступенью (норма 1000–1200 мм).',
 }
 
 // rangeHint — текст подсказки диапазона поля: «Мин X / макс Y мм», «Мин X мм»
@@ -96,12 +81,12 @@ const tooltips: Partial<Record<keyof ConfigForm, string>> = {
     'Сторона перил на втором марше: встаньте у первой ступени марша и посмотрите вперёд по ходу подъёма. Слева — левые, справа — правые.',
 }
 
-// Пустая форма: поля не предзаполнены. Тип марша и скрытый косоур сохраняются.
+// Пустая форма: поля не предзаполнены. Тип марша, скрытый косоур и целевая
+// высота ступени (дефолтный таргет для геометрии) сохраняются.
 const emptyConfig: ConfigForm = {
   ...defaultConfig,
   widthMM: '',
   heightMM: '',
-  stepHeightMM: '',
   stepThicknessMM: '',
   clearanceMM: '',
   railingHeightMM: '',
@@ -109,6 +94,68 @@ const emptyConfig: ConfigForm = {
   landingWidthMM: '',
   lowerStepCountMM: '',
   outerRadiusMM: '',
+}
+
+// Снапшот конфигурации, который пользователь реально видел: исходный марш и
+// каждый применённый вариант остаются в галерее, чтобы можно было вернуться.
+// id в пространстве `cfg-…` — такие карточки восстанавливаются целиком,
+// тогда как бэкенд-варианты (A/B/C) сливаются в текущий конфиг.
+const VERSION_ID_PREFIX = 'cfg-'
+
+interface StairVersion {
+  id: string
+  config: ConfigForm
+  title: string
+  summary: string
+}
+
+const flightTitle: Record<ConfigForm['flight'], string> = {
+  straight: 'Прямой марш',
+  l_shape: 'L-образный марш',
+  u_shape: 'П-образный марш',
+  spiral: 'Спираль',
+}
+
+// Ключ содержимого конфига для дедупликации: сравниваем параметры марша,
+// по которым варианты реально отличаются (тип, габариты, площадка/радиус).
+function versionContentKey(cfg: Record<string, unknown>): string {
+  return JSON.stringify([
+    cfg.flight,
+    cfg.material,
+    cfg.heightMM,
+    cfg.widthMM,
+    cfg.stepThicknessMM,
+    cfg.clearanceMM,
+    cfg.railingHeightMM,
+    cfg.stepHeightMM,
+    cfg.landingWidthMM,
+    cfg.landingDepthMM,
+    cfg.lowerStepCountMM,
+    cfg.outerRadiusMM,
+    cfg.roomWidthMM,
+    cfg.roomLengthMM,
+  ])
+}
+
+function versionSummary(cfg: ConfigForm): string {
+  const parts = [`Высота ${cfg.heightMM} мм`, `марш ${cfg.widthMM} мм`]
+  if (cfg.flight === 'l_shape' || cfg.flight === 'u_shape') {
+    parts.push(`площадка ${cfg.landingWidthMM}×${cfg.landingDepthMM}`)
+  }
+  if (cfg.flight === 'spiral') parts.push(`радиус ${cfg.outerRadiusMM}`)
+  return parts.join(' · ')
+}
+
+// toVariation — снапшот как карточка галереи (полное восстановление).
+function toVariation(v: StairVersion): Variation {
+  return {
+    id: v.id,
+    title: v.title,
+    description: '',
+    summary: v.summary,
+    fits: true,
+    config: v.config as unknown as Record<string, string>,
+  }
 }
 
 // Конструктор: параметры лестницы → предварительный расчёт (анонимно).
@@ -122,17 +169,55 @@ export function Constructor() {
   const [status, setStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
+  // Вариации (A/B/C) от последнего блокирующего ответа + снапшоты «моих
+  // вариантов» (исходный марш и каждый применённый вариант). Галерея склеивает
+  // их: свои конфиги никогда не исчезают, к ним можно вернуться.
+  const [versions, setVersions] = useState<StairVersion[]>([])
+  const [variations, setVariations] = useState<Variation[] | null>(null)
+  const [activeVariationId, setActiveVariationId] = useState<string | null>(null)
+  const versionSeq = useRef(0)
+  // Зеркало версий в ref: дедупликация не зависит от устаревшего замыкания
+  // (pushVersion может вызываться после `await` в calculate).
+  const versionsRef = useRef<StairVersion[]>([])
+
+  // pushVersion добавляет снапшот конфига (без дублей по содержимому)
+  // и возвращает его id — активный/выбранный вариант галереи.
+  const pushVersion = (cfg: ConfigForm): string => {
+    const key = versionContentKey(cfg as unknown as Record<string, unknown>)
+    const existing = versionsRef.current.find(
+      (p) => versionContentKey(p.config as unknown as Record<string, unknown>) === key,
+    )
+    if (existing) return existing.id
+    versionSeq.current += 1
+    const id = `${VERSION_ID_PREFIX}${versionSeq.current}`
+    const ver: StairVersion = {
+      id,
+      config: cfg,
+      title: flightTitle[cfg.flight],
+      summary: versionSummary(cfg),
+    }
+    versionsRef.current = [...versionsRef.current, ver]
+    setVersions(versionsRef.current)
+    return id
+  }
+
+  // Предупреждение при расчёте без габаритов помещения + подсветка комнатных
+  // полей, если пользователь выбрал «внести данные площади».
+  const [roomPrompt, setRoomPrompt] = useState(false)
+  const [roomHighlight, setRoomHighlight] = useState(false)
+  const [skipRoomPrompt, setSkipRoomPrompt] = useState(false)
+  const roomWidthRef = useRef<HTMLInputElement | null>(null)
+  const roomLengthRef = useRef<HTMLInputElement | null>(null)
+
   const visible = (k: keyof ConfigForm): boolean => {
     if (k === 'stringerThicknessMM') return false // скрыт: единый косоур по умолчанию
+    if (k === 'stepHeightMM' || k === 'comfortStepMM') return false // скрыты: рассчитываются автоматически
     if ((k === 'landingWidthMM' || k === 'landingDepthMM' || k === 'lowerStepCountMM') &&
       config.flight !== 'l_shape' && config.flight !== 'u_shape') {
       return false
     }
-    if ((k === 'roomWidthMM' || k === 'roomLengthMM') && config.flight !== 'l_shape' && config.flight !== 'straight' && config.flight !== 'u_shape' && config.flight !== 'spiral') return false
     // approachSpaceMM показывается для всех типов марша (EDR-0023).
     if (k === 'outerRadiusMM' && config.flight !== 'spiral') return false
-    // Спираль считает шаг комфорта сама (S = 2h + b_ход); остальные марши используют поле.
-    if (k === 'comfortStepMM' && config.flight === 'spiral') return false
     // Перила: прямой марш — один выбор, марши с площадкой — по сегментам,
     // спираль — авто (сторона от направления закрутки), свой блок ниже.
     if (k === 'railing' && config.flight !== 'straight') return false
@@ -179,6 +264,9 @@ export function Constructor() {
     setConfig(next)
     setTouched(true)
     setErrors(validateForm(next))
+    if (next.roomWidthMM.trim() !== '' && next.roomLengthMM.trim() !== '') {
+      setRoomHighlight(false)
+    }
     // Аудит изменения поля (debounce 600 мс, best-effort).
     if (configChangeTimer.current) window.clearTimeout(configChangeTimer.current)
     configChangeTimer.current = window.setTimeout(() => {
@@ -210,6 +298,13 @@ export function Constructor() {
     setErrors(validateForm(next))
   }
 
+  const roomError = (k: keyof ConfigForm): string | undefined => {
+    if (!roomHighlight) return undefined
+    if (k === 'roomWidthMM' && config.roomWidthMM.trim() === '') return 'Укажите ширину помещения'
+    if (k === 'roomLengthMM' && config.roomLengthMM.trim() === '') return 'Укажите длину помещения'
+    return undefined
+  }
+
   const calculate = async (cfg: ConfigForm = config) => {
     const errs = validateForm(cfg)
     setErrors(errs)
@@ -226,11 +321,58 @@ export function Constructor() {
       const res = await quoteApi.calculate(body)
       setQuote(res)
       setRequest(body)
+      // Новый блокирующий ответ с вариациями заменяет список альтернатив.
+      // Текущий (заблокированный) конфиг якорим как снапшот — исходный марш
+      // остаётся в галерее и к нему можно вернуться.
+      const firstVar = res.validation.issues?.find(
+        (i) => i.variations && i.variations.length > 0,
+      )
+      if (firstVar && firstVar.variations) {
+        setVariations(firstVar.variations)
+        setActiveVariationId(pushVersion(cfg))
+      }
     } catch (e) {
       setStatus(apiErrorMessage(e, 'Не удалось выполнить расчёт'))
     } finally {
       setBusy(false)
     }
+  }
+
+  // Ручной запуск расчёта: сначала проверяем габариты помещения и, если
+  // пользователь не ввёл ширину/длину, предлагаем заполнить либо продолжить
+  // без проверки вписываемости.
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (Object.keys(validateForm(config)).length > 0) {
+      void calculate()
+      return
+    }
+    const hasRoom = config.roomWidthMM.trim() !== '' && config.roomLengthMM.trim() !== ''
+    if (!hasRoom && !skipRoomPrompt) {
+      setRoomPrompt(true)
+      return
+    }
+    void calculate()
+  }
+
+  const continueWithoutArea = () => {
+    setRoomPrompt(false)
+    setSkipRoomPrompt(true)
+    void calculate()
+  }
+
+  const enterAreaData = () => {
+    setRoomPrompt(false)
+    setRoomHighlight(true)
+    // Курсор сразу на первое пустое «красное» поле (ширина/длина помещения).
+    const target =
+      config.roomWidthMM.trim() === '' ? roomWidthRef.current : roomLengthRef.current
+    requestAnimationFrame(() => {
+      target?.focus()
+      if (target && typeof target.scrollIntoView === 'function') {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    })
   }
 
   // Применение готового варианта советника: подставляем значения в форму
@@ -259,10 +401,14 @@ export function Constructor() {
   // (railing/direction/сегменты перил и т.п. не заданы для данного варианта).
   // Пустые значения НЕ перезаписывают выбор пользователя, иначе форма
   // оказывается невалидной и пересчёт падает (clobbering).
+  // Шаг комфорта из варианта НЕ применяем: он всегда дефолтный (630 мм) —
+  // прокрутку пользователь не видит. Целевая высота ступени подставляется
+  // скрытым полем (её не видно, но вариант воспроизводит обещанную геометрию).
   const applyVariation = (v: Variation) => {
     const merged = { ...config } as unknown as Record<string, string>
     for (const [k, val] of Object.entries(v.config)) {
       if (val === '') continue
+      if (k === 'comfortStepMM') continue
       merged[k] = val
     }
     const next = merged as unknown as ConfigForm
@@ -273,6 +419,8 @@ export function Constructor() {
       next.approachSpaceMM = '1000'
     }
     setConfig(next)
+    // Применённый вариант тоже становится снапшотом — галерея хранит и его.
+    setActiveVariationId(pushVersion(next))
     void calculate(next)
     logAction({
       action: 'stair.variation_applied',
@@ -281,67 +429,165 @@ export function Constructor() {
     })
   }
 
+  // Клик по карточке галереи: свои снапшоты (cfg-…) восстанавливаем целиком,
+  // бэкенд-варианты сливаем в текущий конфиг (applyVariation).
+  const applyGalleryVariation = (v: Variation) => {
+    if (v.id.startsWith(VERSION_ID_PREFIX)) {
+      const ver = versionsRef.current.find((x) => x.id === v.id)
+      if (!ver) return
+      setConfig(ver.config)
+      setActiveVariationId(ver.id)
+      void calculate(ver.config)
+      logAction({
+        action: 'stair.variation_applied',
+        resource_type: 'stair',
+        detail: JSON.stringify({ id: ver.id, title: ver.title, method: 'restore' }),
+      })
+      return
+    }
+    applyVariation(v)
+  }
+
   const reset = () => {
     setConfig(emptyConfig)
     setErrors(validateForm(emptyConfig))
     setQuote(null)
     setRequest(null)
     setStatus(null)
+    setVersions([])
+    versionsRef.current = []
+    versionSeq.current = 0
+    setVariations(null)
+    setActiveVariationId(null)
+    setRoomPrompt(false)
+    setRoomHighlight(false)
+    setSkipRoomPrompt(false)
   }
+
+  const renderRoomFieldError = (k: keyof ConfigForm): React.ReactNode =>
+    roomError(k) ? <span className="error">{roomError(k)}</span> : null
+
+  // Галерея: снапшоты пользователя + свежие альтернативы бэкенда без дублей
+  // по содержимому (совпавшая с уже выбранным конфигом альтернатива скрыта).
+  const galleryVariations: Variation[] = [
+    ...versions.map(toVariation),
+    ...(variations ?? []).filter(
+      (alt) =>
+        !versions.some(
+          (ver) =>
+            versionContentKey(alt.config) ===
+            versionContentKey(ver.config as unknown as Record<string, unknown>),
+        ),
+    ),
+  ]
 
   return (
     <div>
       <section className="panel">
         <h2>Конструктор лестницы</h2>
         <p className="sub">Задайте параметры — мы рассчитаем геометрию и предварительную цену.</p>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            void calculate()
-          }}
-        >
-          <div className="form-grid">
-            {orderFields.map((k) => (
-              <div className="field" key={k} hidden={!visible(k)}>
-                <FieldLabel label={labels[k]} tooltip={tooltips[k]} htmlFor={`cfg-${k}`} />
-                {selectOptions(k) ? (
-                  <select id={`cfg-${k}`} value={config[k] as string} onChange={(e) => update(k, e.target.value)}>
-                    {selectOptions(k)!.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    id={`cfg-${k}`}
-                    type="text"
-                    inputMode="decimal"
-                    className={touched && errors[k] ? 'field-invalid' : undefined}
-                    value={config[k] as string}
-                    onChange={(e) => update(k, e.target.value)}
-                  />
-                )}
-                {hintOf(k) && <span className="sub">{hintOf(k)}</span>}
-                {touched && errors[k] && <span className="error">{errors[k]}</span>}
-              </div>
+        <form onSubmit={handleSubmit}>
+          <div className="form-sections">
+            {fieldSections.map((section) => (
+              <section className="form-section" key={section.title}>
+                <h3 className="form-section__title">{section.title}</h3>
+                <div className="form-grid">
+                  {section.fields.map((k) =>
+                    k === 'stepHeightMM' || k === 'comfortStepMM' ? null : (
+                      <div className="field" key={k} hidden={!visible(k)}>
+                        <FieldLabel label={labels[k]} tooltip={tooltips[k]} htmlFor={`cfg-${k}`} />
+                        {selectOptions(k) ? (
+                          <select
+                            id={`cfg-${k}`}
+                            value={config[k] as string}
+                            onChange={(e) => update(k, e.target.value)}
+                          >
+                            {selectOptions(k)!.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            id={`cfg-${k}`}
+                            ref={
+                              k === 'roomWidthMM'
+                                ? roomWidthRef
+                                : k === 'roomLengthMM'
+                                  ? roomLengthRef
+                                  : undefined
+                            }
+                            type="text"
+                            inputMode="decimal"
+                            className={
+                              (touched && errors[k]) ||
+                              (roomHighlight &&
+                                (k === 'roomWidthMM' || k === 'roomLengthMM') &&
+                                (config[k] as string).trim() === '')
+                                ? 'field-invalid'
+                                : undefined
+                            }
+                            value={config[k] as string}
+                            onChange={(e) => update(k, e.target.value)}
+                          />
+                        )}
+                        {hintOf(k) && <span className="sub">{hintOf(k)}</span>}
+                        {touched && errors[k] && <span className="error">{errors[k]}</span>}
+                        {renderRoomFieldError(k)}
+                      </div>
+                    ),
+                  )}
+                  {section.title === 'Ступени' && (
+                    <div className="field" hidden={config.flight === 'spiral'}>
+                      <FieldLabel label={labels.riser} htmlFor="cfg-riser" />
+                      <label className="checkbox">
+                        <input
+                          id="cfg-riser"
+                          type="checkbox"
+                          checked={config.riser}
+                          onChange={(e) => setRiser(e.target.checked)}
+                        />
+                        <span>{config.riser ? 'Да' : 'Нет'}</span>
+                      </label>
+                      {hints.riser && <span className="sub">{hints.riser}</span>}
+                    </div>
+                  )}
+                  {section.title === 'Перила' && config.flight === 'spiral' && (
+                    <div className="field">
+                      <FieldLabel label={labels.railing} tooltip={tooltips.railing} htmlFor="cfg-railing-auto" />
+                      {/* Спираль: перила всегда с одной стороны, сторона автоматически
+                          от направления закрутки (CONF-SPIRAL-RAILING). */}
+                      <input
+                        id="cfg-railing-auto"
+                        type="text"
+                        readOnly
+                        value={railingLabel(railingForSpiral(config.spiralDirection))}
+                      />
+                      <span className="sub">Авто: по направлению спирали</span>
+                    </div>
+                  )}
+                </div>
+              </section>
             ))}
-            <div className="field" hidden={config.flight !== 'spiral'}>
-              <FieldLabel label={labels.railing} tooltip={tooltips.railing} htmlFor="cfg-railing-auto" />
-              {/* Спираль: перила всегда с одной стороны, сторона автоматически
-                  от направления закрутки (CONF-SPIRAL-RAILING). */}
-              <input id="cfg-railing-auto" type="text" readOnly value={railingLabel(railingForSpiral(config.spiralDirection))} />
-              <span className="sub">Авто: по направлению спирали</span>
-            </div>
-            <div className="field" hidden={config.flight === 'spiral'}>
-              <FieldLabel label={labels.riser} htmlFor="cfg-riser" />
-              <label className="checkbox">
-                <input id="cfg-riser" type="checkbox" checked={config.riser} onChange={(e) => setRiser(e.target.checked)} />
-                <span>{config.riser ? 'Да' : 'Нет'}</span>
-              </label>
-              {hints.riser && <span className="sub">{hints.riser}</span>}
-            </div>
           </div>
+
+          {roomPrompt && (
+            <div className="alert alert--warn room-prompt" role="alert">
+              <div className="room-prompt__text">
+                Корректный расчёт под ваше помещение возможен только с шириной и длиной
+                помещения — укажите их, чтобы мы проверили, поместится ли лестница.
+              </div>
+              <div className="room-prompt__actions">
+                <button className="sp-btn sp-btn--primary" type="button" onClick={enterAreaData}>
+                  Внести данные площади
+                </button>
+                <button className="sp-btn" type="button" onClick={continueWithoutArea}>
+                  Продолжить без площади
+                </button>
+              </div>
+            </div>
+          )}
           {status && <div className="alert alert--error" role="alert">{status}</div>}
           <div className="actions">
             <button className="sp-btn sp-btn--primary" type="submit" disabled={busy}>
@@ -359,7 +605,9 @@ export function Constructor() {
           <QuoteResultView
             quote={quote}
             onApplySuggestion={applySuggestion}
-            onApplyVariation={applyVariation}
+            onApplyVariation={applyGalleryVariation}
+            variations={galleryVariations.length > 0 ? galleryVariations : undefined}
+            activeVariationId={activeVariationId}
             material={config.material}
             approachSpaceMM={config.approachSpaceMM}
           />

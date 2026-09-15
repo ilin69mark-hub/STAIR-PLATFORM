@@ -9,7 +9,7 @@ import (
 
 func TestBodySizeLimitMiddleware_WithinLimit(t *testing.T) {
 	handler := BodySizeLimitMiddleware(1024)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	body := strings.Repeat("x", 512)
@@ -39,7 +39,7 @@ func TestBodySizeLimitMiddleware_OverLimit_ContentLength(t *testing.T) {
 
 func TestBodySizeLimitMiddleware_ExactLimit(t *testing.T) {
 	handler := BodySizeLimitMiddleware(1024)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	body := strings.Repeat("x", 1024)
@@ -54,7 +54,7 @@ func TestBodySizeLimitMiddleware_ExactLimit(t *testing.T) {
 
 func TestBodySizeLimitMiddleware_Default(t *testing.T) {
 	handler := BodySizeLimitDefault()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	// 1MB — should be fine
@@ -70,7 +70,7 @@ func TestBodySizeLimitMiddleware_Default(t *testing.T) {
 
 func TestBodySizeLimitMiddleware_Upload(t *testing.T) {
 	handler := BodySizeLimitUpload()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	// 10MB — should be fine for upload
@@ -86,7 +86,7 @@ func TestBodySizeLimitMiddleware_Upload(t *testing.T) {
 
 func TestBodySizeLimitMiddleware_ZeroContentLength(t *testing.T) {
 	handler := BodySizeLimitMiddleware(1024)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)

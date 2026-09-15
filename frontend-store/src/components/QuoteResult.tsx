@@ -22,16 +22,38 @@ interface Props {
   // Свободное пространство перед первой ступенью (мм), введено в калькуляторе
   // (дефолт 1000). Передаём в solverOf, чтобы не зависеть от сдвига модели.
   approachSpaceMM?: string
+  // Персистентные вариации (A/B/C): список держит Конструктор между
+  // пересчётами, поэтому активный вариант можно менять местами с текущим и
+  // возвращаться обратно. Передаются как пропсы — в админке VariantPanel
+  // использует собственный активный выбор (activeVariantId).
+  variations?: Variation[] | null
+  activeVariationId?: string | null
 }
 
-export function QuoteResult({ quote, onApplySuggestion, onApplyVariation, material, approachSpaceMM }: Props) {
+// Человекочитаемые подписи уровня нарушения (severity из ответа API).
+const severityLabels: Record<string, string> = {
+  error: 'Ошибка',
+  warning: 'Внимание',
+  info: 'Информация',
+}
+
+export function QuoteResult({
+  quote,
+  onApplySuggestion,
+  onApplyVariation,
+  material,
+  approachSpaceMM,
+  variations,
+  activeVariationId,
+}: Props) {
   const solver = solverOf(quote, approachSpaceMM != null && approachSpaceMM.trim() !== '' ? Number(approachSpaceMM) : undefined)
   const geometry = quote.geometry
   const pricing = quote.pricing
   const issues = quote.validation.issues ?? []
   const spiral = quote.spiral !== undefined
   // Вариации (A/B/C, напр. невписываемость в помещение) могут относиться к
-  // нескольким issue с одинаковым набором — показываем только для первого.
+  // нескольким issue с одинаковым набором — показываем только для первого,
+  // если Конструктор не передал персистентный список.
   const firstVar = issues.find((i) => i.variations && i.variations.length > 0)
   // Фиолетовая линия верха марша на 3D: суммарный подъём марша.
   const stairTop =
@@ -59,7 +81,7 @@ export function QuoteResult({ quote, onApplySuggestion, onApplyVariation, materi
             {issues.map((i, idx) => (
               <div className="issue" key={idx}>
                 <div>
-                  <strong>{i.severity}:</strong> {i.guide ?? i.message}
+                  <strong>{severityLabels[i.severity] ?? i.severity}:</strong> {i.guide ?? i.message}
                   {!i.guide && i.fix ? ` (${i.fix})` : ''}
                 </div>
                 {i.param && (
@@ -94,10 +116,14 @@ export function QuoteResult({ quote, onApplySuggestion, onApplyVariation, materi
           </div>
         )}
 
-        {firstVar && onApplyVariation && (
+        {(variations ?? firstVar?.variations) && onApplyVariation && (
           <div className="variations">
             <h3 className="panel__sub">Варианты решения (выберите подходящий)</h3>
-            <VariationPicker variations={firstVar.variations!} onApply={onApplyVariation} />
+            <VariationPicker
+              variations={variations ?? firstVar!.variations!}
+              onApply={onApplyVariation}
+              activeId={activeVariationId ?? undefined}
+            />
           </div>
         )}
 

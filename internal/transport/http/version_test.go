@@ -9,7 +9,7 @@ import (
 func TestVersionMiddleware_PathExtraction(t *testing.T) {
 	handler := VersionMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		v := APIVersionFromContext(r.Context())
-		w.Write([]byte(v))
+		_, _ = w.Write([]byte(v))
 	}))
 
 	tests := []struct {
@@ -34,7 +34,7 @@ func TestVersionMiddleware_PathExtraction(t *testing.T) {
 func TestVersionMiddleware_HeaderExtraction(t *testing.T) {
 	handler := VersionMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		v := APIVersionFromContext(r.Context())
-		w.Write([]byte(v))
+		_, _ = w.Write([]byte(v))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/projects", nil)
@@ -50,7 +50,7 @@ func TestVersionMiddleware_HeaderExtraction(t *testing.T) {
 func TestVersionMiddleware_QueryExtraction(t *testing.T) {
 	handler := VersionMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		v := APIVersionFromContext(r.Context())
-		w.Write([]byte(v))
+		_, _ = w.Write([]byte(v))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/projects?api_version=v1", nil)
@@ -65,7 +65,7 @@ func TestVersionMiddleware_QueryExtraction(t *testing.T) {
 func TestVersionMiddleware_DefaultVersion(t *testing.T) {
 	handler := VersionMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		v := APIVersionFromContext(r.Context())
-		w.Write([]byte(v))
+		_, _ = w.Write([]byte(v))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/projects", nil)
@@ -93,7 +93,7 @@ func TestVersionMiddleware_UnsupportedVersion(t *testing.T) {
 
 func TestVersionMiddleware_ResponseHeader(t *testing.T) {
 	handler := VersionMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
@@ -108,7 +108,7 @@ func TestVersionMiddleware_ResponseHeader(t *testing.T) {
 func TestVersionMiddleware_PathPriorityOverHeader(t *testing.T) {
 	handler := VersionMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		v := APIVersionFromContext(r.Context())
-		w.Write([]byte(v))
+		_, _ = w.Write([]byte(v))
 	}))
 
 	// Path says v1, header says v2 — path wins

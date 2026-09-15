@@ -93,8 +93,11 @@ func handleGetObject(svc StorageService) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(data)
+		// G705: произвольные байты из object storage; octet-stream + nosniff
+		// заставляют браузер скачивать файл, а не рендерить его как HTML.
+		_, _ = w.Write(data) //nolint:gosec // G705: octet-stream download, см. выше
 	}
 }
 

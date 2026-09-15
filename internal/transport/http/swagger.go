@@ -42,7 +42,7 @@ func handleSwaggerUI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	tmpl.Execute(w, nil)
+	_ = tmpl.Execute(w, nil)
 }
 
 // handleSwaggerSpec — GET /docs/openapi/swagger.yaml (OpenAPI spec).
@@ -53,5 +53,5 @@ func handleSwaggerSpec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/yaml")
-	w.Write(data)
+	_, _ = w.Write(data)
 }

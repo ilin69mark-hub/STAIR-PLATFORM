@@ -377,8 +377,8 @@ func testRouterWithProjects(p ProjectService) http.Handler {
 // authedRequest строит запрос с session+csrf cookie и заголовком CSRF.
 func authedRequest(method, path, body string) *http.Request {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
-	r.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "token-1"})
-	r.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "csrf-1"})
+	r.AddCookie(testCookie(sessionCookieName, "token-1"))
+	r.AddCookie(testCookie(csrfCookieName, "csrf-1"))
 	r.Header.Set(csrfHeader, "csrf-1")
 	return r
 }

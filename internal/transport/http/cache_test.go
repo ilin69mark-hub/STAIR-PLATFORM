@@ -12,7 +12,7 @@ func TestCacheMiddleware_NoCache(t *testing.T) {
 		"/api/v1/": CacheNoCache,
 	}
 	handler := CacheMiddleware(policies)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
@@ -29,7 +29,7 @@ func TestCacheMiddleware_Short(t *testing.T) {
 		"/api/v1/": CacheShort,
 	}
 	handler := CacheMiddleware(policies)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/123", nil)
@@ -47,7 +47,7 @@ func TestCacheMiddleware_Long(t *testing.T) {
 		"/static/": CacheLong,
 	}
 	handler := CacheMiddleware(policies)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/static/bundle.js", nil)
@@ -64,7 +64,7 @@ func TestCacheMiddleware_Immutable(t *testing.T) {
 		"/assets/": CacheImmutable,
 	}
 	handler := CacheMiddleware(policies)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/assets/app.abc123.js", nil)
@@ -82,7 +82,7 @@ func TestCacheMiddleware_ExactMatch(t *testing.T) {
 		"/api/v1/":          CacheShort,
 	}
 	handler := CacheMiddleware(policies)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/login", nil)
@@ -99,7 +99,7 @@ func TestCacheMiddleware_DefaultNoCache(t *testing.T) {
 		"/api/": CacheShort,
 	}
 	handler := CacheMiddleware(policies)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/unknown/path", nil)
