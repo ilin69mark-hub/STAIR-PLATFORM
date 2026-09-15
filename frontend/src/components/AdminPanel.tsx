@@ -24,6 +24,7 @@ import { UsageAnalyticsPanel, ProjectsAnalyticsPanel, ManufacturingPanel, CostAn
 import { OrdersPanel } from './admin/OrdersPanel'
 import { ApiKeysPanel } from './admin/ApiKeysPanel'
 import { TestimonialsPanel } from './admin/TestimonialsPanel'
+import { LazySection } from './admin/LazySection'
 
 interface Props {
   currentUserId: string
@@ -162,11 +163,7 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
 
   useEffect(() => {
     void load()
-    void loadUsage('day')
-    void loadProjects()
-    void loadManufacturing('day')
-    void loadCost('day')
-  }, [load, loadUsage, loadProjects, loadManufacturing, loadCost])
+  }, [load])
 
   const handleUpdateUser = async (id: string, body: { role?: 'user' | 'admin'; status?: 'active' | 'disabled' }) => {
     setError(null)
@@ -235,26 +232,34 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
           <UsersPanel users={users} currentUserId={currentUserId} onUpdate={handleUpdateUser} />
           <PolicyPanel policy={policy} onChange={setPolicyField} onSave={handleSavePolicy} />
           <ExportPanel onExport={handleExport} />
-          <UsageAnalyticsPanel
-            usage={usage}
-            loading={usageLoading}
-            granularity={usageGranularity}
-            onChangeGranularity={(g) => { setUsageGranularity(g); void loadUsage(g) }}
-          />
-          <ProjectsAnalyticsPanel projects={projects} loading={projectsLoading} />
+          <LazySection onLoad={() => void loadUsage(usageGranularity)}>
+            <UsageAnalyticsPanel
+              usage={usage}
+              loading={usageLoading}
+              granularity={usageGranularity}
+              onChangeGranularity={(g) => { setUsageGranularity(g); void loadUsage(g) }}
+            />
+          </LazySection>
+          <LazySection onLoad={() => void loadProjects()}>
+            <ProjectsAnalyticsPanel projects={projects} loading={projectsLoading} />
+          </LazySection>
           <OrdersPanel orders={orders} onStatusChange={handleOrderStatus} />
-          <ManufacturingPanel
-            mfg={mfg}
-            loading={mfgLoading}
-            granularity={mfgGranularity}
-            onChangeGranularity={(g) => { setMfgGranularity(g); void loadManufacturing(g) }}
-          />
-          <CostAnalyticsPanel
-            cost={cost}
-            loading={costLoading}
-            granularity={costGranularity}
-            onChangeGranularity={(g) => { setCostGranularity(g); void loadCost(g) }}
-          />
+          <LazySection onLoad={() => void loadManufacturing(mfgGranularity)}>
+            <ManufacturingPanel
+              mfg={mfg}
+              loading={mfgLoading}
+              granularity={mfgGranularity}
+              onChangeGranularity={(g) => { setMfgGranularity(g); void loadManufacturing(g) }}
+            />
+          </LazySection>
+          <LazySection onLoad={() => void loadCost(costGranularity)}>
+            <CostAnalyticsPanel
+              cost={cost}
+              loading={costLoading}
+              granularity={costGranularity}
+              onChangeGranularity={(g) => { setCostGranularity(g); void loadCost(g) }}
+            />
+          </LazySection>
           <ApiKeysPanel keys={keys} onRefresh={() => void load()} onError={setError} onNotice={setNotice} />
           <TestimonialsPanel testimonials={testimonials} onRefresh={() => void load()} onError={setError} onNotice={setNotice} />
         </>
