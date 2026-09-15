@@ -39,6 +39,8 @@ func inputIssue(err error) (validation.Result, bool) {
 			Guide:   fmt.Sprintf("Толщина косоура %.0f мм не поддерживается каталогом материалов (2–60 мм).", mm),
 			Fix:     "Задайте толщину косоура в диапазоне 2–60 мм",
 		}), true
+	case strings.Contains(msg, "lower step count must be in"):
+		return buildInputResult(lowerStepInputErrorFromMessage(msg)), true
 	}
 	return validation.Result{}, false
 }
@@ -184,12 +186,7 @@ func configInputError(err error) *solver.InputError {
 			Fix:     "Увеличьте ширину площадки",
 		}
 	case strings.Contains(msg, "lower step count must be in"):
-		return &solver.InputError{
-			Code: constraint.GEO_LOWER_STEP, Field: "Нижних ступеней",
-			Message: "Число ступеней нижнего марша вне диапазона",
-			Guide:   "Число ступеней нижнего марша должно быть в допустимом диапазоне.",
-			Fix:     "Задайте число ступеней нижнего марша",
-		}
+		return lowerStepInputErrorFromMessage(msg)
 	case strings.Contains(msg, "width must exceed two stringer thicknesses"):
 		return &solver.InputError{
 			Code: constraint.GEO_STRINGER_NARROW, Field: "Ширина марша",
@@ -298,4 +295,40 @@ func materialPartFromError(msg string) string {
 		return "деталь"
 	}
 	return strings.TrimSpace(msg[i+len(" mm of "):])
+}
+
+// lowerStepMaxFromError извлекает верхнюю границу диапазона нижнего марша из
+// сообщения вида "stair: lower step count must be in [1, N] for L".
+func lowerStepMaxFromError(msg string) int {
+	i := strings.Index(msg, "[1, ")
+	if i < 0 {
+		return 0
+	}
+	rest := msg[i+len("[1, "):]
+	j := strings.Index(rest, "]")
+	if j < 0 {
+		return 0
+	}
+	v, err := strconv.Atoi(strings.TrimSpace(rest[:j]))
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+// lowerStepInputErrorFromMessage строит входную ошибку GEO-LOWER-STEP с
+// конкретным допустимым диапазоном [1..StepCount-1], извлечённым из
+// сообщения доменной валидации. Без распознанного диапазона — общий текст.
+func lowerStepInputErrorFromMessage(msg string) *solver.InputError {
+	max := lowerStepMaxFromError(msg)
+	guide := "Число ступеней нижнего марша должно быть в допустимом диапазоне."
+	if max > 0 {
+		guide = fmt.Sprintf("Число ступеней нижнего марша должно быть от 1 до %d (всего ступеней %d).", max, max+1)
+	}
+	return &solver.InputError{
+		Code: constraint.GEO_LOWER_STEP, Field: "Нижних ступеней",
+		Message: "Число ступеней нижнего марша вне диапазона",
+		Guide:   guide,
+		Fix:     "Задайте число ступеней нижнего марша",
+	}
 }
