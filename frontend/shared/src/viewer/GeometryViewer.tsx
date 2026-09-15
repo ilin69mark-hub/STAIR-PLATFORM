@@ -7,6 +7,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Mesh as ApiMesh } from '../types'
 import { toThreePositions } from './projection'
 import { computePlacement } from '../placement'
+import { approachZoneCenterX, stairTopLineX } from './layout'
 import { ANNOTATE, edgeColor, WALLS } from '../scheme-annot'
 
 interface Props {
@@ -31,6 +32,10 @@ interface Props {
   // полупрозрачную зону перед входом в марш, чтобы было видно место для
   // постановки ноги (норма 1000–1200 мм).
   approachSpace?: number
+  // Толщина проступи (StepThickness, мм): лицевая панель марша отстоит от
+  // box.max.x на эту величину (свес первой проступи), поэтому зона подхода
+  // и линия верха привязаны к ней. По умолчанию 40 (default бэкенда).
+  stepThickness?: number
 }
 
 // Временная метка-буква для 3D-разметки (debug, см. scheme-annot.ts): рисуем
@@ -100,6 +105,7 @@ export function GeometryViewer({
   roomWidth,
   roomLength,
   approachSpace,
+  stepThickness = 40,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -272,12 +278,13 @@ export function GeometryViewer({
     scene.add(grid)
 
     // Фиолетовая линия: горизонтально на уровне пола (z = box.min.z), ровно
-    // под местом, где заканчивается марш (x = box.max.x), вдоль его ширины
-    // (box.min.y → box.max.y). Показывает ширину марша у верхнего торца.
+    // под местом, где заканчивается марш (для straight меш зеркалится по X,
+    // поэтому верх — у box.min.x), вдоль его ширины (box.min.y → box.max.y).
+    // Показывает ширину марша у верхнего торца.
     // Добавляется в группу марша, чтобы двигалась вместе со сдвигом.
     let topLine: THREE.Line | null = null
     if (stairTop) {
-      const x = box.max.x
+      const x = stairTopLineX(box, flight ?? '')
       const y0 = box.min.y
       const y1 = box.max.y
       const z = box.min.z
@@ -291,11 +298,13 @@ export function GeometryViewer({
 
     // Зона свободного пространства перед первой ступенью (EDR-0023): полупрозрачная
     // площадка на полу перед входом в марш. После зеркалирования меша по X первый
-    // шаг прямого марша — на +X, поэтому зона продлевается вдоль +X от торца
-    // лестницы (sb.max.x), как в 2D-плане (подход у стены П).
+    // шаг прямого марша — на +X, а грань входа (лицевая панель марша, свес первой
+    // проступи) отстоит от sb.max.x на StepThickness. Зона начинается строго от
+    // грани входа и имеет ширину ровно approachSpace: при комнате roomWidth =
+    // Run + approach она упирается ровно в стену П, ничего не вылезая.
     // Добавляем в stairGroup, чтобы зона ехала вместе со сдвигом размещения.
-      let approachMesh: THREE.Mesh | null = null
-      if (sb) {
+    let approachMesh: THREE.Mesh | null = null
+    if (sb) {
       const widthZ = Math.max(1, sb.max.z - sb.min.z)
       const apGeo = new THREE.PlaneGeometry(ap, widthZ)
       const apMat = new THREE.MeshBasicMaterial({
@@ -307,7 +316,11 @@ export function GeometryViewer({
       })
       approachMesh = new THREE.Mesh(apGeo, apMat)
       approachMesh.rotation.x = -Math.PI / 2
-      approachMesh.position.set(sb.max.x + ap / 2, 2, (sb.min.z + sb.max.z) / 2)
+      approachMesh.position.set(
+        approachZoneCenterX(sb, flight ?? '', stepThickness, ap),
+        2,
+        (sb.min.z + sb.max.z) / 2,
+      )
       stairGroup.add(approachMesh)
     }
 

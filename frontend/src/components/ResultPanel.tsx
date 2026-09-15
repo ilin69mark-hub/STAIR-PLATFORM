@@ -118,6 +118,7 @@ function SolverDrawings({ snapshot }: { snapshot: Snapshot }) {
               roomWidth={sch?.solver?.roomWidth}
               roomLength={sch?.solver?.roomLength}
               approachSpace={sch?.solver?.approachSpace}
+              stepThickness={snapshot.step_thickness}
             />
           </Suspense>
         ) : (
@@ -484,6 +485,7 @@ function GeometryPanel({ snapshot }: { snapshot: Snapshot }) {
             roomWidth={sch?.solver?.roomWidth}
             roomLength={sch?.solver?.roomLength}
             approachSpace={sch?.solver?.approachSpace}
+            stepThickness={snapshot.step_thickness}
           />
         </Suspense>
       )}
