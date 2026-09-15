@@ -2,12 +2,14 @@ package variation
 
 import (
 	"context"
+	"math"
 	"strconv"
 	"strings"
 	"testing"
 
 	"stairplatform/internal/domain/engineering"
 	"stairplatform/internal/engine/constraint"
+	enggeo "stairplatform/internal/engine/geometry"
 	"stairplatform/internal/engine/solver"
 	"stairplatform/internal/engine/validation"
 )
@@ -296,5 +298,127 @@ func TestFromSuggestions_Converts(t *testing.T) {
 	}
 	if vars[0].Config["stepHeightMM"] == "" {
 		t.Fatalf("config missing stepHeightMM")
+	}
+}
+
+// nearlyEq сравнивает float64 с относительной точностью 1e-6.
+func nearlyEq(a, b float64) bool {
+	return math.Abs(a-b) <= 1e-6*math.Max(1, math.Max(math.Abs(a), math.Abs(b)))
+}
+
+// testLShapeConfig строит минимальный L-образный конфиг, пригодный для
+// enggeo.Generate (аналог makeLShapeConfigForTest в пакете geometry).
+func testLShapeConfig() *engineering.StairConfiguration {
+	return &engineering.StairConfiguration{
+		Width:             engineering.Length(900),
+		Height:            engineering.Length(2700),
+		Flight:            engineering.FlightLShape,
+		StepCount:         15,
+		StepHeight:        engineering.Length(180),
+		TreadDepth:        engineering.Length(270),
+		StringerThickness: engineering.Length(50),
+		StepThickness:     engineering.Length(40),
+		LowerStepCount:    7,
+		LandingWidth:      engineering.Length(1000),
+	}
+}
+
+// testUShapeConfig строит минимальный П-образный конфиг для enggeo.Generate.
+func testUShapeConfig() *engineering.StairConfiguration {
+	return &engineering.StairConfiguration{
+		Width:             engineering.Length(900),
+		Height:            engineering.Length(2700),
+		Flight:            engineering.FlightUShape,
+		StepCount:         15,
+		StepHeight:        engineering.Length(180),
+		TreadDepth:        engineering.Length(270),
+		StringerThickness: engineering.Length(50),
+		StepThickness:     engineering.Length(40),
+		LowerStepCount:    7,
+		LandingWidth:      engineering.Length(1000),
+	}
+}
+
+// testSpiralConfig строит минимальный спиральный конфиг для enggeo.Generate.
+func testSpiralConfig() *engineering.StairConfiguration {
+	return &engineering.StairConfiguration{
+		Width:             engineering.Length(900),
+		Height:            engineering.Length(2700),
+		Flight:            engineering.FlightSpiral,
+		StepCount:         15,
+		StepHeight:        engineering.Length(180),
+		TreadDepth:        engineering.Length(270),
+		StringerThickness: engineering.Length(50),
+		StepThickness:     engineering.Length(40),
+		OuterRadius:       engineering.Length(1300), // R > W → колонна > 0
+	}
+}
+
+// TestRoomFitBBoxIncludesApproach — прямой unit-тест габаритного бокса,
+// по которому ForRoomFit принимает решение о вписываемости в помещение.
+// Увеличение ApproachSpace на Δ должно сдвинуть bbox ровно на Δ по оси X
+// (EDR-0023) для L-образного, П-образного и спирального марша; комната,
+// впритык к меньшему bbox, должна вмещать вариант с меньшим подходом и
+// НЕ вмещать вариант с бóльшим — доказательство, что bbox → room_fit → Fits
+// корректно учитывает зону подхода для всех типов.
+func TestRoomFitBBoxIncludesApproach(t *testing.T) {
+	const a1, a2 = 500.0, 1500.0
+	delta := a2 - a1
+	cases := []struct {
+		name string
+		make func() *engineering.StairConfiguration
+	}{
+		{"l_shape", testLShapeConfig},
+		{"u_shape", testUShapeConfig},
+		{"spiral", testSpiralConfig},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c1 := tc.make()
+			c1.ApproachSpace = engineering.Length(a1)
+			c2 := tc.make()
+			c2.ApproachSpace = engineering.Length(a2)
+
+			r1, err := enggeo.Generate(context.Background(), c1)
+			if err != nil {
+				t.Fatalf("generate a1: %v", err)
+			}
+			r2, err := enggeo.Generate(context.Background(), c2)
+			if err != nil {
+				t.Fatalf("generate a2: %v", err)
+			}
+			bb1 := r1.Measurement.BoundingBox
+			bb2 := r2.Measurement.BoundingBox
+
+			// Бокс сдвинут ровно на Δ по X.
+			if !nearlyEq(bb2.Min.X-bb1.Min.X, delta) {
+				t.Fatalf("bbox.Min.X shift = %v, want %v (a2−a1) for %s", bb2.Min.X-bb1.Min.X, delta, tc.name)
+			}
+			if !nearlyEq(bb2.Max.X-bb1.Max.X, delta) {
+				t.Fatalf("bbox.Max.X shift = %v, want %v for %s", bb2.Max.X-bb1.Max.X, delta, tc.name)
+			}
+			// Подход сдвигает только по X — Y и Z не меняются.
+			if !nearlyEq(bb2.Min.Y, bb1.Min.Y) || !nearlyEq(bb2.Max.Y, bb1.Max.Y) {
+				t.Fatalf("Y bounds changed under approach shift for %s: %+v vs %+v", tc.name, bb1, bb2)
+			}
+			if !nearlyEq(bb2.Min.Z, bb1.Min.Z) || !nearlyEq(bb2.Max.Z, bb1.Max.Z) {
+				t.Fatalf("Z bounds changed under approach shift for %s: %+v vs %+v", tc.name, bb1, bb2)
+			}
+
+			// Комната впритык к меньшему bbox: с a1 вариант влезает, с a2 — нет.
+			// Именно по этому боксу ForRoomFit решает, предлагать ли вариант.
+			fitW := engineering.Length(bb1.Max.X + 1)
+			fitL := engineering.Length(bb1.Max.Y + 100)
+			c1.RoomWidth = fitW
+			c1.RoomLength = fitL
+			c2.RoomWidth = fitW
+			c2.RoomLength = fitL
+			if got := buildRoomFit(c1, nil); len(got) != 0 {
+				t.Fatalf("expected no room_fit for a1=%v, got %v", a1, got)
+			}
+			if got := buildRoomFit(c2, nil); len(got) == 0 {
+				t.Fatalf("expected room_fit for a2=%v (bbox wider by %v mm, room fits a1 but not a2), got none", a2, delta)
+			}
+		})
 	}
 }
