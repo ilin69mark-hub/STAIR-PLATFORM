@@ -144,7 +144,7 @@ body {
   --sp-border: #ecd9c2;
   --sp-shadow: 0 10px 30px rgba(120, 80, 40, 0.12);
   text-align: center;
-  padding: 56px 20px 30px;
+  padding: 56px 20px 48px;
 }
 
 .hero h1 {
