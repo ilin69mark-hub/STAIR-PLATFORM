@@ -225,11 +225,21 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: frontend-store/package-lock.json
+          cache-dependency-path: |
+            frontend-store/package-lock.json
+            frontend/package-lock.json
 
       - name: Install store dependencies
         run: npm ci
         working-directory: frontend-store
+
+      # Vite dev отдаёт @shared-исходники из frontend/shared, а three/react
+      # для них резолвятся через frontend/node_modules — без них падает
+      # dependency scan и вьювер (install вместо ci: lock frontend/ отстаёт,
+      # pre-existing drift).
+      - name: Install shared deps (frontend)
+        run: npm install --no-audit --no-fund
+        working-directory: frontend
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
