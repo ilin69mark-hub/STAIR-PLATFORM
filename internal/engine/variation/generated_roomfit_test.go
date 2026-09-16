@@ -37,6 +37,12 @@ type genCase struct {
 
 func genMustLength(v float64) engineering.Length { l, _ := engineering.NewLength(v); return l }
 
+// genSem ограничивает параллелизм generated-теста: 2000 безлимитных
+// t.Parallel-подтестов под -race устраивают трэш детектора гонок
+// (в CI — panic timeout 10m), а замер даёт ~0.12с/кейс под race —
+// с 8 слотами весь прогон укладывается в ~1-2 мин.
+var genSem = make(chan struct{}, 8)
+
 func genCaseToConfig(c genCase) *engineering.StairConfiguration {
 	var wL, hL = genMustLength(c.WidthMM), genMustLength(c.HeightMM)
 	var ft engineering.FlightType
@@ -137,6 +143,8 @@ func TestGeneratedRoomFit500(t *testing.T) {
 		cs := cs
 		t.Run(fmt.Sprintf("%s_%d", cs.Flight, i), func(t *testing.T) {
 			t.Parallel()
+			genSem <- struct{}{}
+			defer func() { <-genSem }()
 			cfg := genCaseToConfig(cs)
 			// Доводим до решённого состояния (мутирует cfg через Apply).
 			switch cs.Flight {
