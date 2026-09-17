@@ -2,6 +2,10 @@
 
 > Быстрый файл для продолжения. Сгенерирован после фаз 1-2 подъёма. Все команды — из корня `stair-platform/`.
 
+> **Обновление 2026-09-17 (admin):** закрыты дыры админки — `src/api/admin.ts` и `src/api/analytics.ts` 0→100% (новые `admin.test.ts`, `analytics.test.ts`), `App.tsx` 0→95% (новый `App.test.tsx`, роутер: loading/логин/список/детали/админ/аудит/выход/ошибка). Frontend total stmts ~70→71.92%. Новый e2e `frontend/e2e/tests/admin-panel.spec.ts` (4 кейса: разделы, смена роли, политика, API-ключи) — админ создаётся через БД `docker exec` psql (SEC-0004). Заодно починен баг: `load()` в `AdminPanel` сбрасывал панель в скелетон после мутаций и терял одноразовый токен API-ключа → добавлен параметр `silent` (тихое обновление без скелетона).
+
+> **Обновление 2026-09-17 (аудит/скроллспай):** `shared/src/api/audit.ts` 0→100% и `src/api/audit.ts` 75→100% (новые `audit.test.ts`), `src/lib/useScrollSpy.ts` 33→100% (stmts/lines/funcs; branch 85.7%) — новый `useScrollSpy.test.ts`. Frontend: 300/300 тестов (+15), total stmts 71.92→**72.83%**, lines 74.27→**75.05%**. Готча окружения: jsdom-`localStorage` здесь без `getItem/setItem` — `logAction` из-за `catch{}` всё равно шлёт fetch; в тесте подставляем in-memory Storage через `vi.stubGlobal`.
+
 ## 1. Где остановились (факт, с БД)
 
 ```bash

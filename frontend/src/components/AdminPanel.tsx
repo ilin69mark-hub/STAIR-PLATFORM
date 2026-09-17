@@ -154,8 +154,11 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
     }
   }, [])
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    // silent=true — фоновое обновление данных после изменений: не меняем
+    // панель на скелетон, чтобы не терять состояние (например, одноразовый
+    // токен API-ключа) и не мигать интерфейсом.
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const [ov, us, pl, ks, ordersResp, tms] = await Promise.all([
@@ -175,7 +178,7 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Не удалось загрузить панель администратора')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [])
 
@@ -191,7 +194,7 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
     try {
       await adminApi.updateUser(id, body)
       setNotice('Пользователь обновлён')
-      void load()
+      void load(true)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Не удалось обновить пользователя')
     }
@@ -204,7 +207,7 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
     try {
       await adminApi.updateSettings(policy)
       setNotice('Политика безопасности сохранена')
-      void load()
+      void load(true)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не удалось сохранить политику')
     }
@@ -223,7 +226,7 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
     try {
       await adminApi.updateOrderStatus(id, status)
       setNotice('Статус заказа обновлён')
-      void load()
+      void load(true)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не удалось обновить статус заказа')
     }
@@ -304,10 +307,10 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
               </LazySection>
             </section>
             <section id="api-keys" className="section">
-              <ApiKeysPanel keys={keys} onRefresh={() => void load()} onError={setError} onNotice={setNotice} />
+              <ApiKeysPanel keys={keys} onRefresh={() => void load(true)} onError={setError} onNotice={setNotice} />
             </section>
             <section id="testimonials" className="section">
-              <TestimonialsPanel testimonials={testimonials} onRefresh={() => void load()} onError={setError} onNotice={setNotice} />
+              <TestimonialsPanel testimonials={testimonials} onRefresh={() => void load(true)} onError={setError} onNotice={setNotice} />
             </section>
           </div>
 
