@@ -19,18 +19,19 @@ import (
 
 // fakeProjectService — тестовая реализация ProjectService.
 type fakeProjectService struct {
-	projects     map[string]*project.Project
-	members      []*project.ProjectMember
-	comments     []*project.Comment
-	reviews      []*project.ProjectReview
-	approvals    []*project.ConfigurationApproval
-	configs      []*project.StairConfiguration
-	calc         *project.Calculation
-	cadMesh      *kerngeo.Mesh
-	createErr    error
-	calculateErr error
-	getErr       error
-	reviewErr    error
+	projects      map[string]*project.Project
+	members       []*project.ProjectMember
+	comments      []*project.Comment
+	reviews       []*project.ProjectReview
+	approvals     []*project.ConfigurationApproval
+	configs       []*project.StairConfiguration
+	calc          *project.Calculation
+	cadMesh       *kerngeo.Mesh
+	createErr     error
+	calculateErr  error
+	getErr        error
+	reviewErr     error
+	listTenantErr error
 }
 
 func newFakeProjectService() *fakeProjectService {
@@ -64,6 +65,9 @@ func (f *fakeProjectService) ListProjects(ctx context.Context, tenantID, userID 
 }
 
 func (f *fakeProjectService) ListTenantProjects(ctx context.Context, tenantID string) ([]*project.Project, error) {
+	if f.listTenantErr != nil {
+		return nil, f.listTenantErr
+	}
 	out := make([]*project.Project, 0, len(f.projects))
 	for _, p := range f.projects {
 		out = append(out, p)
