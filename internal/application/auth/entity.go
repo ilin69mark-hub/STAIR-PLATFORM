@@ -56,6 +56,29 @@ const (
 	PermissionTestimonialsManage Permission = "testimonials.manage"
 )
 
+// AllPermissions возвращает полный набор известных прав системы.
+// Используется для валидации scope'ов API-ключей (EDR-0016 §3.2): ключ не
+// может запрашивать права, которых не существует в матрице.
+func AllPermissions() []Permission {
+	return []Permission{
+		PermissionAuditReadAll, PermissionUsersList, PermissionUsersUpdateRole,
+		PermissionUsersManage, PermissionSettingsRead, PermissionSettingsWrite,
+		PermissionDataExport, PermissionApiKeysManage, PermissionIntegrationsManage,
+		PermissionAnalyticsRead, PermissionOrdersList, PermissionOrdersManage,
+		PermissionTestimonialsList, PermissionTestimonialsManage,
+	}
+}
+
+// IsKnown reports whether p — известное право системы.
+func (p Permission) IsKnown() bool {
+	for _, known := range AllPermissions() {
+		if known == p {
+			return true
+		}
+	}
+	return false
+}
+
 // Permissions возвращает набор прав роли (матрица EDR-0015 §3.2,
 // расширена EDR-0016 §3.1).
 func (r Role) Permissions() []Permission {
