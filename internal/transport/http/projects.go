@@ -792,6 +792,7 @@ func handlePreviewProject(svc ProjectService) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, toSnapshotDTO(projectID, *snap))
 	}
 }
+
 // Находит оптимальную конфигурацию проекта и сохраняет её с расчётом
 // (EDR-0032). 200 — итог поиска (+ сохранённый расчёт при valid:true);
 // 400 — битый JSON; 404 — нет проекта; 403 — viewer; 422 — невалидный
@@ -829,13 +830,18 @@ func handleOptimizeProject(svc ProjectService) http.HandlerFunc {
 }
 
 // toProjectOptimizeResponse — итог оптимизации проекта: результат поиска
-// плюс ID сохранённого расчёта/конфигурации (когда найден).
+// плюс ID сохранённого расчёта/конфигурации (когда найден). best.result
+// подменяется на сохранённый Snapshot (camelCase-форма, как у calculate):
+// фронтенд ожидает project.Snapshot, а не transport DTO (см. EDR-0032 §3.4).
 func toProjectOptimizeResponse(out *project.OptimizeOutcome) projectOptimizeResponse {
 	resp := projectOptimizeResponse{optimizeResponse: toOptimizeResponse(out.Result)}
 	if out.Calculation != nil {
 		resp.CalculationID = out.Calculation.ID
 		resp.ConfigurationID = out.Calculation.ConfigurationID
 		resp.Saved = true
+		if resp.Best != nil && len(out.Calculation.Result) > 0 {
+			resp.Best.Result = out.Calculation.Result
+		}
 	}
 	return resp
 }

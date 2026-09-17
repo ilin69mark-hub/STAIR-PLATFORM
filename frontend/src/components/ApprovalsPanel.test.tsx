@@ -33,13 +33,13 @@ describe('ApprovalsPanel', () => {
   it('показывает пустое состояние', async () => {
     vi.spyOn(projectsApi, 'listApprovals').mockResolvedValue([])
     render(<ApprovalsPanel projectId="p1" />)
-    expect(await screen.findByText('Конфигурация ещё не утверждалась.')).toBeInTheDocument()
+    expect(await screen.findByText('Ревизий ещё не утверждали.')).toBeInTheDocument()
   })
 
   it('скрывает форму без configurationId', async () => {
     vi.spyOn(projectsApi, 'listApprovals').mockResolvedValue([])
     render(<ApprovalsPanel projectId="p1" />)
-    await screen.findByText('Конфигурация ещё не утверждалась.')
+    await screen.findByText('Ревизий ещё не утверждали.')
     expect(screen.queryByRole('button', { name: 'Утвердить ревизию' })).toBeNull()
   })
 
@@ -49,13 +49,13 @@ describe('ApprovalsPanel', () => {
       .spyOn(projectsApi, 'approveConfiguration')
       .mockResolvedValue(makeApproval())
     render(<ApprovalsPanel projectId="p1" configurationId="cfg-9" />)
-    await screen.findByText('Конфигурация ещё не утверждалась.')
+    await screen.findByText('Ревизий ещё не утверждали.')
     fireEvent.change(screen.getByPlaceholderText('Комментарий (необязательно)…'), {
       target: { value: 'итоговая' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Утвердить ревизию' }))
     expect(approve).toHaveBeenCalledWith('p1', 'cfg-9', { comment: 'итоговая' })
-    expect(await screen.findByText('Конфигурация утверждена.')).toBeInTheDocument()
+    expect(await screen.findByText('Ревизия утверждена.')).toBeInTheDocument()
   })
 
   it('показывает ошибку API', async () => {

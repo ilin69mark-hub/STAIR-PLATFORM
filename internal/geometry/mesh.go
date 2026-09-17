@@ -6,8 +6,8 @@ import "fmt"
 // Mesh является производной величиной: он никогда не является источником
 // истины геометрии и всегда пересчитывается из параметрической модели.
 type Mesh struct {
-	Vertices  []Point3
-	Triangles [][3]int
+	Vertices  []Point3  `json:"Vertices"`
+	Triangles [][3]int `json:"Triangles"`
 }
 
 // AddTriangle добавляет треугольник из индексов вершин; индекс вне

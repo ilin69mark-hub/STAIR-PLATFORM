@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
+	"stairplatform/internal/domain/engineering"
 	kerngeo "stairplatform/internal/geometry"
 	cadexp "stairplatform/internal/infrastructure/cad"
 )
@@ -211,11 +213,19 @@ func (f *fakeProjectService) Optimize(ctx context.Context, tenantID, userID, pro
 		Target:     oreq.Target,
 		Objective:  1000,
 		BestConfig: cfg,
-		BestResult: &stair.Result{},
+		BestResult: &stair.Result{
+			StepThickness: engineering.Length(40),
+			Riser:         true,
+		},
+	}
+	snap := project.NewSnapshot(projectID, out.BestResult)
+	raw, err := json.Marshal(snap)
+	if err != nil {
+		panic(err)
 	}
 	calc := &project.Calculation{
 		ID: "c-opt", ProjectID: projectID, ConfigurationID: "cfg-opt",
-		Valid: true, Result: []byte(`{"project_id":"` + projectID + `"}`),
+		Valid: true, Result: raw,
 		CreatedAt: time.Now(),
 	}
 	return &project.OptimizeOutcome{Result: out, Calculation: calc}, nil
@@ -548,6 +558,36 @@ func TestOptimizeProject(t *testing.T) {
 	if resp.Target != "cost" {
 		t.Fatalf("target = %q, want cost", resp.Target)
 	}
+	if resp.Best == nil {
+		t.Fatal("expected best candidate")
+	}
+	// best.result должен быть Snapshot-формой (camelCase: measurement,
+	// step_thickness), а не calculateResponse: фронтенд читает project.Snapshot
+	// (см. handleOptimize в ProjectDetail.tsx и types.ts Snapshot).
+	var snap project.Snapshot
+	if err := json.Unmarshal(resp.Best.Result, &snap); err != nil {
+		t.Fatalf("best.result is not a project.Snapshot: %v", err)
+	}
+	if snap.StepThickness != 40 || !snap.Riser {
+		t.Fatalf("best.result snapshot lost echo params: %+v", snap)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(resp.Best.Result, &raw); err != nil {
+		t.Fatalf("best.result invalid JSON: %v", err)
+	}
+	if _, ok := raw["measurement"]; !ok {
+		t.Fatalf("best.result must use measurement key (not geometry), got keys: %v", keysOf(raw))
+	}
+}
+
+// keysOf возвращает отсортированные ключи JSON-объекта (для диагностики).
+func keysOf(m map[string]json.RawMessage) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func TestOptimizeProjectNotFound(t *testing.T) {

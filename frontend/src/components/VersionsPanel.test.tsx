@@ -71,7 +71,7 @@ describe('VersionsPanel', () => {
     vi.spyOn(projectsApi, 'listConfigurations').mockResolvedValue([])
     vi.spyOn(projectsApi, 'listMembers').mockResolvedValue([member])
     renderPanel()
-    expect(await screen.findByText('Версий пока нет.')).toBeInTheDocument()
+    expect(await screen.findByText(/Версий пока нет/)).toBeInTheDocument()
   })
 
   it('восстанавливает версию и показывает успех', async () => {

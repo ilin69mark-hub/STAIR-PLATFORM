@@ -239,6 +239,12 @@ func appendRailingMesh(result *GenerationResult, cfg *engineering.StairConfigura
 	// Перила вынесены в отдельный RailingMesh (как RoomMesh): 3D-вьювер
 	// рисует их сплошным материалом БЕЗ каркаса (EdgesGeometry), чтобы между
 	// балясинами и поручнями не появлялись лишние линии (см. GeometryViewer).
+	// Для railing=none BuildRailingDecor возвращает nil — создаём пустой меш
+	// с пустыми слайсами (JSON [] а не null) чтобы фронт не падал на null.length.
+	if len(decor) == 0 {
+		result.RailingMesh = &kerngeo.Mesh{Vertices: []kerngeo.Point3{}, Triangles: [][3]int{}}
+		return nil
+	}
 	if result.RailingMesh == nil {
 		result.RailingMesh = &kerngeo.Mesh{}
 	}

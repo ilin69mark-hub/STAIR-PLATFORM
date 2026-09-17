@@ -130,8 +130,11 @@ func isIdentityBearerRequest(r *http.Request) bool {
 	for _, c := range cookies {
 		// Кэшу важны только авторизационные слова; персональные данные
 		// (например, cookies согласий) на кэшируемость не влияют.
+		// Учитываются оба app-origin (store: session/csrf; admin: _admin).
 		switch c.Name {
-		case sessionCookieName, csrfCookieName:
+		case sessionCookieName, csrfCookieName,
+			sessionCookieName+adminOriginCookieSuffix,
+			csrfCookieName+adminOriginCookieSuffix:
 			if c.Value != "" {
 				return true
 			}

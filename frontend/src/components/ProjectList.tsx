@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Project } from '@shared/types'
 import { projectsApi } from '../api/projects'
 import { ApiError } from '@shared/types'
+import { statusMeta } from '../lib/status'
 
 interface Props {
   projects: Project[]
@@ -33,16 +34,27 @@ export function ProjectList({
       <p className="muted">{empty}</p>
     ) : (
       <ul className="project-list">
-        {list.map((p) => (
-          <li key={p.id}>
-            <button className="project-card" onClick={() => onSelect(p.id)}>
-              <span className="project-card__name">{p.name}</span>
-              <span className="project-card__meta">
-                {p.status} · обновлён {new Date(p.updated_at).toLocaleString('ru-RU')}
-              </span>
-            </button>
-          </li>
-        ))}
+        {list.map((p) => {
+          const meta = statusMeta(p.status)
+          return (
+            <li key={p.id}>
+              <button
+                className="project-card"
+                style={{ ['--status-color' as string]: meta.color }}
+                onClick={() => onSelect(p.id)}
+              >
+                <span className="project-card__row">
+                  <span className="project-card__name">{p.name}</span>
+                  <span className={`badge ${meta.badge}`}>{meta.label}</span>
+                </span>
+                {p.description && <span className="project-card__meta">{p.description}</span>}
+                <span className="project-card__meta">
+                  обновлён {new Date(p.updated_at).toLocaleString('ru-RU')}
+                </span>
+              </button>
+            </li>
+          )
+        })}
       </ul>
     )
   )
@@ -93,8 +105,8 @@ export function ProjectList({
             rows={2}
           />
         </div>
-        <button className="btn btn--primary" onClick={handleCreate} disabled={!canCreate}>
-          {creating ? 'Создание…' : 'Создать'}
+        <button className="btn btn--accent" onClick={handleCreate} disabled={!canCreate}>
+          {creating ? 'Создание…' : 'Создать проект'}
         </button>
       </section>
 

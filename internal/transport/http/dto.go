@@ -1,6 +1,7 @@
 package http
 
 import (
+	"encoding/json"
 	"math"
 
 	"stairplatform/internal/application/stair"
@@ -84,13 +85,15 @@ type optimizeResponse struct {
 }
 
 // optimizeBestDTO — лучшая найденная конфигурация и её полный расчёт.
+// Result — сериализованный project.Snapshot (camelCase-форма, как у
+// calculationDTO.result): фронтенд ждёт Snapshot, а не calculateResponse.
 type optimizeBestDTO struct {
-	StepCount      int               `json:"step_count"`
-	StepHeightMM   float64           `json:"step_height_mm"`
-	TreadDepthMM   float64           `json:"tread_depth_mm"`
-	LowerStepCount int               `json:"lower_step_count,omitempty"`
-	ComfortStepMM  float64           `json:"comfort_step_mm"`
-	Result         calculateResponse `json:"result"`
+	StepCount      int             `json:"step_count"`
+	StepHeightMM   float64         `json:"step_height_mm"`
+	TreadDepthMM   float64         `json:"tread_depth_mm"`
+	LowerStepCount int             `json:"lower_step_count,omitempty"`
+	ComfortStepMM  float64         `json:"comfort_step_mm"`
+	Result         json.RawMessage `json:"result"`
 }
 
 // validationIssueDTO — запись отчёта валидации (EDR-0003).
@@ -474,7 +477,7 @@ func toLShape(l *solver.LShapeResult, e configEcho) *lshapeDTO {
 		UpperRunMm: l.UpperRun.Millimeters(), LowerStringerMm: l.LowerStringer.Millimeters(),
 		UpperStringerMm: l.UpperStringer.Millimeters(), LandingWidthMm: l.LandingWidth.Millimeters(),
 		LandingDepthMm: l.LandingDepth.Millimeters(), RoomWidthMm: l.RoomWidth.Millimeters(),
-		RoomLengthMm: l.RoomLength.Millimeters(),
+		RoomLengthMm:    l.RoomLength.Millimeters(),
 		StepThicknessMm: e.StepThicknessMm, RailingHeightMm: e.RailingHeightMm, Riser: e.Riser,
 		StringerThicknessMm: e.StringerThicknessMm,
 		RailingLower:        e.RailingLower, RailingLanding: e.RailingLanding,
@@ -729,13 +732,17 @@ func toOptimizeResponse(out *stair.OptimizeResult) optimizeResponse {
 		return resp
 	}
 	m := stepMetrics(out.BestResult)
+	result, err := json.Marshal(toResponse(out.BestResult))
+	if err != nil {
+		result = []byte("{}")
+	}
 	resp.Best = &optimizeBestDTO{
 		StepCount:      m.stepCount,
 		StepHeightMM:   m.stepHeight,
 		TreadDepthMM:   m.treadDepth,
 		LowerStepCount: m.lowerStepCount,
 		ComfortStepMM:  out.ComfortStep,
-		Result:         toResponse(out.BestResult),
+		Result:         result,
 	}
 	return resp
 }

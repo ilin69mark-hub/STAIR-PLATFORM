@@ -19,9 +19,35 @@ interface Props {
   activeVariantId?: string
 }
 
+// ResultTab — ключ активной под-вкладки результата. Часть панелей
+// (марш/геометрия/производство/стоимость) спрятана за табами, чтобы
+// не растягивать страницу в бесконечную портянку.
+type ResultTab = 'flight' | 'geometry' | 'manufacturing' | 'pricing'
+
 export function ResultPanel({ snapshot, onApplyVariation, activeVariantId }: Props) {
   const s = snapshot
   const stopped = !s.manufacturing || !s.pricing
+  const [tab, setTab] = useState<ResultTab>('flight')
+
+  const flightPanel = s.lshape ? (
+    <LShapePanel snapshot={s} />
+  ) : s.ushape ? (
+    <UShapePanel snapshot={s} />
+  ) : s.spiral ? (
+    <SpiralPanel snapshot={s} />
+  ) : s.flight ? (
+    <FlightPanel snapshot={s} />
+  ) : null
+
+  // Доступные под-вкладки зависят от наличия этапов конвейера в снапшоте.
+  const tabs: Array<[ResultTab, string]> = []
+  if (flightPanel) tabs.push(['flight', 'Марш'])
+  if (s.measurement) tabs.push(['geometry', 'Геометрия'])
+  if (s.manufacturing) tabs.push(['manufacturing', 'Производство'])
+  if (s.pricing) tabs.push(['pricing', 'Стоимость'])
+
+  let active: ResultTab | undefined = tabs.some(([k]) => k === tab) ? tab : tabs[0]?.[0]
+  if (tabs.length === 0) active = undefined
 
   return (
     <div className="results">
@@ -43,20 +69,30 @@ export function ResultPanel({ snapshot, onApplyVariation, activeVariantId }: Pro
       />
 
       {!stopped && (
-        <>
-          {s.lshape ? (
-            <LShapePanel snapshot={s} />
-          ) : s.ushape ? (
-            <UShapePanel snapshot={s} />
-          ) : s.spiral ? (
-            <SpiralPanel snapshot={s} />
-          ) : s.flight ? (
-            <FlightPanel snapshot={s} />
-          ) : null}
-          {s.measurement && <GeometryPanel snapshot={s} />}
-          {s.manufacturing && <ManufacturingPanel snapshot={s} />}
-          {s.pricing && <PricingPanel snapshot={s} pricing={s.pricing} />}
-        </>
+        <div className="result-tabs">
+          {tabs.length > 1 && (
+            <div className="draw__tabs" role="tablist">
+              {tabs.map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={active === key}
+                  className={`draw__tab${active === key ? ' draw__tab--active' : ''}`}
+                  onClick={() => setTab(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {active === 'flight' && flightPanel}
+          {active === 'geometry' && s.measurement && <GeometryPanel snapshot={s} />}
+          {active === 'manufacturing' && s.manufacturing && (
+            <ManufacturingPanel snapshot={s} />
+          )}
+          {active === 'pricing' && s.pricing && <PricingPanel snapshot={s} pricing={s.pricing} />}
+        </div>
       )}
     </div>
   )

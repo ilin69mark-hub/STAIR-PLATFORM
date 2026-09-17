@@ -49,13 +49,13 @@ describe('ProjectDetail', () => {
     const { onChanged } = renderDetail()
 
     await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
-    expect(screen.getByRole('button', { name: 'Экспорт JSON' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Коммерческое предложение (PDF)' })).toBeDisabled()
 
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
 
     expect(await screen.findByText(/Расчёт сохранён/)).toBeInTheDocument()
     expect(onChanged).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('button', { name: 'Экспорт JSON' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Коммерческое предложение (PDF)' })).toBeEnabled()
 
     const [id, body] = calculate.mock.calls[0]
     expect(id).toBe('p1')

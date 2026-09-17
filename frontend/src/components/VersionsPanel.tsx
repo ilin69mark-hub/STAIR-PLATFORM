@@ -64,13 +64,14 @@ export function VersionsPanel({ projectId }: Props) {
   return (
     <section className="panel">
       <h2 className="panel__title">Версии</h2>
+      <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Каждая калькуляция/оптимизация создаёт новую версию. Текущая — активная, остальные можно восстановить.</p>
       {error && <div className="alert alert--error">{error}</div>}
       {saved && <div className="alert alert--ok">Версия восстановлена.</div>}
       {loading ? (
         <p className="muted">Загрузка…</p>
       ) : (
         <ul className="comment-list">
-          {configs.length === 0 && <p className="muted">Версий пока нет.</p>}
+          {configs.length === 0 && <p className="muted">Версий пока нет. Нажмите «Рассчитать» — каждая калькуляция создаёт новую версию.</p>}
           {configs.map((c) => (
             <li className="comment" key={c.id}>
               <div className="comment__meta">
