@@ -22,12 +22,11 @@ type fakeOrderService struct {
 	updateSt order.Status
 	userID   string
 	// Точечная инъекция ошибок по операциям.
-	createErr    error
-	consultErr   error
-	listAllErr   error
-	updateErr    error
-	getErr       error
-	postGetErr   error // ошибка Get после успешного UpdateStatus (ветка 500)
+	consultErr error
+	listAllErr error
+	updateErr  error
+	getErr     error
+	postGetErr error // ошибка Get после успешного UpdateStatus (ветка 500)
 }
 
 func (f *fakeOrderService) Create(_ context.Context, tenantID, userID string, c order.Contact, config, price json.RawMessage) (*order.Order, error) {
