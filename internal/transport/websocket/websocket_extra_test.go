@@ -60,10 +60,7 @@ func TestHubStopDisconnectsClients(t *testing.T) {
 	default:
 		// if not yet closed, allow a bit more
 		time.Sleep(10 * time.Millisecond)
-		_, ok := <-c1.send
-		if ok {
-			// channel may contain no value but still open briefly; try reading
-		}
+		<-c1.send
 	}
 }
 
@@ -562,11 +559,14 @@ func TestHandleWebSocketConnectAndPingPong(t *testing.T) {
 
 	// dial ws
 	wsURL := "ws" + srv.URL[len("http"):] + "/ws?user_id=tester"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, hr0, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close()
+	if hr0 != nil {
+		_ = hr0.Body.Close()
+	}
+	defer func() { _ = conn.Close() }()
 
 	time.Sleep(40 * time.Millisecond)
 	if hub.ClientCount() != 1 {
@@ -598,11 +598,14 @@ func TestHandleWebSocketConnectAndPingPong(t *testing.T) {
 
 	// test anonymous user fallback — second connection without user_id
 	wsURLAnon := "ws" + srv.URL[len("http"):] + "/ws"
-	conn2, _, err := websocket.DefaultDialer.Dial(wsURLAnon, nil)
+	conn2, hr, err := websocket.DefaultDialer.Dial(wsURLAnon, nil)
 	if err != nil {
 		t.Fatalf("dial anon: %v", err)
 	}
-	defer conn2.Close()
+	if hr != nil {
+		_ = hr.Body.Close()
+	}
+	defer func() { _ = conn2.Close() }()
 	time.Sleep(30 * time.Millisecond)
 	if hub.ClientCount() != 2 {
 		t.Fatalf("expected 2 clients, got %d", hub.ClientCount())
@@ -673,11 +676,14 @@ func TestHandleWebSocketBroadcastRoundTrip(t *testing.T) {
 	defer srv.Close()
 
 	wsURL := "ws" + srv.URL[len("http"):] + "/ws?user_id=broadcaster"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close()
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	defer func() { _ = conn.Close() }()
 	time.Sleep(40 * time.Millisecond)
 
 	// wait until client joined room via hub.JoinRoom manually? The ws client auto-registers
@@ -721,11 +727,14 @@ func TestStopGracefullyWithRealConn(t *testing.T) {
 	defer srv.Close()
 
 	wsURL := "ws" + srv.URL[len("http"):] + "/ws?user_id=grace"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close()
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	defer func() { _ = conn.Close() }()
 	time.Sleep(30 * time.Millisecond)
 
 	// should not panic even with live conn
@@ -749,11 +758,14 @@ func TestDisconnectClientWithRealConn(t *testing.T) {
 	defer srv.Close()
 
 	wsURL := "ws" + srv.URL[len("http"):] + "/ws?user_id=disc"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
-	defer conn.Close()
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	defer func() { _ = conn.Close() }()
 	time.Sleep(30 * time.Millisecond)
 
 	hub.mu.RLock()
@@ -789,17 +801,23 @@ func TestOriginCheckAllowedAndBlocked(t *testing.T) {
 	// Allowed origin
 	header := http.Header{}
 	header.Set("Origin", "http://localhost:3000")
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, header)
 	if err != nil {
 		t.Fatalf("dial with allowed origin: %v", err)
 	}
-	conn.Close()
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	_ = conn.Close()
 	time.Sleep(20 * time.Millisecond)
 
 	// Blocked origin should fail upgrade
 	header2 := http.Header{}
 	header2.Set("Origin", "http://evil.com")
-	_, _, err = websocket.DefaultDialer.Dial(wsURL, header2)
+	_, hr2, err := websocket.DefaultDialer.Dial(wsURL, header2)
+	if hr2 != nil {
+		_ = hr2.Body.Close()
+	}
 	if err == nil {
 		t.Fatal("expected dial failure for blocked origin")
 	}

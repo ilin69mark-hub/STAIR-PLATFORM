@@ -11,8 +11,8 @@ func TestEnvHelpers(t *testing.T) {
 		t.Fatal("want true")
 	}
 	t.Setenv("EBOOL", "bad")
-	if envBool("EBOOL", true) == true && envBool("EBOOL", false) != false {
-		// bad should return def
+	if a, b := envBool("EBOOL", true), envBool("EBOOL", false); a != true || b != false {
+		t.Fatalf("bad bool should return def, got a=%v b=%v", a, b)
 	}
 	t.Setenv("EBOOL", "")
 	if !envBool("EBOOL", true) {

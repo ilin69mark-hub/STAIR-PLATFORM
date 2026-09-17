@@ -15,7 +15,7 @@ func TestUserInputMessage(t *testing.T) {
 	if m := userInputMessage(inp); m != "bad input" {
 		t.Fatalf("want bad input got %q", m)
 	}
-	cases := map[string]string{
+	cases := map[string]string{ //nolint:gosec // переводы сообщений, не учётные данные
 		"invalid rate": "Некорректная ставка",
 		"invalid email": "Некорректный email",
 		"password too weak": "Пароль слишком слабый",

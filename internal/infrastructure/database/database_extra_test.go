@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"math"
 	"testing"
 	"time"
@@ -30,7 +31,7 @@ func TestLogSlowQuery(t *testing.T) {
 }
 
 func TestConnectBadURL(t *testing.T) {
-	if _, err := Connect(nil, Config{URL: ""}); err == nil {
+	if _, err := Connect(context.Background(), Config{URL: ""}); err == nil {
 		t.Fatal("want error for empty url")
 	}
 }

@@ -123,7 +123,7 @@ func TestGeneratedSolver4000(t *testing.T) {
 	if err != nil {
 		t.Skip("no generated cases")
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var cases []Case
 	if err := json.NewDecoder(f).Decode(&cases); err != nil {
 		t.Fatalf("decode: %v", err)

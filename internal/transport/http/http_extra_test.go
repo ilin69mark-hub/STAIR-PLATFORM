@@ -78,7 +78,7 @@ func TestValidationHelpers(t *testing.T) {
 	if collected.Error() == "" {
 		t.Fatal("expected non-empty Error()")
 	}
-	var ve ValidationErrors = ValidationErrors{{Field: "x", Message: "msg"}}
+	ve := ValidationErrors{{Field: "x", Message: "msg"}}
 	if ve.Error() != "x: msg" {
 		t.Fatalf("Error string mismatch: %q", ve.Error())
 	}
@@ -128,7 +128,7 @@ func TestSsoCallbackSafeRedirect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusFound {
 		t.Fatalf("status=%d want 302", resp.StatusCode)
 	}
@@ -140,7 +140,7 @@ func TestSsoCallbackSafeRedirect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET2: %v", err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 	if loc := resp2.Header.Get("Location"); loc != "/" {
 		t.Fatalf("unsafe redirect location=%q want /", loc)
 	}
@@ -155,7 +155,7 @@ func TestSsoBeginInternalError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("status=%d want 500", resp.StatusCode)
 	}
@@ -173,7 +173,7 @@ func TestSsoCallbackInternalError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Fatalf("status=%d want 500", resp.StatusCode)
 	}
