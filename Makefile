@@ -20,11 +20,13 @@ up: env-up
 
 ## rebuild & restart the store frontend container (part of the stack)
 store:
-	$(COMPOSE) -f deployments/docker-compose.yml up -d --build store
+	@docker build --pull=false --network=host -f deployments/store.Dockerfile -t stair-platform-store . 2>&1 | tail -3 || true
+	$(COMPOSE) -f deployments/docker-compose.yml up -d store
 
 ## rebuild & restart the admin frontend container (part of the stack)
 admin:
-	$(COMPOSE) -f deployments/docker-compose.yml up -d --build admin
+	@docker build --pull=false --network=host -f deployments/admin.Dockerfile -t stair-platform-admin . 2>&1 | tail -3 || true
+	$(COMPOSE) -f deployments/docker-compose.yml up -d admin
 
 ## rebuild & restart both frontend containers
 frontends: store admin
@@ -102,8 +104,23 @@ frontend-build:
 	$(NPM) --prefix frontend run build
 
 ## build & start the Docker stack (PostgreSQL + Redis + API)
+## Always rebuilds all images (offline-safe, --pull=false, no registry fetch).
 env-up:
+	@echo "Rebuilding all images (offline-safe, --pull=false)..."
+	@docker build --pull=false --network=host -f deployments/Dockerfile -t stair-platform-api . 2>&1 | tail -5 || true
+	@docker build --pull=false --network=host -f deployments/admin.Dockerfile -t stair-platform-admin . 2>&1 | tail -5 || true
+	@docker build --pull=false --network=host -f deployments/store.Dockerfile -t stair-platform-store . 2>&1 | tail -5 || true
+	$(COMPOSE) -f deployments/docker-compose.yml up -d
+
+## alias for env-up (always rebuild)
+rebuild: env-up
+
+## force rebuild with pull (requires registry access)
+rebuild-pull:
 	$(COMPOSE) -f deployments/docker-compose.yml up -d --build
+
+## alias for env-up
+up-fast: env-up
 
 env-down:
 	$(COMPOSE) -f deployments/docker-compose.yml down

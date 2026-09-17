@@ -65,7 +65,7 @@ func handleSsoCallback(svc AuthService) http.HandlerFunc {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		setSessionCookies(w, token)
+		setSessionCookies(w, appOrigin(r), token)
 		target := "/"
 		if red := r.URL.Query().Get("redirect"); red != "" && isSafeRedirect(red) {
 			target = red

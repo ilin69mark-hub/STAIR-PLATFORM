@@ -24,7 +24,25 @@ import { UsageAnalyticsPanel, ProjectsAnalyticsPanel, ManufacturingPanel, CostAn
 import { OrdersPanel } from './admin/OrdersPanel'
 import { ApiKeysPanel } from './admin/ApiKeysPanel'
 import { TestimonialsPanel } from './admin/TestimonialsPanel'
+import { useScrollSpy } from '../lib/useScrollSpy'
 import { LazySection } from './admin/LazySection'
+
+// ADMIN_SECTIONS — оглавление админ-панели (sticky TOC).
+const ADMIN_SECTIONS = [
+  { id: 'overview', label: 'Обзор' },
+  { id: 'users', label: 'Пользователи' },
+  { id: 'policy', label: 'Политика' },
+  { id: 'export', label: 'Экспорт' },
+  { id: 'usage', label: 'Использование' },
+  { id: 'projects', label: 'Проекты' },
+  { id: 'orders', label: 'Заказы' },
+  { id: 'manufacturing', label: 'Производство' },
+  { id: 'cost', label: 'Стоимость' },
+  { id: 'api-keys', label: 'API-ключи' },
+  { id: 'testimonials', label: 'Отзывы' },
+]
+
+const ADMIN_SECTION_IDS = ADMIN_SECTIONS.map((s) => s.id)
 
 interface Props {
   currentUserId: string
@@ -136,8 +154,11 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
     }
   }, [])
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (silent = false) => {
+    // silent=true — фоновое обновление данных после изменений: не меняем
+    // панель на скелетон, чтобы не терять состояние (например, одноразовый
+    // токен API-ключа) и не мигать интерфейсом.
+    if (!silent) setLoading(true)
     setError(null)
     try {
       const [ov, us, pl, ks, ordersResp, tms] = await Promise.all([
@@ -157,7 +178,7 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Не удалось загрузить панель администратора')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [])
 
@@ -165,13 +186,15 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
     void load()
   }, [load])
 
+  const activeSection = useScrollSpy(ADMIN_SECTION_IDS, 'overview', [loading])
+
   const handleUpdateUser = async (id: string, body: { role?: 'user' | 'admin'; status?: 'active' | 'disabled' }) => {
     setError(null)
     setNotice(null)
     try {
       await adminApi.updateUser(id, body)
       setNotice('Пользователь обновлён')
-      void load()
+      void load(true)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Не удалось обновить пользователя')
     }
@@ -184,7 +207,7 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
     try {
       await adminApi.updateSettings(policy)
       setNotice('Политика безопасности сохранена')
-      void load()
+      void load(true)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не удалось сохранить политику')
     }
@@ -203,7 +226,7 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
     try {
       await adminApi.updateOrderStatus(id, status)
       setNotice('Статус заказа обновлён')
-      void load()
+      void load(true)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Не удалось обновить статус заказа')
     }
@@ -211,11 +234,11 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <button className="btn btn--ghost" onClick={onBack}>
-          ← Проекты
-        </button>
-        <div>
+      <header className="page__header page__header--stacked">
+        <div className="page__header-title">
+          <button className="btn btn--ghost" onClick={onBack}>
+            ← Проекты
+          </button>
           <h1 className="page__title">Администрирование</h1>
           <p className="page__subtitle">Enterprise Controls · EDR-0016</p>
         </div>
@@ -225,44 +248,90 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
       {notice && <div className="alert alert--ok">{notice}</div>}
 
       {loading ? (
-        <p className="muted">Загрузка…</p>
+        <div className="stack">
+          <div className="skeleton skeleton--card" />
+          <div className="skeleton skeleton--card" />
+          <div className="skeleton skeleton--card" />
+        </div>
       ) : (
-        <>
-          <OverviewPanel overview={overview} />
-          <UsersPanel users={users} currentUserId={currentUserId} onUpdate={handleUpdateUser} />
-          <PolicyPanel policy={policy} onChange={setPolicyField} onSave={handleSavePolicy} />
-          <ExportPanel onExport={handleExport} />
-          <LazySection onLoad={() => void loadUsage(usageGranularity)}>
-            <UsageAnalyticsPanel
-              usage={usage}
-              loading={usageLoading}
-              granularity={usageGranularity}
-              onChangeGranularity={(g) => { setUsageGranularity(g); void loadUsage(g) }}
-            />
-          </LazySection>
-          <LazySection onLoad={() => void loadProjects()}>
-            <ProjectsAnalyticsPanel projects={projects} loading={projectsLoading} />
-          </LazySection>
-          <OrdersPanel orders={orders} onStatusChange={handleOrderStatus} />
-          <LazySection onLoad={() => void loadManufacturing(mfgGranularity)}>
-            <ManufacturingPanel
-              mfg={mfg}
-              loading={mfgLoading}
-              granularity={mfgGranularity}
-              onChangeGranularity={(g) => { setMfgGranularity(g); void loadManufacturing(g) }}
-            />
-          </LazySection>
-          <LazySection onLoad={() => void loadCost(costGranularity)}>
-            <CostAnalyticsPanel
-              cost={cost}
-              loading={costLoading}
-              granularity={costGranularity}
-              onChangeGranularity={(g) => { setCostGranularity(g); void loadCost(g) }}
-            />
-          </LazySection>
-          <ApiKeysPanel keys={keys} onRefresh={() => void load()} onError={setError} onNotice={setNotice} />
-          <TestimonialsPanel testimonials={testimonials} onRefresh={() => void load()} onError={setError} onNotice={setNotice} />
-        </>
+        <div className="page__content">
+          <div className="page__main stack">
+            <section id="overview" className="section">
+              <OverviewPanel overview={overview} />
+            </section>
+            <section id="users" className="section">
+              <UsersPanel users={users} currentUserId={currentUserId} onUpdate={handleUpdateUser} />
+            </section>
+            <section id="policy" className="section">
+              <PolicyPanel policy={policy} onChange={setPolicyField} onSave={handleSavePolicy} />
+            </section>
+            <section id="export" className="section">
+              <ExportPanel onExport={handleExport} />
+            </section>
+            <section id="usage" className="section">
+              <LazySection onLoad={() => void loadUsage(usageGranularity)}>
+                <UsageAnalyticsPanel
+                  usage={usage}
+                  loading={usageLoading}
+                  granularity={usageGranularity}
+                  onChangeGranularity={(g) => { setUsageGranularity(g); void loadUsage(g) }}
+                />
+              </LazySection>
+            </section>
+            <section id="projects" className="section">
+              <LazySection onLoad={() => void loadProjects()}>
+                <ProjectsAnalyticsPanel projects={projects} loading={projectsLoading} />
+              </LazySection>
+            </section>
+            <section id="orders" className="section">
+              <OrdersPanel orders={orders} onStatusChange={handleOrderStatus} />
+            </section>
+            <section id="manufacturing" className="section">
+              <LazySection onLoad={() => void loadManufacturing(mfgGranularity)}>
+                <ManufacturingPanel
+                  mfg={mfg}
+                  loading={mfgLoading}
+                  granularity={mfgGranularity}
+                  onChangeGranularity={(g) => { setMfgGranularity(g); void loadManufacturing(g) }}
+                />
+              </LazySection>
+            </section>
+            <section id="cost" className="section">
+              <LazySection onLoad={() => void loadCost(costGranularity)}>
+                <CostAnalyticsPanel
+                  cost={cost}
+                  loading={costLoading}
+                  granularity={costGranularity}
+                  onChangeGranularity={(g) => { setCostGranularity(g); void loadCost(g) }}
+                />
+              </LazySection>
+            </section>
+            <section id="api-keys" className="section">
+              <ApiKeysPanel keys={keys} onRefresh={() => void load(true)} onError={setError} onNotice={setNotice} />
+            </section>
+            <section id="testimonials" className="section">
+              <TestimonialsPanel testimonials={testimonials} onRefresh={() => void load(true)} onError={setError} onNotice={setNotice} />
+            </section>
+          </div>
+
+          <aside className="page__sidebar">
+            <nav className="toc" aria-label="Разделы администратора">
+              <div className="toc__title">Навигация</div>
+              <ul className="toc__list">
+                {ADMIN_SECTIONS.map((s) => (
+                  <li key={s.id}>
+                    <a
+                      className={`toc__link${activeSection === s.id ? ' toc__link--active' : ''}`}
+                      href={`#${s.id}`}
+                    >
+                      {s.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          </aside>
+        </div>
       )}
     </div>
   )

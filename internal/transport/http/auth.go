@@ -50,11 +50,21 @@ type AuthService interface {
 }
 
 // Имена cookie (SEC-0003). session — httpOnly, его читает только сервер;
-// csrf — доступен JS (double-submit).
+// csrf — доступен JS (double-submit). Имена виртуально origin-специфичны:
+// admin-приложение использует суффикс «_admin» (cookie на localhost
+// host-only, порт в scope не входит — RFC 6265 §5.1.3), чтобы store:3000
+// и admin:5174 не делили одну сессию. store — дефолт (без суффикса,
+// обратная совместимость с curl/e2e).
 const (
 	sessionCookieName = "session"
 	csrfCookieName    = "csrf"
-	csrfHeader        = "X-CSRF-Token"
+	// adminOriginCookieSuffix — суффикс имени cookie для admin-приложения.
+	adminOriginCookieSuffix = "_admin"
+	// appOriginHeader — заголовок, которым фронт сообщает своё приложение.
+	appOriginHeader = "X-App-Origin"
+	appOriginStore  = "store"
+	appOriginAdmin  = "admin"
+	csrfHeader      = "X-CSRF-Token"
 )
 
 // ---- контекст авторизации ----
@@ -175,7 +185,7 @@ func handleRegister(svc AuthService) http.HandlerFunc {
 			}
 			return
 		}
-		setSessionCookies(w, token)
+		setSessionCookies(w, appOrigin(r), token)
 		writeJSON(w, http.StatusCreated, authResponse{User: toUserDTO(u), Token: token})
 	}
 }
@@ -203,7 +213,7 @@ func handleLogin(svc AuthService) http.HandlerFunc {
 			}
 			return
 		}
-		setSessionCookies(w, token)
+		setSessionCookies(w, appOrigin(r), token)
 		writeJSON(w, http.StatusOK, authResponse{User: toUserDTO(u), Token: token})
 	}
 }
@@ -216,7 +226,7 @@ func handleLogout(svc AuthService) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
-		clearSessionCookies(w)
+		clearSessionCookies(w, appOrigin(r))
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -230,14 +240,53 @@ func handleMe() http.HandlerFunc {
 
 // ---- cookie helpers ----
 
+// --- cookie helpers ---
+
+// appOrigin возвращает идентификатор приложения по заголовку X-App-Origin
+// (браузерный клиент проставляет store|admin). Пустой/неизвестный —
+// «store» (обратная совместимость: curl, e2e-тесты, api-ключи не шлют
+// заголовок и остаются в дефолтном namespace).
+func appOrigin(r *http.Request) string {
+	switch r.Header.Get(appOriginHeader) {
+	case appOriginAdmin:
+		return appOriginAdmin
+	default:
+		return appOriginStore
+	}
+}
+
+// sessionCookieFor возвращает имя session-cookie для приложения (origin).
+// store — «session» (без суффикса, обратная совместимость); admin —
+// «session_admin». Разные имена критично: cookie host-only на localhost
+// не различает порты (RFC 6265 §5.1.3), поэтому store:3000 и admin:5174
+// иначе делили бы одну сессию (выход в одном приложении инвалидировал бы
+// сессию во втором).
+func sessionCookieFor(origin string) string {
+	if origin == appOriginAdmin {
+		return sessionCookieName + adminOriginCookieSuffix
+	}
+	return sessionCookieName
+}
+
+// csrfCookieFor возвращает имя csrf-cookie для приложения (origin).
+func csrfCookieFor(origin string) string {
+	if origin == appOriginAdmin {
+		return csrfCookieName + adminOriginCookieSuffix
+	}
+	return csrfCookieName
+}
+
+// originCookieNames возвращает оба имени (session, csrf) приложения.
+func originCookieNames(origin string) (session, csrf string) {
+	return sessionCookieFor(origin), csrfCookieFor(origin)
+}
+
 // setSessionCookies выставляет session (httpOnly) и csrf (доступный JS).
-// csrf — отдельный случайный nonce, не session-токен: иначе клиентский JS
-// смог бы прочитать session-токен (нарушение httpOnly).
-func setSessionCookies(w http.ResponseWriter, token string) {
-	setSessionCookie(w, token)
+func setSessionCookies(w http.ResponseWriter, origin string, token string) {
+	setSessionCookie(w, origin, token)
 	// CSRF-cookie намеренно доступен JS (double-submit) и не является session-токеном.
-	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: HttpOnly=false намеренно; Secure/sameSite заданы
-		Name:     csrfCookieName,
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 // CSRF-cookie: HttpOnly=false намеренно (double-submit); Secure/sameSite заданы
+		Name:     csrfCookieFor(origin),
 		Value:    newCSRF(),
 		Path:     "/",
 		HttpOnly: false,
@@ -248,10 +297,9 @@ func setSessionCookies(w http.ResponseWriter, token string) {
 
 // setSessionCookie выставляет только session-cookie (httpOnly). Используется
 // при ротации сессии (EDR-0014 §3.1), когда csrf-cookie менять не нужно.
-func setSessionCookie(w http.ResponseWriter, token string) {
-	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure управляется STAIR_COOKIE_SECURE
-		Name:     sessionCookieName,
-		Value:    token,
+func setSessionCookie(w http.ResponseWriter, origin string, token string) {
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 // Secure управляется STAIR_COOKIE_SECURE
+		Name:     sessionCookieFor(origin),
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
@@ -260,9 +308,10 @@ func setSessionCookie(w http.ResponseWriter, token string) {
 	})
 }
 
-func clearSessionCookies(w http.ResponseWriter) {
-	for _, name := range []string{sessionCookieName, csrfCookieName} {
-		http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure управляется STAIR_COOKIE_SECURE
+func clearSessionCookies(w http.ResponseWriter, origin string) {
+	session, csrf := originCookieNames(origin)
+	for _, name := range []string{session, csrf} {
+		http.SetCookie(w, &http.Cookie{ // #nosec G124 // Secure управляется STAIR_COOKIE_SECURE
 			Name:     name,
 			Value:    "",
 			Path:     "/",
@@ -275,7 +324,7 @@ func clearSessionCookies(w http.ResponseWriter) {
 }
 
 func sessionToken(r *http.Request) string {
-	if c, err := r.Cookie(sessionCookieName); err == nil {
+	if c, err := r.Cookie(sessionCookieFor(appOrigin(r))); err == nil {
 		return c.Value
 	}
 	return ""

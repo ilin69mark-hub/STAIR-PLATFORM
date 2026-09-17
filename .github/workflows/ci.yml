@@ -25,7 +25,7 @@ jobs:
         run: go vet ./...
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
 
@@ -73,7 +73,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Run tests
-        run: go test -race -coverprofile=coverage.out ./...
+        run: go test -race -coverprofile=coverage.out ./... -timeout 15m
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4
@@ -94,10 +94,20 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: frontend-store/package-lock.json
+          cache-dependency-path: |
+            frontend-store/package-lock.json
+            frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
+
+      # @shared-исходники живут в frontend/shared, а их зависимости
+      # (react, three) резолвятся через frontend/node_modules — ставим и их,
+      # иначе tsc -b не находит react для shared-файлов. install вместо ci:
+      # lock frontend/ отстаёт от package.json (pre-existing drift).
+      - name: Install shared deps (frontend)
+        run: npm install --no-audit --no-fund
+        working-directory: frontend
 
       - name: Run lint
         run: npm run lint
@@ -174,9 +184,102 @@ jobs:
           STAIR_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_platform_test?sslmode=disable
           STAIR_HTTP_ADDR: :8080
           STAIR_SESSION_TTL: 86400
+          # Дефолты логина/регистрации (10/5 в минуту на IP) малы: тесты
+          # регистрируют юзеров с одного IP раннера и ловят 429.
+          STAIR_LOGIN_RATE_LIMIT: 100
+          STAIR_REGISTER_RATE_LIMIT: 100
 
       - name: Run E2E tests
         run: go test -v ./tests/e2e/...
+
+  # Матрица 2000 e2e (500/марш): 2000×~15с ≈ 8.3ч серийно → 8 шардов × 250
+  # тестов, workers:4 (~16 мин/джоб). Дедупликация учитывает хэш тела,
+  # параллельные воркеры не получают ложный 429.
+  test-e2e-matrix:
+    name: E2E matrix (shard ${{ matrix.shard }}/8)
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend-store]
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: stair
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: stair_platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            frontend-store/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install store dependencies
+        run: npm ci
+        working-directory: frontend-store
+
+      # Vite dev отдаёт @shared-исходники из frontend/shared, а three/react
+      # для них резолвятся через frontend/node_modules — без них падает
+      # dependency scan и вьювер (install вместо ci: lock frontend/ отстаёт,
+      # pre-existing drift).
+      - name: Install shared deps (frontend)
+        run: npm install --no-audit --no-fund
+        working-directory: frontend
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend-store
+
+      - name: Run migrations
+        run: |
+          go run ./cmd/migrate up
+        env:
+          STAIR_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_platform_test?sslmode=disable
+
+      - name: Start API server
+        run: |
+          go run ./cmd/api &
+          sleep 5
+        env:
+          STAIR_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_platform_test?sslmode=disable
+          STAIR_HTTP_ADDR: :8080
+          STAIR_SESSION_TTL: 86400
+          # Матрица шлёт 2000 quote-расчётов параллельно (4 воркера/шард):
+          # дефолтный лимит 30/мин на IP выбивает 429 и роняет кейсы.
+          STAIR_QUOTE_RATE_LIMIT: 600
+
+      - name: Run matrix shard ${{ matrix.shard }}/8
+        run: npx playwright test e2e/tests/quote-matrix-generated.spec.ts --shard=${{ matrix.shard }}/8
+        working-directory: frontend-store
+        env:
+          CI: true
+
+      - name: Upload blob report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-report-${{ matrix.shard }}
+          path: frontend-store/blob-report
+          retention-days: 7
 
   security-scan:
     name: Security Scan

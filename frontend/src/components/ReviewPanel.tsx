@@ -3,18 +3,12 @@ import { AuthContext } from '../auth/context'
 import { projectsApi } from '../api/projects'
 import type { ProjectMember, ProjectReview, ProjectStatus } from '@shared/types'
 import { ApiError } from '@shared/types'
+import { statusMeta } from '../lib/status'
 
 interface Props {
   projectId: string
   status: ProjectStatus
   onStatusChange: (status: ProjectStatus) => void
-}
-
-const statusLabels: Record<ProjectStatus, string> = {
-  draft: 'Черновик',
-  in_review: 'На ревью',
-  approved: 'Подписано',
-  changes_requested: 'Доработка',
 }
 
 const decisionLabels: Record<ProjectReview['decision'], string> = {
@@ -100,18 +94,23 @@ export function ReviewPanel({ projectId, status, onStatusChange }: Props) {
   const showActions =
     (status === 'draft' || status === 'changes_requested') && canRequest && !pending
 
+  const meta = statusMeta(status)
+
+  const owner = members.find((m) => m.role === 'owner')
+
   return (
     <section className="panel">
       <h2 className="panel__title">Ревью</h2>
+      <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Запрос на проверку: редактор запрашивает, владелец подписывает или возвращает.</p>
       <p className="muted">
-        Статус: <span className="review-status">{statusLabels[status]}</span>
+        Статус: <span className={`badge ${meta.badge}`}>{meta.label}</span>
       </p>
       {error && <div className="alert alert--error">{error}</div>}
       {loading ? (
         <p className="muted">Загрузка…</p>
       ) : (
         <ul className="comment-list">
-          {reviews.length === 0 && <p className="muted">Ревью ещё не запрашивали.</p>}
+          {reviews.length === 0 && <p className="muted">Ревью ещё не запрашивали. Заполните параметры, рассчитайте и нажмите «Запросить ревью».</p>}
           {reviews.map((r) => (
             <li className="comment" key={r.id}>
               <div className="comment__meta">
@@ -162,7 +161,7 @@ export function ReviewPanel({ projectId, status, onStatusChange }: Props) {
         </div>
       )}
       {status === 'in_review' && !(isOwner && pending) && (
-        <p className="muted">Ожидание решения владельца проекта.</p>
+        <p className="muted">Ожидание решения владельца проекта{owner ? ` — решает ${owner.user_id.slice(0, 8)}` : ''}. Только он может подписать или вернуть.</p>
       )}
     </section>
   )

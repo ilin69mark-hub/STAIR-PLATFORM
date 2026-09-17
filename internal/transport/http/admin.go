@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/auth"
@@ -251,7 +252,13 @@ func handleCreateApiKey(svc AuthService) http.HandlerFunc {
 		}
 		var scopes []auth.Permission
 		for _, s := range req.Scopes {
-			scopes = append(scopes, auth.Permission(s))
+			p := auth.Permission(strings.TrimSpace(s))
+			if p == "" || !p.IsKnown() {
+				writeError(w, http.StatusUnprocessableEntity, "invalid_scope",
+					fmt.Sprintf("Неизвестный scope %q", s))
+				return
+			}
+			scopes = append(scopes, p)
 		}
 		key, token, err := svc.CreateApiKey(r.Context(), tenantID(r.Context()), userID(r.Context()), req.Name, scopes)
 		if err != nil {

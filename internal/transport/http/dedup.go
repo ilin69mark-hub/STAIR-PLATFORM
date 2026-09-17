@@ -1,7 +1,11 @@
 package http
 
 import (
+	"bytes"
+	"hash/fnv"
+	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -59,16 +63,48 @@ func DeduplicateMiddleware(keyFunc func(*http.Request) string) func(http.Handler
 // дедуплицируются: кэш ответов уже закрывает повторяющиеся чтения, а
 // ложный ключ не должен отсекать параллельные GET.
 //
-// Ключ строится по IP + метод + путь. user_id намеренно НЕ используется:
-// дедупликация выполняется снаружи mux, тогда как аутентификация —
-// внутри, поэтому контекст на этом этапе ещё не содержит авторизованного
-// пользователя.
+// Ключ строится по IP + метод + путь + хэш тела. user_id намеренно НЕ
+// используется: дедупликация выполняется снаружи mux, тогда как
+// аутентификация — внутри, поэтому контекст на этом этапе ещё не содержит
+// авторизованного пользователя. Хэш тела (FNV-1a, первые 8 hex-цифр)
+// убирает ложные столкновения параллельных запросов с одного IP
+// (параллельные e2e-воркеры с разными payload больше не получают 429),
+// а повторная отправка того же тела по-прежнему дедуплицируется.
 func DeduplicateByKey(r *http.Request) string {
 	switch r.Method {
 	case http.MethodGet, http.MethodHead, http.MethodOptions:
 		return ""
 	}
-	return dedupIP(r) + ":" + r.Method + ":" + r.URL.Path
+	base := dedupIP(r) + ":" + r.Method + ":" + r.URL.Path
+	sum, ok := dedupBodyHash(r)
+	if !ok {
+		return base
+	}
+	return base + ":" + sum
+}
+
+// dedupBodyHash читает тело запроса (до 1 МБ), возвращает короткий хэш и
+// восстанавливает тело для downstream-обработчика. Пустое тело — ok=false
+// (ключ остаётся без суффикса, старое поведение сохраняется).
+func dedupBodyHash(r *http.Request) (string, bool) {
+	if r.Body == nil {
+		return "", false
+	}
+	const limit = 1 << 20
+	body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
+	if err != nil {
+		return "", false
+	}
+	_ = r.Body.Close()
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	// Тело длиннее лимита — не хэшируем (не блокируем большие аплоады
+	// чужим ключом), дедуплицируем только по IP+метод+путь.
+	if len(body) > limit || len(body) == 0 {
+		return "", false
+	}
+	h := fnv.New32a()
+	_, _ = h.Write(body)
+	return strconv.FormatUint(uint64(h.Sum32()), 16), true
 }
 
 // dedupIP извлекает IP из RemoteAddr.

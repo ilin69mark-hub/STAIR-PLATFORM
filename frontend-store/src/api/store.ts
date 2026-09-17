@@ -12,10 +12,10 @@ import type {
   TestimonialDTO,
 } from '@shared/types'
 
-// Backend дедуплицирует тяжёлые POST (quote) по IP+метод+путь и отвечает
-// 429 «duplicate request in progress», пока первый расчёт в обработке.
-// Ретраим (короткая пауза), чтобы параллельные расчёты с одного IP (две
-// вкладки, e2e) не падали с «HTTP 429».
+// Backend дедуплицирует тяжёлые POST (quote) по IP+метод+путь+хэш тела и
+// отвечает 429 «duplicate request in progress», пока первый расчёт с тем же
+// телом в обработке. Ретраим (короткая пауза), чтобы параллельные расчёты
+// с одного IP (две вкладки, e2e) не падали с «HTTP 429».
 const quoteSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 const QUOTE_RETRY_DELAYS_MS = [500, 1000]

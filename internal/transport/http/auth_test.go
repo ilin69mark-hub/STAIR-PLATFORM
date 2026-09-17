@@ -199,6 +199,34 @@ func TestLoginSetsCookies(t *testing.T) {
 	}
 }
 
+// TestLoginReturnsUserAndToken — тело ответа логина соответствует swagger
+// (/auth/login → {token, user}); фронт без него бросает TypeError и показывает
+// «Не удалось выполнить запрос» даже при успешном входе (200).
+func TestLoginReturnsUserAndToken(t *testing.T) {
+	router := authTestRouter(newFakeAuth())
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
+		strings.NewReader(`{"email":"a@b.co","password":"secret123"}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var body struct {
+		User  userDTO `json:"user"`
+		Token string  `json:"token"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("login body is not valid JSON: %v", err)
+	}
+	if body.User.ID == "" || body.User.Email == "" {
+		t.Fatalf("expected user in login body, got %+v", body.User)
+	}
+	if body.Token == "" {
+		t.Fatal("expected token in login body")
+	}
+}
+
 func TestLoginInvalidCredentials(t *testing.T) {
 	a := newFakeAuth()
 	a.loginErr = auth.ErrInvalidCreds
@@ -268,6 +296,43 @@ func TestCSRFMismatchRejected(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 on mismatch, got %d", rec.Code)
+	}
+}
+
+// TestCSRFAdminOriginUsesAdminCookie — мутирующий запрос от admin-приложения
+// (X-App-Origin: admin) сверяется с csrf_admin-cookie, а НЕ с store-«csrf».
+// Регресс-тест: раньше requireCSRF всегда читал «csrf», из-за чего в админке
+// (создание заказа и пр.) падало с «CSRF-токен не совпадает».
+func TestCSRFAdminOriginUsesAdminCookie(t *testing.T) {
+	router := authTestRouter(newFakeAuth())
+
+	// Есть session_admin + csrf_admin и верный токен → запрос должен пройти.
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	req.Header.Set(appOriginHeader, appOriginAdmin)
+	req.AddCookie(testCookie(sessionCookieName+adminOriginCookieSuffix, "token-1"))
+	req.AddCookie(testCookie(csrfCookieName+adminOriginCookieSuffix, "csrf-admin-1"))
+	req.Header.Set(csrfHeader, "csrf-admin-1")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 with csrf_admin, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestCSRFAdminOriginRejectsStoreCookie — admin-запрос с store-cookie «csrf»
+// (или её отсутствием) отклоняется: админ-приложение получает csrf_admin.
+func TestCSRFAdminOriginRejectsStoreCookie(t *testing.T) {
+	router := authTestRouter(newFakeAuth())
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	req.Header.Set(appOriginHeader, appOriginAdmin)
+	req.AddCookie(testCookie(sessionCookieName+adminOriginCookieSuffix, "token-1"))
+	// Только store-cookie «csrf» — не admin — CSRF должен быть отклонён.
+	req.AddCookie(testCookie(csrfCookieName, "csrf-store-1"))
+	req.Header.Set(csrfHeader, "csrf-store-1")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403: admin must not accept store csrf, got %d", rec.Code)
 	}
 }
 

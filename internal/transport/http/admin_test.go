@@ -601,6 +601,35 @@ func TestCreateApiKeyInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestCreateApiKeyUnknownScope(t *testing.T) {
+	router := NewRouter(nil, nil, adminAuth{}, DefaultConfig())
+	req := authedRequest(http.MethodPost, "/api/v1/admin/api-keys",
+		`{"name":"CI","scopes":["users.list","killa.ll"]}`)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "killa.ll") {
+		t.Fatalf("expected scope name in error: %s", rec.Body.String())
+	}
+}
+
+func TestCreateApiKeyValidScopeWithSpaces(t *testing.T) {
+	// Пробелы после запятой (frontend шлёт "users.list, data.export") —
+	// тримаются до валидации.
+	router := NewRouter(nil, nil, adminAuth{}, DefaultConfig())
+	req := authedRequest(http.MethodPost, "/api/v1/admin/api-keys",
+		`{"name":"CI","scopes":["users.list", " data.export "]}`)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRevokeApiKeyAsAdmin(t *testing.T) {
 	router := NewRouter(nil, nil, adminAuth{}, DefaultConfig())
 	req := authedRequest(http.MethodDelete, "/api/v1/admin/api-keys/key-1", "")

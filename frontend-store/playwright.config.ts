@@ -4,13 +4,16 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e/tests',
-  fullyParallel: false,
+// Матрица 2000 генерирует все тесты в одном файле: без fullyParallel они
+  // шли бы серийно в одном воркере. Параллельность безопасна: дедупликация
+  // бэкенда учитывает хэш тела (разные payload не сталкиваются в 429).
+  fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  // Серийная гонка: бэкенд дедуплицирует тяжёлые POST (расчёт quote) по
-  // IP+метод+путь и параллельные e2e с одного IP получали 429
-  // «duplicate request in progress» (флаки). Одного воркера достаточно.
-  workers: 1,
+  // Дедупликация бэкенда учитывает хэш тела (dedup.go: DeduplicateByKey),
+  // поэтому параллельные воркеры с разными payload не получают ложный 429
+  // «duplicate request in progress». Повтор того же тела по-прежнему давится.
+  workers: 4,
   reporter: process.env.CI
     ? [['list'], ['html', { open: 'never' }]]
     : 'list',

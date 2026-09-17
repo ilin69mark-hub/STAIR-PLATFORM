@@ -5,14 +5,21 @@
 
 import type { ApiErrorBody } from '@shared/types'
 import { ApiError } from '@shared/types'
-import { csrfHeaders } from '@shared/api/csrf'
+import { csrfHeaders, type AppOrigin } from '@shared/api/csrf'
+
+// Admin-приложение (:5174) — origin «admin»: сервер пишет сессионные cookie
+// с суффиксом «_admin» (session_admin/csrf_admin), чтобы не делить host-only
+// cookie с store (:3000) — порт в scope не входит (RFC 6265 §5.1.3). Origin
+// сообщается заголовком X-App-Origin на каждый запрос.
+const APP_ORIGIN: AppOrigin = 'admin'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? 'GET').toUpperCase()
   const isMutating = !['GET', 'HEAD', 'OPTIONS'].includes(method)
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(isMutating ? csrfHeaders() : {}),
+    'X-App-Origin': APP_ORIGIN,
+    ...(isMutating ? csrfHeaders(APP_ORIGIN) : {}),
     ...(init?.headers as Record<string, string> | undefined),
   }
 

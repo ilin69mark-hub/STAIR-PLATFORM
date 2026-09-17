@@ -14,6 +14,14 @@ export interface LogActionInput {
 }
 
 export function logAction(input: LogActionInput): void {
+  // Анонимный store (public quote) не имеет сессии — не спамим 403 в консоль.
+  // Отправляем аудит только при наличии любого признака аутентификации
+  // (session / session_admin cookie или токен в localStorage).
+  try {
+    const hasSession = typeof document !== 'undefined' && /(?:^|;\s*)(?:session|session_admin)=/.test(document.cookie)
+    const hasToken = typeof localStorage !== 'undefined' && !!localStorage.getItem('token')
+    if (!hasSession && !hasToken) return
+  } catch {}
   try {
     void fetch('/api/v1/audit', {
       method: 'POST',

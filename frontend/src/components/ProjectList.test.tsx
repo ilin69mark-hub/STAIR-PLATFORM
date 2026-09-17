@@ -52,7 +52,7 @@ describe('ProjectList', () => {
 
     fireEvent.change(screen.getByLabelText(/Название/), { target: { value: '  Новый  ' } })
     fireEvent.change(screen.getByLabelText(/Описание/), { target: { value: 'тест' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Создать' }))
+    fireEvent.click(screen.getByRole('button', { name: /Создать/ }))
 
     expect(create).toHaveBeenCalledWith({ name: 'Новый', description: 'тест' })
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created))
@@ -64,7 +64,7 @@ describe('ProjectList', () => {
     render(
       <ProjectList projects={projects} loading={false} currentUserId="u-owner" onSelect={vi.fn()} onCreated={vi.fn()} />,
     )
-    expect(screen.getByRole('button', { name: 'Создать' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Создать/ })).toBeDisabled()
   })
 
   it('показывает сообщение ApiError при неудачном создании', async () => {
@@ -73,7 +73,7 @@ describe('ProjectList', () => {
     )
     render(<ProjectList projects={[]} loading={false} currentUserId="u-owner" onSelect={vi.fn()} onCreated={vi.fn()} />)
     fireEvent.change(screen.getByLabelText(/Название/), { target: { value: 'X' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Создать' }))
+    fireEvent.click(screen.getByRole('button', { name: /Создать/ }))
     expect(await screen.findByText('База недоступна')).toBeInTheDocument()
   })
 
@@ -81,7 +81,7 @@ describe('ProjectList', () => {
     vi.spyOn(projectsApi, 'create').mockRejectedValue(new Error('boom'))
     render(<ProjectList projects={[]} loading={false} currentUserId="u-owner" onSelect={vi.fn()} onCreated={vi.fn()} />)
     fireEvent.change(screen.getByLabelText(/Название/), { target: { value: 'X' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Создать' }))
+    fireEvent.click(screen.getByRole('button', { name: /Создать/ }))
     expect(await screen.findByText('Не удалось создать проект')).toBeInTheDocument()
   })
 
