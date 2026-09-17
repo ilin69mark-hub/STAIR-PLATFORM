@@ -21,19 +21,27 @@ import (
 
 // fakeProjectService — тестовая реализация ProjectService.
 type fakeProjectService struct {
-	projects      map[string]*project.Project
-	members       []*project.ProjectMember
-	comments      []*project.Comment
-	reviews       []*project.ProjectReview
-	approvals     []*project.ConfigurationApproval
-	configs       []*project.StairConfiguration
-	calc          *project.Calculation
-	cadMesh       *kerngeo.Mesh
-	createErr     error
-	calculateErr  error
-	getErr        error
-	reviewErr     error
-	listTenantErr error
+	projects         map[string]*project.Project
+	members          []*project.ProjectMember
+	comments         []*project.Comment
+	reviews          []*project.ProjectReview
+	approvals        []*project.ConfigurationApproval
+	configs          []*project.StairConfiguration
+	calc             *project.Calculation
+	cadMesh          *kerngeo.Mesh
+	createErr        error
+	calculateErr     error
+	getErr           error
+	reviewErr        error
+	listTenantErr    error
+	getProjectErr    error // GetProject → произвольная ошибка
+	getForbidden     bool  // GetProject → ErrForbidden
+	listErr          error // ListProjects → ошибка
+	membersListErr   error // ListMembers → ошибка
+	membershipErr    error // Add/Update/Remove member → ошибка
+	addCommentErr    error // AddComment → ошибка
+	commentsListErr  error // ListComments → ошибка
+	deleteCommentErr error // DeleteComment → ошибка
 }
 
 func newFakeProjectService() *fakeProjectService {
@@ -51,6 +59,12 @@ func (f *fakeProjectService) CreateProject(ctx context.Context, tenantID, ownerI
 }
 
 func (f *fakeProjectService) GetProject(ctx context.Context, tenantID, userID, id string) (*project.Project, error) {
+	if f.getProjectErr != nil {
+		return nil, f.getProjectErr
+	}
+	if f.getForbidden {
+		return nil, project.ErrForbidden
+	}
 	p, ok := f.projects[id]
 	if !ok {
 		return nil, project.ErrNotFound
@@ -59,6 +73,9 @@ func (f *fakeProjectService) GetProject(ctx context.Context, tenantID, userID, i
 }
 
 func (f *fakeProjectService) ListProjects(ctx context.Context, tenantID, userID string) ([]*project.Project, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	out := make([]*project.Project, 0, len(f.projects))
 	for _, p := range f.projects {
 		out = append(out, p)
@@ -78,6 +95,9 @@ func (f *fakeProjectService) ListTenantProjects(ctx context.Context, tenantID st
 }
 
 func (f *fakeProjectService) ListMembers(ctx context.Context, tenantID, userID, projectID string) ([]*project.ProjectMember, error) {
+	if f.membersListErr != nil {
+		return nil, f.membersListErr
+	}
 	if _, ok := f.projects[projectID]; !ok {
 		return nil, project.ErrNotFound
 	}
@@ -85,22 +105,37 @@ func (f *fakeProjectService) ListMembers(ctx context.Context, tenantID, userID, 
 }
 
 func (f *fakeProjectService) AddMember(ctx context.Context, tenantID, actorID, projectID, userID string, role project.ProjectRole) error {
+	if f.membershipErr != nil {
+		return f.membershipErr
+	}
 	return nil
 }
 
 func (f *fakeProjectService) AddMemberByEmail(ctx context.Context, tenantID, actorID, projectID, email string, role project.ProjectRole) error {
+	if f.membershipErr != nil {
+		return f.membershipErr
+	}
 	return nil
 }
 
 func (f *fakeProjectService) UpdateMemberRole(ctx context.Context, tenantID, actorID, projectID, userID string, role project.ProjectRole) error {
+	if f.membershipErr != nil {
+		return f.membershipErr
+	}
 	return nil
 }
 
 func (f *fakeProjectService) RemoveMember(ctx context.Context, tenantID, actorID, projectID, userID string) error {
+	if f.membershipErr != nil {
+		return f.membershipErr
+	}
 	return nil
 }
 
 func (f *fakeProjectService) AddComment(ctx context.Context, tenantID, userID, projectID, body string) (*project.Comment, error) {
+	if f.addCommentErr != nil {
+		return nil, f.addCommentErr
+	}
 	if _, ok := f.projects[projectID]; !ok {
 		return nil, project.ErrNotFound
 	}
@@ -108,6 +143,9 @@ func (f *fakeProjectService) AddComment(ctx context.Context, tenantID, userID, p
 }
 
 func (f *fakeProjectService) ListComments(ctx context.Context, tenantID, userID, projectID string) ([]*project.Comment, error) {
+	if f.commentsListErr != nil {
+		return nil, f.commentsListErr
+	}
 	if _, ok := f.projects[projectID]; !ok {
 		return nil, project.ErrNotFound
 	}
@@ -117,6 +155,9 @@ func (f *fakeProjectService) ListComments(ctx context.Context, tenantID, userID,
 func (f *fakeProjectService) DeleteComment(ctx context.Context, tenantID, userID, projectID, commentID string) error {
 	if _, ok := f.projects[projectID]; !ok {
 		return project.ErrNotFound
+	}
+	if f.deleteCommentErr != nil {
+		return f.deleteCommentErr
 	}
 	return nil
 }
@@ -177,6 +218,9 @@ func (f *fakeProjectService) ApproveConfiguration(ctx context.Context, tenantID,
 func (f *fakeProjectService) GetConfigurationApproval(ctx context.Context, tenantID, userID, projectID, configurationID string) (*project.ConfigurationApproval, error) {
 	if _, ok := f.projects[projectID]; !ok {
 		return nil, project.ErrNotFound
+	}
+	if f.reviewErr != nil {
+		return nil, f.reviewErr
 	}
 	if len(f.approvals) == 0 {
 		return nil, project.ErrNotFound

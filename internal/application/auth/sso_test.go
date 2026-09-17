@@ -50,7 +50,7 @@ func (f *fakeOIDC) VerifyIDToken(_ context.Context, _ string, _ string) (*IDToke
 	return f.idtok, nil
 }
 
-func ssoSvc(repo *fakeRepo, p *fakeOIDC) *Service {
+func ssoSvc(repo Repository, p OIDCProvider) *Service {
 	return NewService(repo, 0).WithOIDCProvider(p)
 }
 
