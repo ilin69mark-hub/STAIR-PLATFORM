@@ -877,7 +877,7 @@ func handleExportProject(svc ProjectService) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		// G705: результат — серверный JSON-снапшот, отдаётся как attachment
 		// с application/json + nosniff, поэтому рендер как HTML невозможен.
-		_, _ = w.Write(calc.Result) //nolint:gosec // G705: download-only JSON, см. выше
+		_, _ = w.Write(calc.Result) // #nosec G705 // download-only JSON, см. выше
 	}
 }
 

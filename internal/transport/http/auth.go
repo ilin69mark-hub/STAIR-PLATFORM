@@ -285,7 +285,7 @@ func originCookieNames(origin string) (session, csrf string) {
 func setSessionCookies(w http.ResponseWriter, origin string, token string) {
 	setSessionCookie(w, origin, token)
 	// CSRF-cookie намеренно доступен JS (double-submit) и не является session-токеном.
-	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: HttpOnly=false намеренно; Secure/sameSite заданы
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 // CSRF-cookie: HttpOnly=false намеренно (double-submit); Secure/sameSite заданы
 		Name:     csrfCookieFor(origin),
 		Value:    newCSRF(),
 		Path:     "/",
@@ -298,7 +298,7 @@ func setSessionCookies(w http.ResponseWriter, origin string, token string) {
 // setSessionCookie выставляет только session-cookie (httpOnly). Используется
 // при ротации сессии (EDR-0014 §3.1), когда csrf-cookie менять не нужно.
 func setSessionCookie(w http.ResponseWriter, origin string, token string) {
-	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure управляется STAIR_COOKIE_SECURE
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 // Secure управляется STAIR_COOKIE_SECURE
 		Name:     sessionCookieFor(origin),
 		Value:    token,
 		Path:     "/",
@@ -312,7 +312,7 @@ func setSessionCookie(w http.ResponseWriter, origin string, token string) {
 func clearSessionCookies(w http.ResponseWriter, origin string) {
 	session, csrf := originCookieNames(origin)
 	for _, name := range []string{session, csrf} {
-		http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure управляется STAIR_COOKIE_SECURE
+		http.SetCookie(w, &http.Cookie{ // #nosec G124 // Secure управляется STAIR_COOKIE_SECURE
 			Name:     name,
 			Value:    "",
 			Path:     "/",
