@@ -235,6 +235,12 @@ func applyConfig(cfg Config) {
 	if cfg.QuoteRateWindow <= 0 {
 		cfg.QuoteRateWindow = DefaultConfig().QuoteRateWindow
 	}
+	if cfg.AuthRateLimit <= 0 {
+		cfg.AuthRateLimit = DefaultConfig().AuthRateLimit
+	}
+	if cfg.AuthRateWindow <= 0 {
+		cfg.AuthRateWindow = DefaultConfig().AuthRateWindow
+	}
 	if cfg.MaxBodyBytes <= 0 {
 		cfg.MaxBodyBytes = DefaultConfig().MaxBodyBytes
 	}
@@ -245,7 +251,7 @@ func applyConfig(cfg Config) {
 	registerLimiter = newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.RegisterRateLimit, cfg.RegisterRateWindow)
 	quoteLimiter = newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.QuoteRateLimit, cfg.QuoteRateWindow)
 	// Authenticated rate limiter: 200 req/min per user/API key
-	authRateLimiter = newRateLimiterStrategy(context.Background(), cfg.RedisAddr, 200, time.Minute)
+	authRateLimiter = newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.AuthRateLimit, cfg.AuthRateWindow)
 	paymentsWebhookSecret = cfg.PaymentsWebhookSecret
 }
 

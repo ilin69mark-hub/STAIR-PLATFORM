@@ -222,6 +222,8 @@ func main() {
 		RegisterRateWindow:    time.Minute,
 		QuoteRateLimit:        envInt("STAIR_QUOTE_RATE_LIMIT", 30),
 		QuoteRateWindow:       time.Minute,
+		AuthRateLimit:         envInt("STAIR_AUTH_RATE_LIMIT", 200),
+		AuthRateWindow:        time.Minute,
 		RedisAddr:             os.Getenv("STAIR_REDIS_ADDR"),
 		MaxBodyBytes:          1 << 20,
 		InstanceID:            instanceID,
