@@ -13,7 +13,7 @@ func TestDebugLoggingMiddleware_CapturesBody(t *testing.T) {
 		// Читаем тело — оно должно быть доступно
 		body := make([]byte, 1024)
 		n, _ := r.Body.Read(body)
-		w.Write([]byte("response:" + string(body[:n])))
+		_, _ = w.Write([]byte("response:" + string(body[:n])))
 	}))
 
 	body := `{"key":"value"}`
@@ -29,7 +29,7 @@ func TestDebugLoggingMiddleware_CapturesBody(t *testing.T) {
 
 func TestDebugLoggingMiddleware_SmallBody(t *testing.T) {
 	handler := DebugLoggingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
@@ -43,7 +43,7 @@ func TestDebugLoggingMiddleware_SmallBody(t *testing.T) {
 
 func TestDebugLoggingMiddleware_LargeBody(t *testing.T) {
 	handler := DebugLoggingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	// Body > 64KB — should be truncated
@@ -59,7 +59,7 @@ func TestDebugLoggingMiddleware_LargeBody(t *testing.T) {
 
 func TestDebugLoggingMiddleware_NoBody(t *testing.T) {
 	handler := DebugLoggingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
@@ -74,7 +74,7 @@ func TestDebugLoggingMiddleware_NoBody(t *testing.T) {
 func TestDebugLoggingMiddleware_CapturesResponseStatus(t *testing.T) {
 	handler := DebugLoggingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		w.Write([]byte("created"))
+		_, _ = w.Write([]byte("created"))
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/test", nil)
@@ -94,7 +94,7 @@ func TestBodyCaptureWriter(t *testing.T) {
 	}
 
 	bcw.WriteHeader(http.StatusCreated)
-	bcw.Write([]byte("hello"))
+	_, _ = bcw.Write([]byte("hello"))
 
 	if bcw.status != http.StatusCreated {
 		t.Errorf("expected status 201, got %d", bcw.status)

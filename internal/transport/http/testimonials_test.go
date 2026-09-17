@@ -2,11 +2,13 @@ package http
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/application/testimonial"
 )
@@ -19,9 +21,17 @@ type fakeTestimonialService struct {
 	updated   *testimonial.Testimonial
 	deleted   *string
 	err       error
+	// Точечная инъекция ошибок по операциям (перекрывает err).
+	createErr  error
+	listAllErr error
+	updateErr  error
+	deleteErr  error
 }
 
 func (f *fakeTestimonialService) Create(_ context.Context, tenantID, author, text string, rating int) (*testimonial.Testimonial, error) {
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -32,6 +42,9 @@ func (f *fakeTestimonialService) Create(_ context.Context, tenantID, author, tex
 	return f.created, nil
 }
 func (f *fakeTestimonialService) ListAll(_ context.Context, _ string) ([]*testimonial.Testimonial, error) {
+	if f.listAllErr != nil {
+		return nil, f.listAllErr
+	}
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -44,6 +57,9 @@ func (f *fakeTestimonialService) ListPublished(_ context.Context, _ string) ([]*
 	return f.published, nil
 }
 func (f *fakeTestimonialService) Update(_ context.Context, tenantID, id, author, text string, rating int, published bool) (*testimonial.Testimonial, error) {
+	if f.updateErr != nil {
+		return nil, f.updateErr
+	}
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -51,6 +67,9 @@ func (f *fakeTestimonialService) Update(_ context.Context, tenantID, id, author,
 	return f.updated, nil
 }
 func (f *fakeTestimonialService) Delete(_ context.Context, _ string, id string) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	f.deleted = &id
 	return f.err
 }
@@ -173,6 +192,7 @@ func TestAdminTestimonialsRequireAdmin(t *testing.T) {
 	for _, tc := range []struct{ method, path, body string }{
 		{http.MethodGet, "/api/v1/admin/testimonials", ""},
 		{http.MethodPost, "/api/v1/admin/testimonials", `{"author":"А","text":"т","rating":5}`},
+		{http.MethodPatch, "/api/v1/admin/testimonials/t-1", `{"author":"А","text":"т","rating":5}`},
 		{http.MethodDelete, "/api/v1/admin/testimonials/t-1", ""},
 	} {
 		req := authedRequest(tc.method, tc.path, tc.body)
@@ -181,5 +201,211 @@ func TestAdminTestimonialsRequireAdmin(t *testing.T) {
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("%s %s: expected 403, got %d", tc.method, tc.path, rec.Code)
 		}
+	}
+}
+
+// failingTenantAuth — auth-сервис без дефолтного tenant (для тестов 500 ошибок).
+type failingTenantAuth struct{ testAuth }
+
+func (failingTenantAuth) DefaultTenant(_ context.Context) (*auth.Tenant, error) {
+	return nil, errors.New("no tenant")
+}
+
+func testimonialsAdminRouterWithAudit(svc TestimonialService, a AuditService) http.Handler {
+	cfg := DefaultConfig()
+	cfg.Testimonials = svc
+	return NewRouter(stair.NewService(), nil, adminAuth{}, cfg, a)
+}
+
+func TestPublicListTestimonialsDefaultTenantError(t *testing.T) {
+	fake := &fakeTestimonialService{}
+	cfg := DefaultConfig()
+	cfg.Testimonials = fake
+	router := NewRouter(stair.NewService(), nil, failingTenantAuth{}, cfg)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/public/testimonials", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPublicListTestimonialsListError(t *testing.T) {
+	fake := &fakeTestimonialService{err: errors.New("db down")}
+	router := testimonialsPublicRouter(fake)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/public/testimonials", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminListTestimonialsSuccess(t *testing.T) {
+	fake := &fakeTestimonialService{list: []*testimonial.Testimonial{
+		{ID: "t-1", Author: "Мария", Text: "Хорошо", Rating: 5, Published: true},
+	}}
+	router := testimonialsAdminRouter(fake)
+	req := authedRequest(http.MethodGet, "/api/v1/admin/testimonials", "")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"author":"Мария"`) {
+		t.Fatalf("unexpected body: %s", rec.Body.String())
+	}
+}
+
+func TestAdminListTestimonialsError(t *testing.T) {
+	fake := &fakeTestimonialService{listAllErr: errors.New("db")}
+	router := testimonialsAdminRouter(fake)
+	req := authedRequest(http.MethodGet, "/api/v1/admin/testimonials", "")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminCreateTestimonialInvalidJSON(t *testing.T) {
+	fake := &fakeTestimonialService{}
+	router := testimonialsAdminRouter(fake)
+	req := authedRequest(http.MethodPost, "/api/v1/admin/testimonials", "NOT-JSON")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminCreateTestimonialServiceError(t *testing.T) {
+	fake := &fakeTestimonialService{createErr: errors.New("boom")}
+	router := testimonialsAdminRouter(fake)
+	body := `{"author":"А","text":"т","rating":5}`
+	req := authedRequest(http.MethodPost, "/api/v1/admin/testimonials", body)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminCreateTestimonialAudited(t *testing.T) {
+	fake := &fakeTestimonialService{}
+	router := testimonialsAdminRouterWithAudit(fake, &fakeAuditService{})
+	body := `{"author":"Мария","text":"отлично","rating":5}`
+	req := authedRequest(http.MethodPost, "/api/v1/admin/testimonials", body)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminUpdateTestimonialNotFound(t *testing.T) {
+	fake := &fakeTestimonialService{updateErr: testimonial.ErrNotFound}
+	router := testimonialsAdminRouter(fake)
+	body := `{"author":"А","text":"т","rating":4}`
+	req := authedRequest(http.MethodPatch, "/api/v1/admin/testimonials/missing", body)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminUpdateTestimonialInvalid(t *testing.T) {
+	fake := &fakeTestimonialService{updateErr: testimonial.ErrInvalid}
+	router := testimonialsAdminRouter(fake)
+	body := `{"author":"А","text":"т","rating":1}`
+	req := authedRequest(http.MethodPatch, "/api/v1/admin/testimonials/t-1", body)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminUpdateTestimonialInvalidJSON(t *testing.T) {
+	fake := &fakeTestimonialService{}
+	router := testimonialsAdminRouter(fake)
+	req := authedRequest(http.MethodPatch, "/api/v1/admin/testimonials/t-1", "NOT-JSON")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminUpdateTestimonialServiceError(t *testing.T) {
+	fake := &fakeTestimonialService{updateErr: errors.New("db")}
+	router := testimonialsAdminRouter(fake)
+	body := `{"author":"А","text":"т","rating":4}`
+	req := authedRequest(http.MethodPatch, "/api/v1/admin/testimonials/t-1", body)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminUpdateTestimonialAudited(t *testing.T) {
+	fake := &fakeTestimonialService{}
+	router := testimonialsAdminRouterWithAudit(fake, &fakeAuditService{})
+	body := `{"author":"Мария","text":"обновлено","rating":4,"published":true}`
+	req := authedRequest(http.MethodPatch, "/api/v1/admin/testimonials/t-1", body)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminDeleteTestimonialNotFound(t *testing.T) {
+	fake := &fakeTestimonialService{deleteErr: testimonial.ErrNotFound}
+	router := testimonialsAdminRouter(fake)
+	req := authedRequest(http.MethodDelete, "/api/v1/admin/testimonials/missing", "")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminDeleteTestimonialServiceError(t *testing.T) {
+	fake := &fakeTestimonialService{deleteErr: errors.New("db")}
+	router := testimonialsAdminRouter(fake)
+	req := authedRequest(http.MethodDelete, "/api/v1/admin/testimonials/t-1", "")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminDeleteTestimonialAudited(t *testing.T) {
+	fake := &fakeTestimonialService{}
+	router := testimonialsAdminRouterWithAudit(fake, &fakeAuditService{})
+	req := authedRequest(http.MethodDelete, "/api/v1/admin/testimonials/t-1", "")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

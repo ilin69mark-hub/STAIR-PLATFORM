@@ -16,7 +16,7 @@ func TestResponseCacheMiddleware_CachesGET(t *testing.T) {
 	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"data":"test"}`))
+		_, _ = w.Write([]byte(`{"data":"test"}`))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
@@ -46,7 +46,7 @@ func TestResponseCacheMiddleware_NoCachePOST(t *testing.T) {
 		DefaultTTL: 1 * time.Minute,
 	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount.Add(1)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/test", nil)
@@ -74,7 +74,7 @@ func TestResponseCacheMiddleware_NoCacheErrors(t *testing.T) {
 	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount.Add(1)
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("error"))
+		_, _ = w.Write([]byte("error"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
@@ -89,6 +89,92 @@ func TestResponseCacheMiddleware_NoCacheErrors(t *testing.T) {
 	}
 }
 
+func TestResponseCacheMiddleware_NoCacheIdentityRequests(t *testing.T) {
+	// Авторизованные запросы (session-cookie / Bearer) не должны ни читать,
+	// ни заполнять кэш: ответы зависят от субъекта.
+	for name, setAuth := range map[string]func(*http.Request){
+		"Cookie": func(r *http.Request) {
+			r.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "t"}) //nolint:gosec // G124: тестовый cookie
+		},
+		"CSRF": func(r *http.Request) {
+			r.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "c"}) //nolint:gosec // G124: тестовый cookie
+		},
+		"Bearer": func(r *http.Request) {
+			r.Header.Set("Authorization", "Bearer key")
+		},
+	} {
+		// Заполняем кэш АНОНИМНЫМ ответом.
+		var anonCalls, idCalls atomic.Int32
+		handler := ResponseCacheMiddleware(ResponseCacheConfig{
+			MaxEntries: 10,
+			DefaultTTL: 1 * time.Minute,
+		})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") != "" || len(r.Cookies()) > 0 {
+				idCalls.Add(1)
+				_, _ = w.Write([]byte("personal"))
+				return
+			}
+			anonCalls.Add(1)
+			_, _ = w.Write([]byte("public"))
+		}))
+
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Header().Get("X-Cache") != "MISS" {
+			t.Errorf("[%s] expected anonymous MISS, got %q", name, w.Header().Get("X-Cache"))
+		}
+
+		// Identity-запрос ДОЛЖЕН пройти в handler, а не получить кэшированный
+		// анонимный ответ.
+		idReq := httptest.NewRequest(http.MethodGet, "/test", nil)
+		setAuth(idReq)
+		idW := httptest.NewRecorder()
+		handler.ServeHTTP(idW, idReq)
+
+		if idW.Header().Get("X-Cache") != "" {
+			t.Errorf("[%s] identity request hit cache, X-Cache=%q", name, idW.Header().Get("X-Cache"))
+		}
+		if got := idW.Body.String(); got != "personal" {
+			t.Errorf("[%s] expected handler executed, got body %q", name, got)
+		}
+		if anonCalls.Load() != 1 {
+			t.Errorf("[%s] expected anonymous handler once, got %d", name, anonCalls.Load())
+		}
+		if idCalls.Load() != 1 {
+			t.Errorf("[%s] expected identity handler once, got %d", name, idCalls.Load())
+		}
+	}
+}
+
+func TestResponseCacheMiddleware_NoCacheSetCookieResponse(t *testing.T) {
+	var callCount atomic.Int32
+	handler := ResponseCacheMiddleware(ResponseCacheConfig{
+		MaxEntries: 10,
+		DefaultTTL: 1 * time.Minute,
+	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount.Add(1)
+		http.SetCookie(w, &http.Cookie{Name: sessionCookieName, Value: "t", Path: "/"}) //nolint:gosec // G124: тестовый cookie, без реальных атрибутов безопасности
+		_, _ = w.Write([]byte("session"))
+	}))
+
+	// Первый запрос выполнился (Set-Cookie), но в кэш не попал.
+	req := httptest.NewRequest(http.MethodGet, "/login-check", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	// Второй с идентичным запросом — handler обязан выполниться снова.
+	w2 := httptest.NewRecorder()
+	handler.ServeHTTP(w2, req)
+
+	if callCount.Load() != 2 {
+		t.Errorf("expected handler called twice (Set-Cookie not cached), got %d", callCount.Load())
+	}
+	if w2.Header().Get("X-Cache") == "HIT" {
+		t.Errorf("expected no X-Cache HIT for Set-Cookie response")
+	}
+}
+
 func TestResponseCacheMiddleware_TTLExpiration(t *testing.T) {
 	var callCount atomic.Int32
 	handler := ResponseCacheMiddleware(ResponseCacheConfig{
@@ -96,7 +182,7 @@ func TestResponseCacheMiddleware_TTLExpiration(t *testing.T) {
 		DefaultTTL: 50 * time.Millisecond,
 	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount.Add(1)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
@@ -120,7 +206,7 @@ func TestResponseCacheMiddleware_DifferentPaths(t *testing.T) {
 		DefaultTTL: 1 * time.Minute,
 	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount.Add(1)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req1 := httptest.NewRequest(http.MethodGet, "/path1", nil)
@@ -142,7 +228,7 @@ func TestResponseCacheMiddleware_Eviction(t *testing.T) {
 		MaxEntries: 2,
 		DefaultTTL: 1 * time.Minute,
 	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	for i := 0; i < 5; i++ {
@@ -162,7 +248,7 @@ func TestResponseCacheMiddleware_QueryStringDiff(t *testing.T) {
 		DefaultTTL: 1 * time.Minute,
 	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount.Add(1)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req1 := httptest.NewRequest(http.MethodGet, "/test?page=1", nil)

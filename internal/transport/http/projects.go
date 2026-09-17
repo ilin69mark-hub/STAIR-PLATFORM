@@ -732,11 +732,7 @@ func handleCalculateProject(svc ProjectService) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
-		cfg, err := toConfig(req)
-		if err != nil {
-			writeInputError(w, "invalid_input", err)
-			return
-		}
+		cfg := toConfig(req)
 		opts, err := toOptions(req)
 		if err != nil {
 			writeInputError(w, "invalid_rates", err)
@@ -773,11 +769,7 @@ func handlePreviewProject(svc ProjectService) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
-		cfg, err := toConfig(req)
-		if err != nil {
-			writeInputError(w, "invalid_input", err)
-			return
-		}
+		cfg := toConfig(req)
 		opts, err := toOptions(req)
 		if err != nil {
 			writeInputError(w, "invalid_rates", err)
@@ -800,6 +792,7 @@ func handlePreviewProject(svc ProjectService) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, toSnapshotDTO(projectID, *snap))
 	}
 }
+
 // Находит оптимальную конфигурацию проекта и сохраняет её с расчётом
 // (EDR-0032). 200 — итог поиска (+ сохранённый расчёт при valid:true);
 // 400 — битый JSON; 404 — нет проекта; 403 — viewer; 422 — невалидный
@@ -813,11 +806,7 @@ func handleOptimizeProject(svc ProjectService) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
-		cfg, err := toConfig(req.calculateRequest)
-		if err != nil {
-			writeInputError(w, "invalid_input", err)
-			return
-		}
+		cfg := toConfig(req.calculateRequest)
 		opts, err := toOptions(req.calculateRequest)
 		if err != nil {
 			writeInputError(w, "invalid_rates", err)
@@ -841,13 +830,18 @@ func handleOptimizeProject(svc ProjectService) http.HandlerFunc {
 }
 
 // toProjectOptimizeResponse — итог оптимизации проекта: результат поиска
-// плюс ID сохранённого расчёта/конфигурации (когда найден).
+// плюс ID сохранённого расчёта/конфигурации (когда найден). best.result
+// подменяется на сохранённый Snapshot (camelCase-форма, как у calculate):
+// фронтенд ожидает project.Snapshot, а не transport DTO (см. EDR-0032 §3.4).
 func toProjectOptimizeResponse(out *project.OptimizeOutcome) projectOptimizeResponse {
 	resp := projectOptimizeResponse{optimizeResponse: toOptimizeResponse(out.Result)}
 	if out.Calculation != nil {
 		resp.CalculationID = out.Calculation.ID
 		resp.ConfigurationID = out.Calculation.ConfigurationID
 		resp.Saved = true
+		if resp.Best != nil && len(out.Calculation.Result) > 0 {
+			resp.Best.Result = out.Calculation.Result
+		}
 	}
 	return resp
 }
@@ -878,9 +872,12 @@ func handleExportProject(svc ProjectService) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Content-Disposition", `attachment; filename="project-export.json"`)
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(calc.Result)
+		// G705: результат — серверный JSON-снапшот, отдаётся как attachment
+		// с application/json + nosniff, поэтому рендер как HTML невозможен.
+		_, _ = w.Write(calc.Result) // #nosec G705 // download-only JSON, см. выше
 	}
 }
 

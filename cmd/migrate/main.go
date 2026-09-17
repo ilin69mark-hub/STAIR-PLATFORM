@@ -18,6 +18,7 @@ import (
 func main() {
 	dir := flag.String("dir", "migrations", "каталог с SQL-миграциями")
 	down := flag.Bool("down", false, "откатить миграции вместо применения")
+	table := flag.String("table", "", "таблица версий golang-migrate (пусто — schema_migrations)")
 	databaseURL := flag.String("database", os.Getenv("STAIR_DATABASE_URL"), "URL подключения к PostgreSQL")
 	flag.Parse()
 
@@ -38,7 +39,7 @@ func main() {
 	if *down {
 		direction = "down"
 	}
-	if err := database.Migrate(ctx, pool, *dir, direction); err != nil {
+	if err := database.MigrateWithTable(ctx, pool, *dir, direction, *table); err != nil {
 		log.Fatalf("migrate: %v", err)
 	}
 	log.Printf("migrations %s applied successfully", direction)

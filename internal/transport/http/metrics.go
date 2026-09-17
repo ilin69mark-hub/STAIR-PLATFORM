@@ -142,6 +142,15 @@ func refreshRuntimeMetrics() {
 	runtimeMetricsCache.memAlloc = m.Alloc
 }
 
+// dbPoolMetricsCache хранит последний счётчик EmptyAcquireCount для расчёта
+// дельты: pgxpool.Stat().EmptyAcquireCount() — кумулятивный (с момента
+// создания пула), а Prometheus-счётчик db_pool_wait_count_total также должен
+// расти только на инкремент (иначе каждое добавление задваивает значение).
+var dbPoolMetricsCache = struct {
+	mu            sync.Mutex
+	lastWaitCount int64
+}{}
+
 // CollectDBPoolMetrics собирает метрики пула БД (вызывается периодически).
 func CollectDBPoolMetrics(pool *pgxpool.Pool) {
 	if pool == nil {
@@ -152,7 +161,16 @@ func CollectDBPoolMetrics(pool *pgxpool.Pool) {
 	dbPoolIdle.Set(float64(stat.IdleConns()))
 	dbPoolMax.Set(float64(stat.MaxConns()))
 	dbPoolOpen.Set(float64(stat.TotalConns()))
-	dbPoolWaitCount.With().Add(int64(stat.EmptyAcquireCount()))
+
+	// Кумулятивный счётчик → дельта с прошлого сбора.
+	total := stat.EmptyAcquireCount()
+	dbPoolMetricsCache.mu.Lock()
+	delta := total - dbPoolMetricsCache.lastWaitCount
+	dbPoolMetricsCache.lastWaitCount = total
+	dbPoolMetricsCache.mu.Unlock()
+	if delta > 0 {
+		dbPoolWaitCount.With().Add(delta)
+	}
 }
 
 // handleMetrics — GET /metrics (Prometheus text-format, EDR-0021 §6).

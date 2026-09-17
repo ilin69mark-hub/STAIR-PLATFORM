@@ -220,7 +220,7 @@ describe('AdminPanel', () => {
     expect(screen.getByText((_, el) => el?.textContent === 'CI · users.list')).toBeInTheDocument()
     // Обзор: счётчик проектов = 3 (встречается и в аналитике).
     expect(screen.getAllByText('3').length).toBeGreaterThan(0)
-    expect(screen.getByText('API-ключи (активных)')).toBeInTheDocument()
+    expect(screen.getByText('Активных API-ключей')).toBeInTheDocument()
   })
 
   it('показывает ошибку API', async () => {
@@ -269,7 +269,7 @@ describe('AdminPanel', () => {
       .mockResolvedValue({ ...keys[0], token: 'abc123' })
     render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
 
-    await screen.findByText('API-ключи')
+    await screen.findByRole('heading', { name: 'API-ключи' })
     fireEvent.change(screen.getByPlaceholderText('Имя ключа (например, CI)'), {
       target: { value: 'CI' },
     })
@@ -392,7 +392,7 @@ describe('AdminPanel', () => {
     const mfgMock = vi.spyOn(analyticsApi, 'manufacturing').mockResolvedValue(manufacturing)
     render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
 
-    expect(await screen.findByText('Производство')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Производство' })).toBeInTheDocument()
     // Автозагрузка с гранулярностью по умолчанию.
     await waitFor(() =>
       expect(mfgMock).toHaveBeenCalledWith(expect.objectContaining({ granularity: 'day' })),
@@ -416,7 +416,7 @@ describe('AdminPanel', () => {
     const costMock = vi.spyOn(analyticsApi, 'cost').mockResolvedValue(cost)
     render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
 
-    expect(await screen.findByText('Стоимость')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Стоимость' })).toBeInTheDocument()
     await waitFor(() =>
       expect(costMock).toHaveBeenCalledWith(expect.objectContaining({ granularity: 'day' })),
     )

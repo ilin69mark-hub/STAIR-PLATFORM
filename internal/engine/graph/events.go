@@ -27,7 +27,7 @@ type GraphEventHooks struct {
 // EventGraph — Graph Engine с event hooks для интеграции с Event Bus.
 type EventGraph struct {
 	*Graph
-	hooks    GraphEventHooks
+	hooks     GraphEventHooks
 	publisher EventPublisher
 }
 
@@ -57,7 +57,7 @@ func (eg *EventGraph) AddNode(ctx context.Context, n Node) error {
 
 // RemoveNode удаляет узел и вызывает hooks.
 func (eg *EventGraph) RemoveNode(ctx context.Context, id string) bool {
-	n, existed := eg.Graph.Node(id)
+	n, existed := eg.Node(id)
 	ok := eg.Graph.RemoveNode(id)
 	if ok && eg.hooks.OnNodeRemoved != nil {
 		eg.hooks.OnNodeRemoved(ctx, id)

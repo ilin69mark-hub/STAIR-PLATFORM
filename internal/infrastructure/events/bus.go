@@ -120,15 +120,11 @@ func (b *Bus) Publish(ctx context.Context, event domevents.Event) error {
 	}
 
 	b.mu.RLock()
-	entries := make([]handlerEntry, len(b.handlers[event.EventType()]))
-	copy(entries, b.handlers[event.EventType()])
-
 	// Также публикуем wildcard подписчикам (подписка на все события).
-	wildcards := make([]handlerEntry, len(b.handlers["*"]))
-	copy(wildcards, b.handlers["*"])
+	all := make([]handlerEntry, 0, len(b.handlers[event.EventType()])+len(b.handlers["*"]))
+	all = append(all, b.handlers[event.EventType()]...)
+	all = append(all, b.handlers["*"]...)
 	b.mu.RUnlock()
-
-	all := append(entries, wildcards...)
 
 	b.logger.Debug("publishing event",
 		"type", event.EventType(),
@@ -138,7 +134,7 @@ func (b *Bus) Publish(ctx context.Context, event domevents.Event) error {
 	)
 
 	for _, entry := range all {
-		if err := b.invokeWithRetry(ctx, entry, event, correlationID); err != nil {
+		if err := b.invokeWithRetry(ctx, entry, event); err != nil {
 			if b.dlq != nil {
 				b.dlq.Push(DLQEntry{
 					Event:         event,
@@ -165,7 +161,7 @@ func (b *Bus) PublishAsync(ctx context.Context, event domevents.Event) {
 	}()
 }
 
-func (b *Bus) invokeWithRetry(ctx context.Context, entry handlerEntry, event domevents.Event, correlationID string) error {
+func (b *Bus) invokeWithRetry(ctx context.Context, entry handlerEntry, event domevents.Event) error {
 	var lastErr error
 	maxAttempts := b.retry.MaxAttempts
 

@@ -37,6 +37,8 @@ func (g Granularity) Interval() string {
 		return "1 day"
 	case GranularityWeek:
 		return "1 week"
+	case GranularityMonth:
+		return "1 month"
 	default:
 		return "1 month"
 	}

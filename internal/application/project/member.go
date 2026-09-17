@@ -60,7 +60,9 @@ func (r ProjectRole) Permissions() []Permission {
 		return []Permission{PermissionProjectRead, PermissionProjectEdit, PermissionProjectManage}
 	case RoleEditor:
 		return []Permission{PermissionProjectRead, PermissionProjectEdit}
-	default: // RoleViewer
+	case RoleViewer:
+		return []Permission{PermissionProjectRead}
+	default:
 		return []Permission{PermissionProjectRead}
 	}
 }

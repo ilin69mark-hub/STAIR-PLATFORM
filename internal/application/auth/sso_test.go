@@ -8,9 +8,9 @@ import (
 )
 
 // ssoState returns list helper — извлекает raw state из authorization URL.
-func rawStateFromURL(t *testing.T, svc *Service, repo *fakeRepo, redirect string) string {
+func rawStateFromURL(t *testing.T, svc *Service) string {
 	t.Helper()
-	u, err := svc.SsoAuthorizeURL(context.Background(), redirect)
+	u, err := svc.SsoAuthorizeURL(context.Background(), "/")
 	if err != nil {
 		t.Fatalf("SsoAuthorizeURL: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestSsoCallbackProvisionsNewUser(t *testing.T) {
 		idtok:   &IDTokenClaims{Issuer: "https://iss", Subject: "sub-1", Email: "sso@example.com", Name: "SSO User"},
 	})
 	// Предварительно "начинаем" вход, чтобы state существовал.
-	state := rawStateFromURL(t, svc, repo, "/")
+	state := rawStateFromURL(t, svc)
 	u, token, err := svc.SsoCallback(context.Background(), "auth-code", state)
 	if err != nil {
 		t.Fatalf("SsoCallback: %v", err)
@@ -145,7 +145,7 @@ func TestSsoCallbackLinksExistingUserByEmail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	state := rawStateFromURL(t, svc, repo, "/")
+	state := rawStateFromURL(t, svc)
 	u, _, err := svc.SsoCallback(context.Background(), "auth-code", state)
 	if err != nil {
 		t.Fatalf("SsoCallback: %v", err)
@@ -184,7 +184,7 @@ func TestSsoCallbackRejectsExchangeFailure(t *testing.T) {
 		name:    "testidp",
 		exErr:   errors.New("token endpoint down"),
 	})
-	state := rawStateFromURL(t, svc, repo, "/")
+	state := rawStateFromURL(t, svc)
 	if _, _, err := svc.SsoCallback(context.Background(), "code", state); !errors.Is(err, ErrSsoDenied) {
 		t.Fatalf("expected ErrSsoDenied on exchange failure, got %v", err)
 	}
@@ -201,7 +201,7 @@ func TestSsoCallbackRejectsInvalidIdToken(t *testing.T) {
 		raw:     "raw-token",
 		verErr:  errors.New("oidc: signatures mismatch"),
 	})
-	state := rawStateFromURL(t, svc, repo, "/")
+	state := rawStateFromURL(t, svc)
 	if _, _, err := svc.SsoCallback(context.Background(), "code", state); !errors.Is(err, ErrSsoDenied) {
 		t.Fatalf("expected ErrSsoDenied on invalid id_token, got %v", err)
 	}
@@ -218,7 +218,7 @@ func TestSsoCallbackRejectsMissingEmail(t *testing.T) {
 		raw:     "raw-token",
 		idtok:   &IDTokenClaims{Issuer: "https://iss", Subject: "sub-3"},
 	})
-	state := rawStateFromURL(t, svc, repo, "/")
+	state := rawStateFromURL(t, svc)
 	if _, _, err := svc.SsoCallback(context.Background(), "code", state); !errors.Is(err, ErrSsoDenied) {
 		t.Fatalf("expected ErrSsoDenied when no email claim, got %v", err)
 	}
@@ -233,7 +233,7 @@ func TestSsoCallbackRejectsDisabledUser(t *testing.T) {
 		idtok:   &IDTokenClaims{Issuer: "https://iss", Subject: "sub-4", Email: "disabled@sso.example"},
 	})
 	// Первый вход — создаёт пользователя.
-	state := rawStateFromURL(t, svc, repo, "/")
+	state := rawStateFromURL(t, svc)
 	u, _, err := svc.SsoCallback(context.Background(), "code", state)
 	if err != nil {
 		t.Fatalf("first callback: %v", err)
@@ -243,7 +243,7 @@ func TestSsoCallbackRejectsDisabledUser(t *testing.T) {
 		t.Fatalf("disable: %v", err)
 	}
 	// Повторный вход через SSO отклоняется.
-	state2 := rawStateFromURL(t, svc, repo, "/")
+	state2 := rawStateFromURL(t, svc)
 	if _, _, err := svc.SsoCallback(context.Background(), "code", state2); !errors.Is(err, ErrSsoDenied) {
 		t.Fatalf("expected ErrSsoDenied for disabled user, got %v", err)
 	}
@@ -257,7 +257,7 @@ func TestSsoStateCanBeConsumedOnce(t *testing.T) {
 		raw:     "raw-token",
 		idtok:   &IDTokenClaims{Issuer: "https://iss", Subject: "sub-5", Email: "sso1@example.com"},
 	})
-	state := rawStateFromURL(t, svc, repo, "/")
+	state := rawStateFromURL(t, svc)
 	if _, _, err := svc.SsoCallback(context.Background(), "code", state); err != nil {
 		t.Fatalf("first callback: %v", err)
 	}

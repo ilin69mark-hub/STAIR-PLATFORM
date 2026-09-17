@@ -205,6 +205,7 @@ func (cb *CircuitBreaker) recordResult(err error) {
 			}
 		case StateHalfOpen:
 			cb.setState(StateOpen)
+		case StateOpen:
 		}
 	} else {
 		CBRequests.With(cb.name, "success").Inc()
@@ -221,6 +222,7 @@ func (cb *CircuitBreaker) recordResult(err error) {
 			if cb.successCount > cb.settings.SuccessThreshold {
 				cb.failureCount = 0
 			}
+		case StateOpen:
 		}
 	}
 }

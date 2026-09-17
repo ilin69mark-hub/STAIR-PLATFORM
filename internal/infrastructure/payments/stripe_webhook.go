@@ -7,13 +7,27 @@ import (
 	"log/slog"
 )
 
-// StripeWebhookService обрабатывает Stripe webhook events.
+// IntentProcessor применяет подтверждённое подписью событие PSP к платёжному
+// интенту (EDR-0027 §3.4). Реализуется application/service платежей; подпись
+// к событию уже проверена выше.
+type IntentProcessor interface {
+	// ApplyVerifiedEvent переводит интент в новый статус по событию провайдера
+	// (provider и checkoutID уже извлечены из подписанного события).
+	ApplyVerifiedEvent(ctx context.Context, provider, checkoutID, status string, amountMinor int64, currency string, raw []byte) error
+}
+
+// StripeWebhookServiceImpl обрабатывает Stripe webhook events: проверяет
+// подпись, парсит event и передаёт результат в IntentProcessor для перевода
+// интента в новый статус.
 type StripeWebhookServiceImpl struct {
-	provider *StripeAdapter
-	logger   *slog.Logger
+	provider  *StripeAdapter
+	processor IntentProcessor
+	logger    *slog.Logger
 }
 
 // NewStripeWebhookService создаёт сервис обработки Stripe webhook.
+// Processor подключается отдельно (WithIntentProcessor) — сервис может
+// работать как логгер событий и без него.
 func NewStripeWebhookService(provider *StripeAdapter, logger *slog.Logger) *StripeWebhookServiceImpl {
 	if logger == nil {
 		logger = slog.Default()
@@ -22,6 +36,12 @@ func NewStripeWebhookService(provider *StripeAdapter, logger *slog.Logger) *Stri
 		provider: provider,
 		logger:   logger,
 	}
+}
+
+// WithIntentProcessor подключает обработчик интентов (application payments.Service).
+func (s *StripeWebhookServiceImpl) WithIntentProcessor(p IntentProcessor) *StripeWebhookServiceImpl {
+	s.processor = p
+	return s
 }
 
 // HandleStripeWebhook обрабатывает входящий Stripe webhook.
@@ -45,14 +65,35 @@ func (s *StripeWebhookServiceImpl) HandleStripeWebhook(ctx context.Context, payl
 		"status", event.Status,
 	)
 
+	if s.processor == nil {
+		s.logger.Warn("stripe webhook: no intent processor configured, event ignored")
+		return nil
+	}
+
 	// Обрабатываем event в зависимости от типа
 	switch event.EventType {
-	case "checkout.completed":
-		s.logger.Info("checkout completed", "checkout_id", event.CheckoutID, "amount", event.AmountMinor)
-	case "checkout.failed":
+	case WebhookEventCheckoutCompleted:
+		s.logger.Info("checkout completed", "checkout_id", event.CheckoutID,
+			"amount", event.AmountMinor, "currency", event.Currency)
+		if err := s.processor.ApplyVerifiedEvent(ctx, event.Provider, event.CheckoutID, "succeeded",
+			event.AmountMinor, event.Currency, payload); err != nil {
+			s.logger.Error("stripe webhook: apply completed event failed", "error", err)
+			return fmt.Errorf("stripe webhook: apply completed event: %w", err)
+		}
+	case WebhookEventCheckoutFailed:
 		s.logger.Warn("checkout failed", "checkout_id", event.CheckoutID)
-	case "checkout.expired":
+		if err := s.processor.ApplyVerifiedEvent(ctx, event.Provider, event.CheckoutID, "failed",
+			event.AmountMinor, event.Currency, payload); err != nil {
+			s.logger.Error("stripe webhook: apply failed event failed", "error", err)
+			return fmt.Errorf("stripe webhook: apply failed event: %w", err)
+		}
+	case WebhookEventCheckoutExpired:
 		s.logger.Warn("checkout expired", "checkout_id", event.CheckoutID)
+		if err := s.processor.ApplyVerifiedEvent(ctx, event.Provider, event.CheckoutID, "failed",
+			event.AmountMinor, event.Currency, payload); err != nil {
+			s.logger.Error("stripe webhook: apply expired event failed", "error", err)
+			return fmt.Errorf("stripe webhook: apply expired event: %w", err)
+		}
 	default:
 		s.logger.Info("unhandled stripe event type", "event_type", event.EventType)
 	}
@@ -65,12 +106,12 @@ func (s *StripeWebhookServiceImpl) HandleStripeWebhook(ctx context.Context, payl
 type stripeWebhookEventInternal struct {
 	Data struct {
 		Object struct {
-			ID         string            `json:"id"`
-			Status     string            `json:"status"`
-			Amount     int64             `json:"amount_total"`
-			Currency   string            `json:"currency"`
-			Metadata   map[string]string `json:"metadata"`
-			CreatedAt  int64             `json:"created"`
+			ID        string            `json:"id"`
+			Status    string            `json:"status"`
+			Amount    int64             `json:"amount_total"`
+			Currency  string            `json:"currency"`
+			Metadata  map[string]string `json:"metadata"`
+			CreatedAt int64             `json:"created"`
 		} `json:"object"`
 	} `json:"data"`
 	Type      string `json:"type"`
@@ -85,11 +126,11 @@ func ParseStripeEvent(payload []byte) (*StripeWebhookEvent, error) {
 	}
 
 	return &StripeWebhookEvent{
-		EventType:  raw.Type,
-		Provider:   "stripe",
-		CheckoutID: raw.Data.Object.ID,
-		Status:     raw.Data.Object.Status,
+		EventType:   raw.Type,
+		Provider:    "stripe",
+		CheckoutID:  raw.Data.Object.ID,
+		Status:      raw.Data.Object.Status,
 		AmountMinor: raw.Data.Object.Amount,
-		Currency:   raw.Data.Object.Currency,
+		Currency:    raw.Data.Object.Currency,
 	}, nil
 }

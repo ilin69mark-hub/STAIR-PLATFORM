@@ -8,7 +8,8 @@ export interface Vertex3 {
   Z: number
 }
 
-export function toThreePositions(vertices: Vertex3[]): number[] {
+export function toThreePositions(vertices: Vertex3[] | null | undefined): number[] {
+  if (!vertices || !Array.isArray(vertices)) return []
   const out = new Array<number>(vertices.length * 3)
   for (let i = 0; i < vertices.length; i++) {
     const v = vertices[i]

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"net/http"
-	"runtime/debug"
 	"time"
 
 	"stairplatform/internal/application/audit"
@@ -58,30 +57,16 @@ func withLogging(next http.Handler) http.Handler {
 
 		defer func() {
 			if rec := recover(); rec != nil {
-				slog.Error("http handler panic",
-					"request_id", rid,
-					"method", r.Method,
-					"path", r.URL.Path,
-					"panic", rec,
-					"stack", string(debug.Stack()),
-				)
+				// Единственный recover — в PanicRecoveryMiddleware (см. recovery.go).
+				// Здесь паника только фиксируется в статусе/логах/метриках и
+				// пробрасывается дальше, чтобы ответ 500 написал recovery-обёртка.
 				sw.status = http.StatusInternalServerError
-				writeJSON(sw, http.StatusInternalServerError, map[string]any{
-					"error": map[string]string{"code": "internal", "message": "Внутренняя ошибка сервера"},
-				})
+				recordHTTPMetrics(r.Method, r.URL.Path, sw.status, time.Since(start))
+				logAttrs := slogAttrs(rid, r, sw, start)
+				slog.LogAttrs(r.Context(), slog.LevelError, "http request panicked", logAttrs...)
+				panic(rec)
 			}
-			logAttrs := []slog.Attr{
-				slog.String("request_id", rid),
-				slog.String("method", r.Method),
-				slog.String("path", r.URL.Path),
-				slog.Int("status", sw.status),
-				slog.Float64("duration_ms", float64(time.Since(start).Microseconds())/1000.0),
-				slog.String("remote_ip", clientIP(r)),
-				slog.String("user_agent", r.UserAgent()),
-			}
-			if uid := userID(r.Context()); uid != "" {
-				logAttrs = append(logAttrs, slog.String("user_id", uid))
-			}
+			logAttrs := slogAttrs(rid, r, sw, start)
 			slog.LogAttrs(r.Context(), slog.LevelInfo, "http request", logAttrs...)
 			recordHTTPMetrics(r.Method, r.URL.Path, sw.status, time.Since(start))
 		}()
@@ -89,6 +74,23 @@ func withLogging(next http.Handler) http.Handler {
 		w.Header().Set(requestIDHeader, rid)
 		next.ServeHTTP(sw, r)
 	})
+}
+
+// slogAttrs формирует атрибуты лога HTTP-запроса.
+func slogAttrs(rid string, r *http.Request, sw *statusWriter, start time.Time) []slog.Attr {
+	attrs := []slog.Attr{
+		slog.String("request_id", rid),
+		slog.String("method", r.Method),
+		slog.String("path", r.URL.Path),
+		slog.Int("status", sw.status),
+		slog.Float64("duration_ms", float64(time.Since(start).Microseconds())/1000.0),
+		slog.String("remote_ip", clientIP(r)),
+		slog.String("user_agent", r.UserAgent()),
+	}
+	if uid := userID(r.Context()); uid != "" {
+		attrs = append(attrs, slog.String("user_id", uid))
+	}
+	return attrs
 }
 
 // statusWriter запоминает код ответа для логгирования.

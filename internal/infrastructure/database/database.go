@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -41,10 +42,10 @@ func DefaultConfig(url string) Config {
 func EnvConfig(url string, maxConns, minConns int, lifetime, idleTime time.Duration) Config {
 	cfg := DefaultConfig(url)
 	if maxConns > 0 {
-		cfg.MaxConns = int32(maxConns)
+		cfg.MaxConns = clampInt32(maxConns)
 	}
 	if minConns > 0 {
-		cfg.MinConns = int32(minConns)
+		cfg.MinConns = clampInt32(minConns)
 	}
 	if lifetime > 0 {
 		cfg.MaxConnLifetime = lifetime
@@ -53,6 +54,13 @@ func EnvConfig(url string, maxConns, minConns int, lifetime, idleTime time.Durat
 		cfg.MaxConnIdleTime = idleTime
 	}
 	return cfg
+}
+
+func clampInt32(v int) int32 {
+	if v <= math.MaxInt32 {
+		return int32(v) // #nosec G115 -- value bounded by guard above
+	}
+	return math.MaxInt32
 }
 
 // Connect открывает пул соединений и проверяет доступность (Ping).

@@ -23,12 +23,23 @@ type MigrationVersion struct {
 // Migrate применяет миграции из каталога dir (файлы *.up.sql/*.down.sql).
 // direction: "up" — применить все; "down" — откатить все (до нуля).
 func Migrate(ctx context.Context, pool *pgxpool.Pool, dir, direction string) error {
+	return MigrateWithTable(ctx, pool, dir, direction, "schema_migrations")
+}
+
+// MigrateWithTable то же, что Migrate, но с произвольным именем таблицы
+// версий golang-migrate. Требуется для каталогов-сателлитов (seeds):
+// они используют собственную таблицу версий и не конфликтуют с основными
+// миграциями в schema_migrations.
+func MigrateWithTable(ctx context.Context, pool *pgxpool.Pool, dir, direction, table string) error {
 	if dir == "" {
 		return fmt.Errorf("database: migrations dir is required")
 	}
+	if table == "" {
+		table = "schema_migrations"
+	}
 
 	start := time.Now()
-	m, err := newMigrateInstance(pool, dir)
+	m, err := newMigrateInstance(pool, dir, table)
 	if err != nil {
 		return err
 	}
@@ -49,6 +60,8 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, dir, direction string) err
 
 	slog.Info("database migration completed",
 		"direction", direction,
+		"dir", dir,
+		"table", table,
 		"duration_ms", time.Since(start).Milliseconds(),
 	)
 	return nil
@@ -56,7 +69,13 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, dir, direction string) err
 
 // GetMigrationVersion возвращает текущую версию миграций.
 func GetMigrationVersion(pool *pgxpool.Pool, dir string) (*MigrationVersion, error) {
-	m, err := newMigrateInstance(pool, dir)
+	return GetMigrationVersionWithTable(pool, dir, "schema_migrations")
+}
+
+// GetMigrationVersionWithTable то же, что GetMigrationVersion, но для
+// произвольной таблицы версий (seeds и другие сателлитные каталоги).
+func GetMigrationVersionWithTable(pool *pgxpool.Pool, dir, table string) (*MigrationVersion, error) {
+	m, err := newMigrateInstance(pool, dir, table)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +99,7 @@ func GetMigrationVersion(pool *pgxpool.Pool, dir string) (*MigrationVersion, err
 // MigrateToVersion применяет миграции до конкретной версии.
 func MigrateToVersion(ctx context.Context, pool *pgxpool.Pool, dir string, version uint) error {
 	start := time.Now()
-	m, err := newMigrateInstance(pool, dir)
+	m, err := newMigrateInstance(pool, dir, "schema_migrations")
 	if err != nil {
 		return err
 	}
@@ -97,7 +116,7 @@ func MigrateToVersion(ctx context.Context, pool *pgxpool.Pool, dir string, versi
 	return nil
 }
 
-func newMigrateInstance(pool *pgxpool.Pool, dir string) (*migrate.Migrate, error) {
+func newMigrateInstance(pool *pgxpool.Pool, dir, table string) (*migrate.Migrate, error) {
 	if dir == "" {
 		return nil, fmt.Errorf("database: migrations dir is required")
 	}
@@ -107,11 +126,18 @@ func newMigrateInstance(pool *pgxpool.Pool, dir string) (*migrate.Migrate, error
 	if cc.TLSConfig == nil {
 		query = "?sslmode=disable"
 	}
-	user := url.UserPassword(cc.User, cc.Password).String()
-	dbURL := fmt.Sprintf("pgx5://%s@%s:%d/%s%s",
-		user, cc.Host, cc.Port, cc.Database, query)
 
-	m, err := migrate.New("file://"+dir, dbURL)
+	dbURL, err := url.Parse(fmt.Sprintf("pgx5://%s@%s:%d/%s%s",
+		url.UserPassword(cc.User, cc.Password).String(), cc.Host, cc.Port, cc.Database, query))
+	if err != nil {
+		return nil, fmt.Errorf("database: parse db url: %w", err)
+	}
+	q := dbURL.Query()
+	q.Set("x-migrations-table", fmt.Sprintf("%q", table))
+	q.Set("x-migrations-table-quoted", "true")
+	dbURL.RawQuery = q.Encode()
+
+	m, err := migrate.New("file://"+dir, dbURL.String())
 	if err != nil {
 		return nil, fmt.Errorf("database: migrate init: %w", err)
 	}

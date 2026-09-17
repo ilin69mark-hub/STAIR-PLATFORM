@@ -201,6 +201,19 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 
 	res := &Result{}
 	switch cfg.Flight {
+	case engineering.FlightStraight:
+		flight, vr, err := solver.SolveChecked(c, s.constraints, comfort)
+		if err != nil {
+			if vr, ok := inputIssue(err); ok {
+				return &Result{Validation: advise(vr)}, nil
+			}
+			return nil, err
+		}
+		if vr.Blocking {
+			return &Result{Validation: advise(vr)}, nil
+		}
+		res.Validation = vr
+		res.Flight = flight
 	case engineering.FlightLShape:
 		lres, vr, err := solver.SolveCheckedLShape(c, s.constraints, comfort)
 		if err != nil {
@@ -363,6 +376,25 @@ func attachVariations(ctx context.Context, vr *validation.Result, c *engineering
 		switch it.Code {
 		case constraint.GEO_ANGLE:
 			it.Variations = variation.ForAngle(ctx, c, set)
+		case constraint.GEO_STEP_HEIGHT,
+			constraint.GEO_TREAD_DEPTH,
+			constraint.GEO_CLEARANCE,
+			constraint.GEO_STRINGER_THICKNESS,
+			constraint.SAF_RAILING_HEIGHT,
+			constraint.MFG_SHEET,
+			constraint.GEO_HEIGHT,
+			constraint.GEO_WIDTH,
+			constraint.GEO_COMFORT_STEP,
+			constraint.GEO_LANDING_WIDTH,
+			constraint.GEO_LOWER_STEP,
+			constraint.GEO_SPIRAL_RADIUS,
+			constraint.GEO_SPIRAL_TREAD,
+			constraint.GEO_TREAD_POSITIVE,
+			constraint.GEO_STRINGER_NARROW,
+			constraint.MFG_MATERIAL:
+			if len(it.Variations) == 0 && len(it.Suggestions) > 0 {
+				it.Variations = variation.FromSuggestions(it, c)
+			}
 		default:
 			if len(it.Variations) == 0 && len(it.Suggestions) > 0 {
 				it.Variations = variation.FromSuggestions(it, c)

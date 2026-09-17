@@ -14,18 +14,18 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	domevents "stairplatform/internal/domain/events"
 	"stairplatform/internal/application/analytics"
 	appast "stairplatform/internal/application/assistant"
 	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/auth"
-	"stairplatform/internal/infrastructure/circuitbreaker"
 	"stairplatform/internal/application/integrations"
 	"stairplatform/internal/application/jobs"
 	orderapp "stairplatform/internal/application/order"
 	"stairplatform/internal/application/payments"
 	"stairplatform/internal/application/project"
 	testimonialapp "stairplatform/internal/application/testimonial"
+	domevents "stairplatform/internal/domain/events"
+	"stairplatform/internal/infrastructure/circuitbreaker"
 
 	"stairplatform/internal/application/stair"
 	appstorage "stairplatform/internal/application/storage"
@@ -57,7 +57,7 @@ func main() {
 		slog.Error("failed to init tracing", "error", err)
 		os.Exit(1)
 	}
-	defer tracingShutdown(context.Background())
+	defer func() { _ = tracingShutdown(context.Background()) }()
 
 	instanceID := os.Getenv("STAIR_INSTANCE_ID")
 	shutdownTimeout := envDuration("STAIR_SHUTDOWN_TIMEOUT", 10*time.Second)
@@ -182,6 +182,12 @@ func main() {
 		paymentsinfra.NewVerifier(),
 		0,
 	)
+	// Stripe webhook: подключаем application payments.Service как обработчик
+	// интентов (подпись проверяет ad-hoc Stripe-реализация). Совместимость с
+	// тестами сохранена — процессор подключается отдельным сеттером.
+	if s, ok := stripeWebhookService.(*paymentsinfra.StripeWebhookServiceImpl); ok {
+		s.WithIntentProcessor(paymentSvc)
+	}
 	paymentWebhookSecret := os.Getenv("STAIR_PAYMENT_WEBHOOK_SECRET")
 
 	// WebSocket + EventBridge для real-time updates
@@ -216,6 +222,8 @@ func main() {
 		RegisterRateWindow:    time.Minute,
 		QuoteRateLimit:        envInt("STAIR_QUOTE_RATE_LIMIT", 30),
 		QuoteRateWindow:       time.Minute,
+		AuthRateLimit:         envInt("STAIR_AUTH_RATE_LIMIT", 200),
+		AuthRateWindow:        time.Minute,
 		RedisAddr:             os.Getenv("STAIR_REDIS_ADDR"),
 		MaxBodyBytes:          1 << 20,
 		InstanceID:            instanceID,
@@ -242,7 +250,7 @@ func main() {
 	var redisClient *redis.Client
 	if cfg.RedisAddr != "" {
 		redisClient = redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
-		defer redisClient.Close()
+		defer func() { _ = redisClient.Close() }()
 	}
 	cfg.Readiness = &health.Checker{
 		DB:    pool,

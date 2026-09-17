@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -47,7 +48,7 @@ func TestAssistantDesignHandler(t *testing.T) {
 
 	body := `{"width_mm":900,"height_mm":2700,"flight":"straight","priority":"price"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/design", strings.NewReader(body))
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "token-1"})
+	req.AddCookie(testCookie(sessionCookieName, "token-1"))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -79,7 +80,7 @@ func TestAssistantEngineeringHandler(t *testing.T) {
 
 	body := `{"width_mm":900,"height_mm":2700,"flight":"straight"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/engineering", strings.NewReader(body))
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "token-1"})
+	req.AddCookie(testCookie(sessionCookieName, "token-1"))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -107,7 +108,7 @@ func TestAssistantManufacturingHandler(t *testing.T) {
 
 	body := `{"width_mm":900,"height_mm":2700,"flight":"straight"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/manufacturing", strings.NewReader(body))
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "token-1"})
+	req.AddCookie(testCookie(sessionCookieName, "token-1"))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -132,7 +133,7 @@ func TestAssistantPricingHandler(t *testing.T) {
 
 	body := `{"width_mm":900,"height_mm":2700,"flight":"straight"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/pricing", strings.NewReader(body))
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "token-1"})
+	req.AddCookie(testCookie(sessionCookieName, "token-1"))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -159,7 +160,7 @@ func TestAssistantUnknownKind(t *testing.T) {
 	router := assistantTestRouter(newFakeAuth(), &fakeAssistant{res: &appast.Result{}})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/teleport",
 		strings.NewReader(`{"width_mm":900,"height_mm":2700}`))
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "token-1"})
+	req.AddCookie(testCookie(sessionCookieName, "token-1"))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
@@ -168,15 +169,28 @@ func TestAssistantUnknownKind(t *testing.T) {
 }
 
 func TestAssistantServiceError(t *testing.T) {
-	ast := &fakeAssistant{err: errors.New("no feasible configuration for the input")}
+	ast := &fakeAssistant{err: fmt.Errorf("%w: no feasible config", appast.ErrNoFeasible)}
 	router := assistantTestRouter(newFakeAuth(), ast)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/design",
 		strings.NewReader(`{"width_mm":900,"height_mm":2700}`))
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "token-1"})
+	req.AddCookie(testCookie(sessionCookieName, "token-1"))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 on service error, got %d", rec.Code)
+		t.Fatalf("expected 422 on ErrNoFeasible, got %d", rec.Code)
+	}
+}
+
+func TestAssistantInternalError(t *testing.T) {
+	ast := &fakeAssistant{err: errors.New("model backend down")}
+	router := assistantTestRouter(newFakeAuth(), ast)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/design",
+		strings.NewReader(`{"width_mm":900,"height_mm":2700}`))
+	req.AddCookie(testCookie(sessionCookieName, "token-1"))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on internal error, got %d", rec.Code)
 	}
 }
 
@@ -184,7 +198,7 @@ func TestAssistantInvalidJSON(t *testing.T) {
 	router := assistantTestRouter(newFakeAuth(), &fakeAssistant{res: &appast.Result{}})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/design",
 		strings.NewReader(`{broken`))
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "token-1"})
+	req.AddCookie(testCookie(sessionCookieName, "token-1"))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {

@@ -6,7 +6,6 @@ linters:
     - bodyclose
     - unconvert
     - errcheck
-    - gosimple
     - staticcheck
     - unused
     - ineffassign

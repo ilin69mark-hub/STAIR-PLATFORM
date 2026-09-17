@@ -338,9 +338,7 @@ func (r *mutationResolver) UpdateStairConfiguration(ctx context.Context, id stri
 		return nil, fmt.Errorf("configuration %q not found", id)
 	}
 
-	if input.Name != nil {
-		// Name хранится в DTO, не в Config
-	}
+	// Name хранится в DTO, не в Config — обновление игнорируется.
 	if input.Width != nil {
 		cfg.Width = engineering.Length(*input.Width)
 	}
@@ -389,7 +387,7 @@ func (r *mutationResolver) RunOptimization(ctx context.Context, configID string,
 
 // GenerateDocuments генерирует документы.
 func (r *mutationResolver) GenerateDocuments(ctx context.Context, configID string, types []string) ([]*DocumentDTO, error) {
-	var docs []*DocumentDTO
+	docs := make([]*DocumentDTO, 0, len(types))
 	for _, t := range types {
 		doc := &DocumentDTO{
 			ID:        fmt.Sprintf("doc-%d", time.Now().UnixNano()),
@@ -426,7 +424,7 @@ func (r *mutationResolver) RunPipeline(ctx context.Context, configID string) (*P
 	// Запускаем pipeline в goroutine
 	go func() {
 		adapter := stair.NewPipelineAdapter(r.service, &busAdapter{bus: r.bus})
-		adapter.RunPipelineWithResult(context.Background(), configID, *cfg, stair.Options{})
+		_, _ = adapter.RunPipelineWithResult(ctx, configID, *cfg, stair.Options{})
 	}()
 
 	return &PipelineStatusDTO{
@@ -520,5 +518,5 @@ type busAdapter struct {
 }
 
 func (b *busAdapter) Publish(ctx context.Context, event domevents.Event) {
-	b.bus.Publish(ctx, event)
+	_ = b.bus.Publish(ctx, event)
 }

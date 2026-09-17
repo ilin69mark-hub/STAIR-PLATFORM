@@ -65,7 +65,7 @@ type s3Error struct {
 }
 
 // do выполняет подписанный запрос и обрабатывает ответ.
-func (s *S3Store) do(ctx context.Context, method, target string, key string, body []byte, contentType string) error {
+func (s *S3Store) do(ctx context.Context, method, target string, body []byte, contentType string) error {
 	payloadHash := hexSHA256(body)
 	now := time.Now()
 	amzDate := now.UTC().Format("20060102T150405Z")
@@ -122,7 +122,7 @@ func (s *S3Store) do(ctx context.Context, method, target string, key string, bod
 	if err != nil {
 		return fmt.Errorf("storage: request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
@@ -146,7 +146,7 @@ func (s *S3Store) Put(ctx context.Context, key string, data []byte, contentType 
 	if err != nil {
 		return err
 	}
-	return s.do(ctx, http.MethodPut, u, key, data, contentType)
+	return s.do(ctx, http.MethodPut, u, data, contentType)
 }
 
 // Get возвращает данные объекта (EDR-0026 §3.3).
@@ -201,7 +201,7 @@ func (s *S3Store) Get(ctx context.Context, key string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("storage: request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, ErrNotFound
 	}
@@ -224,5 +224,5 @@ func (s *S3Store) Delete(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-	return s.do(ctx, http.MethodDelete, u, key, nil, "")
+	return s.do(ctx, http.MethodDelete, u, nil, "")
 }

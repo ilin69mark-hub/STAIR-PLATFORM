@@ -23,6 +23,7 @@ import {
 } from '@shared/config'
 import { ResultPanel } from './ResultPanel'
 import type { Variation } from '@shared/types'
+import { generateProposalPdf } from '../lib/proposal'
 import { MembersPanel } from './MembersPanel'
 import { CommentsPanel } from './CommentsPanel'
 import { ReviewPanel } from './ReviewPanel'
@@ -32,12 +33,29 @@ import { AuditPanel } from './AuditPanel'
 import { AssistantPanel } from './AssistantPanel'
 import { logAction } from '@shared/api/audit'
 import type { ProjectStatus } from '@shared/types'
+import { statusMeta } from '../lib/status'
+import { useScrollSpy } from '../lib/useScrollSpy'
 
 interface Props {
   projectId: string
   onBack: () => void
   onChanged: () => void
 }
+
+// SECTIONS — оглавление длинной страницы проекта (sticky TOC в сайдбаре).
+const SECTIONS = [
+  { id: 'params', label: 'Параметры' },
+  { id: 'result', label: 'Результат' },
+  { id: 'team', label: 'Участники' },
+  { id: 'review', label: 'Ревью' },
+  { id: 'approvals', label: 'Утверждение' },
+  { id: 'versions', label: 'Версии' },
+  { id: 'audit', label: 'Аудит' },
+  { id: 'comments', label: 'Обсуждение' },
+  { id: 'assistant', label: 'AI-ассистент' },
+]
+
+const SECTION_IDS = SECTIONS.map((s) => s.id)
 
 export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
   const [project, setProject] = useState<Project | null>(null)
@@ -75,6 +93,9 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
     }
   }, [])
 
+  // Scroll-spy для липкого оглавления: подсвечиваем текущую секцию.
+  const activeSection = useScrollSpy(SECTION_IDS, 'params')
+
   const setField = (key: keyof ConfigForm, value: string | boolean) => {
     setConfig((c) => ({ ...c, [key]: value }))
     // Аудит изменения поля (debounce 600 мс, best-effort).
@@ -92,7 +113,9 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
   const setRate = (key: keyof RatesForm, value: string) =>
     setRates((r) => ({ ...r, [key]: value }))
 
-  const handleCalculate = async () => {
+  // handleCalculate — отправляет расчёт и сохраняет результат в проекте.
+  // Возвращает true при успешном сохранении.
+  const handleCalculate = async (): Promise<boolean> => {
     setBusy(true)
     setError(null)
     setOptimizeMsg(null)
@@ -104,8 +127,10 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
       setCalculation(calc)
       setSavedAt(new Date())
       onChanged()
+      return true
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Не удалось выполнить расчёт')
+      return false
     } finally {
       setBusy(false)
     }
@@ -162,8 +187,17 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
     }
   }
 
-  const handleExport = () => {
-    window.location.href = projectsApi.exportUrl(projectId)
+  const [proposalBusy, setProposalBusy] = useState(false)
+  const handleProposal = async () => {
+    if (!calculation || !project) return
+    setProposalBusy(true)
+    try {
+      await generateProposalPdf(project, calculation.result)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось сформировать КП')
+    } finally {
+      setProposalBusy(false)
+    }
   }
 
   // applyVariation — пользователь выбрал вариант A/B/C: сливаем его конфиг
@@ -200,10 +234,13 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
   }
 
   // applyPreview — зафиксировать выбранный вариант как сохранённый расчёт.
+  // Превью очищаем только ПОСЛЕ успешного расчёта: при ошибке пользователь
+  // должен сохранить текущий превью-результат.
   const applyPreview = async () => {
+    const ok = await handleCalculate()
+    if (!ok) return
     setPreviewCalculation(null)
     setActiveVariantId(undefined)
-    await handleCalculate()
   }
 
   const closePreview = () => {
@@ -215,16 +252,56 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
     setProject((p) => (p ? { ...p, status } : p))
   }
 
+  const meta = statusMeta(project?.status ?? 'draft')
+
   return (
     <div className="page">
-      <header className="page__header">
-        <button className="btn btn--ghost" onClick={onBack}>
-          ← Проекты
-        </button>
-        <h1 className="page__title">{project?.name ?? 'Проект'}</h1>
-        <p className="page__subtitle">
-          {project ? `${project.status} · создан ${new Date(project.created_at).toLocaleString('ru-RU')}` : 'Загрузка…'}
-        </p>
+      <header className="page__header page__header--stacked">
+        <div className="page__header-title">
+          <button className="btn btn--ghost" onClick={onBack}>
+            ← Проекты
+          </button>
+          <h1 className="page__title" aria-label={project?.name}>
+            {project?.name ?? 'Проект'}
+            {project && <span className={`badge ${meta.badge}`}>{meta.label}</span>}
+          </h1>
+          <p className="page__subtitle">
+            {project
+              ? `создан ${new Date(project.created_at).toLocaleDateString('ru-RU')} · обновлён ${new Date(project.updated_at).toLocaleDateString('ru-RU')}`
+              : 'Загрузка…'}
+          </p>
+        </div>
+        <div className="page__header-actions">
+          <select
+            className="field__input field__input--inline"
+            aria-label="Цель оптимизации"
+            value={optimizeTarget}
+            onChange={(e) => setOptimizeTarget(e.target.value as OptimizeTarget)}
+          >
+            <option value="price">Оптимизировать цену</option>
+            <option value="cost">Оптимизировать себестоимость</option>
+            <option value="material">Оптимизировать материал</option>
+          </select>
+          <button
+            className="btn btn--accent"
+            onClick={handleCalculate}
+            disabled={busy || hasHardErrors || project?.status === 'in_review'}
+            title={project?.status === 'in_review' ? 'Расчёт заморожен до решения владельца' : undefined}
+          >
+            {busy ? 'Расчёт…' : 'Рассчитать'}
+          </button>
+          <button
+            className="btn"
+            onClick={handleOptimize}
+            disabled={busy || hasHardErrors || project?.status === 'in_review'}
+            title={project?.status === 'in_review' ? 'Оптимизация заморожена до решения владельца' : undefined}
+          >
+            {busy ? 'Поиск…' : 'Оптимизировать'}
+          </button>
+          <button className="btn btn--accent" onClick={handleProposal} disabled={!calculation || proposalBusy}>
+            {proposalBusy ? 'Формируем…' : 'Коммерческое предложение (PDF)'}
+          </button>
+        </div>
       </header>
 
       {error && <div className="alert alert--error">{error}</div>}
@@ -234,71 +311,131 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
         </div>
       )}
 
-      <div className="projects">
-        <section className="panel">
-          <h2 className="panel__title">Параметры лестницы</h2>
-          <ConfigForm fields={config} errors={errors} onChange={setField} />
-          <RatesFormSection rates={rates} onChange={setRate} />
-          <div className="row row--actions">
-            <select
-              className="field__input field__input--inline"
-              aria-label="Цель оптимизации"
-              value={optimizeTarget}
-              onChange={(e) => setOptimizeTarget(e.target.value as OptimizeTarget)}
-            >
-              <option value="price">Оптимизировать цену</option>
-              <option value="cost">Оптимизировать себестоимость</option>
-              <option value="material">Оптимизировать материал</option>
-            </select>
-            <button className="btn btn--primary" onClick={handleCalculate} disabled={busy || hasHardErrors}>
-              {busy ? 'Расчёт…' : 'Рассчитать'}
-            </button>
-            <button className="btn" onClick={handleOptimize} disabled={busy || hasHardErrors}>
-              {busy ? 'Поиск…' : 'Оптимизировать'}
-            </button>
-            <button className="btn" onClick={handleExport} disabled={!calculation}>
-              Экспорт JSON
-            </button>
-          </div>
-          {hasHardErrors && (
-            <p className="muted">Исправьте нечисловые или пустые поля перед расчётом.</p>
+      <div className="page__content">
+        <div className="page__main">
+          {project?.status === 'in_review' && (
+            <div className="alert alert--info">Расчёт заморожен — проект на ревью. Дождитесь решения владельца.</div>
           )}
-          {optimizeMsg && <p className="muted">{optimizeMsg}</p>}
-          {calculation && (
-            <p className="muted">
-              Расчёт {calculation.valid ? 'успешен' : 'с ошибками'} ·{' '}
-              {new Date(calculation.created_at).toLocaleString('ru-RU')}
-            </p>
-          )}
-        </section>
-        <MembersPanel projectId={projectId} />
-        <ReviewPanel
-          projectId={projectId}
-          status={(project?.status ?? 'draft') as ProjectStatus}
-          onStatusChange={handleStatusChange}
-        />
-        <ApprovalsPanel projectId={projectId} configurationId={calculation?.configuration_id} />
-        <VersionsPanel projectId={projectId} />
-        <AuditPanel projectId={projectId} />
-        <CommentsPanel projectId={projectId} />
-        <AssistantPanel config={config} rates={rates} />
-      </div>
+          <section id="params" className="section">
+            <div className="panel">
+              <h2 className="panel__title">Параметры лестницы</h2>
+              <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Задайте геометрию, материалы и ставки. Каждая калькуляция создаёт новую версию.</p>
+              <ConfigForm fields={config} errors={errors} onChange={setField} />
+              <RatesFormSection rates={rates} onChange={setRate} />
+              {hasHardErrors && (
+                <p className="muted">
+                  Исправьте нечисловые или пустые поля перед расчётом.
+                </p>
+              )}
+              {optimizeMsg && <p className="muted">{optimizeMsg}</p>}
+            </div>
+          </section>
 
-      {calculation && <ResultPanel snapshot={calculation.result} onApplyVariation={applyVariation} activeVariantId={activeVariantId} />}
-      {previewCalculation && (
-        <section className="panel">
-          <h2 className="panel__title">Превью варианта</h2>
-          <ResultPanel snapshot={previewCalculation.result} onApplyVariation={applyVariation} activeVariantId={activeVariantId} />
-          <div className="row row--actions">
-            <button className="btn btn--primary" onClick={applyPreview} disabled={busy}>
-              Применить вариант
-            </button>
-            <button className="btn" onClick={closePreview} disabled={busy}>
-              Отмена
-            </button>
+          <section id="result" className="section">
+            <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Результат последнего расчёта. Вариации A/B/C — превью без сохранения, «Применить» создаёт версию.</p>
+            {calculation && (
+              <ResultPanel
+                snapshot={calculation.result}
+                onApplyVariation={applyVariation}
+                activeVariantId={activeVariantId}
+              />
+            )}
+            {previewCalculation && (
+              <section className="panel">
+                <h2 className="panel__title">Превью варианта</h2>
+                <ResultPanel
+                  snapshot={previewCalculation.result}
+                  onApplyVariation={applyVariation}
+                  activeVariantId={activeVariantId}
+                />
+                <div className="row row--actions">
+                  <button className="btn btn--accent" onClick={applyPreview} disabled={busy}>
+                    Применить вариант
+                  </button>
+                  <button className="btn" onClick={closePreview} disabled={busy}>
+                    Отмена
+                  </button>
+                </div>
+              </section>
+            )}
+            {!calculation && !previewCalculation && (
+              <div className="panel">
+                <h2 className="panel__title">Результат расчёта</h2>
+                <p className="muted">
+                  {hasHardErrors
+                    ? 'Исправьте ошибки в параметрах перед расчётом.'
+                    : 'Расчёт ещё не выполнен. Заполните параметры и нажмите «Рассчитать».'}
+                </p>
+              </div>
+            )}
+          </section>
+
+          <section id="team" className="section">
+            <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Участники: владелец — решает ревью и утверждает, редактор — считает, наблюдатель — смотрит.</p>
+            <MembersPanel projectId={projectId} />
+          </section>
+
+          <section id="review" className="section">
+            <ReviewPanel
+              projectId={projectId}
+              status={(project?.status ?? 'draft') as ProjectStatus}
+              onStatusChange={handleStatusChange}
+            />
+          </section>
+
+          <section id="approvals" className="section">
+            <ApprovalsPanel
+              projectId={projectId}
+              configurationId={calculation?.configuration_id}
+            />
+          </section>
+
+          <section id="versions" className="section">
+            <VersionsPanel projectId={projectId} />
+          </section>
+
+          <section id="audit" className="section">
+            <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Лента событий: кто, когда и что менял — для контроля.</p>
+            <AuditPanel projectId={projectId} />
+          </section>
+
+          <section id="comments" className="section">
+            <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Обсуждение проекта — комментарии видны всем участникам.</p>
+            <CommentsPanel projectId={projectId} />
+          </section>
+
+          <section id="assistant" className="section">
+            <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>AI-ассистент: подсказки по геометрии, производству и цене.</p>
+            <AssistantPanel config={config} rates={rates} />
+          </section>
+        </div>
+
+        <aside className="page__sidebar">
+          <div className="status-card">
+            <div className="status-card__header">
+              <span className="status-card__label">Статус</span>
+              <span className={`badge ${meta.badge}`}>{meta.label}</span>
+            </div>
+            <div className="status-card__next">{meta.next}</div>
           </div>
-        </section>
-      )}
+
+          <nav className="toc" aria-label="Разделы проекта">
+            <div className="toc__title">Навигация</div>
+            <ul className="toc__list">
+              {SECTIONS.map((s) => (
+                <li key={s.id}>
+                  <a
+                    className={`toc__link${activeSection === s.id ? ' toc__link--active' : ''}`}
+                    href={`#${s.id}`}
+                  >
+                    {s.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        </aside>
+      </div>
     </div>
   )
 }

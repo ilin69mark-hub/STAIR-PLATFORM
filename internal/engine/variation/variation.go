@@ -3,9 +3,11 @@
 // лестницы в периметр помещения (room_fit). В отличие от советник advisor
 // (исправляет blocking-нарушения норм), variation предлагает пользователю
 // несколько готовых ВАРИАНТОВ, среди которых он выбирает понравившийся:
-//   A — сделать лестницу чуть круче, оставаясь в нормах (укороченный марш);
-//   B — уменьшить площадку до минимально допустимой;
-//   C — предложить другой тип лестницы (прямая / П-образная / L-образная).
+//
+//	A — сделать лестницу чуть круче, оставаясь в нормах (укороченный марш);
+//	B — уменьшить площадку до минимально допустимой;
+//	C — предложить другой тип лестницы (прямая / П-образная / L-образная).
+//
 // Каждый вариант прогоняется через Geometry Engine и проверяется на
 // вписываемость; в ответе — только те, что реально влезают в помещение.
 package variation
@@ -56,9 +58,7 @@ func ForRoomFit(ctx context.Context, cfg *engineering.StairConfiguration, set *c
 		}
 	}
 	// Вариант C — другой тип лестницы.
-	for _, v := range otherTypeVariants(ctx, cfg, height, comfort, set, rw, rl) {
-		out = append(out, v)
-	}
+	out = append(out, otherTypeVariants(ctx, cfg, height, comfort, set, rw, rl)...)
 
 	return dedupe(out)
 }
@@ -124,7 +124,7 @@ func ForAngle(ctx context.Context, cfg *engineering.StairConfiguration, set *con
 	if len(cands) <= 3 {
 		chosen = cands
 	} else {
-		chosen = []cand{cands[0], cands[len(cands) / 2], cands[len(cands)-1]}
+		chosen = []cand{cands[0], cands[len(cands)/2], cands[len(cands)-1]}
 	}
 	var out []validation.Variation
 	for _, ch := range chosen {
@@ -180,7 +180,7 @@ func angleVariant(ctx context.Context, cfg *engineering.StairConfiguration, heig
 			w = 900
 		}
 		delta := 2 * math.Pi / float64(n)
-		bWalk := h / math.Tan((chDegFromS(h, s)) * math.Pi / 180)
+		bWalk := h / math.Tan((chDegFromS(h, s))*math.Pi/180)
 		R := bWalk/delta + w/3
 		if R <= w {
 			return validation.Variation{}, false
@@ -208,7 +208,7 @@ func chDegFromS(h, s float64) float64 {
 	if b <= 0 {
 		return 0
 	}
-	return math.Atan(h / b) * 180 / math.Pi
+	return math.Atan(h/b) * 180 / math.Pi
 }
 
 // tryAngleGenerate прогоняет кандидата через Geometry Engine (санитарная
@@ -310,6 +310,8 @@ func steeperVariant(ctx context.Context, cfg *engineering.StairConfiguration, he
 			return validation.Variation{}, false
 		}
 		applyTwoFlight(clone, r.StepCount, r.StepHeight, r.TreadDepth, r.Angle, r.LowerRun)
+	case engineering.FlightSpiral:
+		return validation.Variation{}, false
 	default:
 		return validation.Variation{}, false
 	}
@@ -350,6 +352,8 @@ func otherTypeVariants(ctx context.Context, cfg *engineering.StairConfiguration,
 		candidates = []engineering.FlightType{engineering.FlightStraight, engineering.FlightLShape, engineering.FlightSpiral}
 	case engineering.FlightStraight:
 		candidates = []engineering.FlightType{engineering.FlightLShape, engineering.FlightUShape, engineering.FlightSpiral}
+	case engineering.FlightSpiral:
+		candidates = []engineering.FlightType{engineering.FlightStraight, engineering.FlightLShape, engineering.FlightUShape}
 	default:
 		candidates = []engineering.FlightType{engineering.FlightStraight, engineering.FlightLShape, engineering.FlightUShape}
 	}

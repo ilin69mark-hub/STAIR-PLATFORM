@@ -4,15 +4,22 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e/tests',
+  // Матрица 2000 генерирует все тесты в одном файле: без fullyParallel они
+  // шли бы серийно в одном воркере. Параллельность безопасна: дедупликация
+  // бэкенда учитывает хэш тела (разные payload не сталкиваются в 429).
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // Дедупликация бэкенда учитывает хэш тела (dedup.go: DeduplicateByKey),
+  // поэтому параллельные воркеры с разными payload не получают ложный 429
+  // «duplicate request in progress». Повтор того же тела по-прежнему давится.
+  workers: 4,
   reporter: process.env.CI
     ? [['list'], ['html', { open: 'never' }]]
     : 'list',
   use: {
-    baseURL: 'http://localhost:5174',
+    // Локальная разработка — Vite dev (:5174); готовый стек (Docker) — store :3000.
+    baseURL: process.env.STORE_BASE_URL || 'http://localhost:5174',
     trace: 'on-first-retry',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],

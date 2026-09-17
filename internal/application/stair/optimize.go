@@ -208,6 +208,8 @@ func objectiveValue(res *Result, t OptimizeTarget) float64 {
 		return res.Price.ProductionCost.Major(cur)
 	case TargetMaterial:
 		return res.Price.Material.Major(cur)
+	case TargetPrice:
+		return res.Price.FinalPrice.Major(cur)
 	default:
 		return res.Price.FinalPrice.Major(cur)
 	}

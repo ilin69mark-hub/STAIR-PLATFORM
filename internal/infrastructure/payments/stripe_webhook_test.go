@@ -46,6 +46,7 @@ func TestStripeWebhookServiceHandleBadSignature(t *testing.T) {
 }
 
 func TestStripeWebhookServiceHandleGoodSignature(t *testing.T) {
+	// #nosec G101 -- test-only fake Stripe webhook secret
 	secret := "whsec_test_secret"
 	provider := NewStripeAdapter(NewStripeProvider("sk_test_xxx", secret))
 	svc := NewStripeWebhookService(provider, nil)

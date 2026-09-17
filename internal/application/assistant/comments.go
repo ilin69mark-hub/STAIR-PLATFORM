@@ -24,7 +24,7 @@ func localComment(_ context.Context, _ Prompt, resp *Response) (string, error) {
 	if len(resp.Suggestions) > 0 {
 		b.WriteString("\nДействия:\n")
 		for i, sg := range resp.Suggestions {
-			b.WriteString(fmt.Sprintf("%d. %s", i+1, sg.Message))
+			fmt.Fprintf(&b, "%d. %s", i+1, sg.Message)
 			if sg.Rationale != "" {
 				b.WriteString(" (" + sg.Rationale + ")")
 			}
@@ -57,7 +57,7 @@ func localComment(_ context.Context, _ Prompt, resp *Response) (string, error) {
 	if len(resp.Alternatives) > 0 {
 		b.WriteString("\nАльтернативные варианты (от лучшего к худшему):\n")
 		for _, alt := range resp.Alternatives {
-			b.WriteString(fmt.Sprintf("- %s", alt.Title))
+			fmt.Fprintf(&b, "- %s", alt.Title)
 			if alt.Reason != "" {
 				b.WriteString(" — " + alt.Reason)
 			}

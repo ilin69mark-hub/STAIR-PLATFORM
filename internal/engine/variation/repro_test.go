@@ -30,9 +30,9 @@ func baseCfg() *engineering.StairConfiguration {
 
 // hasRoomFit возвращает сообщение room_fit-проблемы исходного конфига, если
 // марш не помещается в заданную комнату, иначе "".
-func hasRoomFit(t *testing.T, c *engineering.StairConfiguration, set *constraint.ConstraintSet) string {
+func hasRoomFit(t *testing.T, c *engineering.StairConfiguration) string {
 	t.Helper()
-	issues := buildRoomFit(c, set)
+	issues := buildRoomFit(c)
 	for _, iss := range issues {
 		return iss.Message
 	}
@@ -40,7 +40,7 @@ func hasRoomFit(t *testing.T, c *engineering.StairConfiguration, set *constraint
 }
 
 // buildRoomFit возвращает неблокирующие room_fit-проблемы из движка геометрии.
-func buildRoomFit(c *engineering.StairConfiguration, set *constraint.ConstraintSet) []geometry.ValidationIssue {
+func buildRoomFit(c *engineering.StairConfiguration) []geometry.ValidationIssue {
 	g, err := enggeo.Generate(context.Background(), c)
 	if err != nil {
 		return nil
@@ -87,7 +87,7 @@ func TestRepro_StraightSteeperApplyClearsRoomFit(t *testing.T) {
 	c.RoomLength = engineering.Length(5500)
 	c.ApproachSpace = engineering.Length(1000)
 
-	if msg := hasRoomFit(t, c, set); msg == "" {
+	if msg := hasRoomFit(t, c); msg == "" {
 		t.Fatalf("предусловие: ожидали room_fit для исходного прямого марша 5500")
 	}
 
@@ -135,7 +135,7 @@ func TestRepro_StraightSteeperApplyClearsRoomFit(t *testing.T) {
 	if !fits {
 		t.Errorf("после применения «круче» лестница не помещается (fits=false)")
 	}
-	if msg := hasRoomFit(t, applied, set); msg != "" {
+	if msg := hasRoomFit(t, applied); msg != "" {
 		t.Errorf("после применения «круче» room_fit остался: %s", msg)
 	}
 }

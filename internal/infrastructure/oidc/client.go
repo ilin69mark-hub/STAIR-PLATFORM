@@ -100,7 +100,7 @@ func (c *Client) discoveryOnce(ctx context.Context) (*discovery, error) {
 	if err != nil {
 		return nil, fmt.Errorf("oidc: discovery fetch: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("oidc: discovery status %d", resp.StatusCode)
 	}
@@ -169,7 +169,7 @@ func (c *Client) Exchange(ctx context.Context, code, codeVerifier string) (strin
 	if err != nil {
 		return "", fmt.Errorf("oidc: token exchange: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("oidc: token read: %w", err)
@@ -285,7 +285,7 @@ func (c *Client) fetchKeys(ctx context.Context) ([]jwkKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("oidc: jwks fetch: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("oidc: jwks status %d", resp.StatusCode)
 	}

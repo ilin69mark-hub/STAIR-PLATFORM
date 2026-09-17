@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"time"
 )
 
@@ -18,10 +19,12 @@ type Client struct {
 
 // NewClient создаёт новый E2E client.
 func NewClient(baseURL string) *Client {
+	jar, _ := cookiejar.New(nil)
 	return &Client{
 		BaseURL: baseURL,
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
+			Jar:     jar,
 		},
 	}
 }
@@ -49,11 +52,32 @@ func (c *Client) Request(method, path string, body interface{}) (*http.Response,
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if c.Token != "" {
+
+	// Session-аутентификация: после register/login клиент хранит session
+	// и csrf cookie (как фронтенд). Сессия идёт через cookie, а не Bearer:
+	// requireAuth принимает Authorization: Bearer только как API-ключ (EDR-0016).
+	// Для мутирующих запросов проставляем X-CSRF-Token (double-submit).
+	if c.Token == "" {
+		csrf := c.csrfToken(req)
+		if csrf != "" {
+			req.Header.Set("X-CSRF-Token", csrf)
+		}
+	} else {
+		// API-ключ: не-браузерный клиент, CSRF не требуется (EDR-0016 §7).
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 
 	return c.HTTPClient.Do(req)
+}
+
+// csrfToken возвращает csrf-cookie из jar (double-submit), если она есть.
+func (c *Client) csrfToken(req *http.Request) string {
+	for _, cookie := range c.HTTPClient.Jar.Cookies(req.URL) {
+		if cookie.Name == "csrf" {
+			return cookie.Value
+		}
+	}
+	return ""
 }
 
 // Post выполняет POST запрос.
@@ -71,6 +95,11 @@ func (c *Client) Put(path string, body interface{}) (*http.Response, error) {
 	return c.Request(http.MethodPut, path, body)
 }
 
+// Patch выполняет PATCH запрос.
+func (c *Client) Patch(path string, body interface{}) (*http.Response, error) {
+	return c.Request(http.MethodPatch, path, body)
+}
+
 // Delete выполняет DELETE запрос.
 func (c *Client) Delete(path string) (*http.Response, error) {
 	return c.Request(http.MethodDelete, path, nil)
@@ -78,7 +107,7 @@ func (c *Client) Delete(path string) (*http.Response, error) {
 
 // ReadBody читает тело ответа.
 func ReadBody(resp *http.Response) ([]byte, error) {
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return io.ReadAll(resp.Body)
 }
 
@@ -89,7 +118,7 @@ func WaitForServer(baseURL string, timeout time.Duration) error {
 	for time.Now().Before(deadline) {
 		resp, err := http.Get(baseURL + "/ready")
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				return nil
 			}

@@ -31,13 +31,14 @@ func TestDocumentExport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("registration request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var registerResp struct {
 		Token string `json:"token"`
 	}
-	json.NewDecoder(resp.Body).Decode(&registerResp)
-	client.SetToken(registerResp.Token)
+	if err := json.NewDecoder(resp.Body).Decode(&registerResp); err != nil {
+		t.Fatal(err)
+	}
 
 	// Создаем проект
 	createInput := map[string]interface{}{
@@ -49,12 +50,14 @@ func TestDocumentExport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project request failed: %v", err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 
 	var projectResp struct {
 		ID string `json:"id"`
 	}
-	json.NewDecoder(resp2.Body).Decode(&projectResp)
+	if err := json.NewDecoder(resp2.Body).Decode(&projectResp); err != nil {
+		t.Fatal(err)
+	}
 
 	if projectResp.ID == "" {
 		t.Fatal("expected project ID")
@@ -65,7 +68,7 @@ func TestDocumentExport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("export request failed: %v", err)
 	}
-	defer resp3.Body.Close()
+	defer func() { _ = resp3.Body.Close() }()
 
 	// Ожидаем 200 или 404 (если нет сохраненной конфигурации)
 	if resp3.StatusCode != http.StatusOK && resp3.StatusCode != http.StatusNotFound {
@@ -105,13 +108,14 @@ func TestCNCExport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("registration request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var registerResp struct {
 		Token string `json:"token"`
 	}
-	json.NewDecoder(resp.Body).Decode(&registerResp)
-	client.SetToken(registerResp.Token)
+	if err := json.NewDecoder(resp.Body).Decode(&registerResp); err != nil {
+		t.Fatal(err)
+	}
 
 	// Создаем проект
 	createInput := map[string]interface{}{
@@ -123,12 +127,14 @@ func TestCNCExport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project request failed: %v", err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 
 	var projectResp struct {
 		ID string `json:"id"`
 	}
-	json.NewDecoder(resp2.Body).Decode(&projectResp)
+	if err := json.NewDecoder(resp2.Body).Decode(&projectResp); err != nil {
+		t.Fatal(err)
+	}
 
 	if projectResp.ID == "" {
 		t.Fatal("expected project ID")
@@ -139,7 +145,7 @@ func TestCNCExport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CNC export request failed: %v", err)
 	}
-	defer resp3.Body.Close()
+	defer func() { _ = resp3.Body.Close() }()
 
 	// Ожидаем 200 или 404 (если нет сохраненной конфигурации)
 	if resp3.StatusCode != http.StatusOK && resp3.StatusCode != http.StatusNotFound {

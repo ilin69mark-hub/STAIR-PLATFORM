@@ -128,7 +128,7 @@ func (o *OpenAI) Infer(ctx context.Context, p Prompt) (*Answer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("assistant: openai call: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))

@@ -171,7 +171,7 @@ func solveUShapeWinder(H, h0 engineering.Length, n1, nw int, wp engineering.Leng
 	}
 	n2 := n - n1 - nw
 	if n2 < 1 {
-		return twoFlightValues{}, upperStepInputError(n2, n, nw)
+		return twoFlightValues{}, upperStepInputError(n, nw)
 	}
 
 	// §4.2 уточнённая высота ступени (общая для прямых и поворотных).

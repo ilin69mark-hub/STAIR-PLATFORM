@@ -46,17 +46,21 @@ export function ApprovalsPanel({ projectId, configurationId }: Props) {
     }
   }
 
+  const alreadyApproved = configurationId ? approvals.some((a) => a.configuration_id === configurationId) : false
+
   return (
     <section className="panel">
-      <h2 className="panel__title">Утверждение конфигурации</h2>
+      <h2 className="panel__title">Подпись ревизии в производство</h2>
+      <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Фиксирует конкретную ревизию для производства. 1 раз на ревизию, не меняет статус проекта.</p>
       {error && <div className="alert alert--error">{error}</div>}
-      {saved && <div className="alert alert--ok">Конфигурация утверждена.</div>}
+      {saved && <div className="alert alert--ok">Ревизия утверждена.</div>}
+      {alreadyApproved && <div className="alert alert--ok">Эта ревизия уже утверждена.</div>}
       {loading ? (
         <p className="muted">Загрузка…</p>
       ) : (
         <ul className="comment-list">
           {approvals.length === 0 && (
-            <p className="muted">Конфигурация ещё не утверждалась.</p>
+            <p className="muted">Ревизий ещё не утверждали.</p>
           )}
           {approvals.map((a) => (
             <li className="comment" key={a.id}>
@@ -71,7 +75,9 @@ export function ApprovalsPanel({ projectId, configurationId }: Props) {
           ))}
         </ul>
       )}
-      {configurationId && (
+      {!configurationId ? (
+        <p className="muted">Сначала рассчитайте — появится «Утвердить ревизию #{approvals.length + 1}».</p>
+      ) : (
         <div className="comment-add">
           <textarea
             className="field__input"
@@ -80,8 +86,13 @@ export function ApprovalsPanel({ projectId, configurationId }: Props) {
             value={comment}
             onChange={(e) => setComment(e.target.value)}
           />
-          <button className="btn btn--primary" onClick={handleApprove} disabled={busy}>
-            {busy ? 'Утверждение…' : 'Утвердить ревизию'}
+          <button
+            className="btn btn--primary"
+            onClick={handleApprove}
+            disabled={busy || alreadyApproved}
+            title={alreadyApproved ? 'Эта ревизия уже утверждена' : undefined}
+          >
+            {busy ? 'Утверждение…' : alreadyApproved ? 'Ревизия утверждена' : 'Утвердить ревизию'}
           </button>
         </div>
       )}

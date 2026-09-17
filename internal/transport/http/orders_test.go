@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,6 +21,12 @@ type fakeOrderService struct {
 	updated  *string
 	updateSt order.Status
 	userID   string
+	// Точечная инъекция ошибок по операциям.
+	consultErr error
+	listAllErr error
+	updateErr  error
+	getErr     error
+	postGetErr error // ошибка Get после успешного UpdateStatus (ветка 500)
 }
 
 func (f *fakeOrderService) Create(_ context.Context, tenantID, userID string, c order.Contact, config, price json.RawMessage) (*order.Order, error) {
@@ -31,6 +38,9 @@ func (f *fakeOrderService) Create(_ context.Context, tenantID, userID string, c 
 	return f.created, nil
 }
 func (f *fakeOrderService) CreateConsultation(_ context.Context, tenantID string, c order.Contact, question string) (*order.Order, error) {
+	if f.consultErr != nil {
+		return nil, f.consultErr
+	}
 	f.created = &order.Order{
 		ID: "ord-c", TenantID: tenantID, Kind: order.KindConsultation, Status: order.StatusNew,
 		Contact: c,
@@ -43,14 +53,26 @@ func (f *fakeOrderService) ListByUser(_ context.Context, tenantID, userID string
 	return f.list, nil
 }
 func (f *fakeOrderService) ListAll(_ context.Context, tenantID string) ([]*order.Order, error) {
+	if f.listAllErr != nil {
+		return nil, f.listAllErr
+	}
 	return f.all, nil
 }
 func (f *fakeOrderService) UpdateStatus(_ context.Context, tenantID, id string, s order.Status) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
 	f.updated = &id
 	f.updateSt = s
 	return nil
 }
 func (f *fakeOrderService) Get(_ context.Context, tenantID, id string) (*order.Order, error) {
+	if f.postGetErr != nil {
+		return nil, f.postGetErr
+	}
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
 	return f.created, nil
 }
 
@@ -262,5 +284,150 @@ func TestAdminOrdersRequireAdmin(t *testing.T) {
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("%s %s: expected 403, got %d", tc.method, tc.path, rec.Code)
 		}
+	}
+}
+
+func ordersAdminRouterWithAudit(svc OrderService, a AuditService) http.Handler {
+	cfg := DefaultConfig()
+	cfg.Orders = svc
+	return NewRouter(stair.NewService(), nil, adminAuth{}, cfg, a)
+}
+
+func ordersPublicRouterWithTenant(svc OrderService, a AuthService) http.Handler {
+	cfg := DefaultConfig()
+	cfg.Orders = svc
+	return NewRouter(stair.NewService(), nil, a, cfg)
+}
+
+func TestAdminListOrdersError(t *testing.T) {
+	fake := &fakeOrderService{listAllErr: errors.New("db")}
+	router := ordersAdminRouter(fake)
+	req := authedRequest(http.MethodGet, "/api/v1/admin/orders", "")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminUpdateOrderStatusInvalidJSON(t *testing.T) {
+	fake := &fakeOrderService{}
+	router := ordersAdminRouter(fake)
+	req := authedRequest(http.MethodPatch, "/api/v1/admin/orders/ord-1/status", "NOT-JSON")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminUpdateOrderStatusNotFound(t *testing.T) {
+	fake := &fakeOrderService{updateErr: order.ErrNotFound}
+	router := ordersAdminRouter(fake)
+	body := `{"status":"confirmed"}`
+	req := authedRequest(http.MethodPatch, "/api/v1/admin/orders/missing/status", body)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminUpdateOrderStatusServiceInvalid(t *testing.T) {
+	fake := &fakeOrderService{updateErr: order.ErrInvalid}
+	router := ordersAdminRouter(fake)
+	body := `{"status":"confirmed"}`
+	req := authedRequest(http.MethodPatch, "/api/v1/admin/orders/ord-1/status", body)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminUpdateOrderStatusServiceError(t *testing.T) {
+	fake := &fakeOrderService{updateErr: errors.New("db")}
+	router := ordersAdminRouter(fake)
+	body := `{"status":"confirmed"}`
+	req := authedRequest(http.MethodPatch, "/api/v1/admin/orders/ord-1/status", body)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminUpdateOrderStatusAudited(t *testing.T) {
+	fake := &fakeOrderService{}
+	fake.created = &order.Order{ID: "ord-1", Status: order.StatusConfirmed,
+		Contact: order.Contact{Name: "И", Email: "i@ex.ru"}}
+	router := ordersAdminRouterWithAudit(fake, &fakeAuditService{})
+	body := `{"status":"confirmed"}`
+	req := authedRequest(http.MethodPatch, "/api/v1/admin/orders/ord-1/status", body)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminUpdateOrderStatusGetError(t *testing.T) {
+	// UpdateStatus успешен, но повторная выборка заказа падает (500).
+	fake := &fakeOrderService{postGetErr: errors.New("db")}
+	router := ordersAdminRouter(fake)
+	body := `{"status":"confirmed"}`
+	req := authedRequest(http.MethodPatch, "/api/v1/admin/orders/ord-1/status", body)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if fake.updated == nil {
+		t.Fatalf("UpdateStatus should have been called")
+	}
+}
+
+func TestCreateConsultationInvalidJSON(t *testing.T) {
+	fake := &fakeOrderService{}
+	router := ordersRouter(fake)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/orders", strings.NewReader("NOT-JSON"))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateConsultationTenantError(t *testing.T) {
+	fake := &fakeOrderService{}
+	router := ordersPublicRouterWithTenant(fake, failingTenantAuth{})
+	body := `{"contact":{"name":"М","email":"m@ex.ru"},"question":"Какой срок?"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/orders", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateConsultationServiceError(t *testing.T) {
+	fake := &fakeOrderService{consultErr: errors.New("db")}
+	router := ordersRouter(fake)
+	body := `{"contact":{"name":"М","email":"m@ex.ru"},"question":"Какой срок?"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/orders", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

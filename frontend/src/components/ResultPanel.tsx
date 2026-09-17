@@ -19,9 +19,35 @@ interface Props {
   activeVariantId?: string
 }
 
+// ResultTab — ключ активной под-вкладки результата. Часть панелей
+// (марш/геометрия/производство/стоимость) спрятана за табами, чтобы
+// не растягивать страницу в бесконечную портянку.
+type ResultTab = 'flight' | 'geometry' | 'manufacturing' | 'pricing'
+
 export function ResultPanel({ snapshot, onApplyVariation, activeVariantId }: Props) {
   const s = snapshot
   const stopped = !s.manufacturing || !s.pricing
+  const [tab, setTab] = useState<ResultTab>('flight')
+
+  const flightPanel = s.lshape ? (
+    <LShapePanel snapshot={s} />
+  ) : s.ushape ? (
+    <UShapePanel snapshot={s} />
+  ) : s.spiral ? (
+    <SpiralPanel snapshot={s} />
+  ) : s.flight ? (
+    <FlightPanel snapshot={s} />
+  ) : null
+
+  // Доступные под-вкладки зависят от наличия этапов конвейера в снапшоте.
+  const tabs: Array<[ResultTab, string]> = []
+  if (flightPanel) tabs.push(['flight', 'Марш'])
+  if (s.measurement) tabs.push(['geometry', 'Геометрия'])
+  if (s.manufacturing) tabs.push(['manufacturing', 'Производство'])
+  if (s.pricing) tabs.push(['pricing', 'Стоимость'])
+
+  let active: ResultTab | undefined = tabs.some(([k]) => k === tab) ? tab : tabs[0]?.[0]
+  if (tabs.length === 0) active = undefined
 
   return (
     <div className="results">
@@ -43,20 +69,30 @@ export function ResultPanel({ snapshot, onApplyVariation, activeVariantId }: Pro
       />
 
       {!stopped && (
-        <>
-          {s.lshape ? (
-            <LShapePanel snapshot={s} />
-          ) : s.ushape ? (
-            <UShapePanel snapshot={s} />
-          ) : s.spiral ? (
-            <SpiralPanel snapshot={s} />
-          ) : (
-            <FlightPanel snapshot={s} />
+        <div className="result-tabs">
+          {tabs.length > 1 && (
+            <div className="draw__tabs" role="tablist">
+              {tabs.map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={active === key}
+                  className={`draw__tab${active === key ? ' draw__tab--active' : ''}`}
+                  onClick={() => setTab(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           )}
-          <GeometryPanel snapshot={s} />
-          <ManufacturingPanel snapshot={s} />
-          <PricingPanel snapshot={s} pricing={s.pricing!} />
-        </>
+          {active === 'flight' && flightPanel}
+          {active === 'geometry' && s.measurement && <GeometryPanel snapshot={s} />}
+          {active === 'manufacturing' && s.manufacturing && (
+            <ManufacturingPanel snapshot={s} />
+          )}
+          {active === 'pricing' && s.pricing && <PricingPanel snapshot={s} pricing={s.pricing} />}
+        </div>
       )}
     </div>
   )
@@ -181,9 +217,9 @@ function ValidationPanel({
       {firstSugg && (
         <h3 className="panel__sub">Подходящие варианты конфигурации</h3>
       )}
-      {firstSugg && (
+      {firstSugg && firstSugg.Suggestions && (
         <div className="issue-suggestions">
-          {firstSugg.Suggestions!.map((s, si) => (
+          {firstSugg.Suggestions.map((s, si) => (
             <div className="suggestion" key={si}>
               <span>
                 {s.StepCount} ступ. · h {fmt.mm(s.StepHeightMm)} · проступь{' '}
@@ -193,11 +229,11 @@ function ValidationPanel({
           ))}
         </div>
       )}
-      {firstVar && onApplyVariation && (
+      {firstVar && firstVar.Variations && onApplyVariation && (
         <div className="variations">
           <h3 className="panel__sub">Варианты решения (выберите подходящий)</h3>
           <VariationPicker
-            variations={firstVar.Variations!}
+            variations={firstVar.Variations}
             onApply={onApplyVariation}
             activeId={activeVariantId}
           />
@@ -208,7 +244,8 @@ function ValidationPanel({
 }
 
 function FlightPanel({ snapshot }: { snapshot: Snapshot }) {
-  const f = snapshot.flight!
+  const f = snapshot.flight
+  if (!f) return null
   return (
     <section className="panel">
       <h2 className="panel__title">Марш (Solver)</h2>
@@ -246,7 +283,8 @@ function FlightPanel({ snapshot }: { snapshot: Snapshot }) {
 // LShapePanel — результат Solver L-образной лестницы (EDR-0005):
 // два марша, площадка между ними на высоте H1.
 function LShapePanel({ snapshot }: { snapshot: Snapshot }) {
-  const l = snapshot.lshape!
+  const l = snapshot.lshape
+  if (!l) return null
   return (
     <section className="panel">
       <h2 className="panel__title">L-образный марш (Solver)</h2>
@@ -319,7 +357,8 @@ function LShapePanel({ snapshot }: { snapshot: Snapshot }) {
 // UShapePanel — результат Solver П-образной лестницы (EDR-0006):
 // два параллельных марша, площадка между ними на высоте H1.
 function UShapePanel({ snapshot }: { snapshot: Snapshot }) {
-  const u = snapshot.ushape!
+  const u = snapshot.ushape
+  if (!u) return null
   return (
     <section className="panel">
       <h2 className="panel__title">П-образный марш (Solver)</h2>
@@ -379,7 +418,8 @@ function UShapePanel({ snapshot }: { snapshot: Snapshot }) {
 // SpiralPanel — результат Solver спиральной лестницы с центральной колонной
 // (EDR-0007): веерные проступи вокруг оси Z, полный поворот 360°.
 function SpiralPanel({ snapshot }: { snapshot: Snapshot }) {
-  const sp = snapshot.spiral!
+  const sp = snapshot.spiral
+  if (!sp) return null
   return (
     <section className="panel">
       <h2 className="panel__title">Спиральный марш (Solver)</h2>
@@ -435,7 +475,8 @@ function SpiralPanel({ snapshot }: { snapshot: Snapshot }) {
 }
 
 function GeometryPanel({ snapshot }: { snapshot: Snapshot }) {
-  const m = snapshot.measurement!
+  const m = snapshot.measurement
+  if (!m) return null
   const sch = schematicOf(snapshot)
   // Фиолетовая линия верха марша на 3D (прямой марш): суммарный подъём и ширина.
   const stairTop =
@@ -494,7 +535,8 @@ function GeometryPanel({ snapshot }: { snapshot: Snapshot }) {
 }
 
 function ManufacturingPanel({ snapshot }: { snapshot: Snapshot }) {
-  const mfg = snapshot.manufacturing!
+  const mfg = snapshot.manufacturing
+  if (!mfg) return null
   const nesting = mfg.Nesting
 
   return (

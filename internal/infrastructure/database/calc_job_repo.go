@@ -104,7 +104,7 @@ func (r *CalcJobRepository) GetByID(ctx context.Context, tenantID, id string) (*
 
 // MarkRunning фиксирует «взято в работу» воркером.
 func (r *CalcJobRepository) MarkRunning(ctx context.Context, tenantID, id string) error {
-	return r.updateStatus(ctx, tenantID, id,
+	return r.updateStatus(ctx,
 		"UPDATE calc_jobs SET status = 'running', started_at = now(), finished_at = NULL WHERE id = $1 AND tenant_id = $2",
 		id, tenantID)
 }
@@ -115,21 +115,21 @@ func (r *CalcJobRepository) MarkSucceeded(ctx context.Context, tenantID, id stri
 	if err != nil {
 		return fmt.Errorf("calc_jobs: marshal result: %w", err)
 	}
-	return r.updateStatus(ctx, tenantID, id,
+	return r.updateStatus(ctx,
 		"UPDATE calc_jobs SET status = 'succeeded', result = $3, error = NULL, finished_at = now() WHERE id = $1 AND tenant_id = $2",
 		id, tenantID, resultB)
 }
 
 // MarkFailed сохраняет текст ошибки (инвариант 2: failed ⇒ error).
 func (r *CalcJobRepository) MarkFailed(ctx context.Context, tenantID, id, errMsg string) error {
-	return r.updateStatus(ctx, tenantID, id,
+	return r.updateStatus(ctx,
 		"UPDATE calc_jobs SET status = 'failed', error = $3, finished_at = now() WHERE id = $1 AND tenant_id = $2",
 		id, tenantID, errMsg)
 }
 
 // updateStatus исполняет UPDATE-статус и проверяет, что запись
 // существовала в скоупе tenant'а.
-func (r *CalcJobRepository) updateStatus(ctx context.Context, tenantID, id, query string, args ...any) error {
+func (r *CalcJobRepository) updateStatus(ctx context.Context, query string, args ...any) error {
 	tag, err := r.pool.Exec(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("calc_jobs: update status: %w", err)

@@ -145,8 +145,11 @@ function contentMm(p: Props): { w: number; h: number; pts: Array<{ x: number; y:
         { x: 0, y: gap },
         { x: -ap, y: 0 },
       ]
+      // Габарит по X: верхний марш (0..ur) может выступать за площадку
+      // (lr..lr+lw) при малом нижнем марше (напр. lower=1, upper=17) —
+      // иначе масштаб завышается и чертёж вылезает за viewBox.
       return {
-        w: lr + lw + ap,
+        w: Math.max(lr + lw, ur) + ap,
         h: gap + f.Width,
         pts: pts.map((q) => ({ x: (s.direction === 'left' ? -1 : 1) * q.x, y: q.y })),
       }

@@ -201,7 +201,7 @@ func TestUsageTotalsIsolation(t *testing.T) {
 // seedProjects создаёт tenant с проектами и активностью для F2 (EDR-0029):
 // два проекта (draft и approved), у approved — конфигурация + расчёт
 // (валидный), комментарий и второй участник. Возвращает tenant ID.
-func seedProjects(t *testing.T, ctx context.Context, pr *ProjectRepository, t0 time.Time) string {
+func seedProjects(t *testing.T, ctx context.Context, pr *ProjectRepository) string {
 	t.Helper()
 	tenant := createTestTenant(t, pr, fmt.Sprintf("proj-%d", time.Now().UnixNano()))
 	owner := testOwnerID(t, pr, tenant)
@@ -250,7 +250,7 @@ func TestProjectTotals(t *testing.T) {
 	repo, pr := newAnalyticsRepo(t)
 	ctx := context.Background()
 	t0 := time.Now().UTC()
-	tenant := seedProjects(t, ctx, pr, t0)
+	tenant := seedProjects(t, ctx, pr)
 
 	from := t0.Add(-time.Hour)
 	to := t0.Add(time.Hour)
@@ -282,8 +282,7 @@ func TestProjectTotals(t *testing.T) {
 func TestProjectList(t *testing.T) {
 	repo, pr := newAnalyticsRepo(t)
 	ctx := context.Background()
-	t0 := time.Now().UTC()
-	tenant := seedProjects(t, ctx, pr, t0)
+	tenant := seedProjects(t, ctx, pr)
 
 	rows, err := repo.ProjectList(ctx, tenant)
 	if err != nil {
@@ -322,7 +321,7 @@ func TestProjectTotalsIsolation(t *testing.T) {
 	repo, pr := newAnalyticsRepo(t)
 	ctx := context.Background()
 	t0 := time.Now().UTC()
-	seedProjects(t, ctx, pr, t0)
+	seedProjects(t, ctx, pr)
 
 	// Чужой tenant без проектов.
 	other := createTestTenant(t, pr, fmt.Sprintf("otherproj-%d", time.Now().UnixNano()))
@@ -386,7 +385,7 @@ func mfgSnapshot(projectID string) project.Snapshot {
 
 // seedManufacturing создаёт tenant с двумя расчётами, имеющими
 // производственный пакет (по 2 детали STEEL-S235 каждый). Возвращает tenant.
-func seedManufacturing(t *testing.T, ctx context.Context, pr *ProjectRepository, t0 time.Time) string {
+func seedManufacturing(t *testing.T, ctx context.Context, pr *ProjectRepository) string {
 	t.Helper()
 	tenant := createTestTenant(t, pr, fmt.Sprintf("mfg-%d", time.Now().UnixNano()))
 	for i := 0; i < 2; i++ {
@@ -407,7 +406,7 @@ func TestManufacturingTotals(t *testing.T) {
 	repo, pr := newAnalyticsRepo(t)
 	ctx := context.Background()
 	t0 := time.Now().UTC()
-	tenant := seedManufacturing(t, ctx, pr, t0)
+	tenant := seedManufacturing(t, ctx, pr)
 
 	from := t0.Add(-time.Hour)
 	to := t0.Add(time.Hour)
@@ -442,7 +441,7 @@ func TestManufacturingSeriesContinuous(t *testing.T) {
 	repo, pr := newAnalyticsRepo(t)
 	ctx := context.Background()
 	t0 := time.Now().UTC()
-	tenant := seedManufacturing(t, ctx, pr, t0)
+	tenant := seedManufacturing(t, ctx, pr)
 
 	from := t0.Add(-48 * time.Hour)
 	to := t0.Add(24 * time.Hour)
@@ -471,7 +470,7 @@ func TestManufacturingTotalsIsolation(t *testing.T) {
 	repo, pr := newAnalyticsRepo(t)
 	ctx := context.Background()
 	t0 := time.Now().UTC()
-	seedManufacturing(t, ctx, pr, t0)
+	seedManufacturing(t, ctx, pr)
 
 	other := createTestTenant(t, pr, fmt.Sprintf("othermfg-%d", time.Now().UnixNano()))
 	from := t0.Add(-time.Hour)
@@ -509,7 +508,7 @@ func costSnapshot(projectID string) project.Snapshot {
 
 // seedCost создаёт tenant с двумя расчётами, имеющими ценовой брейкдаун
 // (по 220 RUB итоговая цена каждый). Возвращает tenant ID.
-func seedCost(t *testing.T, ctx context.Context, pr *ProjectRepository, t0 time.Time) string {
+func seedCost(t *testing.T, ctx context.Context, pr *ProjectRepository) string {
 	t.Helper()
 	tenant := createTestTenant(t, pr, fmt.Sprintf("cost-%d", time.Now().UnixNano()))
 	for i := 0; i < 2; i++ {
@@ -530,7 +529,7 @@ func TestCostTotals(t *testing.T) {
 	repo, pr := newAnalyticsRepo(t)
 	ctx := context.Background()
 	t0 := time.Now().UTC()
-	tenant := seedCost(t, ctx, pr, t0)
+	tenant := seedCost(t, ctx, pr)
 
 	from := t0.Add(-time.Hour)
 	to := t0.Add(time.Hour)
@@ -565,7 +564,7 @@ func TestCostSeriesContinuous(t *testing.T) {
 	repo, pr := newAnalyticsRepo(t)
 	ctx := context.Background()
 	t0 := time.Now().UTC()
-	tenant := seedCost(t, ctx, pr, t0)
+	tenant := seedCost(t, ctx, pr)
 
 	from := t0.Add(-48 * time.Hour)
 	to := t0.Add(24 * time.Hour)
@@ -594,7 +593,7 @@ func TestCostTotalsIsolation(t *testing.T) {
 	repo, pr := newAnalyticsRepo(t)
 	ctx := context.Background()
 	t0 := time.Now().UTC()
-	seedCost(t, ctx, pr, t0)
+	seedCost(t, ctx, pr)
 
 	other := createTestTenant(t, pr, fmt.Sprintf("othercost-%d", time.Now().UnixNano()))
 	from := t0.Add(-time.Hour)

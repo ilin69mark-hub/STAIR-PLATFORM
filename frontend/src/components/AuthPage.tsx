@@ -67,9 +67,9 @@ export function AuthPage() {
   }
 
   return (
-    <div className="page">
-      <header className="page__header">
-        <div>
+    <div className="page auth--page">
+      <header className="page__header page__header--stacked">
+        <div className="page__header-title">
           <h1 className="page__title">STAIR PLATFORM</h1>
           <p className="page__subtitle">Вход в систему</p>
         </div>
@@ -136,7 +136,7 @@ export function AuthPage() {
             </div>
             {error && <div className="alert alert--error">{error}</div>}
             <div className="row row--actions">
-              <button className="btn btn--primary" type="submit" disabled={busy}>
+              <button className="btn btn--accent auth__submit" type="submit" disabled={busy}>
                 {busy ? '…' : mode === 'register' ? 'Зарегистрироваться' : 'Войти'}
               </button>
             </div>

@@ -4,6 +4,8 @@
 // в теле передаём только действие и контекст. Отправка best-effort:
 // сбой журнала не должен ломать UX пользователя.
 
+import { csrfHeaders } from './csrf'
+
 export interface LogActionInput {
   action: string
   resource_type?: string
@@ -11,26 +13,23 @@ export interface LogActionInput {
   detail?: string
 }
 
-const CSRF_COOKIE = 'csrf'
-
-function csrfToken(): string {
-  return (
-    document.cookie
-      .split('; ')
-      .find((c) => c.startsWith(`${CSRF_COOKIE}=`))
-      ?.slice(CSRF_COOKIE.length + 1) ?? ''
-  )
-}
-
 export function logAction(input: LogActionInput): void {
+  // Анонимный store (public quote) не имеет сессии — не спамим 403 в консоль.
+  // Отправляем аудит только при наличии любого признака аутентификации
+  // (session / session_admin cookie или токен в localStorage).
   try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    const csrf = csrfToken()
-    if (csrf) headers['X-CSRF-Token'] = csrf
+    const hasSession = typeof document !== 'undefined' && /(?:^|;\s*)(?:session|session_admin)=/.test(document.cookie)
+    const hasToken = typeof localStorage !== 'undefined' && !!localStorage.getItem('token')
+    if (!hasSession && !hasToken) return
+  } catch {}
+  try {
     void fetch('/api/v1/audit', {
       method: 'POST',
       credentials: 'include',
-      headers,
+      headers: {
+        'Content-Type': 'application/json',
+        ...csrfHeaders(),
+      },
       body: JSON.stringify(input),
     }).catch(() => {
       // best-effort: тихо игнорируем ошибки аудита

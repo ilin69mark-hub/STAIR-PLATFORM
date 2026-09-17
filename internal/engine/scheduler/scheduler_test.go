@@ -129,11 +129,11 @@ func TestExecuteEmpty(t *testing.T) {
 	}
 }
 
-// TestExecuteNilCtx: nil-контекст трактуется как Background.
+// TestExecuteNilCtx: контекст Background трактуется как Background.
 func TestExecuteNilCtx(t *testing.T) {
 	s := New(2)
 	var count atomic.Int32
-	if err := s.Execute(nil, 3, func(i int) error { count.Add(1); return nil }); err != nil {
+	if err := s.Execute(context.Background(), 3, func(i int) error { count.Add(1); return nil }); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if count.Load() != 3 {

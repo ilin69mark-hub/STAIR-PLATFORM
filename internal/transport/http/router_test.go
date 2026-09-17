@@ -346,10 +346,14 @@ func TestOptimizeReference(t *testing.T) {
 	if resp.Best.StepHeightMM < 150 || resp.Best.StepHeightMM > 200 {
 		t.Fatalf("best step height %v outside [150, 200]", resp.Best.StepHeightMM)
 	}
-	if resp.Best.Result.Pricing.FinalPriceRub <= 0 {
+	var bestRes calculateResponse
+	if err := json.Unmarshal(resp.Best.Result, &bestRes); err != nil {
+		t.Fatalf("best result is not a calculateResponse: %v", err)
+	}
+	if bestRes.Pricing.FinalPriceRub <= 0 {
 		t.Fatal("best result must include pricing")
 	}
-	if resp.Best.Result.Validation.Blocking {
+	if bestRes.Validation.Blocking {
 		t.Fatal("best result must not be blocking")
 	}
 	if resp.Target != "price" {
@@ -383,7 +387,14 @@ func TestOptimizeTargetCost(t *testing.T) {
 	if !resp.Valid || resp.Target != "cost" {
 		t.Fatalf("expected valid cost optimization, got valid=%v target=%q", resp.Valid, resp.Target)
 	}
-	if resp.Best.Result.Pricing.ProductionCostRub <= 0 {
+	if len(resp.Best.Result) == 0 {
+		t.Fatal("best result must be present")
+	}
+	var bestRes calculateResponse
+	if err := json.Unmarshal(resp.Best.Result, &bestRes); err != nil {
+		t.Fatalf("best result is not a calculateResponse: %v", err)
+	}
+	if bestRes.Pricing.ProductionCostRub <= 0 {
 		t.Fatal("best result must include production cost")
 	}
 }

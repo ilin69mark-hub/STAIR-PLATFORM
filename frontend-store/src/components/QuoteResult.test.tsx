@@ -49,7 +49,53 @@ describe('QuoteResult', () => {
     render(<QuoteResult quote={blocked} />)
     expect(screen.getByText(/Расчёт остановлен/)).toBeInTheDocument()
     expect(screen.getByText(/просвет мал/)).toBeInTheDocument()
+    // severity показывается по-русски, а не сырым кодом API.
+    expect(screen.getByText(/Ошибка:/)).toBeInTheDocument()
     expect(screen.queryByText('Предварительная цена')).not.toBeInTheDocument()
+  })
+
+  it('подписи severity переводятся на русский', () => {
+    const mixed: QuoteResultType = {
+      validation: {
+        valid: false,
+        blocking: false,
+        issues: [
+          { code: 'GEO-CLEARANCE', severity: 'error', element: 'clearance', message: 'просвет мал', fix: 'увеличьте' },
+          { code: 'GEO-ROOM', severity: 'warning', element: 'room', message: 'не помещается', fix: 'уменьшите' },
+          { code: 'GEO-COMFORT', severity: 'info', element: 'comfort', message: 'шаг 640', fix: 'скорректируйте' },
+        ],
+      },
+    }
+    render(<QuoteResult quote={mixed} />)
+    expect(screen.getByText(/Ошибка:/)).toBeInTheDocument()
+    expect(screen.getByText(/Внимание:/)).toBeInTheDocument()
+    expect(screen.getByText(/Информация:/)).toBeInTheDocument()
+  })
+
+  it('персистентные варианты рисуются галереей: активный крупно и «Выбран»', () => {
+    const onApply = vi.fn()
+    const blocked: QuoteResultType = {
+      validation: { valid: false, blocking: true, issues: [] },
+    }
+    const variations = [
+      { id: 'Угол 30°', title: 'Угол 30°', description: 'в норме', config: {}, fits: true, summary: 'Угол 30,2°' },
+      { id: 'Угол 35°', title: 'Угол 35°', description: 'в норме', config: {}, fits: true, summary: 'Угол 35,3°' },
+    ]
+    render(
+      <QuoteResult
+        quote={blocked}
+        onApplyVariation={onApply}
+        variations={variations}
+        activeVariationId="Угол 35°"
+      />,
+    )
+    // Галерея: активный вариант один + уменьшенные остальные.
+    expect(screen.getByText('Выбран')).toBeInTheDocument()
+    const btns = screen.getAllByRole('button', { name: /Угол/ })
+    expect(btns.length).toBe(2)
+    // Клик по уменьшенной карточке меняет активный вариант местами.
+    fireEvent.click(screen.getByRole('button', { name: /Угол 30°/ }))
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ id: 'Угол 30°' }))
   })
 
   it('показывает 3D-модель при наличии меша', async () => {

@@ -111,7 +111,7 @@ export function GeometryViewer({
 
   useEffect(() => {
     const container = containerRef.current
-    if (!container || mesh.Vertices.length === 0) return
+    if (!container || !mesh?.Vertices || mesh.Vertices.length === 0 || !mesh.Triangles) return
 
     const width = container.clientWidth || 600
     const height = container.clientHeight || 380
@@ -120,7 +120,7 @@ export function GeometryViewer({
     scene.background = new THREE.Color('#f7f9fc')
 
     const camera = new THREE.PerspectiveCamera(45, width / height, 1, 100000)
-    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
     renderer.setSize(width, height)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     container.appendChild(renderer.domElement)
@@ -128,6 +128,13 @@ export function GeometryViewer({
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
     controls.dampingFactor = 0.08
+    // Сохраняем последний кадр для КП — вариант А (твой ракурс)
+    const saveLastFrame = () => {
+      try {
+        ;(window as any).__stairLast3D = renderer.domElement.toDataURL('image/png')
+        try { sessionStorage.setItem('stairLast3D', (window as any).__stairLast3D) } catch {}
+      } catch {}
+    }
 
     scene.add(new THREE.HemisphereLight(0xffffff, 0xbfc8d8, 1))
     const dir = new THREE.DirectionalLight(0xffffff, 1.4)
@@ -138,6 +145,7 @@ export function GeometryViewer({
     scene.add(dir2)
 
     const makeMesh = (api: ApiMesh, material: THREE.Material) => {
+      if (!api?.Vertices || !api?.Triangles) return null as unknown as { mesh: THREE.Mesh; geo: THREE.BufferGeometry }
       const positions = new Float32Array(toThreePositions(api.Vertices))
       const indices = new Uint32Array(api.Triangles.length * 3)
       api.Triangles.forEach((t, i) => {
@@ -175,7 +183,7 @@ export function GeometryViewer({
     // Периметр помещения (room_mesh) — полупрозрачный, выделенным цветом,
     // чтобы визуально отделить «пол комнаты» от несущей лестницы.
     let room: { mesh: THREE.Mesh; geo: THREE.BufferGeometry } | null = null
-    if (roomMesh && roomMesh.Vertices.length > 0) {
+    if (roomMesh?.Vertices?.length && roomMesh?.Triangles) {
       const roomMat = new THREE.MeshStandardMaterial({
         color: 0xffa94d,
         roughness: 0.9,
@@ -193,7 +201,7 @@ export function GeometryViewer({
     // линии. Координаты совпадают с телом марша, поэтому для прямого марша
     // зеркалим так же, как stair.geo.
     let railing: { mesh: THREE.Mesh; geo: THREE.BufferGeometry } | null = null
-    if (railingMesh && railingMesh.Vertices.length > 0) {
+    if (railingMesh?.Vertices?.length && railingMesh?.Triangles) {
       const railMat = new THREE.MeshStandardMaterial({
         color: 0x9aa7b8,
         roughness: 0.5,
@@ -374,10 +382,20 @@ export function GeometryViewer({
     controls.target.copy(center)
     controls.update()
 
+    let lastCapture = 0
+    const onControlsChange = () => saveLastFrame()
+    controls.addEventListener('change', onControlsChange)
     renderer.setAnimationLoop(() => {
       controls.update()
       renderer.render(scene, camera)
+      const now = performance.now()
+      if (now - lastCapture > 300) {
+        saveLastFrame()
+        lastCapture = now
+      }
     })
+    // первый кадр сразу
+    saveLastFrame()
 
     const ro = new ResizeObserver(() => {
       const w = container.clientWidth || 600
@@ -391,6 +409,7 @@ export function GeometryViewer({
     return () => {
       renderer.setAnimationLoop(null)
       ro.disconnect()
+      controls.removeEventListener('change', onControlsChange)
       controls.dispose()
       stairMat.dispose()
       stair.geo.dispose()
@@ -426,7 +445,7 @@ export function GeometryViewer({
         container.removeChild(renderer.domElement)
       }
     }
-  }, [mesh, roomMesh])
+  }, [mesh, roomMesh, railingMesh, approachSpace, roomWidth, roomLength, direction, stairTop, flight, stepThickness])
 
   return (
     <div className="viewer">

@@ -13,14 +13,22 @@ describe('ResultPanel', () => {
   it('рендерит все панели для валидного снапшота', () => {
     render(<ResultPanel snapshot={makeSnapshot()} />)
 
+    // Сводка и статус конвейера виден всегда.
     expect(screen.getByText('Конвейер выполнен полностью.')).toBeInTheDocument()
     expect(screen.getByText('Нарушений не обнаружено.')).toBeInTheDocument()
+
+    // По умолчанию активна вкладка «Марш» (Solver + чертёж).
     expect(screen.getByText('Марш (Solver)')).toBeInTheDocument()
-    expect(screen.getByText('Геометрия')).toBeInTheDocument()
-    expect(screen.getByText('Производство')).toBeInTheDocument()
-    expect(screen.getByText('Стоимость (RUB)')).toBeInTheDocument()
+
+    // Панели Геометрия / Производство / Стоимость переключаются вкладками.
+    fireEvent.click(screen.getByRole('tab', { name: 'Геометрия' }))
+    expect(screen.getByText('Площадь поверхности')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Производство' }))
+    expect(screen.getByText('Экспорт BOM (CSV)')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Стоимость' }))
     expect(screen.getByText('Итоговая цена')).toBeInTheDocument()
-    expect(screen.getByText('15')).toBeInTheDocument()
   })
 
   it('рендерит панель L-образного марша, когда есть lshape', () => {

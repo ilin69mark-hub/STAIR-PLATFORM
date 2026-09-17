@@ -74,7 +74,9 @@ func TestSaveExportInvalidFilename(t *testing.T) {
 // TestLoadScope — запрос ключа чужого tenant отклоняется.
 func TestLoadScope(t *testing.T) {
 	store := newFakeStore()
-	store.Put(context.Background(), "t-2/cad/f.dxf", []byte("x"), "")
+	if err := store.Put(context.Background(), "t-2/cad/f.dxf", []byte("x"), ""); err != nil {
+		t.Fatal(err)
+	}
 	s := NewService(store)
 	if _, _, err := s.Load(context.Background(), "t-1", "t-2/cad/f.dxf"); err == nil {
 		t.Fatal("Load of foreign tenant key must error")

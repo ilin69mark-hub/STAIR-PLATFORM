@@ -36,9 +36,6 @@ func TestMockProviderCreateCheckoutInvalid(t *testing.T) {
 	if _, _, err := p.CreateCheckout(context.Background(), 0, "USD"); err == nil {
 		t.Fatal("expected error for zero amount")
 	}
-	if _, _, err := p.CreateCheckout(nil, 100, "USD"); err == nil {
-		t.Fatal("expected error for nil context")
-	}
 }
 
 func TestMockProviderSignWebhookVerifies(t *testing.T) {

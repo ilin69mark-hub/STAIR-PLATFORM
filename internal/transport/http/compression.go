@@ -93,7 +93,7 @@ func (cw *compressionWriter) Flush() {
 
 	if tooSmall || binary {
 		cw.ResponseWriter.WriteHeader(cw.code)
-		cw.ResponseWriter.Write(body)
+		_, _ = cw.ResponseWriter.Write(body)
 		if tooSmall {
 			compressionRequests.With("skipped_small").Inc()
 		} else {
@@ -108,8 +108,8 @@ func (cw *compressionWriter) Flush() {
 
 	var compressed bytes.Buffer
 	gz.Reset(&compressed)
-	gz.Write(body)
-	gz.Close()
+	_, _ = gz.Write(body)
+	_ = gz.Close()
 
 	compressedData := compressed.Bytes()
 	compressedSize := len(compressedData)
@@ -117,7 +117,7 @@ func (cw *compressionWriter) Flush() {
 	cw.ResponseWriter.Header().Set("Content-Encoding", "gzip")
 	cw.ResponseWriter.Header().Del("Content-Length")
 	cw.ResponseWriter.WriteHeader(cw.code)
-	cw.ResponseWriter.Write(compressedData)
+	_, _ = cw.ResponseWriter.Write(compressedData)
 
 	// Метрики
 	compressionRequests.With("compressed").Inc()

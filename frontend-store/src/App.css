@@ -10,7 +10,7 @@
   --sp-card: #ffffff;
   --sp-border: #e3e9e6;
   --sp-error: #b3261e;
-  --sp-warn: #8a5a00;
+  --sp-warn: #a3322b;
   --sp-shadow: 0 8px 28px rgba(11, 110, 79, 0.09);
 }
 
@@ -259,6 +259,36 @@ body {
   gap: 14px;
 }
 
+/* Поля формы сгруппированы в блоки: заголовок секции + сетка полей.
+   Секции отделены друг от друга, чтобы глазами разбить форму на части. */
+.form-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.form-section__title {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: var(--sp-text);
+  border-bottom: 1px solid var(--sp-border);
+  padding-bottom: 6px;
+}
+
+/* Предупреждение о расчёте без габаритов помещения: текст + две кнопки. */
+.room-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.room-prompt__actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -423,8 +453,8 @@ body {
 }
 
 .alert--warn {
-  background: #fff7e6;
-  border: 1px solid #f0dcb0;
+  background: #fdecec;
+  border: 1px solid #f2c9c6;
   color: var(--sp-warn);
 }
 
@@ -432,6 +462,89 @@ body {
   background: #e9f7f0;
   border: 1px solid #c3e8d5;
   color: var(--sp-primary-dark);
+}
+
+/* ---- Варианты A/B/C (галерея) ---- */
+
+.variation-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.variation-picker__hint {
+  color: var(--sp-muted);
+  font-size: 13px;
+}
+
+.variation-gallery {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.variation-gallery__main {
+  flex: 1 1 58%;
+  min-width: 0;
+}
+
+.variation-gallery__main .variation-picker__item {
+  min-height: 100%;
+}
+
+.variation-gallery__thumbs {
+  flex: 1 1 42%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.variation-picker__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--sp-border);
+  border-radius: 10px;
+  background: var(--sp-card);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: var(--sp-text);
+}
+
+.variation-picker__item:hover {
+  border-color: var(--sp-primary);
+  box-shadow: var(--sp-shadow);
+}
+
+.variation-picker__item--active {
+  border-color: var(--sp-primary);
+  background: #eff6f3;
+}
+
+.variation-picker__item--thumb {
+  padding: 8px 12px;
+}
+
+.variation-picker__title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.variation-picker__summary,
+.variation-picker__desc {
+  font-size: 12px;
+  color: var(--sp-muted);
+}
+
+.variation-picker__applied {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--sp-primary);
 }
 
 /* ---- Result / price ---- */

@@ -19,10 +19,10 @@ import (
 
 // StripeProvider — реализация Provider для Stripe.
 type StripeProvider struct {
-	secretKey      string
-	webhookSecret  string
-	baseURL        string
-	client         *http.Client
+	secretKey     string
+	webhookSecret string
+	baseURL       string
+	client        *http.Client
 }
 
 // NewStripeProvider создаёт новый Stripe provider.
@@ -46,14 +46,14 @@ func (p *StripeProvider) Name() string {
 func (p *StripeProvider) CreateCheckoutSession(ctx context.Context, params CheckoutParams) (*CheckoutSession, error) {
 	// Формируем данные для Stripe API
 	data := map[string]string{
-		"mode":                    "payment",
-		"success_url":             params.SuccessURL,
-		"cancel_url":              params.CancelURL,
-		"customer_email":          params.Email,
+		"mode":                                "payment",
+		"success_url":                         params.SuccessURL,
+		"cancel_url":                          params.CancelURL,
+		"customer_email":                      params.Email,
 		"line_items[0][price_data][currency]": params.Currency,
 		"line_items[0][price_data][product_data][name]": params.Description,
 		"line_items[0][price_data][unit_amount]":        fmt.Sprintf("%d", params.Amount),
-		"line_items[0][quantity]":                        "1",
+		"line_items[0][quantity]":                       "1",
 		"metadata[order_id]":                            params.OrderID,
 	}
 
@@ -67,7 +67,7 @@ func (p *StripeProvider) CreateCheckoutSession(ctx context.Context, params Check
 	if err != nil {
 		return nil, fmt.Errorf("stripe: create checkout session: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -104,7 +104,7 @@ func (p *StripeProvider) GetSession(ctx context.Context, sessionID string) (*Che
 	if err != nil {
 		return nil, fmt.Errorf("stripe: get session: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -112,13 +112,13 @@ func (p *StripeProvider) GetSession(ctx context.Context, sessionID string) (*Che
 	}
 
 	var result struct {
-		ID           string            `json:"id"`
-		Status       string            `json:"status"`
-		AmountTotal  int64             `json:"amount_total"`
-		Currency     string            `json:"currency"`
-		PaymentStatus string           `json:"payment_status"`
-		CreatedAt    int64             `json:"created"`
-		Metadata     map[string]string `json:"metadata"`
+		ID            string            `json:"id"`
+		Status        string            `json:"status"`
+		AmountTotal   int64             `json:"amount_total"`
+		Currency      string            `json:"currency"`
+		PaymentStatus string            `json:"payment_status"`
+		CreatedAt     int64             `json:"created"`
+		Metadata      map[string]string `json:"metadata"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -139,12 +139,12 @@ func (p *StripeProvider) GetSession(ctx context.Context, sessionID string) (*Che
 	}
 
 	return &CheckoutSession{
-		ID:         result.ID,
-		Status:     status,
-		Amount:     result.AmountTotal,
-		Currency:   result.Currency,
-		Metadata:   result.Metadata,
-		CreatedAt:  createdAt,
+		ID:        result.ID,
+		Status:    status,
+		Amount:    result.AmountTotal,
+		Currency:  result.Currency,
+		Metadata:  result.Metadata,
+		CreatedAt: createdAt,
 	}, nil
 }
 
@@ -192,14 +192,16 @@ func (p *StripeProvider) VerifyWebhookSignature(payload []byte, signature string
 // ParseWebhookEvent парсит Stripe webhook event.
 func (p *StripeProvider) ParseWebhookEvent(payload []byte) (*StripeWebhookEvent, error) {
 	var event struct {
-		Type   string `json:"type"`
-		Data   struct {
+		Type string `json:"type"`
+		Data struct {
 			Object struct {
-				ID           string `json:"id"`
-				Status       string `json:"status"`
-				PaymentStatus string `json:"payment_status"`
-				CreatedAt    int64  `json:"created"`
-				Metadata     map[string]string `json:"metadata"`
+				ID            string            `json:"id"`
+				Status        string            `json:"status"`
+				PaymentStatus string            `json:"payment_status"`
+				AmountTotal   int64             `json:"amount_total"`
+				Currency      string            `json:"currency"`
+				CreatedAt     int64             `json:"created"`
+				Metadata      map[string]string `json:"metadata"`
 			} `json:"object"`
 		} `json:"data"`
 		CreatedAt int64 `json:"created"`
@@ -230,10 +232,13 @@ func (p *StripeProvider) ParseWebhookEvent(payload []byte) (*StripeWebhookEvent,
 	}
 
 	return &StripeWebhookEvent{
-		EventType:  webhookType,
-		CheckoutID: event.Data.Object.ID,
-		Status:     status,
-		CreatedAt:  time.Unix(event.CreatedAt, 0),
+		EventType:   webhookType,
+		Provider:    "stripe",
+		CheckoutID:  event.Data.Object.ID,
+		Status:      status,
+		AmountMinor: event.Data.Object.AmountTotal,
+		Currency:    event.Data.Object.Currency,
+		CreatedAt:   time.Unix(event.CreatedAt, 0),
 	}, nil
 }
 

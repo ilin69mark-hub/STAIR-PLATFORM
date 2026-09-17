@@ -31,6 +31,11 @@ type Config struct {
 	QuoteRateLimit int
 	// QuoteRateWindow — окно rate-limit публичного расчёта.
 	QuoteRateWindow time.Duration
+	// AuthRateLimit — максимум авторизованных запросов с одного пользователя
+	// за окно (STAIR_AUTH_RATE_LIMIT); по умолчанию 200 req/min (router.go).
+	AuthRateLimit int
+	// AuthRateWindow — окно rate-limit авторизованных запросов.
+	AuthRateWindow time.Duration
 	// RedisAddr — адрес Redis для распределённого лимитера; пусто — memory.
 	RedisAddr string
 	// MaxBodyBytes — предельный размер тела запроса (защита от DoS).
@@ -98,6 +103,8 @@ func DefaultConfig() Config {
 		RegisterRateWindow: time.Minute,
 		QuoteRateLimit:     30,
 		QuoteRateWindow:    time.Minute,
+		AuthRateLimit:      200,
+		AuthRateWindow:     time.Minute,
 		MaxBodyBytes:       1 << 20, // 1 MiB
 	}
 }
@@ -136,7 +143,7 @@ func requireAuth(svc AuthService) func(http.Handler) http.Handler {
 			}
 			u, rotatedToken, err := svc.Authenticate(r.Context(), token)
 			if err != nil {
-				clearSessionCookies(w)
+				clearSessionCookies(w, appOrigin(r))
 				writeError(w, http.StatusUnauthorized, "unauthorized", "Сессия истекла или недействительна.")
 				return
 			}
@@ -151,7 +158,7 @@ func requireAuth(svc AuthService) func(http.Handler) http.Handler {
 			}
 			if rotatedToken != "" {
 				// Сессия ротирована: выдаём новый session-cookie (httpOnly).
-				setSessionCookie(w, rotatedToken)
+				setSessionCookie(w, appOrigin(r), rotatedToken)
 			}
 			next.ServeHTTP(w, r.WithContext(withAuthUser(r.Context(), u)))
 		})
@@ -168,11 +175,12 @@ func bearerToken(r *http.Request) string {
 }
 
 // requireCSRF — защита от CSRF для мутирующих запросов (double-submit):
-// заголовок X-CSRF-Token должен совпадать с csrf-cookie. Дополнительно
-// (EDR-0014 §3.3) проверяется Origin/Referer запроса.
+// заголовок X-CSRF-Token должен совпадать с csrf-cookie приложения
+// (csrfCookieFor(appOrigin(r)) — store: «csrf», admin: «csrf_admin»).
+// Дополнительно (EDR-0014 §3.3) проверяется Origin/Referer запроса.
 func requireCSRF(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie(csrfCookieName)
+		cookie, err := r.Cookie(csrfCookieFor(appOrigin(r)))
 		if err != nil || cookie.Value == "" {
 			writeError(w, http.StatusForbidden, "csrf", "Требуется CSRF-токен.")
 			return
@@ -304,18 +312,10 @@ func limitRate(l RateLimiter, next http.Handler) http.Handler {
 // X-Forwarded-For не используется, чтобы rate limiting нельзя было
 // обойти через поддельный заголовок (SEC).
 func clientIP(r *http.Request) string {
-	host, _, err := splitHostPort(r.RemoteAddr)
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
+		// Если нет порта — это просто host.
 		return r.RemoteAddr
 	}
 	return host
-}
-
-func splitHostPort(addr string) (string, string, error) {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		// Если нет порта — это просто host.
-		return addr, "", nil
-	}
-	return host, port, nil
 }

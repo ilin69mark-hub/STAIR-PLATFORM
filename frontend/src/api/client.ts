@@ -5,26 +5,22 @@
 
 import type { ApiErrorBody } from '@shared/types'
 import { ApiError } from '@shared/types'
+import { csrfHeaders, type AppOrigin } from '@shared/api/csrf'
 
-const CSRF_COOKIE = 'csrf'
-
-function csrfToken(): string {
-  return document.cookie
-    .split('; ')
-    .find((c) => c.startsWith(`${CSRF_COOKIE}=`))
-    ?.slice(CSRF_COOKIE.length + 1) ?? ''
-}
+// Admin-приложение (:5174) — origin «admin»: сервер пишет сессионные cookie
+// с суффиксом «_admin» (session_admin/csrf_admin), чтобы не делить host-only
+// cookie с store (:3000) — порт в scope не входит (RFC 6265 §5.1.3). Origin
+// сообщается заголовком X-App-Origin на каждый запрос.
+const APP_ORIGIN: AppOrigin = 'admin'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(init?.headers as Record<string, string> | undefined),
-  }
   const method = (init?.method ?? 'GET').toUpperCase()
   const isMutating = !['GET', 'HEAD', 'OPTIONS'].includes(method)
-  if (isMutating) {
-    const csrf = csrfToken()
-    if (csrf) headers['X-CSRF-Token'] = csrf
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-App-Origin': APP_ORIGIN,
+    ...(isMutating ? csrfHeaders(APP_ORIGIN) : {}),
+    ...(init?.headers as Record<string, string> | undefined),
   }
 
   const res = await fetch(url, {

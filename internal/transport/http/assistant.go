@@ -3,6 +3,8 @@ package http
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 
 	appast "stairplatform/internal/application/assistant"
@@ -43,11 +45,7 @@ func handleAssistantAsk(svc AssistantService) http.HandlerFunc {
 			return
 		}
 
-		cfg, err := toConfig(req.calculateRequest)
-		if err != nil {
-			writeInputError(w, "invalid_input", err)
-			return
-		}
+		cfg := toConfig(req.calculateRequest)
 
 		// Все четыре kind прикладного слоя реализованы (добавляются маршруты
 		// при регистрации Config.Assistant).
@@ -78,7 +76,16 @@ func handleAssistantAsk(svc AssistantService) http.HandlerFunc {
 				writeError(w, 499, "cancelled", "Операция отменена")
 				return
 			}
-			writeInputError(w, "invalid_input", err)
+			// ErrInvalid / ErrNoFeasible — ошибка входных данных (клиент):
+			// 422. Прочие (сбой модели, инфраструктуры, неожиданное) —
+			// 500, чтобы не маскировать внутренние проблемы под ошибку ввода.
+			if errors.Is(err, appast.ErrInvalid) || errors.Is(err, appast.ErrNoFeasible) {
+				writeInputError(w, "invalid_input", err)
+			} else {
+				wrapped := fmt.Sprintf("assistant: %v", err)
+				slog.Error("assistant request failed", "kind", kind, "error", err)
+				writeError(w, http.StatusInternalServerError, "internal", wrapped)
+			}
 			return
 		}
 

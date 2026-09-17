@@ -267,7 +267,7 @@ func (r *ProjectRepository) SaveConfiguration(ctx context.Context, c *project.St
 			step_height_mm, stringer_thickness_mm, step_thickness_mm, riser, clearance_mm,
 			railing_height_mm, comfort_step_mm, landing_width_mm, landing_depth_mm,
 			room_width_mm, room_length_mm, approach_space_mm, lower_step_count, outer_radius_mm, revision)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
 		   (SELECT COALESCE(MAX(s.revision),0)+1 FROM stair_configurations s WHERE s.project_id = $1))
 		 RETURNING id, created_at, updated_at, revision`,
 		c.ProjectID, c.WidthMM, c.HeightMM, c.Flight, c.StepHeightMM,
@@ -419,7 +419,7 @@ func (r *ProjectRepository) SaveCalculationWithConfig(ctx context.Context, tenan
 			step_height_mm, stringer_thickness_mm, step_thickness_mm, riser, clearance_mm,
 			railing_height_mm, comfort_step_mm, landing_width_mm, landing_depth_mm,
 			room_width_mm, room_length_mm, approach_space_mm, lower_step_count, outer_radius_mm, revision)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17,
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
 		   (SELECT COALESCE(MAX(s.revision),0)+1 FROM stair_configurations s WHERE s.project_id = $1))
 		 RETURNING id, created_at, updated_at, revision`,
 		cfg.ProjectID, cfg.WidthMM, cfg.HeightMM, cfg.Flight, cfg.StepHeightMM,

@@ -36,9 +36,9 @@ func TestRequestIDCarriedFromHeader(t *testing.T) {
 }
 
 func TestPanicRecovered(t *testing.T) {
-	handler := withLogging(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := PanicRecoveryMiddleware(withLogging(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		panic("boom")
-	}))
+	})))
 	req := httptest.NewRequest(http.MethodGet, "/panic", nil)
 	rec := httptest.NewRecorder()
 

@@ -41,16 +41,12 @@ func NewRevision(author, reason string, snapshot any) (*Revision, error) {
 	if reason == "" {
 		return nil, fmt.Errorf("revision: reason is required")
 	}
-	checksum, err := checksum(snapshot)
-	if err != nil {
-		return nil, err
-	}
 	return &Revision{
 		ID:        newRevisionID(),
 		Timestamp: time.Now().UTC(),
 		Author:    author,
 		Reason:    reason,
-		Checksum:  checksum,
+		Checksum:  checksum(snapshot),
 		State:     RevisionDraft,
 	}, nil
 }
@@ -107,7 +103,7 @@ func newRevisionID() string {
 }
 
 // checksum формирует детерминированный SHA-256 снапшота.
-func checksum(v any) (string, error) {
+func checksum(v any) string {
 	h := sha256.New()
 	switch t := v.(type) {
 	case string:
@@ -117,5 +113,5 @@ func checksum(v any) (string, error) {
 	default:
 		_, _ = fmt.Fprintf(h, "%+v", t)
 	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return hex.EncodeToString(h.Sum(nil))
 }

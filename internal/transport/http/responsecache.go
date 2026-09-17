@@ -20,10 +20,6 @@ var (
 		"response_cache_misses_total",
 		"Total cache misses",
 	)
-	cacheSize = cacheRegistry.Gauge(
-		"response_cache_entries",
-		"Current number of cache entries",
-	)
 )
 
 // ResponseCacheEntry элемент кеша ответов.
@@ -77,6 +73,14 @@ func ResponseCacheMiddleware(cfg ResponseCacheConfig) func(http.Handler) http.Ha
 				return
 			}
 
+			// Identity-запросы (Cookie/API-key) НЕ кэшируем и не отдаём из кэша:
+			// ответы зависят от субъекта (session user / api key) и могли бы
+			// «протечь» другому пользователю (например, списки заказов).
+			if isIdentityBearerRequest(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			// Проверяем кеш
 			key := r.URL.Path + "?" + r.URL.RawQuery
 			if entry, ok := cache.Get(key); ok {
@@ -85,7 +89,7 @@ func ResponseCacheMiddleware(cfg ResponseCacheConfig) func(http.Handler) http.Ha
 				}
 				w.Header().Set("X-Cache", "HIT")
 				w.WriteHeader(entry.StatusCode)
-				w.Write(entry.Body)
+				_, _ = w.Write(entry.Body)
 				cacheHits.With().Inc()
 				return
 			}
@@ -98,8 +102,9 @@ func ResponseCacheMiddleware(cfg ResponseCacheConfig) func(http.Handler) http.Ha
 			}
 			next.ServeHTTP(cw, r)
 
-			// Сохраняем в кеш только успешные ответы
-			if cw.statusCode >= 200 && cw.statusCode < 300 {
+			// Сохраняем в кеш только успешные ответы, не выставляющие cookies
+			// (Set-Cookie — признак сессионного/персонального ответа).
+			if cw.statusCode >= 200 && cw.statusCode < 300 && cw.Header().Get("Set-Cookie") == "" {
 				cache.Set(key, &ResponseCacheEntry{
 					Body:       cw.body.Bytes(),
 					StatusCode: cw.statusCode,
@@ -112,6 +117,30 @@ func ResponseCacheMiddleware(cfg ResponseCacheConfig) func(http.Handler) http.Ha
 			cacheMisses.With().Inc()
 		})
 	}
+}
+
+// isIdentityBearerRequest определяет, несёт ли запрос признаки аутентификации:
+// session-cookie (браузер) или Authorization: Bearer <api-key> (интеграции).
+func isIdentityBearerRequest(r *http.Request) bool {
+	authorization := r.Header.Get("Authorization")
+	if len(authorization) > 0 {
+		return true
+	}
+	cookies := r.Cookies()
+	for _, c := range cookies {
+		// Кэшу важны только авторизационные слова; персональные данные
+		// (например, cookies согласий) на кэшируемость не влияют.
+		// Учитываются оба app-origin (store: session/csrf; admin: _admin).
+		switch c.Name {
+		case sessionCookieName, csrfCookieName,
+			sessionCookieName+adminOriginCookieSuffix,
+			csrfCookieName+adminOriginCookieSuffix:
+			if c.Value != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // responseCache thread-safe in-memory cache.
@@ -204,7 +233,7 @@ type cacheWriter struct {
 func (w *cacheWriter) WriteHeader(code int) {
 	w.statusCode = code
 	// Копируем заголовки
-	for k, v := range w.ResponseWriter.Header() {
+	for k, v := range w.Header() {
 		w.headers[k] = v
 	}
 	w.ResponseWriter.WriteHeader(code)

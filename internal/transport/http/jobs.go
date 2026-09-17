@@ -36,11 +36,7 @@ func handleCalculateAsync(svc JobsService) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
-		cfg, err := toConfig(req)
-		if err != nil {
-			writeInputError(w, "invalid_input", err)
-			return
-		}
+		cfg := toConfig(req)
 		opts, err := toOptions(req)
 		if err != nil {
 			writeInputError(w, "invalid_rates", err)

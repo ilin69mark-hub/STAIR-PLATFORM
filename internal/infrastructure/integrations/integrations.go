@@ -122,7 +122,7 @@ func Verify(secret string, tsUnix, sigValue string, body []byte, maxAge time.Dur
 	if err != nil {
 		return err
 	}
-	if !hmac.Equal([]byte(sig), []byte(normalizeSigValue(sigValue))) {
+	if !hmac.Equal(sig, []byte(normalizeSigValue(sigValue))) {
 		return errors.New("integrations: signature mismatch")
 	}
 	return nil
@@ -134,7 +134,7 @@ func Sign(secret string, ts int64, body []byte) ([]byte, error) {
 		return nil, errors.New("integrations: empty secret")
 	}
 	mac := hmac.New(sha256.New, []byte(secret))
-	if _, err := mac.Write([]byte(fmt.Sprintf("%d.", ts))); err != nil {
+	if _, err := fmt.Fprintf(mac, "%d.", ts); err != nil {
 		return nil, err
 	}
 	if _, err := mac.Write(body); err != nil {

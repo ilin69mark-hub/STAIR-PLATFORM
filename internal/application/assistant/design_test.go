@@ -51,6 +51,10 @@ func optResult(flight engineering.FlightType, priceMajor float64, comfort float6
 		},
 	}
 	switch flight {
+	case engineering.FlightStraight:
+		res.Flight = solver.FlightResult{
+			StepCount: 15, StepHeight: engineering.Length(180), TreadDepth: engineering.Length(tread),
+		}
 	case engineering.FlightLShape:
 		res.LShape = &solver.LShapeResult{
 			StepCount: 15, StepHeight: engineering.Length(180), TreadDepth: engineering.Length(tread),
@@ -198,6 +202,8 @@ func engResult(flight engineering.FlightType, h, b float64, blocking bool) *stai
 		Validation: validation.Result{Blocking: blocking},
 	}
 	switch flight {
+	case engineering.FlightStraight:
+		res.Flight = solver.FlightResult{StepCount: 15, StepHeight: engineering.Length(h), TreadDepth: engineering.Length(b)}
 	case engineering.FlightLShape:
 		res.LShape = &solver.LShapeResult{StepCount: 15, StepHeight: engineering.Length(h), TreadDepth: engineering.Length(b)}
 	case engineering.FlightUShape:

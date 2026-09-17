@@ -44,11 +44,7 @@ func handlePublicQuote(svc StairService) http.HandlerFunc {
 			return
 		}
 
-		cfg, err := toConfig(req)
-		if err != nil {
-			writeInputError(w, "invalid_input", err)
-			return
-		}
+		cfg := toConfig(req)
 		opts, err := toOptions(req)
 		if err != nil {
 			writeInputError(w, "invalid_rates", err)

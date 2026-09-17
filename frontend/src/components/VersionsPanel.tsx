@@ -25,10 +25,12 @@ export function VersionsPanel({ projectId }: Props) {
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
 
-  const canRestore = members.some((m) => {
-    if (user && m.user_id !== user.id) return false
-    return m.role === 'owner' || m.role === 'editor'
-  })
+  // Восстановление доступно владельцу или редактору проекта. Контролируем
+  // самого пользователя: anonymous (user == null) права на восстановление
+  // не получает — иначе кнопка «Восстановить» светилась бы любому, если в
+  // проекте есть хоть один owner/editor.
+  const canRestore =
+    !!user && members.some((m) => m.user_id === user.id && (m.role === 'owner' || m.role === 'editor'))
 
   const load = () => {
     setLoading(true)
@@ -62,13 +64,14 @@ export function VersionsPanel({ projectId }: Props) {
   return (
     <section className="panel">
       <h2 className="panel__title">Версии</h2>
+      <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Каждая калькуляция/оптимизация создаёт новую версию. Текущая — активная, остальные можно восстановить.</p>
       {error && <div className="alert alert--error">{error}</div>}
       {saved && <div className="alert alert--ok">Версия восстановлена.</div>}
       {loading ? (
         <p className="muted">Загрузка…</p>
       ) : (
         <ul className="comment-list">
-          {configs.length === 0 && <p className="muted">Версий пока нет.</p>}
+          {configs.length === 0 && <p className="muted">Версий пока нет. Нажмите «Рассчитать» — каждая калькуляция создаёт новую версию.</p>}
           {configs.map((c) => (
             <li className="comment" key={c.id}>
               <div className="comment__meta">

@@ -34,8 +34,12 @@ func TestDocumentPipeline_Execute(t *testing.T) {
 		Name:        "BOM Spec",
 		ContentType: "application/json",
 	}
-	engine.RegisterTemplate(tpl1, `{"config": "{{.ConfigID}}"}`)
-	engine.RegisterTemplate(tpl2, `{"config": "{{.ConfigID}}"}`)
+	if err := engine.RegisterTemplate(tpl1, `{"config": "{{.ConfigID}}"}`); err != nil {
+		t.Fatalf("failed to register template: %v", err)
+	}
+	if err := engine.RegisterTemplate(tpl2, `{"config": "{{.ConfigID}}"}`); err != nil {
+		t.Fatalf("failed to register template: %v", err)
+	}
 
 	events := &mockEventPublisher{}
 	pipeline := NewDocumentPipeline(engine, events)
@@ -112,8 +116,12 @@ func TestDocumentPipeline_NilEvents(t *testing.T) {
 		Name:        "BOM Spec",
 		ContentType: "application/json",
 	}
-	engine.RegisterTemplate(tpl1, `{"config": "{{.ConfigID}}"}`)
-	engine.RegisterTemplate(tpl2, `{"config": "{{.ConfigID}}"}`)
+	if err := engine.RegisterTemplate(tpl1, `{"config": "{{.ConfigID}}"}`); err != nil {
+		t.Fatalf("failed to register template: %v", err)
+	}
+	if err := engine.RegisterTemplate(tpl2, `{"config": "{{.ConfigID}}"}`); err != nil {
+		t.Fatalf("failed to register template: %v", err)
+	}
 
 	// nil events should not panic
 	pipeline := NewDocumentPipeline(engine, nil)

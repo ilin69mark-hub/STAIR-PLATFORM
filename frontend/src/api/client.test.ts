@@ -116,7 +116,7 @@ describe('post', () => {
   it('добавляет X-CSRF-Token из cookie на мутирующий запрос', async () => {
     const fn = fetchMock()
     fn.mockResolvedValue(jsonResponse(201, '{}'))
-    document.cookie = 'csrf=secret-nonce; path=/'
+    document.cookie = 'csrf_admin=secret-nonce; path=/'
     await post('/api/v1/projects', { name: 'n' })
     const [, init] = fn.mock.calls[0]
     const headers = init.headers as Record<string, string>

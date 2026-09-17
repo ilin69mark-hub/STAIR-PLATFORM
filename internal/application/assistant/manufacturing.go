@@ -57,7 +57,7 @@ func (manufacturingExpert) analyze(ctx context.Context, tools *Tools, req Reques
 	rating := mfgRating(findings, res.Package)
 
 	resp := &Response{
-		Recommendation: mfgRecommendation(res.Package, res.Cost, findings),
+		Recommendation: mfgRecommendation(findings),
 		Rating:         rating,
 		Findings:       findings,
 		Suggestions:    mfgSuggestions(res.Package),
@@ -128,7 +128,7 @@ func mfgRating(findings []Finding, pkg *dommfg.ManufacturingPackage) float64 {
 }
 
 // mfgRecommendation формулирует главный вывод.
-func mfgRecommendation(pkg *dommfg.ManufacturingPackage, cost *dommfg.ManufacturingCostDataset, findings []Finding) string {
+func mfgRecommendation(findings []Finding) string {
 	if len(findings) == 0 {
 		return "Конфигурация готова к производству: раскрой полноценный, отходы в норме."
 	}

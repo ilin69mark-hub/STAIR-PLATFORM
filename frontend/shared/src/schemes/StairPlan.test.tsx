@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import { ANNOTATE } from '../scheme-annot'
 import { StairPlan } from './StairPlan'
 import type { PlanExtras, PlanFlight } from './StairPlan'
 
@@ -88,9 +89,12 @@ describe('StairPlan', () => {
     expect(screen.getByText(/Свободное место 1 000 мм/)).toBeInTheDocument()
   })
 
-  it('прямой план не рисует зону подхода без approachSpace', () => {
+  it('прямой план рисует зону подхода по умолчанию (1000 мм) без approachSpace', () => {
     const { container } = render(<StairPlan flight={base} kind="straight" solver={{}} />)
-    expect(container.querySelectorAll('rect.scheme__approach').length).toBe(0)
+    // EDR-0023: свободное пространство перед первой ступенью обязательно
+    // (норма 1000–1200 мм); без явного approachSpace рисуется дефолт 1000 мм.
+    expect(container.querySelectorAll('rect.scheme__approach').length).toBe(1)
+    expect(screen.getByText(/Свободное место 1 000 мм/)).toBeInTheDocument()
   })
 
   it('использует фиксированный канвас как у профиля', () => {
@@ -124,13 +128,15 @@ describe('StairPlan', () => {
   it('рисует временную цвето-буквенную разметку периметра и рёбер при наличии комнаты', () => {
     const solver: PlanExtras = { roomWidth: 5000, roomLength: 5000, roomFits: true, direction: 'right' }
     const first = render(<StairPlan flight={base} kind="straight" solver={solver} />)
-    // Стороны периметра: В/Н/П/Л.
-    for (const w of ['В', 'Н', 'П', 'Л']) {
-      expect(screen.getByText(w)).toBeInTheDocument()
-    }
-    // Рёбра марша: 1В/1Н/1П/1Л (каждое своим цветом).
-    for (const e of ['1В', '1Н', '1П', '1Л']) {
-      expect(screen.getByText(e)).toBeInTheDocument()
+    if (ANNOTATE) {
+      // Стороны периметра: В/Н/П/Л.
+      for (const w of ['В', 'Н', 'П', 'Л']) {
+        expect(screen.getByText(w)).toBeInTheDocument()
+      }
+      // Рёбра марша: 1В/1Н/1П/1Л (каждое своим цветом).
+      for (const e of ['1В', '1Н', '1П', '1Л']) {
+        expect(screen.getByText(e)).toBeInTheDocument()
+      }
     }
     first.unmount()
     // Без комнаты разметка не рисуется.

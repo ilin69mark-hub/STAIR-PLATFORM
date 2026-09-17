@@ -42,11 +42,7 @@ func ValidateEmail(email string) bool {
 
 	// Простой regex для local part
 	localRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+$`)
-	if !localRegex.MatchString(local) {
-		return false
-	}
-
-	return true
+	return localRegex.MatchString(local)
 }
 
 // SanitizeString очищает строку от потенциально опасных символов.

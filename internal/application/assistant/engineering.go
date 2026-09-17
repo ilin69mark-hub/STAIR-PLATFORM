@@ -86,7 +86,7 @@ func (engineeringExpert) analyze(ctx context.Context, tools *Tools, req Request)
 // collectPipelineFindings превращает неблокирующие нарушения валидации и
 // замечания геометрии в Findings ассистента.
 func collectPipelineFindings(res *stair.Result) []Finding {
-	var out []Finding
+	out := make([]Finding, 0, len(res.Validation.Issues)+len(res.GeometryIssues))
 	for _, iss := range res.Validation.Issues {
 		out = append(out, Finding{
 			Severity: "warning",

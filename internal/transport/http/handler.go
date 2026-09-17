@@ -66,11 +66,7 @@ func handleCalculate(svc StairService, auditSvc AuditService) http.HandlerFunc {
 			return
 		}
 
-		cfg, err := toConfig(req)
-		if err != nil {
-			writeInputError(w, "invalid_input", err)
-			return
-		}
+		cfg := toConfig(req)
 		opts, err := toOptions(req)
 		if err != nil {
 			writeInputError(w, "invalid_rates", err)
@@ -142,11 +138,7 @@ func handleOptimize(svc StairService) http.HandlerFunc {
 			return
 		}
 
-		cfg, err := toConfig(req.calculateRequest)
-		if err != nil {
-			writeInputError(w, "invalid_input", err)
-			return
-		}
+		cfg := toConfig(req.calculateRequest)
 		opts, err := toOptions(req.calculateRequest)
 		if err != nil {
 			writeInputError(w, "invalid_rates", err)

@@ -94,7 +94,7 @@ export function MembersPanel({ projectId }: Props) {
                   ))}
                 </select>
               ) : (
-                <span className="member__role member__role--static">{roleLabels[m.role]}</span>
+                <span className={`role-badge role-badge--${m.role}`}>{roleLabels[m.role]}</span>
               )}
               {canManage && m.role !== 'owner' && (
                 <button

@@ -31,7 +31,7 @@ func TestPanicRecoveryMiddleware_CatchesPanic(t *testing.T) {
 
 func TestPanicRecoveryMiddleware_NonPanic(t *testing.T) {
 	handler := PanicRecoveryMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)

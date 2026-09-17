@@ -36,12 +36,12 @@ describe('computePlacement', () => {
     expect(computePlacement('l_shape', 'left', 4000, 0, bb, -1)).toEqual({ offsetX: 0, offsetY: 0 })
   })
 
-  it('прямой: 1В->В, 1Л->Л, фикс (direction игнорируется)', () => {
+  it('прямой: 1Н->Н, 1Л->Л, фикс (direction игнорируется)', () => {
     for (const dir of ['right', 'left', undefined] as const) {
       const p = computePlacement('straight', dir, rw, rl, bb)
       expect(p.offsetX).toBe(0 - bb.minX)
-      expect(p.offsetY).toBe(rl - bb.maxY)
-      hitsWall('straight', dir, '1В')
+      expect(p.offsetY).toBe(0 - bb.minY) // 1Н→Н (ближняя стена), направление игнорируется
+      hitsWall('straight', dir, '1Н')
       hitsWall('straight', dir, '1Л')
     }
   })
