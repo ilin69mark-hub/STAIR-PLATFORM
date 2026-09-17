@@ -325,6 +325,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Normalize repo name for GHCR (must be lowercase)
+        id: repo
+        run: echo "image_repo=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push API
         uses: docker/build-push-action@v5
         with:
@@ -332,8 +336,8 @@ jobs:
           file: deployments/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/api:latest
-            ghcr.io/${{ github.repository }}/api:${{ github.sha }}
+            ghcr.io/${{ steps.repo.outputs.image_repo }}/api:latest
+            ghcr.io/${{ steps.repo.outputs.image_repo }}/api:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -344,8 +348,8 @@ jobs:
           file: deployments/store.Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/store:latest
-            ghcr.io/${{ github.repository }}/store:${{ github.sha }}
+            ghcr.io/${{ steps.repo.outputs.image_repo }}/store:latest
+            ghcr.io/${{ steps.repo.outputs.image_repo }}/store:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -356,7 +360,7 @@ jobs:
           file: deployments/admin.Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/admin:latest
-            ghcr.io/${{ github.repository }}/admin:${{ github.sha }}
+            ghcr.io/${{ steps.repo.outputs.image_repo }}/admin:latest
+            ghcr.io/${{ steps.repo.outputs.image_repo }}/admin:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
