@@ -300,6 +300,7 @@ func setSessionCookies(w http.ResponseWriter, origin string, token string) {
 func setSessionCookie(w http.ResponseWriter, origin string, token string) {
 	http.SetCookie(w, &http.Cookie{ // #nosec G124 // Secure управляется STAIR_COOKIE_SECURE
 		Name:     sessionCookieFor(origin),
+		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
