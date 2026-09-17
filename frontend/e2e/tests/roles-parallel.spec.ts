@@ -5,7 +5,7 @@ import { register, uniqueEmail } from '../helpers/auth'
 test.describe.serial('роли и параллель', () => {
   test.setTimeout(300_000)
 
-  test('editor/viewer и 10 параллельных calculate', async ({ page, request }) => {
+  test('editor/viewer и 10 параллельных calculate', async ({ page }) => {
     const ownerEmail = uniqueEmail()
     await register(page, ownerEmail)
     // создаём проект как owner
