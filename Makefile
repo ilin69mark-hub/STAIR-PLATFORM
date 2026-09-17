@@ -10,7 +10,7 @@ NPM       ?= npm
 # Host-side DB URL (used by migrate/seed/run). Default matches docker-compose.
 STAIR_DATABASE_URL ?= postgres://stair:stair@127.0.0.1:5432/stair_platform?sslmode=disable
 
-.PHONY: setup up stop run test coverage coverage-check migrate seed lint build fmt vet env-up env-down clean frontend-install frontend-test frontend-build fe store admin frontends store-logs admin-logs
+.PHONY: setup up stop run test coverage coverage-check migrate seed lint build fmt vet env-up env-down clean frontend-install frontend-test frontend-build fe store admin frontends store-logs admin-logs bench backup restore backup-check
 
 ## start the whole stack (PostgreSQL + Redis + API + store + admin frontends),
 ## rebuild images, apply migrations. Frontends: store :3000, admin :5174.
@@ -66,6 +66,25 @@ coverage:
 ## coverage quality gate (default threshold 85%; override with COVERAGE_THRESHOLD)
 coverage-check:
 	./scripts/coverage-check.sh
+
+## performance baseline: Go benchmarks (calc/optimize/generate, memory stats)
+## save to file: make bench BENCH_OUT=benchmarks/baseline.txt
+BENCH_OUT ?=
+bench:
+	$(GO) test -run '^$$' -bench . -benchmem -count=1 ./internal/... $(if $(BENCH_OUT),| tee $(BENCH_OUT),)
+
+## database backup (custom format + checksum + metadata) -> BACKUP_DIR (default ./backups)
+backup:
+	./scripts/db-backup.sh
+
+## database restore: make restore FILE=backups/<dump> [TARGET_DB=...] [FORCE=1]
+restore:
+	@test -n "$(FILE)" || (echo "usage: make restore FILE=backups/<dump> [TARGET_DB=name] [FORCE=1]" && exit 2)
+	./scripts/db-restore.sh "$(FILE)"
+
+## verify backup/restore reversibility (backup -> restore into temp DB -> compare)
+backup-check:
+	./scripts/db-backup-restore-check.sh
 
 ## database migrations
 migrate:

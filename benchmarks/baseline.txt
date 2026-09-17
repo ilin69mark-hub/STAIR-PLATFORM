@@ -1,0 +1,160 @@
+# STAIR PLATFORM — performance baseline
+# date: 2026-09-17T19:54:29Z
+# host: Darwin arm64 / Apple M4
+# cmd:  go test -run '^$' -bench . -benchmem -count=1 -benchtime=300ms ./internal/...
+
+PASS
+ok  	stairplatform/internal/application/analytics	0.354s
+PASS
+ok  	stairplatform/internal/application/assistant	0.350s
+PASS
+ok  	stairplatform/internal/application/audit	0.348s
+PASS
+ok  	stairplatform/internal/application/auth	0.490s
+PASS
+ok  	stairplatform/internal/application/integrations	0.351s
+PASS
+ok  	stairplatform/internal/application/jobs	0.433s
+PASS
+ok  	stairplatform/internal/application/order	0.361s
+PASS
+ok  	stairplatform/internal/application/payments	0.416s
+PASS
+ok  	stairplatform/internal/application/project	0.432s
+goos: darwin
+goarch: arm64
+pkg: stairplatform/internal/application/stair
+cpu: Apple M4
+BenchmarkCalculateFlights/straight-10         	     682	    478060 ns/op	 1168787 B/op	   13443 allocs/op
+BenchmarkCalculateFlights/lshape-10           	     616	    587647 ns/op	 1312123 B/op	   18683 allocs/op
+BenchmarkCalculateFlights/ushape-10           	     603	    606903 ns/op	 1311823 B/op	   18685 allocs/op
+BenchmarkCalculateFlights/spiral-10           	     421	    861789 ns/op	 2209361 B/op	   24817 allocs/op
+BenchmarkOptimizePrice-10                     	     208	   1494659 ns/op	 3516062 B/op	   40398 allocs/op
+BenchmarkOptimizeCost-10                      	      19	  17646156 ns/op	38994770 B/op	  544388 allocs/op
+BenchmarkCalculatePipeline-10                 	     738	    501769 ns/op	 1168839 B/op	   13444 allocs/op
+PASS
+ok  	stairplatform/internal/application/stair	3.203s
+PASS
+ok  	stairplatform/internal/application/storage	0.382s
+PASS
+ok  	stairplatform/internal/application/testimonial	0.325s
+PASS
+ok  	stairplatform/internal/domain/document	0.398s
+PASS
+ok  	stairplatform/internal/domain/engineering	0.392s
+PASS
+ok  	stairplatform/internal/domain/events	0.314s
+PASS
+ok  	stairplatform/internal/domain/manufacturing	0.411s
+PASS
+ok  	stairplatform/internal/domain/pricing	0.416s
+PASS
+ok  	stairplatform/internal/engine/advisor	0.352s
+PASS
+ok  	stairplatform/internal/engine/constraint	0.487s
+PASS
+ok  	stairplatform/internal/engine/document	0.398s
+goos: darwin
+goarch: arm64
+pkg: stairplatform/internal/engine/geometry
+cpu: Apple M4
+BenchmarkGenerateStraight/steps=10-10         	    1474	    244788 ns/op	  633562 B/op	    8171 allocs/op
+BenchmarkGenerateStraight/steps=15-10         	    1096	    360598 ns/op	  946731 B/op	   12003 allocs/op
+BenchmarkGenerateStraight/steps=20-10         	     799	    460544 ns/op	 1285322 B/op	   15818 allocs/op
+BenchmarkGenerateSpiral/steps=10-10           	    1136	    340425 ns/op	  986111 B/op	   10766 allocs/op
+BenchmarkGenerateSpiral/steps=15-10           	     774	    462274 ns/op	 1483458 B/op	   15885 allocs/op
+BenchmarkGenerateSpiral/steps=20-10           	     543	    657138 ns/op	 2013334 B/op	   21004 allocs/op
+BenchmarkToPreviewMesh-10                     	    3548	    106013 ns/op	  461648 B/op	    1823 allocs/op
+BenchmarkBuildSpiralFlight/steps=10-10        	    9631	     38054 ns/op	   86136 B/op	    2998 allocs/op
+BenchmarkBuildSpiralFlight/steps=15-10        	    6634	     56142 ns/op	  127288 B/op	    4428 allocs/op
+BenchmarkBuildSpiralFlight/steps=20-10        	    4808	     76045 ns/op	  168456 B/op	    5858 allocs/op
+PASS
+ok  	stairplatform/internal/engine/geometry	4.602s
+PASS
+ok  	stairplatform/internal/engine/graph	0.342s
+goos: darwin
+goarch: arm64
+pkg: stairplatform/internal/engine/manufacturing
+cpu: Apple M4
+BenchmarkDecompose-10      	    6631	     54307 ns/op	  181936 B/op	    1272 allocs/op
+BenchmarkManufacture-10    	    4852	     70547 ns/op	  196235 B/op	    1353 allocs/op
+BenchmarkNest-10           	   55438	      6494 ns/op	   17416 B/op	      53 allocs/op
+PASS
+ok  	stairplatform/internal/engine/manufacturing	1.782s
+PASS
+ok  	stairplatform/internal/engine/optimization	0.396s
+PASS
+ok  	stairplatform/internal/engine/pipeline	0.376s
+PASS
+ok  	stairplatform/internal/engine/pricing	0.408s
+PASS
+ok  	stairplatform/internal/engine/scheduler	0.470s
+PASS
+ok  	stairplatform/internal/engine/search	0.372s
+goos: darwin
+goarch: arm64
+pkg: stairplatform/internal/engine/solver
+cpu: Apple M4
+BenchmarkSolveStraight-10    	  371905	       863.5 ns/op	    3208 B/op	      35 allocs/op
+BenchmarkSolveLShape-10      	  385036	       925.9 ns/op	    3336 B/op	      36 allocs/op
+BenchmarkSolveSpiral-10      	  368817	       919.9 ns/op	    3320 B/op	      36 allocs/op
+PASS
+ok  	stairplatform/internal/engine/solver	1.712s
+PASS
+ok  	stairplatform/internal/engine/validation	0.354s
+PASS
+ok  	stairplatform/internal/engine/variation	0.386s
+goos: darwin
+goarch: arm64
+pkg: stairplatform/internal/geometry
+cpu: Apple M4
+BenchmarkTriangulate/face5-10         	 3307022	       102.6 ns/op	     304 B/op	       5 allocs/op
+BenchmarkTriangulate/face18-10        	  784113	       469.9 ns/op	    1104 B/op	       5 allocs/op
+BenchmarkTriangulate/face41-10        	  214084	      1665 ns/op	    2880 B/op	       7 allocs/op
+PASS
+ok  	stairplatform/internal/geometry	1.596s
+PASS
+ok  	stairplatform/internal/infrastructure/cache	0.354s
+PASS
+ok  	stairplatform/internal/infrastructure/cad	0.447s
+PASS
+ok  	stairplatform/internal/infrastructure/circuitbreaker	0.366s
+PASS
+ok  	stairplatform/internal/infrastructure/database	0.462s
+PASS
+ok  	stairplatform/internal/infrastructure/events	0.496s
+PASS
+ok  	stairplatform/internal/infrastructure/health	0.392s
+PASS
+ok  	stairplatform/internal/infrastructure/i18n	0.384s
+goos: darwin
+goarch: arm64
+pkg: stairplatform/internal/infrastructure/integrations
+cpu: Apple M4
+BenchmarkSign-10    	 1068864	       321.8 ns/op	     720 B/op	      11 allocs/op
+PASS
+ok  	stairplatform/internal/infrastructure/integrations	0.907s
+PASS
+ok  	stairplatform/internal/infrastructure/jwt	0.345s
+PASS
+ok  	stairplatform/internal/infrastructure/metrics	0.322s
+PASS
+ok  	stairplatform/internal/infrastructure/oidc	0.403s
+PASS
+ok  	stairplatform/internal/infrastructure/payments	0.419s
+PASS
+ok  	stairplatform/internal/infrastructure/queue	0.409s
+PASS
+ok  	stairplatform/internal/infrastructure/security	0.352s
+PASS
+ok  	stairplatform/internal/infrastructure/storage	0.383s
+PASS
+ok  	stairplatform/internal/infrastructure/tracing	0.479s
+PASS
+ok  	stairplatform/internal/infrastructure/validation	0.398s
+PASS
+ok  	stairplatform/internal/transport/graphql	0.381s
+PASS
+ok  	stairplatform/internal/transport/http	0.457s
+PASS
+ok  	stairplatform/internal/transport/websocket	0.421s

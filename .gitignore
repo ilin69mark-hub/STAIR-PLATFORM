@@ -30,3 +30,7 @@ frontend/*.tsbuildinfo
 # Local tooling
 .opencode/
 *.bck.yml
+
+# Backups
+backups/
+bench.out
