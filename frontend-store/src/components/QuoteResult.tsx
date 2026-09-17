@@ -127,7 +127,7 @@ export function QuoteResult({
           </div>
         )}
 
-        {!quote.validation.blocking && quote.mesh && quote.mesh.Vertices.length > 0 && (
+        {!quote.validation.blocking && quote.mesh?.Vertices?.length && quote.mesh?.Triangles && (
           <div className="scheme-3d">
             <h3 className="scheme-3d__title">3D-модель</h3>
             <Suspense fallback={<p className="muted">Загрузка 3D…</p>}>
