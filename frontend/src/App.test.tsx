@@ -281,6 +281,22 @@ describe('App routing', () => {
     )
   })
 
+  it('создание проекта обновляет список и открывает новый проект', async () => {
+    authMock.state.user = regularUser
+    projectsMock.create.mockResolvedValueOnce({ ...project, id: 'p-2', name: 'Винтовая лестница' })
+    renderApp()
+    fireEvent.change(await screen.findByLabelText('Название *'), { target: { value: 'Винтовая лестница' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Создать проект' }))
+    await waitFor(() =>
+      expect(projectsMock.create).toHaveBeenCalledWith({ name: 'Винтовая лестница', description: '' }),
+    )
+    // onCreated → void refresh() (перезагрузка списка) + переход на детали нового проекта
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '← Проекты' })).toBeInTheDocument(),
+    )
+    expect(projectsMock.list).toHaveBeenCalled()
+  })
+
   it('выход из системы вызывает logout и возвращает на страницу входа', async () => {
     authMock.state.user = adminUser
     renderApp()
@@ -294,5 +310,14 @@ describe('App routing', () => {
     authMock.state.user = regularUser
     renderApp()
     await waitFor(() => expect(screen.getByText('HTTP 500')).toBeInTheDocument())
+  })
+
+  it('не-ApiError ошибка списка показывает общее сообщение', async () => {
+    projectsMock.list.mockRejectedValueOnce(new Error('boom'))
+    authMock.state.user = regularUser
+    renderApp()
+    await waitFor(() =>
+      expect(screen.getByText('Не удалось загрузить проекты')).toBeInTheDocument(),
+    )
   })
 })
