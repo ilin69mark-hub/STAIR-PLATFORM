@@ -259,6 +259,9 @@ jobs:
           STAIR_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_platform_test?sslmode=disable
           STAIR_HTTP_ADDR: :8080
           STAIR_SESSION_TTL: 86400
+          # Матрица шлёт 2000 quote-расчётов параллельно (4 воркера/шард):
+          # дефолтный лимит 30/мин на IP выбивает 429 и роняет кейсы.
+          STAIR_QUOTE_RATE_LIMIT: 600
 
       - name: Run matrix shard ${{ matrix.shard }}/8
         run: npx playwright test e2e/tests/quote-matrix-generated.spec.ts --shard=${{ matrix.shard }}/8
