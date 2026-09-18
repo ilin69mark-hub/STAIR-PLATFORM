@@ -6,6 +6,7 @@ import { StairProfile } from '@shared/schemes/StairProfile'
 import { StairPlan } from '@shared/schemes/StairPlan'
 import { NestingMap } from '@shared/schemes/NestingMap'
 import { VariationPicker } from '@shared/components/VariationPicker'
+import { elementLabel, severityLabel } from '@shared/validationText'
 import { schematicOf } from './snapshotView'
 
 const GeometryViewer = lazy(() =>
@@ -193,8 +194,7 @@ function ValidationPanel({
       <table className="table">
         <thead>
           <tr>
-            <th>Код</th>
-            <th>Severity</th>
+            <th>Важность</th>
             <th>Элемент</th>
             <th>Сообщение</th>
             <th>Что поправить</th>
@@ -204,10 +204,9 @@ function ValidationPanel({
         <tbody>
           {issues.map((i, idx) => (
             <tr key={idx} className={i.Severity === 'error' ? 'row--error' : ''}>
-              <td>{i.Code}</td>
-              <td>{i.Severity}</td>
-              <td>{i.Element}</td>
-              <td>{i.Guide ?? i.Message}</td>
+              <td>{severityLabel(i.Severity)}</td>
+              <td>{elementLabel(i.Element)}</td>
+              <td>{i.Guide ?? i.Message ?? '—'}</td>
               <td>{i.Param ?? '—'}</td>
               <td>{i.Fix ?? '—'}</td>
             </tr>

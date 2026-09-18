@@ -68,7 +68,7 @@ describe('QuoteResult', () => {
     }
     render(<QuoteResult quote={mixed} />)
     expect(screen.getByText(/Ошибка:/)).toBeInTheDocument()
-    expect(screen.getByText(/Внимание:/)).toBeInTheDocument()
+    expect(screen.getByText(/Предупреждение:/)).toBeInTheDocument()
     expect(screen.getByText(/Информация:/)).toBeInTheDocument()
   })
 

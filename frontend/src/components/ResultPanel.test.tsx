@@ -130,7 +130,7 @@ describe('ResultPanel', () => {
       },
     })
     render(<ResultPanel snapshot={snapshot} />)
-    expect(screen.getByText('STEP-E-001')).toBeInTheDocument()
+    expect(screen.getByText('Ошибка')).toBeInTheDocument()
     expect(screen.getByText('Высота ступени вне диапазона')).toBeInTheDocument()
     expect(screen.getByText('Уменьшите шаг')).toBeInTheDocument()
   })

@@ -236,12 +236,19 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	// интерактивные варианты выбора, а не только текст предупреждения.
 	for _, gi := range gen.Issues {
 		if gi.Code == "room_fit" {
+			rw := c.RoomWidth.Millimeters()
+			rl := c.RoomLength.Millimeters()
 			res.Validation.Issues = append(res.Validation.Issues, validation.Issue{
-				ID:         "room_fit",
-				Code:       "room_fit",
-				Severity:   constraint.SeverityWarning,
-				Element:    "room",
-				Message:    gi.Message,
+				ID:       "room_fit",
+				Code:     "room_fit",
+				Severity: constraint.SeverityWarning,
+				Element:  "room",
+				Message:  gi.Message,
+				Param:    "Помещение",
+				Guide: fmt.Sprintf(
+					"Лестница не помещается в помещение %.0f×%.0f мм (ширина×длина). Выберите готовый вариант ниже — лестница сохранит остальные параметры.",
+					rw, rl),
+				Fix:        "Уменьшите габариты лестницы или выберите один из готовых вариантов.",
 				Variations: variation.ForRoomFit(ctx, c, s.constraints),
 			})
 			break

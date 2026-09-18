@@ -9,7 +9,6 @@ package advisor
 import (
 	"fmt"
 	"math"
-	"strings"
 
 	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
@@ -38,7 +37,7 @@ type Input struct {
 	TurnKind engineering.TurnKind
 	// WinderCount — число поворотных ступеней (для U в режиме поворота).
 	WinderCount int
-	LandingMm float64 // Wp — ширина площадки/просвета (для L/U)
+	LandingMm   float64 // Wp — ширина площадки/просвета (для L/U)
 	// WidthMm — ширина марша W (для спирали: зазор от колонны до кромки).
 	WidthMm float64
 	// OuterRadiusMm — наружный радиус спирали R (для спирали).
@@ -89,7 +88,7 @@ func Advise(in Input, set *constraint.ConstraintSet, vr validation.Result) valid
 			continue
 		}
 		it.Param = rule.Advice.Param
-		it.Guide = renderGuide(rule.Advice.Guide, *it, in)
+		it.Guide = validation.RenderGuide(rule.Advice.Guide, *it, in.HeightMm)
 		if rule.Advice.Suggest {
 			it.Suggestions = suggestions
 		}
@@ -152,20 +151,8 @@ func spiralInfeasibleIssue(in Input) validation.Issue {
 	}
 }
 
-// renderGuide подставляет значения в шаблон подсказки правила.
-// Плейсхолдеры: {value} — значение нарушенного поля (мм/ед. мм, целое),
-// {angle} — угол наклона (градусы, %.1f), {min}/{max} — границы нормы,
-// {height} — высота подъёма конфигурации.
-func renderGuide(tpl string, it validation.Issue, in Input) string {
-	repl := strings.NewReplacer(
-		"{value}", fmt.Sprintf("%.0f", it.Value),
-		"{angle}", fmt.Sprintf("%.1f", it.Value),
-		"{min}", fmt.Sprintf("%.0f", it.Min),
-		"{max}", fmt.Sprintf("%.0f", it.Max),
-		"{height}", fmt.Sprintf("%.0f", in.HeightMm),
-	)
-	return repl.Replace(tpl)
-}
+// renderGuide перенесён в validation.RenderGuide (SRC: владеет шаблонами
+// подсказок в constraint; валидация применяет Advice на своём этапе).
 
 // geometry перебирает число ступеней в диапазоне, выведенном из нормы
 // на высоту ступени (n ≈ H / [maxH..minH]), и возвращает до
@@ -241,10 +228,10 @@ func geometry(in Input, set *constraint.ConstraintSet) (out []validation.Suggest
 					}
 					it := validation.Suggestion{
 						StepCount: res.StepCount, LowerStepCount: res.LowerStepCount,
-						WinderCount:    res.WinderCount,
-						StepHeightMm:   res.StepHeight.Millimeters(),
-						TreadDepthMm:   res.TreadDepth.Millimeters(),
-						AngleDeg:       res.Angle.Degrees(),
+						WinderCount:  res.WinderCount,
+						StepHeightMm: res.StepHeight.Millimeters(),
+						TreadDepthMm: res.TreadDepth.Millimeters(),
+						AngleDeg:     res.Angle.Degrees(),
 					}
 					iid := fmt.Sprintf("s%d-%d-w%d", res.StepCount, res.LowerStepCount, res.WinderCount)
 					if !seen[iid] {

@@ -30,15 +30,34 @@ import (
 // engine.go при эмиссии room_fit).
 const fitEps = 1e-6
 
+// fitTol — «спасительный» допуск для запасных вариантов: если ни один
+// вариант не вписывается строго, помечаются и возвращаются ближайшие
+// (запас менее 50 мм), чтобы у пользователя не было пустого списка.
+const fitTol = 50.0
+
 // ForRoomFit возвращает вариации, устраняющие невписываемость лестницы в
-// периметр помещения. Если помещение не задано или ни один вариант не
-// влезает — возвращает пустой срез (фронтенд покажет только предупреждение).
+// периметр помещения. Если помещение не задано — пустой срез. Сначала
+// ищутся строго вписывающиеся варианты; если их нет — ближайшие к
+// габаритам (с допуском fitTol), иначе пустой срез (фронтенд покажет
+// только предупреждение).
 func ForRoomFit(ctx context.Context, cfg *engineering.StairConfiguration, set *constraint.ConstraintSet) []validation.Variation {
 	rw := cfg.RoomWidth.Millimeters()
 	rl := cfg.RoomLength.Millimeters()
 	if rw <= 0 || rl <= 0 {
 		return nil
 	}
+	var out []validation.Variation
+	for _, tol := range []float64{fitEps, fitTol} {
+		out = forRoomFitTol(ctx, cfg, set, rw, rl, tol)
+		if len(out) > 0 {
+			break
+		}
+	}
+	return dedupe(out)
+}
+
+// forRoomFitTol собирает вариации A/B/C с заданным допуском вписываемости tol.
+func forRoomFitTol(ctx context.Context, cfg *engineering.StairConfiguration, set *constraint.ConstraintSet, rw, rl, tol float64) []validation.Variation {
 	comfort := cfg.Length.Millimeters()
 	if comfort < solver.ComfortStepMin || comfort > solver.ComfortStepMax {
 		comfort = solver.DefaultComfortStep
@@ -48,19 +67,23 @@ func ForRoomFit(ctx context.Context, cfg *engineering.StairConfiguration, set *c
 	var out []validation.Variation
 
 	// Вариант A — чуть круче, в пределах норм (h ≤ 200 мм).
-	if v, ok := steeperVariant(ctx, cfg, height, comfort, set, rw, rl); ok {
+	if v, ok := steeperVariant(ctx, cfg, height, comfort, set, rw, rl, tol); ok {
 		out = append(out, v)
 	}
 	// Вариант B — площадка поменьше (минимально допустимая).
 	if cfg.Flight == engineering.FlightLShape || cfg.Flight == engineering.FlightUShape {
-		if v, ok := smallerLandingVariant(ctx, cfg, set, rw, rl); ok {
+		if v, ok := smallerLandingVariant(ctx, cfg, set, rw, rl, tol); ok {
 			out = append(out, v)
 		}
 	}
-	// Вариант C — другой тип лестницы.
-	out = append(out, otherTypeVariants(ctx, cfg, height, comfort, set, rw, rl)...)
+	// Вариант C — другие типы лестницы (до двух сходившихся вариантов на тип).
+	out = append(out, otherTypeVariants(ctx, cfg, height, comfort, set, rw, rl, tol)...)
+	// Вариант D — та же лестница, но компактнее (уже марш, для спирали ещё и
+	// меньше радиус). Прямое решение для помещений, где другой тип не влезает:
+	// спираль → «спираль компактнее», прямая/L/U → «марш уже».
+	out = append(out, buildOtherTypes(ctx, cfg, cfg.Flight, height, comfort, set, rw, rl, tol)...)
 
-	return dedupe(out)
+	return out
 }
 
 // ForAngle возвращает вариации, устраняющие нарушение угла наклона
@@ -275,7 +298,7 @@ func FromSuggestions(issue *validation.Issue, cfg *engineering.StairConfiguratio
 // ступеней и длину марша (чуть круче). Целевая высота ограничена так, чтобы
 // проступь b = comfort − 2·h оставалась в норме (bugfix: ранее жёсткие 195 мм
 // давали проступь вне 260–320 мм и блокировку при применении).
-func steeperVariant(ctx context.Context, cfg *engineering.StairConfiguration, height engineering.Length, comfort float64, set *constraint.ConstraintSet, rw, rl float64) (validation.Variation, bool) {
+func steeperVariant(ctx context.Context, cfg *engineering.StairConfiguration, height engineering.Length, comfort float64, set *constraint.ConstraintSet, rw, rl, tol float64) (validation.Variation, bool) {
 	// Минимально допустимая проступь из нормы (по умолчанию 260 мм).
 	bMin := 260.0
 	if set != nil {
@@ -321,12 +344,12 @@ func steeperVariant(ctx context.Context, cfg *engineering.StairConfiguration, he
 	// comfort = 2·StepHeight + TreadDepth, из-за чего formFromConfig отдавал
 	// comfortStepMM > 640 и фронт блокировал применение варианта (баг
 	// «сделать круче» не пересчитывает). Оставляем солверное значение.
-	return tryGenerate(ctx, clone, set, rw, rl, "A: сделать круче (в допусках)", "Увеличить высоту ступени до верхней границы нормы — марш короче, занимает меньше места.")
+	return tryGenerate(ctx, clone, set, rw, rl, tol, "A: сделать круче (в допусках)", "Увеличить высоту ступени до верхней границы нормы — марш короче, занимает меньше места.")
 }
 
 // smallerLandingVariant — уменьшает площадку до минимально допустимой
 // (глубина и ширина = ширине марша), сохраняя параметры ступеней.
-func smallerLandingVariant(ctx context.Context, cfg *engineering.StairConfiguration, set *constraint.ConstraintSet, rw, rl float64) (validation.Variation, bool) {
+func smallerLandingVariant(ctx context.Context, cfg *engineering.StairConfiguration, set *constraint.ConstraintSet, rw, rl, tol float64) (validation.Variation, bool) {
 	clone := cloneCfg(cfg)
 	w := cfg.Width.Millimeters()
 	if w <= 0 {
@@ -334,7 +357,7 @@ func smallerLandingVariant(ctx context.Context, cfg *engineering.StairConfigurat
 	}
 	clone.LandingDepth = engineering.Length(w)
 	clone.LandingWidth = engineering.Length(w)
-	return tryGenerate(ctx, clone, set, rw, rl, "B: уменьшить площадку", "Сделать площадку минимально допустимой — габариты лестницы сокращаются.")
+	return tryGenerate(ctx, clone, set, rw, rl, tol, "B: уменьшить площадку", "Сделать площадку минимально допустимой — габариты лестницы сокращаются.")
 }
 
 // otherTypeVariants — предлагает другие типы лестницы, которые могут
@@ -342,7 +365,7 @@ func smallerLandingVariant(ctx context.Context, cfg *engineering.StairConfigurat
 // Для каждого кандидата выполняется адаптивный подбор ширины марша и
 // крутизны (см. buildOtherType): система сама подбирает параметры, чтобы
 // лестница влезла в заданный периметр.
-func otherTypeVariants(ctx context.Context, cfg *engineering.StairConfiguration, height engineering.Length, comfort float64, set *constraint.ConstraintSet, rw, rl float64) []validation.Variation {
+func otherTypeVariants(ctx context.Context, cfg *engineering.StairConfiguration, height engineering.Length, comfort float64, set *constraint.ConstraintSet, rw, rl, tol float64) []validation.Variation {
 	var out []validation.Variation
 	var candidates []engineering.FlightType
 	switch cfg.Flight {
@@ -358,31 +381,30 @@ func otherTypeVariants(ctx context.Context, cfg *engineering.StairConfiguration,
 		candidates = []engineering.FlightType{engineering.FlightStraight, engineering.FlightLShape, engineering.FlightUShape}
 	}
 	for _, ft := range candidates {
-		if v, ok := buildOtherType(ctx, cfg, ft, height, comfort, set, rw, rl); ok {
-			out = append(out, v)
-		}
+		out = append(out, buildOtherTypes(ctx, cfg, ft, height, comfort, set, rw, rl, tol)...)
 	}
 	return out
 }
 
-// otherCand — собранный кандидат варианта с метриками для выбора
-// «ближайшего к исходным параметров» (минимум изменений для пользователя).
+// otherCand — собранный кандидат варианта с метриками для выбора «ближайшего
+// к исходным параметрам» (минимум изменений) и «самого компактного».
 type otherCand struct {
-	v validation.Variation
-	w float64 // итоговая ширина марша
-	h float64 // итоговая высота ступени
+	v  validation.Variation
+	w  float64    // итоговая ширина марша
+	h  float64    // итоговая высота ступени
+	r  float64    // наружный радиус (для спирали, иначе 0)
+	bb [2]float64 // габариты по результату Geometry Engine (X, Y)
 }
 
-// buildOtherType — адаптивный подбор параметров для альтернативного типа
+// buildOtherTypes — адаптивный подбор параметров для альтернативного типа
 // лестницы ft, чтобы она вписалась в помещение. Вместо фиксированной ширины
 // марша перебирает допустимые (тип × крутизна × ширина [× радиус спирали])
-// и возвращает вариант, наиболее близкий к исходным параметрам пользователя,
-// но реально влезающий в периметр. Если ни один не влезает — false (наружу
-// уходит «вариантов нет»).
-func buildOtherType(ctx context.Context, cfg *engineering.StairConfiguration, ft engineering.FlightType, height engineering.Length, comfort float64, set *constraint.ConstraintSet, rw, rl float64) (validation.Variation, bool) {
-	cands := collectOtherType(ctx, cfg, ft, height, comfort, set, rw, rl)
+// и возвращает до двух вариантов: ближайший к исходным параметрам и самый
+// компактный (минимальная площадь). Если ни один не влезает — пусто.
+func buildOtherTypes(ctx context.Context, cfg *engineering.StairConfiguration, ft engineering.FlightType, height engineering.Length, comfort float64, set *constraint.ConstraintSet, rw, rl, tol float64) []validation.Variation {
+	cands := collectOtherType(ctx, cfg, ft, height, comfort, set, rw, rl, tol)
 	if len(cands) == 0 {
-		return validation.Variation{}, false
+		return nil
 	}
 	origW := cfg.Width.Millimeters()
 	if origW <= 0 {
@@ -392,23 +414,49 @@ func buildOtherType(ctx context.Context, cfg *engineering.StairConfiguration, ft
 	if origH <= 0 {
 		origH = 180
 	}
-	best := cands[0]
-	bestScore := math.Abs(best.w-origW) + 3*math.Abs(best.h-origH)
-	for _, c := range cands[1:] {
+	// Индекс ближайшего к исходным параметрам. Для спирали учитывается и
+	// наружный радиус (близость радиуса важнее для пользователя, чем выигрыш
+	// в пару миллиметров высоты ступени).
+	origR := cfg.OuterRadius.Millimeters()
+	score := func(c otherCand) float64 {
 		s := math.Abs(c.w-origW) + 3*math.Abs(c.h-origH)
+		if origR > 0 {
+			s += math.Abs(c.r - origR)
+		}
+		return s
+	}
+	best := 0
+	bestScore := score(cands[0])
+	for i, c := range cands[1:] {
+		s := score(c)
 		if s < bestScore {
-			best, bestScore = c, s
+			best, bestScore = i+1, s
 		}
 	}
-	return best.v, true
+	out := []validation.Variation{cands[best].v}
+	// Самый компактный (минимальная площадь footprint) — если это не тот же
+	// кандидат и конфиг другой (dedupe на верхнем уровне уберёт повторы).
+	compact := 0
+	minArea := cands[0].bb[0] * cands[0].bb[1]
+	for i, c := range cands[1:] {
+		a := c.bb[0] * c.bb[1]
+		if a < minArea {
+			compact, minArea = i+1, a
+		}
+	}
+	if compact != best && cands[compact].v.Config != nil &&
+		fmt.Sprintf("%v", cands[compact].v.Config) != fmt.Sprintf("%v", cands[best].v.Config) {
+		out = append(out, cands[compact].v)
+	}
+	return out
 }
 
 // collectOtherType перебирает допустимые высоты ступени (вверх до верхней
 // границы нормы — чем круче, тем короче марш) и ширины марша (вниз до
-// разумного минимума), а для спирали — ещё и наружный радиус. Каждый
-// кандидат прогоняется через Geometry Engine и оставляется, только если
-// вписывается в помещение.
-func collectOtherType(ctx context.Context, cfg *engineering.StairConfiguration, ft engineering.FlightType, height engineering.Length, comfort float64, set *constraint.ConstraintSet, rw, rl float64) []otherCand {
+// абсолютного минимума нормы 300 мм), а для спирали — ещё и наружный радиус.
+// Каждый кандидат прогоняется через Geometry Engine и оставляется, только
+// если вписывается в помещение (с допуском tol).
+func collectOtherType(ctx context.Context, cfg *engineering.StairConfiguration, ft engineering.FlightType, height engineering.Length, comfort float64, set *constraint.ConstraintSet, rw, rl, tol float64) []otherCand {
 	origW := cfg.Width.Millimeters()
 	if origW <= 0 {
 		origW = 900
@@ -424,20 +472,20 @@ func collectOtherType(ctx context.Context, cfg *engineering.StairConfiguration, 
 	if origH > hMax {
 		origH = hMax
 	}
-	// Не уменьшаем ширину более чем в 3 раза от заданной (иначе — слишком
-	// узкая лестница), но не уже абсолютного минимума нормы (300 мм).
-	minW := math.Max(300, origW/3)
+	// Ниже абсолютного минимума нормы не опускаемся (300 мм), чтобы не
+	// предлагать заведомо недопустимо узкие марши.
+	minW := 300.0
 	var out []otherCand
 	for h := origH; h <= hMax+1e-6; h += 5 {
 		for w := origW; w >= minW-1e-6; w -= 50 {
 			if ft == engineering.FlightSpiral {
 				for R := w + 500; R >= w+50; R -= 50 {
-					if v, ok := tryOtherAt(ctx, cfg, ft, height, comfort, set, rw, rl, h, w, R); ok {
-						out = append(out, otherCand{v: v, w: w, h: h})
+					if v, bb, ok := tryOtherAt(ctx, cfg, ft, height, comfort, set, rw, rl, tol, h, w, R); ok {
+						out = append(out, otherCand{v: v, w: w, h: h, r: R, bb: bb})
 					}
 				}
-			} else if v, ok := tryOtherAt(ctx, cfg, ft, height, comfort, set, rw, rl, h, w, 0); ok {
-				out = append(out, otherCand{v: v, w: w, h: h})
+			} else if v, bb, ok := tryOtherAt(ctx, cfg, ft, height, comfort, set, rw, rl, tol, h, w, 0); ok {
+				out = append(out, otherCand{v: v, w: w, h: h, r: 0, bb: bb})
 			}
 		}
 	}
@@ -446,16 +494,24 @@ func collectOtherType(ctx context.Context, cfg *engineering.StairConfiguration, 
 
 // tryOtherAt строит конфигурацию типа ft с заданными высотой ступени h,
 // шириной марша w (и наружным радиусом R для спирали), проверяет
-// вписываемость через Geometry Engine и возвращает готовую Variation.
-func tryOtherAt(ctx context.Context, cfg *engineering.StairConfiguration, ft engineering.FlightType, height engineering.Length, comfort float64, set *constraint.ConstraintSet, rw, rl, h, w, R float64) (validation.Variation, bool) {
+// вписываемость через Geometry Engine и возвращает готовую Variation
+// вместе с фактическими габаритами.
+func tryOtherAt(ctx context.Context, cfg *engineering.StairConfiguration, ft engineering.FlightType, height engineering.Length, comfort float64, set *constraint.ConstraintSet, rw, rl, tol, h, w, R float64) (validation.Variation, [2]float64, bool) {
 	clone := cloneCfg(cfg)
 	clone.Flight = ft
 	clone.Width = engineering.Length(w)
+	// Тот же тип, что и у исходной лестницы — это «компактнее» вариант D,
+	// а не замена типа; подбираем честные заголовки/описания.
+	sameType := ft == cfg.Flight
 	switch ft {
 	case engineering.FlightStraight:
+		title, desc := "C: прямая лестница (без площадки)", "Отказаться от поворотной площадки — один прямой марш."
+		if sameType {
+			title, desc = "D: сделать марш уже", "Уменьшить ширину марша той же прямой лестницы — она займёт меньше места в помещении."
+		}
 		r, err := solver.Solve(height, engineering.Length(h), comfort)
 		if err != nil {
-			return validation.Variation{}, false
+			return validation.Variation{}, [2]float64{}, false
 		}
 		applyStraight(clone, r)
 		// StepHeight НЕ переопределяем вручную: applyStraight/applyTwoFlight
@@ -463,8 +519,12 @@ func tryOtherAt(ctx context.Context, cfg *engineering.StairConfiguration, ft eng
 		// ступеней). Принудительная установка h рвала тождество
 		// comfort = 2·StepHeight + TreadDepth и делала конфиг невалидным для
 		// geometry.Generate (варианты L/U/прямой-C не предлагались).
-		return tryGenerate(ctx, clone, set, rw, rl, "C: прямая лестница (без площадки)", "Отказаться от поворотной площадки — один прямой марш.")
+		return tryGenerateMeta(ctx, clone, set, rw, rl, tol, title, desc)
 	case engineering.FlightLShape:
+		title, desc := "C: L-образная лестница (с поворотом)", "Заменить на L-образную с площадкой — поворот экономит длину."
+		if sameType {
+			title, desc = "D: сделать марш уже (L)", "Уменьшить ширину марша и площадки той же L-образной лестницы."
+		}
 		n := int(0.5 + height.Millimeters()/h)
 		if n < 2 {
 			n = 2
@@ -480,19 +540,19 @@ func tryOtherAt(ctx context.Context, cfg *engineering.StairConfiguration, ft eng
 		}
 		r, err := solver.SolveLShape(height, engineering.Length(h), n1, engineering.Length(wp), comfort)
 		if err != nil {
-			return validation.Variation{}, false
+			return validation.Variation{}, [2]float64{}, false
 		}
 		applyTwoFlight(clone, r.StepCount, r.StepHeight, r.TreadDepth, r.Angle, r.LowerRun)
 		clone.LandingWidth = engineering.Length(wp)
 		clone.LandingDepth = engineering.Length(wp)
 		clone.LowerStepCount = n1
-		// StepHeight НЕ переопределяем вручную: applyStraight/applyTwoFlight
-		// уже записали согласованное со солвером значение (целое число
-		// ступеней). Принудительная установка h рвала тождество
-		// comfort = 2·StepHeight + TreadDepth и делала конфиг невалидным для
-		// geometry.Generate (варианты L/U/прямой-C не предлагались).
-		return tryGenerate(ctx, clone, set, rw, rl, "C: L-образная лестница (с поворотом)", "Заменить на L-образную с площадкой — поворот экономит длину.")
+		// StepHeight НЕ переопределяем вручную (см. выше).
+		return tryGenerateMeta(ctx, clone, set, rw, rl, tol, title, desc)
 	case engineering.FlightUShape:
+		title, desc := "C: П-образная лестница", "Заменить на П-образную — два параллельных марша с площадкой между ними."
+		if sameType {
+			title, desc = "D: сделать марш уже (П)", "Уменьшить ширину марша и площадки той же П-образной лестницы."
+		}
 		n := int(0.5 + height.Millimeters()/h)
 		if n < 2 {
 			n = 2
@@ -508,57 +568,74 @@ func tryOtherAt(ctx context.Context, cfg *engineering.StairConfiguration, ft eng
 		}
 		r, err := solver.SolveUShape(height, engineering.Length(h), n1, engineering.Length(wp), comfort)
 		if err != nil {
-			return validation.Variation{}, false
+			return validation.Variation{}, [2]float64{}, false
 		}
 		applyTwoFlight(clone, r.StepCount, r.StepHeight, r.TreadDepth, r.Angle, r.LowerRun)
 		clone.LandingWidth = engineering.Length(wp)
 		clone.LandingDepth = engineering.Length(wp)
 		clone.LowerStepCount = n1
-		// StepHeight НЕ переопределяем вручную: applyStraight/applyTwoFlight
-		// уже записали согласованное со солвером значение (целое число
-		// ступеней). Принудительная установка h рвала тождество
-		// comfort = 2·StepHeight + TreadDepth и делала конфиг невалидным для
-		// geometry.Generate (варианты L/U/прямой-C не предлагались).
-		return tryGenerate(ctx, clone, set, rw, rl, "C: П-образная лестница", "Заменить на П-образную — два параллельных марша с площадкой между ними.")
+		// StepHeight НЕ переопределяем вручную (см. выше).
+		return tryGenerateMeta(ctx, clone, set, rw, rl, tol, title, desc)
 	case engineering.FlightSpiral:
+		title, desc := "C: спиральная лестница", "Заменить на спиральную — самая компактная, вписывается в узкое помещение."
+		if sameType {
+			title, desc = "D: спираль компактнее", "Уменьшить радиус и ширину спирали, чтобы вписаться в помещение."
+		}
 		if R <= w {
-			return validation.Variation{}, false
+			return validation.Variation{}, [2]float64{}, false
 		}
 		r, err := solver.SolveSpiral(height, engineering.Length(h), engineering.Length(w), engineering.Length(R))
 		if err != nil {
-			return validation.Variation{}, false
+			return validation.Variation{}, [2]float64{}, false
 		}
 		clone.Flight = engineering.FlightSpiral
-		clone.StepCount = r.StepCount
-		clone.StepHeight = r.StepHeight
+		// Apply записывает согласованные параметры марша (StepCount,
+		// StepHeight, TreadDepth=WalkTread, Angle) — без единого источника
+		// проступь в клоне остаётся 0 для конфигов без TreadDepth, и
+		// кандидат ошибочно блокируется по норме проступи (GEO-TREAD-DEPTH).
+		r.Apply(clone)
 		clone.Width = engineering.Length(w)
 		clone.OuterRadius = engineering.Length(R)
-		clone.Angle = r.Angle
-		clone.Length = engineering.Length(h / math.Tan(chDegFromS(h, comfort)*math.Pi/180))
-		return tryGenerate(ctx, clone, set, rw, rl, "C: спиральная лестница", "Заменить на спиральную — самая компактная, вписывается в узкое помещение.")
+		clone.Length = engineering.Length(r.ArcLength)
+		return tryGenerateMeta(ctx, clone, set, rw, rl, tol, title, desc)
 	}
-	return validation.Variation{}, false
+	return validation.Variation{}, [2]float64{}, false
 }
 
 // tryGenerate прогоняет кандидата через Geometry Engine, проверяет
 // вписываемость в помещение И прохождение всех активных норм, и формирует
 // Variation с конфигом формы. Вариант отдаётся, только если он и влезает в
-// комнату, и неблокирующий по нормам (bugfix: «сделать круче» ранее могло
-// давать проступь вне 260–320 мм и блокировать расчёт при применении).
-func tryGenerate(ctx context.Context, clone *engineering.StairConfiguration, set *constraint.ConstraintSet, rw, rl float64, title, desc string) (validation.Variation, bool) {
+// комнату (с допуском tol), и неблокирующий по нормам (bugfix: «сделать
+// круче» ранее могло давать проступь вне 260–320 мм и блокировать расчёт
+// при применении).
+func tryGenerate(ctx context.Context, clone *engineering.StairConfiguration, set *constraint.ConstraintSet, rw, rl, tol float64, title, desc string) (validation.Variation, bool) {
+	v, _, ok := tryGenerateMeta(ctx, clone, set, rw, rl, tol, title, desc)
+	return v, ok
+}
+
+// tryGenerateMeta — как tryGenerate, но дополнительно возвращает фактические
+// габариты (X, Y) из Geometry Engine для ранжирования «самый компактный».
+func tryGenerateMeta(ctx context.Context, clone *engineering.StairConfiguration, set *constraint.ConstraintSet, rw, rl, tol float64, title, desc string) (validation.Variation, [2]float64, bool) {
 	res, err := enggeo.Generate(ctx, clone)
 	if err != nil {
-		return validation.Variation{}, false
+		return validation.Variation{}, [2]float64{}, false
 	}
 	// Проверка норм: кандидат не должен быть блокирующим (проступь,
 	// высота ступени, угол и пр.). Иначе вариант не предлагаем.
 	// При set == nil (напр. тесты) проверка норм пропускается.
 	if set != nil && validation.Validate(clone, set).Blocking {
-		return validation.Variation{}, false
+		return validation.Variation{}, [2]float64{}, false
 	}
 	bb := res.Measurement.BoundingBox
-	if bb.Max.X > rw+fitEps || bb.Max.Y > rl+fitEps {
-		return validation.Variation{}, false
+	bx, by := bb.Max.X, bb.Max.Y
+	if bx > rw+tol || by > rl+tol {
+		return validation.Variation{}, [2]float64{}, false
+	}
+	summary := fmt.Sprintf("Габариты %.0f×%.0f мм, %d ступ., угол %.1f°", bx, by, clone.StepCount, clone.Angle.Degrees())
+	if tol > fitEps {
+		// «Спасительный» вариант — вписывается впритык (запас < 50 мм).
+		// Честно помечаем, чтобы пользователь видел, что это почти впритык.
+		summary += " · впритык к помещению (запас < 50 мм)"
 	}
 	return validation.Variation{
 		ID:          title,
@@ -567,8 +644,8 @@ func tryGenerate(ctx context.Context, clone *engineering.StairConfiguration, set
 		Config:      formFromConfig(clone),
 		Fits:        true,
 		PassesNorms: true,
-		Summary:     fmt.Sprintf("Габариты %.0f×%.0f мм, %d ступ., угол %.1f°", bb.Max.X, bb.Max.Y, clone.StepCount, clone.Angle.Degrees()),
-	}, true
+		Summary:     summary,
+	}, [2]float64{bx, by}, true
 }
 
 // cloneCfg — глубокая копия конфигурации (поля-значения, перила/направления

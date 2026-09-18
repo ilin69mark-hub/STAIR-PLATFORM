@@ -172,8 +172,8 @@ func TestRepro_LShapeRoomFitOffersU(t *testing.T) {
 			cu.Flight = engineering.FlightUShape
 			cu.Width = engineering.Length(1000)
 			cu.Length = engineering.Length(640)
-			if v, ok := buildOtherType(context.Background(), cu, engineering.FlightUShape, cu.Height, 640, set, float64(side), float64(side)); ok {
-				uCanFit = v.Fits
+			if vs := buildOtherTypes(context.Background(), cu, engineering.FlightUShape, cu.Height, 640, set, float64(side), float64(side), fitEps); len(vs) > 0 && vs[0].Fits {
+				uCanFit = true
 			}
 		}
 		if uCanFit && !flights["u_shape"] {

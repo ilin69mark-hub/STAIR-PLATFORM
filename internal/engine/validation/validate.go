@@ -1,8 +1,10 @@
 package validation
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	"stairplatform/internal/domain/engineering"
 	"stairplatform/internal/engine/constraint"
@@ -62,6 +64,14 @@ func Validate(cfg *engineering.StairConfiguration, set *constraint.ConstraintSet
 			HasMax:   rule.Range.HasMax,
 			Fix:      rule.Fix,
 		}
+		// Подсказка правила (Advice) применяется здесь же, на этапе валидации:
+		// Param и Guide (отрендеренный) доступны каждому issue сразу — в т.ч.
+		// в сохранённых снапшотах и на любых фронтендах, а не только после
+		// прохождения через advisor (ADR-0013).
+		if rule.Advice != nil {
+			issue.Param = rule.Advice.Param
+			issue.Guide = RenderGuide(rule.Advice.Guide, issue, cfg.Height.Millimeters())
+		}
 		issues = append(issues, issue)
 	}
 
@@ -86,4 +96,19 @@ func hasSeverity(issues []Issue, sev constraint.Severity) bool {
 		}
 	}
 	return false
+}
+
+// RenderGuide подставляет значения в шаблон подсказки правила (Advice.Guide).
+// Плейсхолдеры: {value} — значение нарушенного поля (мм/ед. мм, целое),
+// {angle} — угол наклона (градусы, %.1f), {min}/{max} — границы нормы,
+// {height} — высота подъёма конфигурации.
+func RenderGuide(tpl string, it Issue, heightMm float64) string {
+	repl := strings.NewReplacer(
+		"{value}", fmt.Sprintf("%.0f", it.Value),
+		"{angle}", fmt.Sprintf("%.1f", it.Value),
+		"{min}", fmt.Sprintf("%.0f", it.Min),
+		"{max}", fmt.Sprintf("%.0f", it.Max),
+		"{height}", fmt.Sprintf("%.0f", heightMm),
+	)
+	return repl.Replace(tpl)
 }

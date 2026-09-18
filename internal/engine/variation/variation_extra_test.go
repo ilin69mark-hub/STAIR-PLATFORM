@@ -212,7 +212,7 @@ func TestExtraSteeper_Branches(t *testing.T) {
 
 	t.Run("impossible_target", func(t *testing.T) {
 		cfg := extraStraightCfg()
-		if _, ok := steeperVariant(ctx, cfg, cfg.Height, 500, nil, 20000, 20000); ok {
+		if _, ok := steeperVariant(ctx, cfg, cfg.Height, 500, nil, 20000, 20000, fitEps); ok {
 			t.Fatal("expected false")
 		}
 	})
@@ -220,7 +220,7 @@ func TestExtraSteeper_Branches(t *testing.T) {
 	t.Run("bogus_flight", func(t *testing.T) {
 		cfg := extraStraightCfg()
 		cfg.Flight = "bogus"
-		if _, ok := steeperVariant(ctx, cfg, cfg.Height, 630, nil, 20000, 20000); ok {
+		if _, ok := steeperVariant(ctx, cfg, cfg.Height, 630, nil, 20000, 20000, fitEps); ok {
 			t.Fatal("expected false")
 		}
 	})
@@ -229,7 +229,7 @@ func TestExtraSteeper_Branches(t *testing.T) {
 func TestExtraSmallerLanding_NoWidth(t *testing.T) {
 	cfg := extraFlightCfg(engineering.FlightLShape)
 	cfg.Width = 0
-	if _, ok := smallerLandingVariant(context.Background(), cfg, nil, 20000, 20000); ok {
+	if _, ok := smallerLandingVariant(context.Background(), cfg, nil, 20000, 20000, fitEps); ok {
 		t.Fatal("expected false")
 	}
 }
@@ -237,7 +237,7 @@ func TestExtraSmallerLanding_NoWidth(t *testing.T) {
 func TestExtraOtherTypeVariants_Bogus(t *testing.T) {
 	cfg := extraStraightCfg()
 	cfg.Flight = "bogus"
-	otherTypeVariants(context.Background(), cfg, cfg.Height, 630, nil, 20000, 20000)
+	otherTypeVariants(context.Background(), cfg, cfg.Height, 630, nil, 20000, 20000, fitEps)
 }
 
 func TestExtraBuildOtherType_Defaults(t *testing.T) {
@@ -247,7 +247,7 @@ func TestExtraBuildOtherType_Defaults(t *testing.T) {
 		cfg := extraStraightCfg()
 		cfg.Width = 0
 		cfg.StepHeight = 250
-		if _, ok := buildOtherType(ctx, cfg, engineering.FlightStraight, cfg.Height, 630, nil, 30000, 30000); !ok {
+		if vs := buildOtherTypes(ctx, cfg, engineering.FlightStraight, cfg.Height, 630, nil, 30000, 30000, fitEps); len(vs) == 0 {
 			t.Fatal("expected success")
 		}
 	})
@@ -256,7 +256,7 @@ func TestExtraBuildOtherType_Defaults(t *testing.T) {
 		cfg := extraStraightCfg()
 		cfg.Width = 400
 		cfg.StepHeight = 0
-		if _, ok := buildOtherType(ctx, cfg, engineering.FlightStraight, cfg.Height, 630, nil, 30000, 30000); !ok {
+		if vs := buildOtherTypes(ctx, cfg, engineering.FlightStraight, cfg.Height, 630, nil, 30000, 30000, fitEps); len(vs) == 0 {
 			t.Fatal("expected success")
 		}
 	})
@@ -266,7 +266,7 @@ func TestExtraCollectOtherType_MinStepHeight(t *testing.T) {
 	cfg := extraStraightCfg()
 	cfg.Width = 400
 	cfg.StepHeight = 100
-	cands := collectOtherType(context.Background(), cfg, engineering.FlightStraight, cfg.Height, 630, nil, 30000, 30000)
+	cands := collectOtherType(context.Background(), cfg, engineering.FlightStraight, cfg.Height, 630, nil, 30000, 30000, fitEps)
 	if len(cands) == 0 {
 		t.Fatalf("expected candidates, got 0")
 	}
@@ -276,19 +276,19 @@ func TestExtraTryOtherAt_Errors(t *testing.T) {
 	ctx := context.Background()
 	cfg := extraStraightCfg()
 
-	if _, ok := tryOtherAt(ctx, cfg, engineering.FlightStraight, cfg.Height, 630, nil, 30000, 30000, 0, 900, 0); ok {
+	if _, _, ok := tryOtherAt(ctx, cfg, engineering.FlightStraight, cfg.Height, 630, nil, 30000, 30000, fitEps, 0, 900, 0); ok {
 		t.Fatal("straight: expected false")
 	}
-	if _, ok := tryOtherAt(ctx, cfg, engineering.FlightLShape, 100, 630, nil, 30000, 30000, 200, 900, 0); ok {
+	if _, _, ok := tryOtherAt(ctx, cfg, engineering.FlightLShape, 100, 630, nil, 30000, 30000, fitEps, 200, 900, 0); ok {
 		t.Fatal("L-shape: expected false")
 	}
-	if _, ok := tryOtherAt(ctx, cfg, engineering.FlightUShape, 100, 630, nil, 30000, 30000, 200, 900, 0); ok {
+	if _, _, ok := tryOtherAt(ctx, cfg, engineering.FlightUShape, 100, 630, nil, 30000, 30000, fitEps, 200, 900, 0); ok {
 		t.Fatal("U-shape: expected false")
 	}
-	if _, ok := tryOtherAt(ctx, cfg, engineering.FlightSpiral, cfg.Height, 630, nil, 30000, 30000, 200, 900, 100); ok {
+	if _, _, ok := tryOtherAt(ctx, cfg, engineering.FlightSpiral, cfg.Height, 630, nil, 30000, 30000, fitEps, 200, 900, 100); ok {
 		t.Fatal("spiral R<=w: expected false")
 	}
-	if _, ok := tryOtherAt(ctx, cfg, "bogus", cfg.Height, 630, nil, 30000, 30000, 200, 900, 0); ok {
+	if _, _, ok := tryOtherAt(ctx, cfg, "bogus", cfg.Height, 630, nil, 30000, 30000, fitEps, 200, 900, 0); ok {
 		t.Fatal("bogus: expected false")
 	}
 }
@@ -296,7 +296,7 @@ func TestExtraTryOtherAt_Errors(t *testing.T) {
 func TestExtraTryGenerate_GenerateErr(t *testing.T) {
 	cfg := extraStraightCfg()
 	cfg.Flight = "bogus"
-	if _, ok := tryGenerate(context.Background(), cfg, nil, 30000, 30000, "t", "d"); ok {
+	if _, ok := tryGenerate(context.Background(), cfg, nil, 30000, 30000, fitEps, "t", "d"); ok {
 		t.Fatal("expected false")
 	}
 }

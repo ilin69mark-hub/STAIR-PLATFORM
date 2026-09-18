@@ -3,6 +3,7 @@ package validation
 import (
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 
 	"stairplatform/internal/domain/engineering"
@@ -174,5 +175,38 @@ func TestValidateInactiveVersionSkipped(t *testing.T) {
 	res := Validate(cfg, set)
 	if len(res.Issues) != 1 || res.Issues[0].Code != constraint.GEO_STEP_HEIGHT {
 		t.Fatalf("expected single step-height issue, got %+v", res.Issues)
+	}
+}
+
+// TestValidateAdviceFilled — Param и Guide (отрендеренный из шаблона правила)
+// заполняются прямо в Validate, без прохождения через advisor: у каждого issue
+// есть русская подсказка даже в сохранённом снапшоте (S-P6).
+func TestValidateAdviceFilled(t *testing.T) {
+	cfg := validConfig(t)
+	cfg.Clearance = mustLength(t, 1500) // вне нормы ≥2000 → GEO-CLEARANCE
+	res := Validate(cfg, constraint.StandardProfile("standard"))
+	var cl *Issue
+	for i := range res.Issues {
+		if res.Issues[i].Code == constraint.GEO_CLEARANCE {
+			cl = &res.Issues[i]
+		}
+	}
+	if cl == nil {
+		t.Fatal("expected GEO-CLEARANCE issue")
+	}
+	if cl.Param == "" {
+		t.Errorf("Param пуст: %+v", cl)
+	}
+	if cl.Guide == "" {
+		t.Errorf("Guide пуст: %+v", cl)
+	}
+	if cl.Fix == "" {
+		t.Errorf("Fix пуст: %+v", cl)
+	}
+	if cl.Message == "" {
+		t.Errorf("Message пуст: %+v", cl)
+	}
+	if !strings.Contains(cl.Guide, "1500") {
+		t.Errorf("Guide должен содержать значение {value}=1500: %q", cl.Guide)
 	}
 }

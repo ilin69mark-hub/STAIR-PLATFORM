@@ -3,6 +3,7 @@ import type { QuoteResult as QuoteResultType, QuoteSuggestion, Variation } from 
 import { fmt } from '@shared/format'
 import { materialLabel } from '@shared/config'
 import { VariationPicker } from '@shared/components/VariationPicker'
+import { elementLabel, severityLabel } from '@shared/validationText'
 import { solverOf } from './quoteView'
 
 // Результат публичного расчёта: марш, геометрия и предварительная цена.
@@ -28,13 +29,6 @@ interface Props {
   // использует собственный активный выбор (activeVariantId).
   variations?: Variation[] | null
   activeVariationId?: string | null
-}
-
-// Человекочитаемые подписи уровня нарушения (severity из ответа API).
-const severityLabels: Record<string, string> = {
-  error: 'Ошибка',
-  warning: 'Внимание',
-  info: 'Информация',
 }
 
 export function QuoteResult({
@@ -81,11 +75,11 @@ export function QuoteResult({
             {issues.map((i, idx) => (
               <div className="issue" key={idx}>
                 <div>
-                  <strong>{severityLabels[i.severity] ?? i.severity}:</strong> {i.guide ?? i.message}
+                  <strong>{severityLabel(i.severity)}:</strong> {i.guide ?? i.message}
                   {!i.guide && i.fix ? ` (${i.fix})` : ''}
                 </div>
                 {i.param && (
-                  <div className="issue-param">Что поправить: {i.param}</div>
+                  <div className="issue-param">Что поправить: {elementLabel(i.param)}</div>
                 )}
                 {i.suggestions && i.suggestions.length > 0 && (
                   <div className="issue-suggestions">

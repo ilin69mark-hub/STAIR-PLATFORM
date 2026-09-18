@@ -14,6 +14,7 @@ import {
 } from '@shared/liveValidate'
 import { quoteApi } from '../api/store'
 import { apiErrorMessage } from '../auth/errors'
+import { elementLabel } from '@shared/validationText'
 import { QuoteResult as QuoteResultView } from './QuoteResult'
 import { OrderForm } from './OrderForm'
 import { logAction } from '@shared/api/audit'
@@ -672,7 +673,7 @@ export function Constructor() {
                   {liveIssues.map((it, idx) => (
                     <div className="live-issue" key={idx}>
                       <span>
-                        <strong>{it.param ? `${it.param}: ` : ''}{it.guide ?? it.message}</strong>
+                        <strong>{it.param ? `${elementLabel(it.param)}: ` : ''}{it.guide ?? it.message}</strong>
                         {it.fix ? ` (${it.fix})` : ''}
                       </span>
                       {it.suggestions && it.suggestions.length > 0 && (
