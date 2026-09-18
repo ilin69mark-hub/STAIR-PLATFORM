@@ -30,6 +30,7 @@
 | `STAIR_HTTP_ADDR` | `:8080` | Адрес HTTP-сервера |
 | `STAIR_DATABASE_URL` | — | DSN PostgreSQL (обязателен) |
 | `STAIR_REDIS_ADDR` | `""` | Адрес Redis (rate-limit, queue H3); пусто — memory fallback |
+| `STAIR_VALIDATE_RATE_LIMIT` | `120` | Лимит публичного validate-эндпоинта (живая валидация при вводе, S-P5) с одного IP в минуту |
 | `STAIR_INSTANCE_ID` | `""` | Идентификатор реплики (EDR-0018) |
 | `STAIR_REGION` | `""` | Регион инстанса (EDR-0019) |
 | `STAIR_SHUTDOWN_TIMEOUT` | `10s` | Таймаут graceful shutdown (drain) |

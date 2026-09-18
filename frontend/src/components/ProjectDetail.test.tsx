@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ProjectDetail } from './ProjectDetail'
 import { projectsApi } from '../api/projects'
@@ -168,5 +168,64 @@ describe('ProjectDetail', () => {
     expect(screen.getByLabelText(/Шаг комфорта/)).toBeInTheDocument()
     expect(screen.queryByLabelText(/Наружный радиус R/)).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/Ширина площадки Wp/)).not.toBeInTheDocument()
+  })
+})
+// ---- Живая валидация при вводе в редакторе проекта (S-P5) ----
+// PascalCase — клиентский transport преобразует ответы API в формате
+// ValidationResult (snake_case на проводе → CamelCase в DTO).
+const liveBlockedSpiral = {
+  Valid: false,
+  Blocking: true,
+  Issues: [
+    {
+      Code: 'GEO-SPIRAL-RADIUS',
+      Severity: 'error',
+      Element: 'configuration',
+      Message: 'Радиус спирали не превышает ширину марша',
+      Param: 'Радиус спирали',
+      Guide: 'Наружный радиус спирали должен быть больше ширины марша.',
+      Suggestions: [
+        {
+          StepCount: 18,
+          StepHeightMm: 150,
+          TreadDepthMm: 290,
+          AngleDeg: 31.3,
+          OuterRadiusMm: 1050,
+          WidthMm: 900,
+        },
+      ],
+    },
+  ],
+} as unknown as Awaited<ReturnType<typeof projectsApi.validateStair>>
+
+describe('ProjectDetail · живая валидация (S-P5)', () => {
+  it('вызывает :validate при изменении полей, показывает баннер и «Применить» пересчитывает', async () => {
+    vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
+    const validate = vi.spyOn(projectsApi, 'validateStair').mockResolvedValue(liveBlockedSpiral)
+    const calculate = vi.spyOn(projectsApi, 'calculate').mockResolvedValue(makeCalculation())
+    renderDetail()
+
+    await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
+    fireEvent.change(screen.getByLabelText('Тип марша'), { target: { value: 'spiral' } })
+    fireEvent.change(screen.getByLabelText(/Наружный радиус R/), { target: { value: '800' } })
+
+    await waitFor(() => expect(validate).toHaveBeenCalledTimes(1), { timeout: 2500 })
+    const body = validate.mock.calls[0][0] as Record<string, unknown>
+    expect(body.flight).toBe('spiral')
+    expect(body.outer_radius_mm).toBe(800)
+
+    // Guide появляется и как ошибка поля, и в баннере блокировки.
+    await waitFor(() => {
+      expect(
+        screen.getAllByText(/Наружный радиус спирали должен быть больше ширины марша/).length,
+      ).toBeGreaterThanOrEqual(2)
+    }, { timeout: 2500 })
+
+    // «Применить» из баннера: подставляем вариант и запускаем расчёт проекта.
+    fireEvent.click(screen.getByText(/Применить: 18 ступ/))
+    expect(await screen.findByText(/Расчёт сохранён/)).toBeInTheDocument()
+    const [calcId, calcBody] = calculate.mock.calls[0] as [string, Record<string, unknown>]
+    expect(calcId).toBe('p1')
+    expect(calcBody.outer_radius_mm).toBe(1050)
   })
 })

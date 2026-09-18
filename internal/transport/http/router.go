@@ -45,6 +45,9 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	// Публичный расчёт предварительной цены для клиентского сайта (store).
 	// Без аутентификации; rate-limiter защищает от злоупотреблений.
 	mux.Handle("POST /api/v1/public/stairs:quote", limitRate(quoteLimiter, handlePublicQuote(svc)))
+	// Живая валидация при вводе для клиентского сайта (S-P5): тот же блок
+	// validation, что и в расчёте, но без геометрии/производства/цены.
+	mux.Handle("POST /api/v1/public/stairs:validate", limitRate(validateLimiter, handleValidate(svc)))
 	// Публичная консультация (store): анонимный запрос обратной связи.
 	// Создаёт заказ-лид kind=consultation без пользователя и цены.
 	mux.Handle("POST /api/v1/public/orders", limitRate(quoteLimiter, handleCreateConsultation(ordersSvc, authSvc)))
@@ -82,6 +85,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	}
 
 	mux.Handle("POST /api/v1/stairs:calculate", authProtected(handleCalculate(svc, auditsvc)))
+	mux.Handle("POST /api/v1/stairs:validate", authProtected(handleValidate(svc)))
 	mux.Handle("POST /api/v1/stairs:optimize", authProtected(handleOptimize(svc)))
 	if assistantSvc != nil {
 		// AI-ассистенты (Phase D, D1–D4): design/engineering/manufacturing/pricing.
@@ -184,17 +188,17 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 
 	// Cache policies по путям
 	cachePolicies := map[string]CachePolicy{
-		"/api/v1/":                  CacheNoCache,   // API — no cache
-		"/api/v1/projects/":         CacheShort,     // проекты — 5 min
-		"/api/v1/configs/":          CacheShort,     // конфигурации — 5 min
-		"/api/v1/assortments/":      CacheMedium,    // ассортимент — 1 hour
-		"/api/v1/materials/":        CacheMedium,    // материалы — 1 hour
-		"/api/v1/profiles/":         CacheMedium,    // профили — 1 hour
-		"/api/v1/stairs/":           CacheShort,     // лестницы — 5 min
-		"/api/v1/auth/":             CacheNoCache,   // авторизация — no cache
-		"/api/v1/health":            CacheNoCache,   // health check — no cache
-		"/static/":                  CacheLong,      // статика — 1 day
-		"/assets/":                  CacheImmutable, // webpack assets — immutable
+		"/api/v1/":             CacheNoCache,   // API — no cache
+		"/api/v1/projects/":    CacheShort,     // проекты — 5 min
+		"/api/v1/configs/":     CacheShort,     // конфигурации — 5 min
+		"/api/v1/assortments/": CacheMedium,    // ассортимент — 1 hour
+		"/api/v1/materials/":   CacheMedium,    // материалы — 1 hour
+		"/api/v1/profiles/":    CacheMedium,    // профили — 1 hour
+		"/api/v1/stairs/":      CacheShort,     // лестницы — 5 min
+		"/api/v1/auth/":        CacheNoCache,   // авторизация — no cache
+		"/api/v1/health":       CacheNoCache,   // health check — no cache
+		"/static/":             CacheLong,      // статика — 1 day
+		"/assets/":             CacheImmutable, // webpack assets — immutable
 	}
 
 	// Response cache для read-heavy GET-запросов (5min TTL, 512 entries)
@@ -235,6 +239,12 @@ func applyConfig(cfg Config) {
 	if cfg.QuoteRateWindow <= 0 {
 		cfg.QuoteRateWindow = DefaultConfig().QuoteRateWindow
 	}
+	if cfg.ValidateRateLimit <= 0 {
+		cfg.ValidateRateLimit = DefaultConfig().ValidateRateLimit
+	}
+	if cfg.ValidateRateWindow <= 0 {
+		cfg.ValidateRateWindow = DefaultConfig().ValidateRateWindow
+	}
 	if cfg.AuthRateLimit <= 0 {
 		cfg.AuthRateLimit = DefaultConfig().AuthRateLimit
 	}
@@ -250,6 +260,7 @@ func applyConfig(cfg Config) {
 	loginLimiter = newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.LoginRateLimit, cfg.LoginRateWindow)
 	registerLimiter = newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.RegisterRateLimit, cfg.RegisterRateWindow)
 	quoteLimiter = newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.QuoteRateLimit, cfg.QuoteRateWindow)
+	validateLimiter = newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.ValidateRateLimit, cfg.ValidateRateWindow)
 	// Authenticated rate limiter: 200 req/min per user/API key
 	authRateLimiter = newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.AuthRateLimit, cfg.AuthRateWindow)
 	paymentsWebhookSecret = cfg.PaymentsWebhookSecret
@@ -259,6 +270,7 @@ var (
 	loginLimiter    RateLimiter
 	registerLimiter RateLimiter
 	quoteLimiter    RateLimiter
+	validateLimiter RateLimiter
 	// authRateLimiter — rate limiter для всех authenticated запросов
 	authRateLimiter RateLimiter
 	region          string

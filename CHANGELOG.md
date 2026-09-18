@@ -7,6 +7,16 @@
 
 ### Added
 
+- **Живая валидация при вводе** (S-P5): иделомоментные (validation-only)
+  эндпоинты `POST /api/v1/public/stairs:validate` (анонимный) и
+  `POST /api/v1/stairs:validate` (авторизованный) — возвращают `{validation}`
+  без геометрии/цены/версий (rate-limit `STAIR_VALIDATE_RATE_LIMIT`, по
+  умолчанию 120/мин). В конструкторе КВ и редакторе проекта — debounce 700 мс:
+  баннер блокировок с guide/fix, подсветка проблемных полей, кнопки
+  «Применить» (вариант советника/вариация), нагрузка в logAction
+  `stair.live_suggestion_applied` / `stair.live_variation_applied`; общий
+  модуль `@shared/liveValidate` (нормализация ответов, configKey-дедупликация
+  запросов, cancel/invalidate).
 - **Observability-стек** (P3, EDR-0021): Prometheus + Alertmanager + Grafana +
   Jaeger через оверрайд `deployments/observability/docker-compose.observability.yml`;
   13 alert-правил по реальным метрикам `/metrics` (availability 99.9%,

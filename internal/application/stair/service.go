@@ -40,17 +40,17 @@ type Config struct {
 	RailingHeight engineering.Length // мм
 	// LandingWidth и LowerStepCount — специфичны для маршей с площадкой
 	// (EDR-0005 L-образный, EDR-0006 П-образный).
-	LandingWidth   engineering.Length // мм — ширина площадки Wp (платформа) либо просвета (поворот)
-	LandingDepth   engineering.Length // мм — глубина площадки (вдоль нижнего марша, X)
-	RoomWidth      engineering.Length // мм — габарит помещения по X (для fit-check)
-	RoomLength     engineering.Length // мм — габарит помещения по Y (для fit-check)
+	LandingWidth engineering.Length // мм — ширина площадки Wp (платформа) либо просвета (поворот)
+	LandingDepth engineering.Length // мм — глубина площадки (вдоль нижнего марша, X)
+	RoomWidth    engineering.Length // мм — габарит помещения по X (для fit-check)
+	RoomLength   engineering.Length // мм — габарит помещения по Y (для fit-check)
 	// ApproachSpace — свободное пространство перед первой ступенью прямого
 	// марша (EDR-0023, норма 1000–1200 мм): зона, в которой человек должен
 	// встать перед началом подъёма. Учитывается в fit-check (марш сдвигается
 	// от стены на ApproachSpace) и в подборе вариантов. Только прямой марш
 	// (FlightStraight); для прочих типов не используется (0).
 	ApproachSpace  engineering.Length
-	LowerStepCount int                // n1 — число ступеней нижнего марша
+	LowerStepCount int // n1 — число ступеней нижнего марша
 	// TurnKind — тип поворота для маршей с площадкой (L/U): площадка
 	// (platform, по умолчанию) либо поворотные ступени (winder, только U).
 	TurnKind engineering.TurnKind
@@ -169,103 +169,12 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 		comfort = solver.DefaultComfortStep
 	}
 
-	// Вход советника собирается из исходной конфигурации: checked-функции
-	// зануляют поля при blocking-валидации, а они нужны для подбора вариантов.
-	advIn := advisor.Input{
-		Flight:          cfg.Flight,
-		HeightMm:        cfg.Height.Millimeters(),
-		TargetStepMm:    cfg.StepHeight.Millimeters(),
-		ComfortMm:       comfort,
-		LowerStepCount:  cfg.LowerStepCount,
-		TurnKind:        cfg.TurnKind,
-		WinderCount:     cfg.WinderCount,
-		LandingMm:       cfg.LandingWidth.Millimeters(),
-		WidthMm:         cfg.Width.Millimeters(),
-		OuterRadiusMm:   cfg.OuterRadius.Millimeters(),
-		ClearanceMm:     cfg.Clearance.Millimeters(),
-		RailingMm:       cfg.RailingHeight.Millimeters(),
-		StringerThickMm: cfg.StringerThickness.Millimeters(),
-		StepThicknessMm: cfg.StepThickness.Millimeters(),
-		Material:        cfg.Material,
+	res, err := s.checkedSolve(ctx, cfg, c, comfort)
+	if err != nil {
+		return nil, err
 	}
-	// advise прогоняет результат через советник (готовые Suggestions) и
-	// навешивает интерактивные Variations (A/B/C) на блокирующие issue:
-	// GEO-ANGLE — собственный подбор числа ступеней и шага комфорта,
-	// остальные — преобразование Suggestions советника. Вызывается в обеих
-	// ветках (блокирующей и нет), поэтому варианты есть всегда.
-	advise := func(vr validation.Result) validation.Result {
-		vrr := advisor.Advise(advIn, s.constraints, vr)
-		attachVariations(ctx, &vrr, c, s.constraints)
-		return vrr
-	}
-
-	res := &Result{}
-	switch cfg.Flight {
-	case engineering.FlightStraight:
-		flight, vr, err := solver.SolveChecked(c, s.constraints, comfort)
-		if err != nil {
-			if vr, ok := inputIssue(err); ok {
-				return &Result{Validation: advise(vr)}, nil
-			}
-			return nil, err
-		}
-		if vr.Blocking {
-			return &Result{Validation: advise(vr)}, nil
-		}
-		res.Validation = vr
-		res.Flight = flight
-	case engineering.FlightLShape:
-		lres, vr, err := solver.SolveCheckedLShape(c, s.constraints, comfort)
-		if err != nil {
-			if vr, ok := inputIssue(err); ok {
-				return &Result{Validation: advise(vr)}, nil
-			}
-			return nil, err
-		}
-		if vr.Blocking {
-			return &Result{Validation: advise(vr)}, nil
-		}
-		res.Validation = vr
-		res.LShape = &lres
-	case engineering.FlightUShape:
-		ures, vr, err := solver.SolveCheckedUShape(c, s.constraints, comfort)
-		if err != nil {
-			if vr, ok := inputIssue(err); ok {
-				return &Result{Validation: advise(vr)}, nil
-			}
-			return nil, err
-		}
-		if vr.Blocking {
-			return &Result{Validation: advise(vr)}, nil
-		}
-		res.Validation = vr
-		res.UShape = &ures
-	case engineering.FlightSpiral:
-		sres, vr, err := solver.SolveCheckedSpiral(c, s.constraints)
-		if err != nil {
-			if vr, ok := inputIssue(err); ok {
-				return &Result{Validation: advise(vr)}, nil
-			}
-			return nil, err
-		}
-		if vr.Blocking {
-			return &Result{Validation: advise(vr)}, nil
-		}
-		res.Validation = vr
-		res.Spiral = &sres
-	default:
-		flight, vr, err := solver.SolveChecked(c, s.constraints, comfort)
-		if err != nil {
-			if vr, ok := inputIssue(err); ok {
-				return &Result{Validation: advise(vr)}, nil
-			}
-			return nil, err
-		}
-		if vr.Blocking {
-			return &Result{Validation: advise(vr)}, nil
-		}
-		res.Validation = vr
-		res.Flight = flight
+	if res.Validation.Blocking {
+		return res, nil
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -274,7 +183,7 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	gen, err := geometry.Generate(ctx, c)
 	if err != nil {
 		if vr, ok := inputIssue(err); ok {
-			return &Result{Validation: advise(vr)}, nil
+			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
 		}
 		return nil, fmt.Errorf("stair: geometry: %w", err)
 	}
@@ -292,7 +201,7 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 			return &Result{Validation: manufacturingBlocked(feas, c.StringerThickness, dommfg.MaterialCode(c.Material))}, nil
 		}
 		if vr, ok := inputIssue(err); ok {
-			return &Result{Validation: advise(vr)}, nil
+			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
 		}
 		return nil, fmt.Errorf("stair: manufacturing: %w", err)
 	}
@@ -360,6 +269,150 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	res.SpiralDir = c.SpiralDirection
 	res.TurnKind = c.TurnKind
 	res.WinderCount = c.WinderCount
+	return res, nil
+}
+
+// checkedSolve прогоняет конфигурацию через checked-решалку конкретного типа
+// марша и советник (advisor.Advise + пакет variation): единый эталон
+// валидации для Calculate и Validate. Возвращает Result, заполненный
+// Validation (при blocking — только секция validation, как в Calculate) и
+// результатом решалки для неблокирующего исхода. Геометрии/производства/
+// цены здесь нет — вызов продолжается конвейером либо останавливается.
+// advise прогоняет результат через советник (готовые Suggestions) и
+// навешивает интерактивные Variations (A/B/C) на блокирующие issue:
+// GEO-ANGLE — собственный подбор числа ступеней и шага комфорта,
+// остальные — преобразование Suggestions советника. Вызывается и в
+// блокирующей, и в неблокирующей ветках, поэтому варианты есть всегда.
+func (s *Service) advise(ctx context.Context, cfg Config, c *engineering.StairConfiguration, comfort float64, vr validation.Result) validation.Result {
+	// Вход советника собирается из исходной конфигурации: checked-функции
+	// зануляют поля при blocking-валидации, а они нужны для подбора вариантов.
+	advIn := advisor.Input{
+		Flight:          cfg.Flight,
+		HeightMm:        cfg.Height.Millimeters(),
+		TargetStepMm:    cfg.StepHeight.Millimeters(),
+		ComfortMm:       comfort,
+		LowerStepCount:  cfg.LowerStepCount,
+		TurnKind:        cfg.TurnKind,
+		WinderCount:     cfg.WinderCount,
+		LandingMm:       cfg.LandingWidth.Millimeters(),
+		WidthMm:         cfg.Width.Millimeters(),
+		OuterRadiusMm:   cfg.OuterRadius.Millimeters(),
+		ClearanceMm:     cfg.Clearance.Millimeters(),
+		RailingMm:       cfg.RailingHeight.Millimeters(),
+		StringerThickMm: cfg.StringerThickness.Millimeters(),
+		StepThicknessMm: cfg.StepThickness.Millimeters(),
+		Material:        cfg.Material,
+	}
+	vrr := advisor.Advise(advIn, s.constraints, vr)
+	attachVariations(ctx, &vrr, c, s.constraints)
+	return vrr
+}
+
+func (s *Service) checkedSolve(ctx context.Context, cfg Config, c *engineering.StairConfiguration, comfort float64) (*Result, error) {
+	res := &Result{}
+	switch cfg.Flight {
+	case engineering.FlightStraight:
+		flight, vr, err := solver.SolveChecked(c, s.constraints, comfort)
+		if err != nil {
+			if vr, ok := inputIssue(err); ok {
+				return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+			}
+			return nil, err
+		}
+		if vr.Blocking {
+			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+		}
+		res.Validation = vr
+		res.Flight = flight
+	case engineering.FlightLShape:
+		lres, vr, err := solver.SolveCheckedLShape(c, s.constraints, comfort)
+		if err != nil {
+			if vr, ok := inputIssue(err); ok {
+				return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+			}
+			return nil, err
+		}
+		if vr.Blocking {
+			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+		}
+		res.Validation = vr
+		res.LShape = &lres
+	case engineering.FlightUShape:
+		ures, vr, err := solver.SolveCheckedUShape(c, s.constraints, comfort)
+		if err != nil {
+			if vr, ok := inputIssue(err); ok {
+				return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+			}
+			return nil, err
+		}
+		if vr.Blocking {
+			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+		}
+		res.Validation = vr
+		res.UShape = &ures
+	case engineering.FlightSpiral:
+		sres, vr, err := solver.SolveCheckedSpiral(c, s.constraints)
+		if err != nil {
+			if vr, ok := inputIssue(err); ok {
+				return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+			}
+			return nil, err
+		}
+		if vr.Blocking {
+			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+		}
+		res.Validation = vr
+		res.Spiral = &sres
+	default:
+		flight, vr, err := solver.SolveChecked(c, s.constraints, comfort)
+		if err != nil {
+			if vr, ok := inputIssue(err); ok {
+				return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+			}
+			return nil, err
+		}
+		if vr.Blocking {
+			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+		}
+		res.Validation = vr
+		res.Flight = flight
+	}
+	return res, nil
+}
+
+// Validate выполняет глубокую проверку конфигурации без полного конвейера:
+// buildConfiguration → checked-решалка → советник. Не выполняет геометрию
+// (твёрдотельные модели), производство, цену и не создаёт версий — только
+// та секция, которую фронтенд показывает при расчёте. Предназначен для
+// живой валидации при вводе (store и админ-конструктор, S-P5): результат
+// повторяет блок validation ответа Calculate; blocking-issue приходят с
+// готовыми Suggestions и Variations (A/B/C). Блокирующее состояние — это
+// не ошибка: возвращается Result с valid:false (как в Calculate).
+func (s *Service) Validate(ctx context.Context, cfg Config, opts Options) (*Result, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("stair: %w", err)
+	}
+	c, err := buildConfiguration(cfg)
+	if err != nil {
+		if vr, ok := inputIssue(err); ok {
+			return &Result{Validation: vr}, nil
+		}
+		return nil, err
+	}
+	comfort := opts.ComfortStep
+	if comfort == 0 {
+		comfort = solver.DefaultComfortStep
+	}
+	res, err := s.checkedSolve(ctx, cfg, c, comfort)
+	if err != nil {
+		return nil, err
+	}
+	// В Calculate вариации для неблокирующего исхода навешивает стадия
+	// geometry; здесь стадии нет — вешаем вариации самостоятельно.
+	attachVariations(ctx, &res.Validation, c, s.constraints)
 	return res, nil
 }
 

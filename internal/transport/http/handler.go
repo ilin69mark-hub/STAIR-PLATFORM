@@ -26,6 +26,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 // транспортным слоем (инверсия зависимостей, DOM-0008).
 type StairService interface {
 	Calculate(ctx context.Context, cfg stair.Config, opts stair.Options) (*stair.Result, error)
+	Validate(ctx context.Context, cfg stair.Config, opts stair.Options) (*stair.Result, error)
 	Optimize(ctx context.Context, cfg stair.Config, opts stair.Options, req stair.OptimizeRequest) (*stair.OptimizeResult, error)
 }
 
@@ -87,6 +88,36 @@ func handleCalculate(svc StairService, auditSvc AuditService) http.HandlerFunc {
 	}
 }
 
+// handleValidate — POST /api/v1/public/stairs:validate и
+// POST /api/v1/stairs:validate. Живая валидация при вводе (S-P5): выполняет
+// ровно ту секцию validation, которую фронтенд показывает при расчёте, но без
+// геометрии, производства, цены и записей. Блокирующее состояние — это не
+// ошибка: 200 с valid:false и готовыми Suggestions/Variations (A/B/C).
+func handleValidate(svc StairService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req calculateRequest
+		if err := decodeJSON(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
+			return
+		}
+
+		cfg := toConfig(req)
+		opts, err := toOptions(req)
+		if err != nil {
+			writeInputError(w, "invalid_rates", err)
+			return
+		}
+
+		res, err := svc.Validate(r.Context(), cfg, opts)
+		if err != nil {
+			mapStairError(w, err)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{"validation": toValidationResult(res)})
+	}
+}
+
 // recordCalculationAudit фиксирует событие расчёта лестницы (server-side
 // аудит). best-effort: ошибка журнала не ломает ответ расчёта.
 func recordCalculationAudit(r *http.Request, auditSvc AuditService, cfg stair.Config, res *stair.Result) {
@@ -100,7 +131,7 @@ func recordCalculationAudit(r *http.Request, auditSvc AuditService, cfg stair.Co
 			variants := make([]map[string]any, 0, len(it.Variations))
 			for _, v := range it.Variations {
 				variants = append(variants, map[string]any{
-					"id":            v.ID,
+					"id":           v.ID,
 					"fits":         v.Fits,
 					"passes_norms": v.PassesNorms,
 				})

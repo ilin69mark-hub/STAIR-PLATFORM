@@ -31,6 +31,12 @@ type Config struct {
 	QuoteRateLimit int
 	// QuoteRateWindow — окно rate-limit публичного расчёта.
 	QuoteRateWindow time.Duration
+	// ValidateRateLimit — максимум живых валидаций при вводе с одного IP за
+	// окно (STAIR_VALIDATE_RATE_LIMIT); защищает публичный validate-эндпоинт
+	// (самый частый запрос конструктора при вводе, S-P5).
+	ValidateRateLimit int
+	// ValidateRateWindow — окно rate-limit живой валидации.
+	ValidateRateWindow time.Duration
 	// AuthRateLimit — максимум авторизованных запросов с одного пользователя
 	// за окно (STAIR_AUTH_RATE_LIMIT); по умолчанию 200 req/min (router.go).
 	AuthRateLimit int
@@ -103,6 +109,8 @@ func DefaultConfig() Config {
 		RegisterRateWindow: time.Minute,
 		QuoteRateLimit:     30,
 		QuoteRateWindow:    time.Minute,
+		ValidateRateLimit:  120,
+		ValidateRateWindow: time.Minute,
 		AuthRateLimit:      200,
 		AuthRateWindow:     time.Minute,
 		MaxBodyBytes:       1 << 20, // 1 MiB
@@ -126,7 +134,7 @@ func requireAuth(svc AuthService) func(http.Handler) http.Handler {
 				}
 				// Per-API-key rate limiting
 				if authRateLimiter != nil {
-					if !authRateLimiter.Allow("apikey:"+key.ID) {
+					if !authRateLimiter.Allow("apikey:" + key.ID) {
 						w.Header().Set("Retry-After", "60")
 						writeError(w, http.StatusTooManyRequests, "rate_limit_exceeded",
 							"Превышен лимит запросов для API ключа.")

@@ -7,6 +7,7 @@ import type {
   AssistantKind,
   AssistantResult,
   Calculation,
+  ValidationResult,
   CommentRequest,
   Configuration,
   ConfigurationApproval,
@@ -37,6 +38,13 @@ export const projectsApi = {
 
   calculate: (id: string, body: unknown) =>
     post<Calculation>(`/api/v1/projects/${id}/calculate`, body),
+
+  // Живая валидация при вводе (S-P5): authProtected, read-only (без CSRF).
+  // Возвращает блок validation без геометрии/производства/цены.
+  validateStair: (body: unknown) =>
+    post<{ validation: ValidationResult }>('/api/v1/stairs:validate', body).then(
+      (r) => r.validation,
+    ),
 
   // preview — расчёт БЕЗ сохранения: используется вариациями (A/B/C),
   // чтобы пользователь перебирал альтернативы, не создавая ревизий.

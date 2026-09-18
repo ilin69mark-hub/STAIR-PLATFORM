@@ -9,6 +9,7 @@ import type {
   CreateOrderRequest,
   OrderDTO,
   QuoteResult,
+  QuoteValidation,
   TestimonialDTO,
 } from '@shared/types'
 
@@ -23,6 +24,17 @@ const QUOTE_RETRY_DELAYS_MS = [500, 1000]
 export const quoteApi = {
   // POST /api/v1/public/stairs:quote — предварительный расчёт (анонимно).
   // При 429 (dedup/лимитирование) делает до 2 повторных попыток.
+  // POST /api/v1/public/stairs:validate — живая валидация при вводе (S-P5).
+  // Анонимный эндпоинт: только блок validation (без геометрии, производства,
+  // цены и записей). Вызывается из конструктора с дебаунсом при вводе.
+  async validate(config: Record<string, unknown>): Promise<QuoteValidation> {
+    const res = await post<{ validation: QuoteValidation }>(
+      '/api/v1/public/stairs:validate',
+      config,
+    )
+    return res.validation
+  },
+
   async calculate(config: Record<string, unknown>): Promise<QuoteResult> {
     for (let attempt = 0; ; attempt++) {
       try {

@@ -10,8 +10,11 @@ import (
 
 	auditpkg "stairplatform/internal/application/audit"
 	"stairplatform/internal/application/stair"
+	"stairplatform/internal/engine/constraint"
 	"stairplatform/internal/engine/solver"
 	"stairplatform/internal/engine/validation"
+
+	"encoding/json"
 )
 
 type fakeStairService struct {
@@ -19,10 +22,16 @@ type fakeStairService struct {
 	res     *stair.Result
 	optErr  error
 	optRes  *stair.OptimizeResult
+	valErr  error
+	valRes  *stair.Result
 }
 
 func (f *fakeStairService) Calculate(_ context.Context, _ stair.Config, _ stair.Options) (*stair.Result, error) {
 	return f.res, f.calcErr
+}
+
+func (f *fakeStairService) Validate(_ context.Context, _ stair.Config, _ stair.Options) (*stair.Result, error) {
+	return f.valRes, f.valErr
 }
 
 func (f *fakeStairService) Optimize(_ context.Context, _ stair.Config, _ stair.Options, _ stair.OptimizeRequest) (*stair.OptimizeResult, error) {
@@ -214,5 +223,89 @@ func TestOptimizeSuccessNoAudit(t *testing.T) {
 	}
 	if audit.recorded != nil {
 		t.Fatal("optimize must not record an audit entry")
+	}
+}
+
+func validatePublicRequest(body string) *http.Request {
+	return httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:validate", strings.NewReader(body))
+}
+
+// TestHandlePublicValidate: анонимный вход store, 200 даже при блокирующем
+// состоянии — это обычный ответ с секцией validation и variations.
+func TestHandlePublicValidate(t *testing.T) {
+	f := &fakeStairService{valRes: &stair.Result{
+		Validation: validation.Result{
+			Blocking: true,
+			Issues: []validation.Issue{{
+				Code:     "GEO-ANGLE",
+				Severity: constraint.SeverityError,
+				Element:  "outerRadius",
+				Message:  "Слишком узкий",
+			}},
+		},
+	}}
+	rec := httptest.NewRecorder()
+	NewRouter(f, nil, testAuth{}, DefaultConfig()).ServeHTTP(rec, validatePublicRequest(referenceJSON))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Validation validation.Result `json:"validation"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if !resp.Validation.Blocking || len(resp.Validation.Issues) != 1 || resp.Validation.Issues[0].Code != "GEO-ANGLE" {
+		t.Fatalf("unexpected validation: %+v", resp.Validation)
+	}
+}
+
+// TestHandleAuthedValidate: админ-конструктор, тот же endpoint с авторизацией.
+func TestHandleAuthedValidate(t *testing.T) {
+	f := &fakeStairService{valRes: &stair.Result{Validation: validation.Result{Valid: true}}}
+	rec := httptest.NewRecorder()
+	calculateRouter(f, nil).ServeHTTP(rec, authedRequest(http.MethodPost, "/api/v1/stairs:validate", referenceJSON))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Validation validation.Result `json:"validation"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if !resp.Validation.Valid {
+		t.Fatalf("expected valid validation, got %+v", resp.Validation)
+	}
+}
+
+// TestHandleAuthedValidateAnonymous: админ-endpoint не отдаётся анонимам.
+func TestHandleAuthedValidateAnonymous(t *testing.T) {
+	f := &fakeStairService{}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/stairs:validate", strings.NewReader(referenceJSON))
+	rec := httptest.NewRecorder()
+	NewRouter(f, nil, testAuth{}, DefaultConfig()).ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestHandleValidateBadJSON: битый JSON — 400.
+func TestHandleValidateBadJSON(t *testing.T) {
+	f := &fakeStairService{}
+	rec := httptest.NewRecorder()
+	calculateRouter(f, nil).ServeHTTP(rec, validatePublicRequest(`{bad`))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestHandleValidateGenericError: внутренняя ошибка — 500.
+func TestHandleValidateGenericError(t *testing.T) {
+	f := &fakeStairService{valErr: errors.New("kaboom")}
+	rec := httptest.NewRecorder()
+	calculateRouter(f, nil).ServeHTTP(rec, validatePublicRequest(referenceJSON))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

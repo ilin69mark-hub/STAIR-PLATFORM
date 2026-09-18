@@ -290,6 +290,61 @@ paths:
         "200":
           description: "Orders list"
 
+  /public/stairs:validate:
+    post:
+      tags: ["stairs"]
+      summary: "Живая валидация конфигурации (store, аноним)"
+      description: "Тот же блок validation, что в расчёте, но без геометрии/производства/цены. Блокирующее состояние — 200 с valid:false."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidationRequest"
+      responses:
+        "200":
+          description: "Результат валидации"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  validation:
+                    $ref: "#/components/schemas/ValidationResult"
+        "400":
+          description: "Некорректный JSON"
+        "422":
+          description: "Невалидные параметры"
+        "429":
+          description: "Rate limit"
+  /stairs:validate:
+    post:
+      tags: ["stairs"]
+      summary: "Живая валидация конфигурации (админ-конструктор)"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidationRequest"
+      responses:
+        "200":
+          description: "Результат валидации"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  validation:
+                    $ref: "#/components/schemas/ValidationResult"
+        "400":
+          description: "Некорректный JSON"
+        "422":
+          description: "Невалидные параметры"
+        "429":
+          description: "Rate limit"
   /public/testimonials:
     get:
       tags: ["testimonials"]
@@ -408,6 +463,83 @@ components:
           type: string
           default: "RUB"
 
+    ValidationRequest:
+      type: "object"
+      properties:
+        flight:
+          type: string
+          enum: ["straight", "l", "u", "spiral"]
+        width_mm:
+          type: number
+        height_mm:
+          type: number
+        step_height_mm:
+          type: number
+        comfort_step_mm:
+          type: number
+        outer_radius_mm:
+          type: number
+        lower_step_count:
+          type: integer
+        turn_kind:
+          type: string
+        winder_count:
+          type: integer
+        landing_width_mm:
+          type: number
+        clearance_mm:
+          type: number
+        railing_height_mm:
+          type: number
+        stringer_thickness_mm:
+          type: number
+        step_thickness_mm:
+          type: number
+        material:
+          type: string
+    ValidationResult:
+      type: "object"
+      properties:
+        valid:
+          type: boolean
+        blocking:
+          type: boolean
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationIssue"
+    ValidationIssue:
+      type: "object"
+      properties:
+        code:
+          type: string
+        severity:
+          type: string
+          enum: ["error", "warning"]
+        element:
+          type: string
+        message:
+          type: string
+        value:
+          type: number
+        min:
+          type: number
+        max:
+          type: number
+        param:
+          type: string
+        guide:
+          type: string
+        fix:
+          type: string
+        suggestions:
+          type: array
+          items:
+            type: object
+        variations:
+          type: array
+          items:
+            type: object
     Error:
       type: "object"
       properties:

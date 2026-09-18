@@ -563,3 +563,71 @@ describe('Constructor', () => {
     expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
   })
 })
+// ---- Живая валидация при вводе (S-P5) ----
+// Мок ответа публичного :validate: спираль, радиус меньше ширины марша.
+const liveBlockedSpiral = {
+  valid: false,
+  blocking: true,
+  issues: [
+    {
+      code: 'GEO-SPIRAL-RADIUS',
+      severity: 'error',
+      element: 'configuration',
+      message: 'Радиус спирали не превышает ширину марша',
+      param: 'Радиус спирали',
+      guide: 'Наружный радиус спирали должен быть больше ширины марша.',
+      suggestions: [
+        { step_count: 18, step_height_mm: 150, tread_depth_mm: 290, angle_deg: 31.3, outer_radius_mm: 1050, width_mm: 900 },
+      ],
+    },
+  ],
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+const LIVE_DEBOUNCE = 700
+
+describe('Constructor · живая валидация (S-P5)', () => {
+  it('вызывает :validate при изменении полей и показывает баннер блокировки', async () => {
+    const validateSpy = vi.spyOn(quoteApi, 'validate').mockResolvedValue(liveBlockedSpiral)
+    vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote)
+    await renderWithAuth(<Constructor />, null)
+
+    fillValid()
+    fireEvent.change(screen.getByLabelText('Тип лестницы'), { target: { value: 'spiral' } })
+    fireEvent.change(screen.getByLabelText('Радиус (мм)'), { target: { value: '800' } })
+
+    await waitFor(() => expect(validateSpy).toHaveBeenCalledTimes(1), { timeout: 2500 })
+    // Тело запроса: спираль с заполненными габаритами.
+    const body = validateSpy.mock.calls[0][0] as Record<string, unknown>
+    expect(body.flight).toBe('spiral')
+    expect(body.width_mm).toBe(900)
+    expect(body.outer_radius_mm).toBe(800)
+
+    // Баннер блокировки с guide и подсветка подсвеченного поля.
+    // Текст guide должен появиться дважды: как ошибка поля «Радиус (мм)»
+    // и в баннере блокировки (S-P5).
+    await waitFor(() => {
+      const matches = screen.getAllByText(/Наружный радиус спирали должен быть больше ширины марша/)
+      expect(matches.length).toBeGreaterThanOrEqual(2)
+    }, { timeout: 2500 })
+    expect(validateSpy).toHaveBeenCalledTimes(1)
+
+    // Кнопка «Применить» из баннера: вариант советника подставляется в форму
+    // и запускается полный расчёт с новым радиусом/шириной.
+    fireEvent.click(screen.getByText(/Применить: 18 ступ/))
+    await waitFor(() => expect(quoteApi.calculate).toHaveBeenCalledTimes(1), { timeout: 2500 })
+    const calcBody = (quoteApi.calculate as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<string, unknown>
+    expect(calcBody.flight).toBe('spiral')
+    expect(calcBody.width_mm).toBe(900)
+    expect(calcBody.outer_radius_mm).toBe(1050)
+  })
+
+  it('не дёргает :validate, пока форма имеет локальные ошибки', async () => {
+    const validateSpy = vi.spyOn(quoteApi, 'validate').mockResolvedValue(liveBlockedSpiral)
+    await renderWithAuth(<Constructor />, null)
+    // Высота пустая — локальная ошибка «Укажите значение».
+    fireEvent.change(screen.getByLabelText('Высота (мм)'), { target: { value: '9999' } })
+    await sleep(LIVE_DEBOUNCE + 200)
+    expect(validateSpy).not.toHaveBeenCalled()
+  })
+})

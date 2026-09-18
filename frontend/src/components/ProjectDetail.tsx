@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Calculation, OptimizeTarget, Project } from '@shared/types'
+import {
+  LiveValidator,
+  applySuggestion as liveApplySuggestion,
+  applyVariation as liveApplyVariation,
+  configKey,
+  type LiveIssue,
+  type LiveSuggestion,
+  type LiveValidation,
+  type LiveVariation,
+} from '@shared/liveValidate'
 import { ApiError } from '@shared/types'
 import { projectsApi } from '../api/projects'
 import {
@@ -65,6 +75,18 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
   const [savedAt, setSavedAt] = useState<Date | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Живая валидация при вводе (S-P5): серверные блокировки (R>W спирали, угол/
+  // проступь, вписываемость), невидимые локальной проверке формы.
+  const [liveBlocking, setLiveBlocking] = useState(false)
+  const [liveIssues, setLiveIssues] = useState<LiveIssue[]>([])
+  const [liveFieldErrors, setLiveFieldErrors] = useState<FieldErrors>({})
+  const liveValidator = useRef(new LiveValidator())
+  const applyLive = (v: LiveValidation | null) => {
+    const withIssues = !!v && v.blocking && v.issues.length > 0
+    setLiveBlocking(withIssues)
+    setLiveIssues(withIssues ? v.issues : [])
+    setLiveFieldErrors(withIssues ? v.fieldErrors : {})
+  }
   const [optimizeTarget, setOptimizeTarget] = useState<OptimizeTarget>('price')
   const [optimizeMsg, setOptimizeMsg] = useState<string | null>(null)
   // Превью вариации (A/B/C) без сохранения: перебор альтернатив перед
@@ -88,8 +110,11 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
 
   // Очистка debounce таймера при unmount.
   useEffect(() => {
+    const timerRef = configChangeTimer
+    const validatorRef = liveValidator
     return () => {
-      if (configChangeTimer.current) window.clearTimeout(configChangeTimer.current)
+      if (timerRef.current) window.clearTimeout(timerRef.current)
+      validatorRef.current.cancel()
     }
   }, [])
 
@@ -97,7 +122,8 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
   const activeSection = useScrollSpy(SECTION_IDS, 'params')
 
   const setField = (key: keyof ConfigForm, value: string | boolean) => {
-    setConfig((c) => ({ ...c, [key]: value }))
+    const next = { ...config, [key]: value }
+    setConfig(next)
     // Аудит изменения поля (debounce 600 мс, best-effort).
     if (configChangeTimer.current) window.clearTimeout(configChangeTimer.current)
     configChangeTimer.current = window.setTimeout(() => {
@@ -108,6 +134,15 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
         detail: JSON.stringify({ field: key }),
       })
     }, 600)
+    // Живая валидация при вводе: дебаунс + дедуп по конфигу; при локальных
+    // ошибках формы сервер не дёргаем (они уже подсвечены).
+    if (Object.keys(validateForm(next)).length === 0) {
+      liveValidator.current.schedule({
+        key: configKey(next),
+        fetch: () => projectsApi.validateStair(toRequest(next)),
+        onChange: applyLive,
+      })
+    }
   }
 
   const setRate = (key: keyof RatesForm, value: string) =>
@@ -115,17 +150,20 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
 
   // handleCalculate — отправляет расчёт и сохраняет результат в проекте.
   // Возвращает true при успешном сохранении.
-  const handleCalculate = async (): Promise<boolean> => {
+  const handleCalculate = async (source?: ConfigForm): Promise<boolean> => {
     setBusy(true)
     setError(null)
     setOptimizeMsg(null)
     try {
-      const body = { ...toRequest(config) }
+      const src = source ?? config
+      const body = { ...toRequest(src) }
       const ratesReq = toRatesRequest(rates)
       if (ratesReq) body.rates = ratesReq
       const calc = await projectsApi.calculate(projectId, body)
       setCalculation(calc)
       setSavedAt(new Date())
+      liveValidator.current.invalidate(configKey(src))
+      applyLive(null)
       onChanged()
       return true
     } catch (e) {
@@ -232,6 +270,33 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
       setBusy(false)
     }
   }
+  // «Применить» из баннера живой валидации (S-P5): применяем предложенный
+  // вариант советника/вариацию к форме и запускаем обычный расчёт проекта.
+  const applyLiveSuggestion = (si: LiveSuggestion) => {
+    const next = liveApplySuggestion(config, si)
+    setConfig(next)
+    liveValidator.current.invalidate(configKey(next))
+    void handleCalculate(next)
+    logAction({
+      action: 'stair.live_suggestion_applied',
+      resource_type: 'stair',
+      resource_id: projectId,
+      detail: JSON.stringify({ step_height_mm: si.stepHeightMm, step_count: si.stepCount }),
+    })
+  }
+  const applyLiveVariation = (v: LiveVariation) => {
+    const next = liveApplyVariation(config, v)
+    setConfig(next)
+    liveValidator.current.invalidate(configKey(next))
+    void handleCalculate(next)
+    logAction({
+      action: 'stair.live_variation_applied',
+      resource_type: 'stair',
+      resource_id: projectId,
+      detail: JSON.stringify({ id: v.id, title: v.title }),
+    })
+  }
+
 
   // applyPreview — зафиксировать выбранный вариант как сохранённый расчёт.
   // Превью очищаем только ПОСЛЕ успешного расчёта: при ошибке пользователь
@@ -284,7 +349,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
           </select>
           <button
             className="btn btn--accent"
-            onClick={handleCalculate}
+            onClick={() => void handleCalculate()}
             disabled={busy || hasHardErrors || project?.status === 'in_review'}
             title={project?.status === 'in_review' ? 'Расчёт заморожен до решения владельца' : undefined}
           >
@@ -320,7 +385,38 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
             <div className="panel">
               <h2 className="panel__title">Параметры лестницы</h2>
               <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Задайте геометрию, материалы и ставки. Каждая калькуляция создаёт новую версию.</p>
-              <ConfigForm fields={config} errors={errors} onChange={setField} />
+              <ConfigForm fields={config} errors={errors} liveErrors={liveFieldErrors} onChange={setField} />
+              {liveBlocking && liveIssues.length > 0 && (
+                <div className="alert alert--warn" role="alert" style={{ marginTop: 12 }}>
+                  {liveIssues.map((it, idx) => (
+                    <div key={idx} style={{ marginBottom: idx < liveIssues.length - 1 ? 6 : 0 }}>
+                      <strong>{it.param ? `${it.param}: ` : ''}{it.guide ?? it.message}</strong>
+                      {it.fix ? ` (${it.fix})` : ''}{' '}
+                      {it.suggestions && it.suggestions.length > 0 && (
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() => applyLiveSuggestion(it.suggestions![0])}
+                        >
+                          Применить: {it.suggestions[0].stepCount} ступ. · h {it.suggestions[0].stepHeightMm.toFixed(1)}
+                        </button>
+                      )}
+                      {it.variations && it.variations.length > 0 && (
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() => {
+                            const v = it.variations![0]
+                            applyLiveVariation(v)
+                          }}
+                        >
+                          Применить вариант A
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
               <RatesFormSection rates={rates} onChange={setRate} />
               {hasHardErrors && (
                 <p className="muted">
@@ -443,6 +539,9 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
 interface ConfigFormProps {
   fields: ConfigForm
   errors: FieldErrors
+  /** Ошибки живой (серверной) валидации при вводе: подсвечивают поля, у
+   * которых локально всё в порядке, но бэкенд находит блокировку (S-P5). */
+  liveErrors?: FieldErrors
   onChange: (key: keyof ConfigForm, value: string | boolean) => void
 }
 
@@ -493,7 +592,7 @@ const adminSelectOptions = (key: keyof ConfigForm) => {
   }
 }
 
-function ConfigForm({ fields, errors, onChange }: ConfigFormProps) {
+function ConfigForm({ fields, errors, liveErrors, onChange }: ConfigFormProps) {
   const visible = flightFields[fields.flight]
   return (
     <div className="config-grid">
@@ -534,6 +633,7 @@ function ConfigForm({ fields, errors, onChange }: ConfigFormProps) {
       {visible.map((key) => {
         const rule = rulesFor(key, fields.material)
         const error = errors[key]
+        const liveError = liveErrors?.[key]
         const hint = rule && (rule.hint ?? (rule.min || rule.max ? rangeText(rule) : undefined))
         const options = adminSelectOptions(key)
         return (
@@ -558,7 +658,7 @@ function ConfigForm({ fields, errors, onChange }: ConfigFormProps) {
             ) : (
               <input
                 id={`cfg-${key}`}
-                className={`field__input${error ? ' field__input--invalid' : ''}`}
+                className={`field__input${error || liveError ? ' field__input--invalid' : ''}`}
                 type="number"
                 inputMode="decimal"
                 value={fields[key] as string}
@@ -566,6 +666,7 @@ function ConfigForm({ fields, errors, onChange }: ConfigFormProps) {
               />
             )}
             {error && <p className="field__error">{error}</p>}
+            {!error && liveError && <p className="field__error">{liveError}</p>}
           </div>
         )
       })}

@@ -2,6 +2,16 @@ import { useEffect, useRef, useState } from 'react'
 import type { ConfigForm } from '@shared/config'
 import { defaultConfig, directionOptions, flightOptions, materialOptions, railingForSpiral, railingLabel, railingOptions, rulesFor, spiralDirectionOptions, toRequest, validateForm, type FieldErrors, type FieldRule } from '@shared/config'
 import type { QuoteResult, QuoteSuggestion, Variation } from '@shared/types'
+import {
+  LiveValidator,
+  applySuggestion as liveApplySuggestion,
+  applyVariation as liveApplyVariation,
+  configKey,
+  type LiveIssue,
+  type LiveSuggestion,
+  type LiveValidation,
+  type LiveVariation,
+} from '@shared/liveValidate'
 import { quoteApi } from '../api/store'
 import { apiErrorMessage } from '../auth/errors'
 import { QuoteResult as QuoteResultView } from './QuoteResult'
@@ -168,6 +178,24 @@ export function Constructor() {
   const [request, setRequest] = useState<Record<string, unknown> | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Живая валидация при вводе (S-P5): серверные блокировки, которые локально
+  // не видны (R>W спирали, угол/проступь по норме, вписываемость в помещение).
+  // Баннер + подсветка полей; blocking-issue несут готовые варианты «Применить».
+  const [liveBlocking, setLiveBlocking] = useState(false)
+  const [liveIssues, setLiveIssues] = useState<LiveIssue[]>([])
+  const [liveFieldErrors, setLiveFieldErrors] = useState<FieldErrors>({})
+  const liveValidator = useRef(new LiveValidator())
+  const clearLive = useRef(false)
+  const applyLive = (v: LiveValidation | null) => {
+    if (clearLive.current) {
+      clearLive.current = false
+      return
+    }
+    const withIssues = !!v && v.blocking && v.issues.length > 0
+    setLiveBlocking(withIssues)
+    setLiveIssues(withIssues ? v!.issues : [])
+    setLiveFieldErrors(withIssues ? v!.fieldErrors : {})
+  }
 
   // Вариации (A/B/C) от последнего блокирующего ответа + снапшоты «моих
   // вариантов» (исходный марш и каждый применённый вариант). Галерея склеивает
@@ -252,10 +280,11 @@ export function Constructor() {
 
   const configChangeTimer = useRef<number | null>(null)
 
-  // Очистка debounce таймера при unmount.
+  // Очистка debounce таймеров (аудит и живая валидация) при unmount.
   useEffect(() => {
     return () => {
       if (configChangeTimer.current) window.clearTimeout(configChangeTimer.current)
+      liveValidator.current.cancel()
     }
   }, [])
 
@@ -263,9 +292,20 @@ export function Constructor() {
     const next = { ...config, [k]: v }
     setConfig(next)
     setTouched(true)
-    setErrors(validateForm(next))
+    const errs = validateForm(next)
+    setErrors(errs)
     if (next.roomWidthMM.trim() !== '' && next.roomLengthMM.trim() !== '') {
       setRoomHighlight(false)
+    }
+    // Живая валидация при вводе (S-P5): дебаунс + дедуп по конфигу.
+    // Локальные ошибки формы уже подсвечены — сервер не дёргаем.
+    if (Object.keys(errs).length === 0) {
+      clearLive.current = false
+      liveValidator.current.schedule({
+        key: configKey(next),
+        fetch: () => quoteApi.validate(toRequest(next)),
+        onChange: applyLive,
+      })
     }
     // Аудит изменения поля (debounce 600 мс, best-effort).
     if (configChangeTimer.current) window.clearTimeout(configChangeTimer.current)
@@ -321,6 +361,10 @@ export function Constructor() {
       const res = await quoteApi.calculate(body)
       setQuote(res)
       setRequest(body)
+      // Полный расчёт выполнен: его validation и есть актуальная картина —
+      // живой баннер и подсветка больше не нужны.
+      liveValidator.current.invalidate(configKey(cfg))
+      applyLive({ valid: true, blocking: false, issues: [], fieldErrors: {} })
       // Новый блокирующий ответ с вариациями заменяет список альтернатив.
       // Текущий (заблокированный) конфиг якорим как снапшот — исходный марш
       // остаётся в галерее и к нему можно вернуться.
@@ -429,6 +473,33 @@ export function Constructor() {
     })
   }
 
+  // «Применить» из баннера живой валидации: применяем предложенный вариант
+  // советника/вариацию к форме и сразу пересчитываем (блокировка снимается).
+  const applyLiveSuggestion = (si: LiveSuggestion) => {
+    const next = liveApplySuggestion(config, si)
+    setConfig(next)
+    setErrors(validateForm(next))
+    liveValidator.current.invalidate(configKey(next))
+    void calculate(next)
+    logAction({
+      action: 'stair.live_suggestion_applied',
+      resource_type: 'stair',
+      detail: JSON.stringify({ step_height_mm: si.stepHeightMm, step_count: si.stepCount }),
+    })
+  }
+  const applyLiveVariation = (v: LiveVariation) => {
+    const next = liveApplyVariation(config, v)
+    setConfig(next)
+    setErrors(validateForm(next))
+    liveValidator.current.invalidate(configKey(next))
+    void calculate(next)
+    logAction({
+      action: 'stair.live_variation_applied',
+      resource_type: 'stair',
+      detail: JSON.stringify({ id: v.id, title: v.title }),
+    })
+  }
+
   // Клик по карточке галереи: свои снапшоты (cfg-…) восстанавливаем целиком,
   // бэкенд-варианты сливаем в текущий конфиг (applyVariation).
   const applyGalleryVariation = (v: Variation) => {
@@ -462,6 +533,8 @@ export function Constructor() {
     setRoomPrompt(false)
     setRoomHighlight(false)
     setSkipRoomPrompt(false)
+    liveValidator.current.cancel()
+    applyLive(null)
   }
 
   const renderRoomFieldError = (k: keyof ConfigForm): React.ReactNode =>
@@ -522,6 +595,7 @@ export function Constructor() {
                             inputMode="decimal"
                             className={
                               (touched && errors[k]) ||
+                              liveFieldErrors[k] != null ||
                               (roomHighlight &&
                                 (k === 'roomWidthMM' || k === 'roomLengthMM') &&
                                 (config[k] as string).trim() === '')
@@ -534,6 +608,9 @@ export function Constructor() {
                         )}
                         {hintOf(k) && <span className="sub">{hintOf(k)}</span>}
                         {touched && errors[k] && <span className="error">{errors[k]}</span>}
+                        {touched && !errors[k] && liveFieldErrors[k] && (
+                          <span className="error">{liveFieldErrors[k]}</span>
+                        )}
                         {renderRoomFieldError(k)}
                       </div>
                     ),
@@ -585,6 +662,40 @@ export function Constructor() {
                 <button className="sp-btn" type="button" onClick={continueWithoutArea}>
                   Продолжить без площади
                 </button>
+              </div>
+            </div>
+          )}
+          {liveBlocking && liveIssues.length > 0 && (
+            <div className="alert alert--warn" role="alert">
+              <div className="room-prompt__text">
+                <div className="live-issues">
+                  {liveIssues.map((it, idx) => (
+                    <div className="live-issue" key={idx}>
+                      <span>
+                        <strong>{it.param ? `${it.param}: ` : ''}{it.guide ?? it.message}</strong>
+                        {it.fix ? ` (${it.fix})` : ''}
+                      </span>
+                      {it.suggestions && it.suggestions.length > 0 && (
+                        <button
+                          type="button"
+                          className="sp-btn sp-btn--primary live-issue__apply"
+                          onClick={() => applyLiveSuggestion(it.suggestions![0])}
+                        >
+                          Применить: {it.suggestions[0].stepCount} ступ. · h {it.suggestions[0].stepHeightMm.toFixed(1)}
+                        </button>
+                      )}
+                      {it.variations && it.variations.length > 0 && (
+                        <button
+                          type="button"
+                          className="sp-btn live-issue__apply"
+                          onClick={() => { const v = it.variations![0]; applyLiveVariation(v) }}
+                        >
+                          Применить вариант A
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}
