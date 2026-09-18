@@ -1,13 +1,13 @@
 // 3D-вьювер геометрии (FE-0017, ENG-GEO-0008): отображение preview mesh
 // из снапшота. Вращение — ЛКМ, панорама — ПКМ/средняя, зум — колесо.
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Mesh as ApiMesh } from '../types'
 import { toThreePositions } from './projection'
 import { computePlacement } from '../placement'
-import { approachZoneCenterX, stairTopLineX } from './layout'
+import { approachZoneCenterX, EXIT_BLOCK_H, exitSlabBox, exitWallSide, stairTopLineX, wallBox, wallBoundsOf, type Box3Like, type BoxSpec, type WallSide } from './layout'
 import { ANNOTATE, edgeColor, WALLS } from '../scheme-annot'
 
 interface Props {
@@ -36,6 +36,12 @@ interface Props {
   // box.max.x на эту величину (свес первой проступи), поэтому зона подхода
   // и линия верха привязаны к ней. По умолчанию 40 (default бэкенда).
   stepThickness?: number
+  // Глубина плиты «выхода на 2-й этаж» (мм), примыкающей к верхнему торцу
+  // марша. По умолчанию 1200.
+  secondFloorDepth?: number
+  // Высота марша из ввода пользователя (поле «Высота», мм). Задаёт верхнюю
+  // кромку стен; при отстуствии берётся геометрический верх меша (sb.max.y).
+  heightMM?: number
 }
 
 // Временная метка-буква для 3D-разметки (debug, см. scheme-annot.ts): рисуем
@@ -106,8 +112,47 @@ export function GeometryViewer({
   roomLength,
   approachSpace,
   stepThickness = 40,
+  secondFloorDepth = 1200,
+  heightMM,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  // Виджет «стены»: независимый тумблер на каждую из 4 сторон периметра
+  // (В/Н/П/Л). По умолчанию все стены выключены — лестница рисуется чистой.
+  const [walls, setWalls] = useState<Record<WallSide, boolean>>({
+    top: false,
+    bottom: false,
+    right: false,
+    left: false,
+  })
+  // Плита «выхода на 2-й этаж» — отдельный тумблер, включён по умолчанию.
+  const [showExit, setShowExit] = useState(true)
+  // Ссылки на объекты контекста (стены/плита), чтобы переключатели меняли
+  // только .visible без пересоздания сцены (иначе сбрасывается камера).
+  const wallsRef = useRef<Record<WallSide, THREE.Object3D | null>>({
+    top: null,
+    bottom: null,
+    right: null,
+    left: null,
+  })
+  const exitRef = useRef<THREE.Object3D | null>(null)
+  // Актуальные значения тумблеров для эффекта построения сцены: туда они НЕ
+  // входят зависимостями (переключение не должно пересобирать сцену), поэтому
+  // начальную видимость читаем из зеркальных рефов.
+  const wallsStateRef = useRef(walls)
+  const showExitStateRef = useRef(showExit)
+
+  useEffect(() => {
+    wallsStateRef.current = walls
+    if (wallsRef.current.top) wallsRef.current.top.visible = walls.top
+    if (wallsRef.current.bottom) wallsRef.current.bottom.visible = walls.bottom
+    if (wallsRef.current.right) wallsRef.current.right.visible = walls.right
+    if (wallsRef.current.left) wallsRef.current.left.visible = walls.left
+  }, [walls])
+
+  useEffect(() => {
+    showExitStateRef.current = showExit
+    if (exitRef.current) exitRef.current.visible = showExit
+  }, [showExit])
 
   useEffect(() => {
     const container = containerRef.current
@@ -232,6 +277,19 @@ export function GeometryViewer({
     let offset = { offsetX: 0, offsetY: 0 }
     const sb = stair.geo.boundingBox
     const ap = approachSpace && approachSpace > 0 ? approachSpace : 1000
+    // Габарит стен: периметр ПОМЕЩЕНИЯ (room_mesh в мировых координатах),
+    // высота — пользовательская высота марша (heightMM) с фолбэком на верх
+    // меша. Без размеров помещения стены не строим (виджет залочен).
+    let wallBounds: Box3Like | null = null
+    if (sb) {
+      wallBounds = wallBoundsOf({
+        stairBox: sb,
+        roomBounds: room?.geo.boundingBox,
+        roomWidth,
+        roomLength,
+        heightMM,
+      })
+    }
     if (sb) {
       let rw = roomWidth ?? 0
       let rl = roomLength ?? 0
@@ -265,10 +323,34 @@ export function GeometryViewer({
     scene.add(stairGroup)
 
     const box = stair.geo.boundingBox ?? new THREE.Box3(new THREE.Vector3(), new THREE.Vector3(1, 1, 1))
+    // Габарит контекста (стены + плита выхода) в локальных координатах: стены
+    // на 60 мм выступают за периметр, плита выхода уходит от верхнего торца на
+    // secondFloorDepth. Включаем в кадр всегда (даже при выключенных тумблерах),
+    // чтобы кадр не прыгал при переключении.
+    const WALL_T = 60
+    const SLAB_T = 200
+    const ctxMin = new THREE.Vector3(box.min.x, box.min.y, box.min.z)
+    const ctxMax = new THREE.Vector3(box.max.x, box.max.y, box.max.z)
+    if (sb) {
+      // Габарит плиты выхода (для straight/u/spiral вдоль X, для l_shape вдоль Z)
+      // + запас на толщину стен (60 мм по периметру). Включаем в кадр всегда
+      // (даже при выключенных тумблерах), чтобы кадр не прыгал при кликах.
+      const slab = exitSlabBox(sb, flight ?? '', direction, secondFloorDepth, SLAB_T)
+      const hs = slab.size.map((v) => v / 2)
+      ctxMin.x = Math.min(ctxMin.x, slab.pos[0] - hs[0])
+      ctxMin.z = Math.min(ctxMin.z, slab.pos[2] - hs[2])
+      ctxMax.x = Math.max(ctxMax.x, slab.pos[0] + hs[0])
+      ctxMax.z = Math.max(ctxMax.z, slab.pos[2] + hs[2])
+      ctxMin.x -= WALL_T
+      ctxMin.z -= WALL_T
+      ctxMax.x += WALL_T
+      ctxMax.z += WALL_T
+    }
     // Кадрируем камеру по объединённому габариту «лестница (со сдвигом) ∪
-    // помещение», чтобы было видно, что лестница прижата к нужной стене/углу.
-    const unionMin = new THREE.Vector3(box.min.x + offset.offsetX, box.min.y, box.min.z + offset.offsetY)
-    const unionMax = new THREE.Vector3(box.max.x + offset.offsetX, box.max.y, box.max.z + offset.offsetY)
+    // помещение ∪ стены/выход», чтобы было видно, что лестница прижата к
+    // нужной стене/углу.
+    const unionMin = new THREE.Vector3(ctxMin.x + offset.offsetX, ctxMin.y, ctxMin.z + offset.offsetY)
+    const unionMax = new THREE.Vector3(ctxMax.x + offset.offsetX, ctxMax.y, ctxMax.z + offset.offsetY)
     if (room && room.geo.boundingBox) {
       unionMin.min(room.geo.boundingBox.min)
       unionMax.max(room.geo.boundingBox.max)
@@ -292,7 +374,7 @@ export function GeometryViewer({
     // Добавляется в группу марша, чтобы двигалась вместе со сдвигом.
     let topLine: THREE.Line | null = null
     if (stairTop) {
-      const x = stairTopLineX(box, flight ?? '')
+      const x = stairTopLineX(box, flight ?? '', direction)
       const y0 = box.min.y
       const y1 = box.max.y
       const z = box.min.z
@@ -330,6 +412,81 @@ export function GeometryViewer({
         (sb.min.z + sb.max.z) / 2,
       )
       stairGroup.add(approachMesh)
+    }
+
+    // Стены периметра (виджет В/Н/П/Л) и плита «выхода на 2-й этаж»: чисто
+    // визуальные элементы контекста; добавляются в stairGroup, чтобы ехали
+    // вместе со сдвигом размещения. Тумблеры меняют только .visible, поэтому
+    // сцена и камера не пересоздаются при переключении.
+    const contextGeos: THREE.BufferGeometry[] = []
+    const contextMats: THREE.Material[] = []
+    const wallMeshes: Record<WallSide, THREE.Mesh | null> = { top: null, bottom: null, right: null, left: null }
+    let exitMesh: THREE.Mesh | null = null
+
+    // Стены периметра: строятся ПО ПЕРИМЕТРУ ПОМЕЩЕНИЯ (мировые координаты,
+    // как полупрозрачный периметр room_mesh), а не по габаритам лестницы.
+    // В — дальняя стена позади марша, Н — ближняя (перед маршем, внутри
+    // помещения), П — правая, Л — левая. Высота — из wallBounds (ввод
+    // пользователя «высота марша»). Выходная стена (exitWallSide) доводится
+    // до низа блока «выхода на 2-й этаж» (EXIT_BLOCK_H) — блок ложится на неё
+    // заподлицо; расчёт статичен и не зависит от чекбокса (плита лишь
+    // переключает .visible). Без заданных габаритов помещения стены не
+    // строятся, виджет залочен.
+    const exitSide = exitWallSide(flight ?? '', direction)
+    if (sb && wallBounds) {
+      const wallMat = new THREE.MeshStandardMaterial({
+        color: 0xaab6c4,
+        roughness: 0.9,
+        metalness: 0.05,
+        transparent: true,
+        opacity: 0.55,
+        side: THREE.DoubleSide,
+      })
+      contextMats.push(wallMat)
+
+      const makeWall = (spec: BoxSpec, side: WallSide): THREE.Mesh => {
+        const g = new THREE.BoxGeometry(spec.size[0], spec.size[1], spec.size[2])
+        const m = new THREE.Mesh(g, wallMat)
+        m.position.set(spec.pos[0], spec.pos[1], spec.pos[2])
+        contextGeos.push(g)
+        m.visible = wallsStateRef.current[side]
+        scene.add(m)
+        return m
+      }
+
+      for (const s of ['top', 'bottom', 'right', 'left'] as WallSide[]) {
+        wallMeshes[s] = makeWall(wallBox(wallBounds, s, WALL_T, { side: exitSide, height: EXIT_BLOCK_H }), s)
+      }
+    }
+
+    if (sb) {
+      // Плита «выхода на 2-й этаж»: плоская, глубиной secondFloorDepth, верх
+      // на уровне верха марша (sb.max.y). Направление/ось зависят от типа
+      // марша (см. exitSlabBox): straight/u_shape — вдоль X, l_shape — вдоль Z.
+      const slab = exitSlabBox(sb, flight ?? '', direction, secondFloorDepth, SLAB_T)
+      const slabGeo = new THREE.BoxGeometry(slab.size[0], slab.size[1], slab.size[2])
+      const slabMat = new THREE.MeshStandardMaterial({
+        color: 0x8b98a9,
+        roughness: 0.7,
+        metalness: 0.1,
+        side: THREE.DoubleSide,
+      })
+      contextGeos.push(slabGeo)
+      contextMats.push(slabMat)
+      exitMesh = new THREE.Mesh(slabGeo, slabMat)
+      exitMesh.position.set(slab.pos[0], slab.pos[1], slab.pos[2])
+      exitMesh.visible = showExitStateRef.current
+      stairGroup.add(exitMesh)
+      exitRef.current = exitMesh
+    } else {
+      exitRef.current = null
+    }
+
+    wallsRef.current = {
+      top: wallMeshes.top,
+      bottom: wallMeshes.bottom,
+      right: wallMeshes.right,
+      left: wallMeshes.left,
     }
 
     // Временная цвето-буквенная разметка периметра и рёбер (debug, scheme-annot.ts):
@@ -430,6 +587,8 @@ export function GeometryViewer({
         approachMesh.geometry.dispose()
         ;(approachMesh.material as THREE.Material).dispose()
       }
+      for (const g of contextGeos) g.dispose()
+      for (const m of contextMats) m.dispose()
       for (const o of annot) {
         const line = o as THREE.Line
         if (line.geometry) line.geometry.dispose()
@@ -445,11 +604,55 @@ export function GeometryViewer({
         container.removeChild(renderer.domElement)
       }
     }
-  }, [mesh, roomMesh, railingMesh, approachSpace, roomWidth, roomLength, direction, stairTop, flight, stepThickness])
+  }, [mesh, roomMesh, railingMesh, approachSpace, roomWidth, roomLength, direction, stairTop, flight, stepThickness, secondFloorDepth, heightMM])
+
+  const SIDES: WallSide[] = ['top', 'bottom', 'right', 'left']
+  const WALL_LABELS: Record<WallSide, string> = {
+    top: 'Дальняя стена',
+    bottom: 'Ближняя стена',
+    right: 'Стена справа',
+    left: 'Стена слева',
+  }
+  // Стены строятся по периметру помещения: без заданных габаритов (ширины и
+  // длины) строить не из чего, поэтому тумблеры залочены и выводится подсказка.
+  const roomSizes = (roomWidth ?? 0) > 0 && (roomLength ?? 0) > 0
 
   return (
     <div className="viewer">
       <div className="viewer__stage" ref={containerRef} />
+      <div className="viewer__controls">
+        <div className="viewer__walls" role="group" aria-label="Стены">
+          {SIDES.map((s) => (
+            <button
+              key={s}
+              type="button"
+              disabled={!roomSizes}
+              className={`viewer__walls__seg viewer__walls__seg--${s}${walls[s] ? ' viewer__walls__seg--on' : ''}`}
+              aria-pressed={walls[s]}
+              title={
+                roomSizes
+                  ? `${WALL_LABELS[s]} (${WALLS[s].key})`
+                  : 'Введите габариты помещения, чтобы показать стены'
+              }
+              onClick={() => setWalls((prev) => ({ ...prev, [s]: !prev[s] }))}
+            >
+              {WALLS[s].key}
+            </button>
+          ))}
+        </div>
+        {!roomSizes && (
+          <p className="viewer__walls-lock">Введите габариты помещения (ширину и длину) в калькуляторе, чтобы показать стены.</p>
+        )}
+        <label className="viewer__exit">
+          <input
+            type="checkbox"
+            checked={showExit}
+            onChange={(e) => setShowExit(e.target.checked)}
+            title="Плита у верхней ступени — выход на 2-й этаж"
+          />
+          <span>Выход на 2-й этаж</span>
+        </label>
+      </div>
       <p className="viewer__hint">Вращение — ЛКМ · панорама — ПКМ/средняя · зум — колесо</p>
     </div>
   )

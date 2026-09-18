@@ -3,7 +3,27 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ProjectDetail } from './ProjectDetail'
 import { projectsApi } from '../api/projects'
 import { ApiError } from '@shared/types'
-import { makeCalculation, makeOptimize, makeProject } from '../test/fixtures'
+import { makeCalculation, makeOptimize, makeProject, makeSnapshot } from '../test/fixtures'
+
+// Захват пропсов GeometryViewer (сам вьювер тестируется в shared): проверяем
+// сквозную связку «поле Высота подъёма H, мм в калькуляторе → ResultPanel →
+// высота стен 3D».
+const viewerProps = vi.hoisted(() => ({ current: {} as Record<string, unknown> }))
+vi.mock('@shared/viewer/GeometryViewer', () => ({
+  GeometryViewer: (p: Record<string, unknown>) => {
+    viewerProps.current = p
+    return null
+  },
+}))
+
+const mesh3d = {
+  Vertices: [
+    { X: 0, Y: 0, Z: 0 },
+    { X: 900, Y: 0, Z: 0 },
+    { X: 0, Y: 0, Z: 2700 },
+  ],
+  Triangles: [[0, 1, 2]] as Array<[number, number, number]>,
+}
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -227,5 +247,35 @@ describe('ProjectDetail · живая валидация (S-P5)', () => {
     const [calcId, calcBody] = calculate.mock.calls[0] as [string, Record<string, unknown>]
     expect(calcId).toBe('p1')
     expect(calcBody.outer_radius_mm).toBe(1050)
+  })
+})
+
+describe('ProjectDetail · высота марша до 3D (стены)', () => {
+  it('высота из поля «Высота подъёма H, мм» доходит до вьювера и пересчёт меняет её', async () => {
+    const result = makeCalculation({
+      result: makeSnapshot({ mesh: mesh3d, room_mesh: mesh3d }),
+    })
+    vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
+    const calculate = vi.spyOn(projectsApi, 'calculate').mockResolvedValue(result)
+    renderDetail()
+
+    await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await screen.findByText(/Расчёт сохранён/)
+
+    // Дефолт 2700 доходит до вьювера вместе с габаритами помещения.
+    fireEvent.click(screen.getByRole('tab', { name: '3D' }))
+    await waitFor(() => expect(viewerProps.current.heightMM).toBe(2700))
+    expect(viewerProps.current).toMatchObject({ flight: 'straight', roomWidth: 3000, roomLength: 4200 })
+
+    // Правка высоты и пересчёт — вьювер получает новое значение.
+    fireEvent.change(screen.getByLabelText(/Высота подъёма H/), { target: { value: '2750' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await screen.findByText(/Расчёт сохранён/)
+    fireEvent.click(screen.getByRole('tab', { name: '3D' }))
+    await waitFor(() => expect(viewerProps.current.heightMM).toBe(2750))
+    expect(viewerProps.current.flight).toBe('straight')
+    expect(calculate.mock.calls[0][1] as Record<string, unknown>).toMatchObject({ height_mm: 2700 })
+    expect(calculate.mock.calls[1][1] as Record<string, unknown>).toMatchObject({ height_mm: 2750 })
   })
 })

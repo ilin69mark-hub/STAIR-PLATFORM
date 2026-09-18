@@ -430,11 +430,12 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
           <section id="result" className="section">
             <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Результат последнего расчёта. Вариации A/B/C — превью без сохранения, «Применить» создаёт версию.</p>
             {calculation && (
-              <ResultPanel
-                snapshot={calculation.result}
-                onApplyVariation={applyVariation}
-                activeVariantId={activeVariantId}
-              />
+<ResultPanel
+                  snapshot={calculation.result}
+                  onApplyVariation={applyVariation}
+                  activeVariantId={activeVariantId}
+                  heightMM={Number(config.heightMM) || undefined}
+                />
             )}
             {previewCalculation && (
               <section className="panel">
@@ -443,6 +444,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
                   snapshot={previewCalculation.result}
                   onApplyVariation={applyVariation}
                   activeVariantId={activeVariantId}
+                  heightMM={Number(config.heightMM) || undefined}
                 />
                 <div className="row row--actions">
                   <button className="btn btn--accent" onClick={applyPreview} disabled={busy}>

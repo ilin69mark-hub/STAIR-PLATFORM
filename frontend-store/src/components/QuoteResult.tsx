@@ -29,6 +29,9 @@ interface Props {
   // использует собственный активный выбор (activeVariantId).
   variations?: Variation[] | null
   activeVariationId?: string | null
+  // Высота марша из ввода пользователя (поле «Высота», мм): задаёт высоту
+  // стен периметра в 3D-вьювере.
+  heightMM?: number
 }
 
 export function QuoteResult({
@@ -39,6 +42,7 @@ export function QuoteResult({
   approachSpaceMM,
   variations,
   activeVariationId,
+  heightMM,
 }: Props) {
   const solver = solverOf(quote, approachSpaceMM != null && approachSpaceMM.trim() !== '' ? Number(approachSpaceMM) : undefined)
   const geometry = quote.geometry
@@ -135,6 +139,7 @@ export function QuoteResult({
                 roomWidth={solver.roomWidth}
                 roomLength={solver.roomLength}
                 approachSpace={solver.approachSpace}
+                heightMM={heightMM}
               />
             </Suspense>
           </div>

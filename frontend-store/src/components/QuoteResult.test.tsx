@@ -1,11 +1,27 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { QuoteResult } from './QuoteResult'
 import type { QuoteResult as QuoteResultType } from '@shared/types'
 
+// Захват пропсов GeometryViewer: вьювер сам идёт в shared-слой (там WebGL,
+// в jsdom не строится и тестируется отдельно), здесь проверяем только, что
+// QuoteResult пробрасывает в него ровно то, что получил/вывел из solver.
+const viewerProps = vi.hoisted(() => ({ current: {} as Record<string, unknown> }))
 vi.mock('@shared/viewer/GeometryViewer', () => ({
-  GeometryViewer: () => 'mock-3d-viewer',
+  GeometryViewer: (p: Record<string, unknown>) => {
+    viewerProps.current = p
+    return 'mock-3d-viewer'
+  },
 }))
+
+const mesh = () => ({
+  Vertices: [
+    { X: 0, Y: 0, Z: 0 },
+    { X: 900, Y: 0, Z: 0 },
+    { X: 0, Y: 0, Z: 2700 },
+  ],
+  Triangles: [[0, 1, 2]] as Array<[number, number, number]>,
+})
 
 const okQuote: QuoteResultType = {
   validation: { valid: true, blocking: false, issues: [] },
@@ -101,20 +117,47 @@ describe('QuoteResult', () => {
   it('показывает 3D-модель при наличии меша', async () => {
     const withMesh: QuoteResultType = {
       ...okQuote,
-      mesh: {
-        Vertices: [
-          { X: 0, Y: 0, Z: 0 },
-          { X: 900, Y: 0, Z: 0 },
-          { X: 0, Y: 0, Z: 2700 },
-        ],
-        Triangles: [
-          [0, 1, 2],
-        ],
-      },
+      mesh: mesh(),
     }
     render(<QuoteResult quote={withMesh} />)
     expect(screen.getByText('3D-модель')).toBeInTheDocument()
     expect(await screen.findByText('mock-3d-viewer')).toBeInTheDocument()
+  })
+
+  it('пробрасывает во вьювер heightMM и габариты помещения прямого марша', async () => {
+    const withRoom: QuoteResultType = {
+      ...okQuote,
+      flight: {
+        ...okQuote.flight!,
+        room_width_mm: 3000,
+        room_length_mm: 4200,
+      },
+      room_mesh: mesh(),
+      mesh: mesh(),
+    }
+    render(<QuoteResult quote={withRoom} heightMM={2750} />)
+    await screen.findByText('mock-3d-viewer')
+    await waitFor(() => {
+      expect(viewerProps.current).toMatchObject({
+        flight: 'straight',
+        roomWidth: 3000,
+        roomLength: 4200,
+        heightMM: 2750,
+      })
+    })
+    // Меш помещения передаётся (стены строятся по его периметру).
+    expect(viewerProps.current.roomMesh).toBeTruthy()
+    expect(viewerProps.current.direction).toBeUndefined()
+  })
+
+  it('БЕЗ габаритов помещения в итоге вьювер получает roomWidth/roomLength undefined', async () => {
+    render(<QuoteResult quote={{ ...okQuote, mesh: mesh() }} heightMM={2700} />)
+    await screen.findByText('mock-3d-viewer')
+    await waitFor(() => {
+      expect(viewerProps.current.heightMM).toBe(2700)
+      expect(viewerProps.current).toHaveProperty('roomWidth', undefined)
+      expect(viewerProps.current).toHaveProperty('roomLength', undefined)
+    })
   })
 
   it('не показывает 3D без меша', () => {

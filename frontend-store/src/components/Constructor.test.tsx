@@ -5,6 +5,26 @@ import { quoteApi } from '../api/store'
 import { renderWithAuth } from '../test/render'
 import type { QuoteResult, Variation } from '@shared/types'
 
+// Захват пропсов GeometryViewer: QuoteResult рендерится настоящим, а вьювер
+// мокаем (WebGL в jsdom не строится). Проверяем связку «Высота (мм) в
+// калькуляторе → QuoteResult → вьювер».
+const viewerProps = vi.hoisted(() => ({ current: {} as Record<string, unknown> }))
+vi.mock('@shared/viewer/GeometryViewer', () => ({
+  GeometryViewer: (p: Record<string, unknown>) => {
+    viewerProps.current = p
+    return null
+  },
+}))
+
+const mesh3d = {
+  Vertices: [
+    { X: 0, Y: 0, Z: 0 },
+    { X: 900, Y: 0, Z: 0 },
+    { X: 0, Y: 0, Z: 2700 },
+  ],
+  Triangles: [[0, 1, 2]] as Array<[number, number, number]>,
+}
+
 // blockedVariations — blocking-ответ с GEO-ANGLE, несущим одну вариацию
 // (имитация того, что отдаёт бэкенд через variation.ForAngle).
 function blockedVariations(cfg: Record<string, string>): QuoteResult {
@@ -232,6 +252,34 @@ describe('Constructor', () => {
         expect.objectContaining({ width_mm: 900, height_mm: 2700, flight: 'straight', material: 'STEEL-S235' }),
       ),
     )
+  })
+
+  it('высота поля «Высота (мм)» доходит до вьювера и пересчёт меняет её', async () => {
+    const okQuote3D: QuoteResult = {
+      ...okQuote,
+      flight: { ...okQuote.flight!, room_width_mm: 3000, room_length_mm: 4200 },
+      room_mesh: mesh3d,
+      mesh: mesh3d,
+    }
+    vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote3D)
+    await renderWithAuth(<Constructor />, null)
+    fillValid()
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await screen.findByText(/Результат расчёта/)
+    await waitFor(() => {
+      expect(viewerProps.current).toMatchObject({
+        flight: 'straight',
+        heightMM: 2700,
+        roomWidth: 3000,
+        roomLength: 4200,
+      })
+    })
+
+    // Правка высоты и повторный расчёт — вьювер получает новое значение.
+    fireEvent.change(screen.getByLabelText('Высота (мм)'), { target: { value: '2750' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await waitFor(() => expect(viewerProps.current.heightMM).toBe(2750))
+    expect(viewerProps.current.flight).toBe('straight')
   })
 
   it('выбранный материал попадает в запрос расчёта', async () => {

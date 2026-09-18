@@ -22,6 +22,9 @@ export const flightFixture: FlightResult = {
   Run: 4200,
   Stringer: 4783,
   Angle: Math.PI / 4,
+  // Габариты помещения (EDR-0023): прямому маршу нужны для прижима и стен.
+  RoomWidth: 3000,
+  RoomLength: 4200,
 }
 
 // Нулевое поле flight, которое бэкенд шлёт всегда — даже для L/U/спирали
@@ -51,6 +54,9 @@ export const lshapeFixture: LShapeResult = {
   LowerStringer: 1947,
   UpperStringer: 2920,
   LandingWidth: 1000,
+  RoomWidth: 3000,
+  RoomLength: 4200,
+  direction: 'right',
 }
 
 export const ushapeFixture: UShapeResult = {
@@ -67,6 +73,7 @@ export const ushapeFixture: UShapeResult = {
   LowerStringer: 1947,
   UpperStringer: 2920,
   LandingWidth: 1000,
+  direction: 'right',
 }
 
 export const spiralFixture: SpiralResult = {

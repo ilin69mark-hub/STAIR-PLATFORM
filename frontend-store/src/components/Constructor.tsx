@@ -722,6 +722,7 @@ export function Constructor() {
             activeVariationId={activeVariationId}
             material={config.material}
             approachSpaceMM={config.approachSpaceMM}
+            heightMM={Number(config.heightMM) || undefined}
           />
           {!quote.validation.blocking && quote.pricing && request && (
             <OrderForm

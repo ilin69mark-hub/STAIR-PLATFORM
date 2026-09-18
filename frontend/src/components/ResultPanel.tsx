@@ -18,6 +18,9 @@ interface Props {
   // onApplyVariation — применить выбранный вариант (A/B/C) как превью.
   onApplyVariation?: (v: Variation) => void
   activeVariantId?: string
+  // Высота марша из ввода пользователя (поле «Высота», мм): задаёт высоту
+  // стен периметра в 3D-вьювере.
+  heightMM?: number
 }
 
 // ResultTab — ключ активной под-вкладки результата. Часть панелей
@@ -25,19 +28,19 @@ interface Props {
 // не растягивать страницу в бесконечную портянку.
 type ResultTab = 'flight' | 'geometry' | 'manufacturing' | 'pricing'
 
-export function ResultPanel({ snapshot, onApplyVariation, activeVariantId }: Props) {
+export function ResultPanel({ snapshot, onApplyVariation, activeVariantId, heightMM }: Props) {
   const s = snapshot
   const stopped = !s.manufacturing || !s.pricing
   const [tab, setTab] = useState<ResultTab>('flight')
 
   const flightPanel = s.lshape ? (
-    <LShapePanel snapshot={s} />
+    <LShapePanel snapshot={s} heightMM={heightMM} />
   ) : s.ushape ? (
-    <UShapePanel snapshot={s} />
+    <UShapePanel snapshot={s} heightMM={heightMM} />
   ) : s.spiral ? (
-    <SpiralPanel snapshot={s} />
+    <SpiralPanel snapshot={s} heightMM={heightMM} />
   ) : s.flight ? (
-    <FlightPanel snapshot={s} />
+    <FlightPanel snapshot={s} heightMM={heightMM} />
   ) : null
 
   // Доступные под-вкладки зависят от наличия этапов конвейера в снапшоте.
@@ -88,7 +91,9 @@ export function ResultPanel({ snapshot, onApplyVariation, activeVariantId }: Pro
             </div>
           )}
           {active === 'flight' && flightPanel}
-          {active === 'geometry' && s.measurement && <GeometryPanel snapshot={s} />}
+          {active === 'geometry' && s.measurement && (
+            <GeometryPanel snapshot={s} heightMM={heightMM} />
+          )}
           {active === 'manufacturing' && s.manufacturing && (
             <ManufacturingPanel snapshot={s} />
           )}
@@ -101,7 +106,7 @@ export function ResultPanel({ snapshot, onApplyVariation, activeVariantId }: Pro
 
 // SolverDrawings — чертёжная секция результата Solver: вкладки «Профиль»
 // (боковой вид), «План» (вид сверху, все типы маршей) и «3D» (меш, если есть).
-function SolverDrawings({ snapshot }: { snapshot: Snapshot }) {
+function SolverDrawings({ snapshot, heightMM }: { snapshot: Snapshot; heightMM?: number }) {
   const [tab, setTab] = useState<'profile' | 'plan' | 'threed'>('profile')
   const sch = schematicOf(snapshot)
   if (!sch) return null
@@ -155,6 +160,7 @@ function SolverDrawings({ snapshot }: { snapshot: Snapshot }) {
               roomWidth={sch?.solver?.roomWidth}
               roomLength={sch?.solver?.roomLength}
               approachSpace={sch?.solver?.approachSpace}
+              heightMM={heightMM}
               stepThickness={snapshot.step_thickness}
             />
           </Suspense>
@@ -242,7 +248,7 @@ function ValidationPanel({
   )
 }
 
-function FlightPanel({ snapshot }: { snapshot: Snapshot }) {
+function FlightPanel({ snapshot, heightMM }: { snapshot: Snapshot; heightMM?: number }) {
   const f = snapshot.flight
   if (!f) return null
   return (
@@ -274,14 +280,14 @@ function FlightPanel({ snapshot }: { snapshot: Snapshot }) {
           <dd>{fmt.deg(f.Angle)}</dd>
         </div>
       </dl>
-      <SolverDrawings snapshot={snapshot} />
+      <SolverDrawings snapshot={snapshot} heightMM={heightMM} />
     </section>
   )
 }
 
 // LShapePanel — результат Solver L-образной лестницы (EDR-0005):
 // два марша, площадка между ними на высоте H1.
-function LShapePanel({ snapshot }: { snapshot: Snapshot }) {
+function LShapePanel({ snapshot, heightMM }: { snapshot: Snapshot; heightMM?: number }) {
   const l = snapshot.lshape
   if (!l) return null
   return (
@@ -349,13 +355,13 @@ function LShapePanel({ snapshot }: { snapshot: Snapshot }) {
           <dd>{fmt.mm(l.UpperHeight)}</dd>
         </div>
       </dl>
-      <SolverDrawings snapshot={snapshot} />
+      <SolverDrawings snapshot={snapshot} heightMM={heightMM} />
     </section>
   )
 }
 // UShapePanel — результат Solver П-образной лестницы (EDR-0006):
 // два параллельных марша, площадка между ними на высоте H1.
-function UShapePanel({ snapshot }: { snapshot: Snapshot }) {
+function UShapePanel({ snapshot, heightMM }: { snapshot: Snapshot; heightMM?: number }) {
   const u = snapshot.ushape
   if (!u) return null
   return (
@@ -409,14 +415,14 @@ function UShapePanel({ snapshot }: { snapshot: Snapshot }) {
           <dd>{fmt.mm(u.UpperHeight)}</dd>
         </div>
       </dl>
-      <SolverDrawings snapshot={snapshot} />
+      <SolverDrawings snapshot={snapshot} heightMM={heightMM} />
     </section>
   )
 }
 
 // SpiralPanel — результат Solver спиральной лестницы с центральной колонной
 // (EDR-0007): веерные проступи вокруг оси Z, полный поворот 360°.
-function SpiralPanel({ snapshot }: { snapshot: Snapshot }) {
+function SpiralPanel({ snapshot, heightMM }: { snapshot: Snapshot; heightMM?: number }) {
   const sp = snapshot.spiral
   if (!sp) return null
   return (
@@ -468,12 +474,12 @@ function SpiralPanel({ snapshot }: { snapshot: Snapshot }) {
           <dd>{fmt.mm(sp.ComfortStep)}</dd>
         </div>
       </dl>
-      <SolverDrawings snapshot={snapshot} />
+      <SolverDrawings snapshot={snapshot} heightMM={heightMM} />
     </section>
   )
 }
 
-function GeometryPanel({ snapshot }: { snapshot: Snapshot }) {
+function GeometryPanel({ snapshot, heightMM }: { snapshot: Snapshot; heightMM?: number }) {
   const m = snapshot.measurement
   if (!m) return null
   const sch = schematicOf(snapshot)
@@ -525,6 +531,7 @@ function GeometryPanel({ snapshot }: { snapshot: Snapshot }) {
             roomWidth={sch?.solver?.roomWidth}
             roomLength={sch?.solver?.roomLength}
             approachSpace={sch?.solver?.approachSpace}
+            heightMM={heightMM}
             stepThickness={snapshot.step_thickness}
           />
         </Suspense>
