@@ -10,7 +10,17 @@ NPM       ?= npm
 # Host-side DB URL (used by migrate/seed/run). Default matches docker-compose.
 STAIR_DATABASE_URL ?= postgres://stair:stair@127.0.0.1:5432/stair_platform?sslmode=disable
 
-.PHONY: setup up stop run test coverage coverage-check migrate seed lint build fmt vet env-up env-down clean frontend-install frontend-test frontend-build fe store admin frontends store-logs admin-logs bench backup restore backup-check obs-up obs-down obs-config obs-tracing-up
+# Release versioning (P3): подставляется в бинарь через ldflags →
+# internal/version. VERSION берётся из git tag/describe.
+GIT_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+GIT_COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
+BUILD_TIME  ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS     := -s -w \
+	-X stairplatform/internal/version.Version=$(GIT_VERSION) \
+	-X stairplatform/internal/version.Commit=$(GIT_COMMIT) \
+	-X stairplatform/internal/version.BuildTime=$(BUILD_TIME)
+
+.PHONY: setup up stop run test coverage coverage-check migrate seed lint build build-api fmt vet env-up env-down clean frontend-install frontend-test frontend-build fe store admin frontends store-logs admin-logs bench backup restore backup-check obs-up obs-down obs-config obs-tracing-up version
 
 ## start the whole stack (PostgreSQL + Redis + API + store + admin frontends),
 ## rebuild images, apply migrations. Frontends: store :3000, admin :5174.
@@ -128,6 +138,15 @@ fmt:
 build:
 	$(GO) build ./...
 
+## build API binary with release ldflags -> bin/stair-api
+build-api:
+	mkdir -p bin
+	$(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/stair-api ./cmd/api
+
+## print current release version info
+version:
+	@echo "VERSION=$(GIT_VERSION) COMMIT=$(GIT_COMMIT) BUILD_TIME=$(BUILD_TIME)"
+
 ## frontend: install dependencies
 frontend-install:
 	$(NPM) --prefix frontend install
@@ -144,7 +163,7 @@ frontend-build:
 ## Always rebuilds all images (offline-safe, --pull=false, no registry fetch).
 env-up:
 	@echo "Rebuilding all images (offline-safe, --pull=false)..."
-	@docker build --pull=false --network=host -f deployments/Dockerfile -t stair-platform-api . 2>&1 | tail -5 || true
+	@docker build --pull=false --network=host --build-arg VERSION="$(GIT_VERSION)" --build-arg COMMIT="$(GIT_COMMIT)" --build-arg BUILD_TIME="$(BUILD_TIME)" -f deployments/Dockerfile -t stair-platform-api . 2>&1 | tail -5 || true
 	@docker build --pull=false --network=host -f deployments/admin.Dockerfile -t stair-platform-admin . 2>&1 | tail -5 || true
 	@docker build --pull=false --network=host -f deployments/store.Dockerfile -t stair-platform-store . 2>&1 | tail -5 || true
 	$(COMPOSE) -f deployments/docker-compose.yml up -d

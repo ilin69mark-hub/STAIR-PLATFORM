@@ -39,6 +39,7 @@ import (
 	"stairplatform/internal/infrastructure/tracing"
 	transporthttp "stairplatform/internal/transport/http"
 	ws "stairplatform/internal/transport/websocket"
+	"stairplatform/internal/version"
 )
 
 func main() {
@@ -269,6 +270,7 @@ func main() {
 	}
 
 	errCh := make(chan error, 1)
+	slog.Info(version.String())
 	go func() {
 		slog.Info("api server starting", "addr", addr, "instance_id", instanceID, "region", region)
 		errCh <- srv.ListenAndServe()

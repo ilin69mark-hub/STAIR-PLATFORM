@@ -23,11 +23,13 @@ import (
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/infrastructure/database"
 	"stairplatform/internal/infrastructure/queue"
+	"stairplatform/internal/version"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+	slog.Info(version.String())
 
 	dbURL := os.Getenv("STAIR_DATABASE_URL")
 	if dbURL == "" {
