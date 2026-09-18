@@ -22,6 +22,9 @@
 - **Backup/recovery PostgreSQL** (P2): `make backup / restore / backup-check`
   — `pg_dump -Fc` + sha256 + метаданные, восстановление в отдельную БД со
   сверкой checksum, round-trip проверка обратимости.
+- **Secret scan** (P3): Gitleaks в CI (`security-scan`, вся история, v8.30.1);
+  конфиг `.gitleaks.toml` с allowlist'ом для публичного AWS SigV4 test-vector
+  и Stripe test-ключей в unit-тестах. Проверка 117 коммитов — 0 утечек.
 
 ### Changed
 

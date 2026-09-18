@@ -1,0 +1,18 @@
+# Gitleaks config — STAIR PLATFORM.
+# Default rules + allowlist для заведомо безопасных методов хранения:
+# Stripe *test* ключи в unit-тестах — не реальные секреты (см.
+# internal/infrastructure/payments/*_test.go); demo-credentials dev-стека.
+[extend]
+  useDefault = true
+
+[allowlist]
+  description = "Non-secrets: published AWS SigV4 test vector, Stripe test keys in unit tests, docker-compose demo creds"
+  regexes = [
+    """sk_test_[A-Za-z0-9]{8,}""",
+    """postgres://stair:testpassword@""",
+  ]
+  paths = [
+    # Официальный test-vector из документации AWS SigV4
+    # (InvocationSignature из примера ListUsers) — публичные пример-данные.
+    '''internal/infrastructure/storage/sigv4_test\.go''',
+  ]
