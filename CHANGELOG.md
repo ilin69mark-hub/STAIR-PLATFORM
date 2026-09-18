@@ -40,6 +40,9 @@
 ### Changed
 
 - CI: сборка API-образа передаёт VERSION/COMMIT/BUILD_TIME в образ.
+- CI: actions подняты на актуальные major (Node 24-рантайм): checkout v7,
+  setup-go v7, setup-node v7, upload-artifact v7, docker/setup-buildx-action
+  v4.4.1, docker/login-action v4.6.0, docker/build-push-action v7.4.0.
 - `report-400.spec.ts`: комментарий о валидном радиусе спирали приведён к
   документированному окну [900,1200] (`boundary.spec.ts`); узкое окно ~960 —
   частный случай (явный шаг 165–172, H 2680–2720).
