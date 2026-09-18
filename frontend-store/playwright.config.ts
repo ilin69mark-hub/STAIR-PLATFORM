@@ -18,15 +18,17 @@ export default defineConfig({
     ? [['list'], ['html', { open: 'never' }]]
     : 'list',
   use: {
-    // Локальная разработка — Vite dev (:5174); готовый стек (Docker) — store :3000.
-    baseURL: process.env.STORE_BASE_URL || 'http://localhost:5174',
+    // Локальная разработка — Vite dev (:5175); готовый стек (Docker) — store :3000.
+    // 5174 нельзя: его занимает Docker-контейнер админки (admin:5174->80), и
+    // reuseExistingServer подхватил бы чужой dev-сервер (login-экран админки).
+    baseURL: process.env.STORE_BASE_URL || 'http://localhost:5175',
     trace: 'on-first-retry',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [
     {
       command: 'npm run dev',
-      url: 'http://localhost:5174',
+      url: 'http://localhost:5175',
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },

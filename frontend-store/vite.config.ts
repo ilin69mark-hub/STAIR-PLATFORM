@@ -12,7 +12,11 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5174,
+    // strictPort: 5174 занят Docker-контейнером админки (admin:5174->80) —
+    // без strictPort Vite молча уезжает на 5175, а Playwright webServer.url
+    // пингует 5174 (уже «жив» админкой) и подхватывает не тот dev-сервер.
+    port: 5175,
+    strictPort: true,
     proxy: {
       '/api': {
         target: process.env.STAIR_API_PROXY_URL ?? 'http://localhost:8080',
