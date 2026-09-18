@@ -58,7 +58,8 @@ test.describe.serial('report-400: 100×4 марша, все кнопки', () =>
     const out: Case[] = []
     for (let i = 0; i < n; i++) {
       if (flight === 'spiral') {
-        // Максимум valid: только outer 960 + step 165-172 + height 2700±20 дают valid (проверено)
+        // outer 960 — внутри документированного окна [900,1200] (boundary.spec.ts, W=700, шаг авто 180);
+        // узкое окно ~960 — только при явном step 165–172 и H 2680–2720, поэтому здесь фиксируем 960 (проверено)
         const base: Case = {
           flight,
           width_mm: 700,
