@@ -8,6 +8,12 @@
 # поэтому Prometheus скрейпит api по имени внутри общей docker-сети проекта.
 
 services:
+  worker:
+    environment:
+      STAIR_TRACING_ENABLED: "${STAIR_TRACING_ENABLED:-false}"
+      STAIR_TRACING_ENDPOINT: "${STAIR_TRACING_ENDPOINT:-jaeger:4318}"
+      STAIR_TRACING_SAMPLE_RATE: "${STAIR_TRACING_SAMPLE_RATE:-0.1}"
+
   api:
     environment:
       STAIR_TRACING_ENABLED: "${STAIR_TRACING_ENABLED:-false}"

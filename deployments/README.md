@@ -52,6 +52,25 @@
 Постепенное расширение доли трафика на новые реплики через взвешенный LB,
 наблюдая за `/metrics` (H4) и ошибками; откат — снижение веса.
 
+## Фоновые задания (Worker, EDR-0020/0035)
+
+`cmd/worker` — отдельный процесс потребителя очереди (Redis List, fallback —
+in-memory) и периодической очистки данных. В dev-стеке запускается сервисом
+`worker` в том же `deployments/docker-compose.yml` (тот же образ, команда
+`/bin/worker`):
+
+- **Что делает**: ретраи/backoff до `MaxAttempts` (redis-очередь общая для
+  всех реплик API+worker — EDR-0018/0020), выдаёт async-расчёты
+  (`calc.calculate`, EDR-0035), доставку webhook/интеграций, очистку
+  истёкших сессий/sso_states и аудит-ретенцию (`make up` ставит их сразу при
+  старте — обработка идёт независимо от интервала).
+- **Env**: `STAIR_CLEANUP_INTERVAL` (дефолт 1h), `STAIR_AUDIT_RETENTION_DAYS`
+  (90), `STAIR_WORKER_SHUTDOWN_TIMEOUT` (10s), `STAIR_REDIS_ADDR`
+  (=`redis:6379` в compose).
+- **Трейсинг**: вместе с Jaeger (`make obs-tracing-up`) воркер экспортирует
+  спаны как сервис `stair-platform-worker`; каждый обработанный job — span
+  `job.process` (job.id/type/attempts, error при провале).
+
 ## Требования
 
 - Общий PostgreSQL (PRIMARY) и общий Redis для всех реплик одного региона.

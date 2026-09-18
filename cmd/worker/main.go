@@ -18,18 +18,39 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 
 	"stairplatform/internal/application/jobs"
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/infrastructure/database"
 	"stairplatform/internal/infrastructure/queue"
+	"stairplatform/internal/infrastructure/tracing"
 	"stairplatform/internal/version"
 )
+
+// tracerName — имя OpenTelemetry-трейсера воркера (Jaeger service: stair-platform-worker).
+const tracerName = "stair-platform-worker"
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 	slog.Info(version.String())
+
+	// Трассировка (OTLP → Jaeger/Tempo; STAIR_TRACING_ENABLED="true").
+	tracingShutdown, err := tracing.InitTracer(context.Background(), tracing.Config{
+		Enabled:     os.Getenv("STAIR_TRACING_ENABLED") == "true",
+		ServiceName: tracerName,
+		Endpoint:    os.Getenv("STAIR_TRACING_ENDPOINT"),
+		SampleRate:  envFloat64("STAIR_TRACING_SAMPLE_RATE", 0.1),
+		Environment: os.Getenv("STAIR_ENVIRONMENT"),
+	})
+	if err != nil {
+		slog.Error("worker: failed to init tracing", "error", err)
+		os.Exit(1)
+	}
+	defer func() { _ = tracingShutdown(context.Background()) }()
 
 	dbURL := os.Getenv("STAIR_DATABASE_URL")
 	if dbURL == "" {
@@ -145,9 +166,24 @@ func consume(ctx context.Context, jobq queue.JobQueue, reg *registry) {
 // попытки ставятся обратно в очередь с инкрементом Attempts (распределённо
 // корректно даже на Redis-бэкенде).
 func processJob(ctx context.Context, jobq queue.JobQueue, reg *registry, job queue.Job) {
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "job.process")
+	span.SetAttributes(
+		attribute.String("job.id", job.ID),
+		attribute.String("job.type", job.Type),
+		attribute.Int("job.attempts", job.Attempts),
+	)
+	defer span.End()
+
 	err := reg.Handle(ctx, job)
-	if err == nil {
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		slog.Warn("worker: job failed", "job_id", job.ID, "type", job.Type, "error", err)
+	} else {
 		slog.Info("worker: job done", "job_id", job.ID, "type", job.Type)
+	}
+
+	if err == nil {
 		return
 	}
 
@@ -206,6 +242,18 @@ func enqueueCleanup(ctx context.Context, jobq queue.JobQueue) {
 			slog.Error("worker: enqueue cleanup job", "type", typ, "error", err)
 		}
 	}
+}
+
+func envFloat64(key string, def float64) float64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return def
+	}
+	return f
 }
 
 func envInt(key string, def int) int {
