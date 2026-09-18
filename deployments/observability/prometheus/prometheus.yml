@@ -1,0 +1,30 @@
+# Prometheus scrape config STAIR PLATFORM (EDR-0021, INFRA-0019).
+# API отдаёт /metrics на внутренний IP-контур (InternalOnlyMiddleware).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: stair-platform
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: stair-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8080"]
+        labels:
+          service: stair-api
+          component: backend
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels:
+          service: prometheus

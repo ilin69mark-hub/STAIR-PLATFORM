@@ -1,0 +1,178 @@
+# Alert rules STAIR PLATFORM (EDR-0021, INFRA-0019/0021/0022).
+# Источник метрик — GET /metrics (кастомный Prometheus text-формат).
+# Пороговые значения: availability 99.9%, API p95 < 1s, engine p95 —
+# calculate < 2s, optimize < 10s (error budget, INFRA-0022).
+groups:
+  - name: stair.availability
+    rules:
+      - alert: StairApiDown
+        expr: up{job="stair-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: stair-api
+        annotations:
+          summary: "API недоступен (scrape up==0)"
+          description: "Prometheus не может собрать /metrics с {{ $labels.instance }} более 1 минуты."
+          impact: "Полная недоступность API."
+          runbook: "docs/17_INFRASTRUCTURE/21_ALERTING.md"
+
+      - alert: StairApiHighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_requests_total[5m])), 1) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: stair-api
+        annotations:
+          summary: "5xx > 5% от запросов"
+          description: "Доля 5xx за 5м превышает 5% (нарушение availability SLO 99.9%)."
+          impact: "Пользователи получают ошибки на части запросов."
+          runbook: "docs/17_INFRASTRUCTURE/21_ALERTING.md"
+
+      - alert: StairApiElevatedErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[10m]))
+            / clamp_min(sum(rate(http_requests_total[10m])), 1) > 0.01
+        for: 10m
+        labels:
+          severity: warning
+          service: stair-api
+        annotations:
+          summary: "5xx > 1% от запросов"
+          description: "Доля 5xx за 10м превышает 1% — расход error budget."
+          impact: "Повышенный фон ошибок."
+          runbook: "docs/17_INFRASTRUCTURE/22_SLO_SLA.md"
+
+  - name: stair.latency
+    rules:
+      - alert: StairApiHighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[10m])) by (le)) > 1
+        for: 10m
+        labels:
+          severity: warning
+          service: stair-api
+        annotations:
+          summary: "API p95 > 1s"
+          description: "95-й перцентиль latency HTTP выше 1s (10м)."
+          impact: "Деградация отзывчивости."
+          runbook: "docs/17_INFRASTRUCTURE/22_SLO_SLA.md"
+
+      - alert: StairApiHighLatencyP99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(http_request_duration_seconds_bucket[10m])) by (le)) > 2.5
+        for: 10m
+        labels:
+          severity: critical
+          service: stair-api
+        annotations:
+          summary: "API p99 > 2.5s"
+          description: "99-й перцентиль latency HTTP выше 2.5s (10м)."
+          impact: "Хвостовая задержка нарушает latency SLO."
+          runbook: "docs/17_INFRASTRUCTURE/22_SLO_SLA.md"
+
+      - alert: StairCalculateSlow
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(stair_calculate_duration_seconds_bucket[10m])) by (le)) > 2
+        for: 10m
+        labels:
+          severity: warning
+          service: stair-engine
+        annotations:
+          summary: "Расчёт конвейера p95 > 2s"
+          description: "stair_calculate_duration_seconds p95 выше 2s — engine SLO (INFRA-0022)."
+          impact: "Медленная калькуляция для пользователей."
+          runbook: "docs/05_ENGINE/08_ENGINE_METRICS.md"
+
+      - alert: StairOptimizeSlow
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(stair_optimize_duration_seconds_bucket[10m])) by (le)) > 10
+        for: 10m
+        labels:
+          severity: warning
+          service: stair-engine
+        annotations:
+          summary: "Оптимизация p95 > 10s"
+          description: "stair_optimize_duration_seconds p95 выше 10s — engine SLO (INFRA-0022)."
+          impact: "Оптимизация цены/себестоимости становится неприемлемо долгой."
+          runbook: "docs/05_ENGINE/08_ENGINE_METRICS.md"
+
+  - name: stair.resources
+    rules:
+      - alert: StairDbPoolSaturated
+        expr: db_pool_active_connections / clamp_min(db_pool_max_connections, 1) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          service: stair-api
+        annotations:
+          summary: "Пул БД заполнен > 90%"
+          description: "db_pool_active_connections/db_pool_max_connections выше 0.9 (5м)."
+          impact: "Рост latency и ошибок acquire при пиковой нагрузке."
+          runbook: "docs/17_INFRASTRUCTURE/11_DATABASE_INFRASTRUCTURE.md"
+
+      - alert: StairDbPoolWaitPressure
+        expr: rate(db_pool_wait_count_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: stair-api
+        annotations:
+          summary: "Ожидание соединений пула БД"
+          description: "db_pool_wait_count_total растёт — запросы ждут свободное соединение."
+          impact: "Предвестник saturation БД-пула."
+          runbook: "docs/17_INFRASTRUCTURE/11_DATABASE_INFRASTRUCTURE.md"
+
+      - alert: StairCircuitBreakerOpen
+        expr: max(circuit_breaker_state) > 0
+        for: 2m
+        labels:
+          severity: critical
+          service: stair-api
+        annotations:
+          summary: "Circuit breaker открыт"
+          description: "circuit_breaker_state > 0 (1=open, 2=half_open) более 2 минут."
+          impact: "Внешняя зависимость недоступна, запросы режутся."
+          runbook: "docs/17_INFRASTRUCTURE/21_ALERTING.md"
+
+      - alert: StairMemoryHigh
+        expr: go_memstats_alloc_bytes > 1073741824
+        for: 10m
+        labels:
+          severity: warning
+          service: stair-api
+        annotations:
+          summary: "Выделенная память > 1GiB"
+          description: "go_memstats_alloc_bytes выше 1GiB (10м)."
+          impact: "Риск OOM/GC-давления."
+          runbook: "docs/17_INFRASTRUCTURE/23_CAPACITY_PLANNING.md"
+
+      - alert: StairGoroutineGrowth
+        expr: go_goroutines > 5000
+        for: 10m
+        labels:
+          severity: warning
+          service: stair-api
+        annotations:
+          summary: "Число горутин > 5000"
+          description: "go_goroutines выше 5000 (10м) — возможна утечка."
+          impact: "Рост памяти и планировщика."
+          runbook: "docs/17_INFRASTRUCTURE/23_CAPACITY_PLANNING.md"
+
+      - alert: StairRateLimitSpike
+        expr: sum(rate(rate_limit_hits_total[5m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+          service: stair-api
+        annotations:
+          summary: "Всплеск срабатываний rate limit"
+          description: "rate_limit_hits_total растёт быстрее 10/с (5м) — возможен abusive-трафик."
+          impact: "Часть легитимных запросов может отсекаться."
+          runbook: "docs/17_INFRASTRUCTURE/05_NETWORKING.md"

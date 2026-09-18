@@ -60,6 +60,42 @@
   репликация с мульти-региональной топологией) + регион как тег в метриках
   и логах.
 
+## Observability (EDR-0021, INFRA-0017/0019/0020/0021/0022)
+
+Приложение отдаёт `/metrics` в Prometheus text-формате (кастомный реестр на
+stdlib): HTTP (rate/latency/status, labels region/node, path канонизирован),
+runtime (goroutines/mem/uptime), пул БД, circuit breaker, rate limiter,
+response cache, compression и engine (`stair_calculate_duration_seconds`,
+`stair_optimize_duration_seconds`). `/metrics` доступен только с внутренних
+IP (`InternalOnlyMiddleware`), поэтому Prometheus скрейпит `api:8080` внутри
+docker-сети проекта.
+
+Стек поднимается оверрайдом поверх dev-стека:
+
+```bash
+make obs-up          # Prometheus :9090, Alertmanager :9093, Grafana :3030
+make obs-tracing-up  # + Jaeger (OTLP :4318, UI :16686), STAIR_TRACING_ENABLED=true
+make obs-down
+make obs-config      # валидация merged compose
+```
+
+- Prometheus: `deployments/observability/prometheus/{prometheus,alerts}.yml`
+  (13 alert rules: availability 99.9%, latency p95/p99, engine, БД-пул, CB,
+  memory/goroutines, rate-limit).
+- Alertmanager: `deployments/observability/alertmanager/alertmanager.yml`
+  (receiver `default` — blackhole; добавьте webhook/email для доставки).
+- Grafana: автопровижн datasource + дашборда `api-golden-signals`
+  (deployments/observability/grafana).
+
+Проверка конфигов:
+
+```bash
+docker run --rm -v "$PWD/deployments/observability/prometheus:/etc/prometheus" \
+  --entrypoint promtool prom/prometheus:v2.55.0 check config /etc/prometheus/prometheus.yml
+docker run --rm -v "$PWD/deployments/observability/alertmanager:/etc/alertmanager" \
+  --entrypoint amtool prom/alertmanager:v0.27.0 check-config /etc/alertmanager/alertmanager.yml
+```
+
 ## Примеры
 
 - `deployments/docker-compose.yml` — локальный dev-стек (postgres+redis+api).

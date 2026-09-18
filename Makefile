@@ -10,7 +10,7 @@ NPM       ?= npm
 # Host-side DB URL (used by migrate/seed/run). Default matches docker-compose.
 STAIR_DATABASE_URL ?= postgres://stair:stair@127.0.0.1:5432/stair_platform?sslmode=disable
 
-.PHONY: setup up stop run test coverage coverage-check migrate seed lint build fmt vet env-up env-down clean frontend-install frontend-test frontend-build fe store admin frontends store-logs admin-logs bench backup restore backup-check
+.PHONY: setup up stop run test coverage coverage-check migrate seed lint build fmt vet env-up env-down clean frontend-install frontend-test frontend-build fe store admin frontends store-logs admin-logs bench backup restore backup-check obs-up obs-down obs-config obs-tracing-up
 
 ## start the whole stack (PostgreSQL + Redis + API + store + admin frontends),
 ## rebuild images, apply migrations. Frontends: store :3000, admin :5174.
@@ -47,6 +47,24 @@ stop: env-down
 fe:
 	@test -d frontend/node_modules || $(NPM) --prefix frontend install
 	$(NPM) --prefix frontend run dev
+
+## observability stack (Prometheus :9090, Alertmanager :9093, Grafana :3030)
+## поверх dev-стека; трейсинг Jaeger — make obs-tracing-up
+OBS_COMPOSE = -f deployments/docker-compose.yml -f deployments/observability/docker-compose.observability.yml
+obs-up:
+	$(COMPOSE) $(OBS_COMPOSE) up -d
+
+## stop the observability stack (dev-стек остаётся)
+obs-down:
+	$(COMPOSE) $(OBS_COMPOSE) down
+
+## validate merged compose + observability config
+obs-config:
+	$(COMPOSE) $(OBS_COMPOSE) config
+
+## observability stack + Jaeger (OTLP :4318, UI :16686); включает трейсинг API
+obs-tracing-up:
+	STAIR_TRACING_ENABLED=true $(COMPOSE) $(OBS_COMPOSE) --profile tracing up -d
 
 ## env-bootstrap
 setup: up

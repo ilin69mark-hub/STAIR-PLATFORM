@@ -1,0 +1,33 @@
+# Alertmanager STAIR PLATFORM (INFRA-0021).
+# Дефолтный receiver — blackhole: alerts маршрутизируются и видны в UI,
+# но не рассылаются. Для реальных уведомлений добавьте webhook/email/slack
+# и укажите его в route.receiver.
+route:
+  receiver: default
+  group_by: [alertname, severity, service]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers:
+        - severity = "critical"
+      receiver: default
+      continue: false
+
+inhibit_rules:
+  # При недоступности API гасим производные latency/resource алерты.
+  - source_matchers:
+      - alertname = "StairApiDown"
+    target_matchers:
+      - severity =~ "warning|critical"
+    equal: [service]
+
+receivers:
+  - name: default
+    # Примеры интеграций (раскомментируйте нужное):
+    # webhook_configs:
+    #   - url: "https://example.com/hooks/stair-alerts"
+    #     send_resolved: true
+    # email_configs:
+    #   - to: "oncall@example.com"
+    #     send_resolved: true

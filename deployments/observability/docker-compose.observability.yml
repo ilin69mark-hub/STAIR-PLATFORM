@@ -1,0 +1,77 @@
+# Observability override для local/dev (EDR-0021, INFRA-0017/0019/0020/0021).
+# Запуск:
+#   docker compose -f deployments/docker-compose.yml \
+#     -f deployments/observability/docker-compose.observability.yml up -d
+# С трейсингом (Jaeger):
+#   ... --profile tracing up -d
+# Метрики API (/metrics) отдаются только внутренним IP (InternalOnlyMiddleware),
+# поэтому Prometheus скрейпит api по имени внутри общей docker-сети проекта.
+
+services:
+  api:
+    environment:
+      STAIR_TRACING_ENABLED: "${STAIR_TRACING_ENABLED:-false}"
+      STAIR_TRACING_ENDPOINT: "${STAIR_TRACING_ENDPOINT:-jaeger:4318}"
+      STAIR_TRACING_SAMPLE_RATE: "${STAIR_TRACING_SAMPLE_RATE:-0.1}"
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: stair-platform-prometheus
+    depends_on:
+      api:
+        condition: service_started
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - stair-prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: stair-platform-alertmanager
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - stair-alertmanager-data:/alertmanager
+    ports:
+      - "9093:9093"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: stair-platform-grafana
+    depends_on:
+      prometheus:
+        condition: service_started
+    environment:
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - stair-grafana-data:/var/lib/grafana
+    ports:
+      - "3030:3000"
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: stair-platform-jaeger
+    profiles: ["tracing"]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "4318:4318" # OTLP HTTP (совпадает с STAIR_TRACING_ENDPOINT)
+    restart: unless-stopped
+
+volumes:
+  stair-prometheus-data:
+  stair-alertmanager-data:
+  stair-grafana-data:
