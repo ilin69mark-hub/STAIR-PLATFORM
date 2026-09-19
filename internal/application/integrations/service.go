@@ -11,18 +11,33 @@ import (
 	"stairplatform/internal/infrastructure/queue"
 )
 
+// SecretCrypter — защита webhook-секретов at rest (S1-2). Реализация —
+// infrastructure/secrets.Box; при отсутствии криптера секрет хранится
+// открыто (legacy-поведение, dev-режим).
+type SecretCrypter interface {
+	Seal(plain string) (string, error)
+	Open(sealed string) (string, error)
+}
+
 // Service — прикладной сервис интеграций (EDR-0023 §3.4). Оркеструет
 // Repository и TaskQueue: регистрирует эндпоинты и ставит события доставки
 // в очередь, откуда их выполняет воркер (cmd/worker).
 type Service struct {
-	repo  Repository
-	queue queue.JobQueue
-	now   func() time.Time
+	repo    Repository
+	queue   queue.JobQueue
+	now     func() time.Time
+	crypter SecretCrypter
 }
 
 // NewService создаёт сервис интеграций.
 func NewService(repo Repository, q queue.JobQueue) *Service {
 	return &Service{repo: repo, queue: q, now: time.Now}
+}
+
+// WithSecretCrypter подключает шифрование секретов at rest (S1-2).
+func (s *Service) WithSecretCrypter(c SecretCrypter) *Service {
+	s.crypter = c
+	return s
 }
 
 // RegisterEndpoint регистрирует webhook-эндпоинт tenant'а. Валидирует kind,
@@ -46,12 +61,20 @@ func (s *Service) RegisterEndpoint(ctx context.Context, tenantID, name, kindStr,
 	if strings.TrimSpace(secret) == "" {
 		return nil, fmt.Errorf("%w: secret required", ErrInvalid)
 	}
+	secretEnc := secret
+	if s.crypter != nil {
+		sealed, err := s.crypter.Seal(secret)
+		if err != nil {
+			return nil, fmt.Errorf("%w: seal secret: %v", ErrInvalid, err)
+		}
+		secretEnc = sealed
+	}
 	e := &Endpoint{
 		TenantID:  tenantID,
 		Name:      strings.TrimSpace(name),
 		Kind:      kind,
 		URL:       endpointURL,
-		SecretEnc: secret,
+		SecretEnc: secretEnc,
 		CreatedAt: s.now().UTC(),
 		UpdatedAt: s.now().UTC(),
 	}
@@ -143,6 +166,15 @@ func (s *Service) enqueue(ctx context.Context, tenantID, projectID string, kind 
 		return nil, fmt.Errorf("integrations: enqueue %s: %w", eventType, err)
 	}
 	return d, nil
+}
+
+// SecretOf возвращает plaintext-секрет эндпоинта для доставки webhook (S1-2).
+// Без криптера (legacy/dev) — секрет как есть.
+func (s *Service) SecretOf(ep *Endpoint) (string, error) {
+	if s.crypter == nil {
+		return ep.SecretEnc, nil
+	}
+	return s.crypter.Open(ep.SecretEnc)
 }
 
 // MarkDelivered фиксирует успешную доставку (воркер).

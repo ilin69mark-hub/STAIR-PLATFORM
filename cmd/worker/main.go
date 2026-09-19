@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,8 +26,10 @@ import (
 	"stairplatform/internal/application/jobs"
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/infrastructure/database"
+	infintegrations "stairplatform/internal/infrastructure/integrations"
 	"stairplatform/internal/infrastructure/queue"
 	"stairplatform/internal/infrastructure/redisconf"
+	"stairplatform/internal/infrastructure/secrets"
 	"stairplatform/internal/infrastructure/tracing"
 	"stairplatform/internal/version"
 )
@@ -78,6 +81,37 @@ func main() {
 
 	reg := newRegistry(database.NewAuthRepository(pool), database.NewAuditRepository(pool),
 		database.NewIntegrationRepository(pool), newJobsService(pool), retentionDays)
+	// S1-1: SSRF-политика webhook-доставки. В проде loopback запрещён,
+	// внутренние хосты — только через STAIR_WEBHOOK_ALLOW_HOSTS.
+	{
+		env := os.Getenv("STAIR_ENVIRONMENT")
+		policy := infintegrations.Policy{}
+		if env != "production" {
+			policy.AllowLoopback = true
+		}
+		for _, h := range strings.Split(os.Getenv("STAIR_WEBHOOK_ALLOW_HOSTS"), ",") {
+			if h = strings.TrimSpace(h); h != "" {
+				policy.AllowHosts = append(policy.AllowHosts, h)
+			}
+		}
+		reg.withWebhookClient(infintegrations.NewPolicyClient(0, policy))
+	}
+	// S1-2: шифрование webhook-секретов at rest. Без STAIR_SECRETS_KEY —
+	// legacy-plaintext (dev); в проде ключ обязателен (см. .env.production).
+	if keyHex := os.Getenv("STAIR_SECRETS_KEY"); keyHex != "" {
+		key, err := secrets.KeyFromHex(keyHex)
+		if err != nil {
+			slog.Error("STAIR_SECRETS_KEY invalid (need 64 hex chars = 32 bytes)", "error", err)
+			os.Exit(1)
+		}
+		box, err := secrets.NewBox(key)
+		if err != nil {
+			slog.Error("secrets box init failed", "error", err)
+			os.Exit(1)
+		}
+		reg.withSecretCrypter(box)
+		slog.Info("worker: webhook secrets encryption enabled")
+	}
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)

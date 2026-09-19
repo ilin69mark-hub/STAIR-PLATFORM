@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -38,20 +39,157 @@ const DefaultTimeout = 10 * time.Second
 const MaxTimestampAge = 5 * time.Minute
 
 // Client — HTTP-клиент для отправки webhook наружу (EDR-0023 §3.1).
+// Защита от SSRF (S1-1): при установке TCP-соединения хост резолвится и
+// проверяется по IP-политике (loopback/link-local/private — блок). Пиннинг
+// валидированного IP исключает DNS rebinding: запрос идёт только на
+// проверенный адрес.
 type Client struct {
 	httpc   *http.Client
 	timeout time.Duration
+	policy  Policy
+	resolve resolverFunc
 }
 
-// NewClient создаёт webhook-клиент с таймаутом; timeout <= 0 → DefaultTimeout.
+// Policy — IP-политика исходящих webhook (S1-1).
+type Policy struct {
+	// AllowLoopback — разрешить loopback (127.0.0.1/localhost/::1): dev/tests.
+	AllowLoopback bool
+	// AllowHosts — allowlist хостов (case-insensitive), которым разрешено
+	// резолвиться в private/loopback/link-local диапазоны (внутренние сервисы).
+	AllowHosts []string
+}
+
+func (p Policy) allows(host string) bool {
+	host = strings.ToLower(host)
+	for _, h := range p.AllowHosts {
+		if strings.ToLower(h) == host {
+			return true
+		}
+	}
+	return false
+}
+
+// resolverFunc резолвит имя хоста в IP (инъекция для тестов).
+type resolverFunc func(ctx context.Context, host string) ([]net.IP, error)
+
+// NewClient создаёт webhook-клиент с политикой, разрешающей loopback
+// (dev/tests, обратная совместимость); timeout <= 0 → DefaultTimeout.
 func NewClient(timeout time.Duration) *Client {
+	return NewPolicyClient(timeout, Policy{AllowLoopback: true})
+}
+
+// NewPolicyClient создаёт webhook-клиент с заданной SSRF-политикой (S1-1).
+func NewPolicyClient(timeout time.Duration, policy Policy) *Client {
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
-	return &Client{
-		httpc:   &http.Client{Timeout: timeout},
+	dialer := &net.Dialer{Timeout: timeout}
+	c := &Client{
 		timeout: timeout,
+		policy:  policy,
+		resolve: defaultResolver,
 	}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, fmt.Errorf("integrations: bad addr %q: %w", addr, err)
+			}
+			ip, err := c.resolveDialIP(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			if ip != nil {
+				addr = net.JoinHostPort(ip.String(), port)
+			}
+			return dialer.DialContext(ctx, network, addr)
+		},
+	}
+	c.httpc = &http.Client{Transport: transport, Timeout: timeout}
+	return c
+}
+
+// defaultResolver — системный резолвер (net.DefaultResolver).
+func defaultResolver(ctx context.Context, host string) ([]net.IP, error) {
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	ips := make([]net.IP, 0, len(addrs))
+	for _, a := range addrs {
+		ips = append(ips, a.IP)
+	}
+	return ips, nil
+}
+
+// resolveDialIP возвращает IP, на который физически идёт соединение:
+//   - loopback-хост при AllowLoopback или allowlist-хост → nil (соединение
+//     как есть; хост доверенный);
+//   - иначе резолвит, пропускает заблокированные адреса и пиннит первый
+//     разрешённый IP.
+func (c *Client) resolveDialIP(ctx context.Context, host string) (net.IP, error) {
+	if isLoopbackHost(host) && (c.policy.AllowLoopback || c.policy.allows(host)) {
+		return nil, nil
+	}
+	if c.policy.allows(host) {
+		return nil, nil
+	}
+	ips, err := c.resolve(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("integrations: resolve %s: %w", host, err)
+	}
+	for _, ip := range ips {
+		if _, blocked := classifyIP(ip, c.policy.AllowLoopback); blocked {
+			continue
+		}
+		return ip, nil
+	}
+	return nil, fmt.Errorf("integrations: %s resolves only to blocked addresses (SSRF policy)", host)
+}
+
+func isLoopbackHost(host string) bool {
+	switch strings.ToLower(host) {
+	case "localhost", "127.0.0.1", "::1", "::ffff:127.0.0.1":
+		return true
+	}
+	return false
+}
+
+// classifyIP классифицирует адрес, блокируемый SSRF-политикой (S1-1).
+// link-local покрывает метаданные облака 169.254.169.254.
+func classifyIP(ip net.IP, allowLoopback bool) (string, bool) {
+	if ip == nil {
+		return "", false
+	}
+	if ip.IsLoopback() {
+		if allowLoopback {
+			return "", false
+		}
+		return "loopback", true
+	}
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return "link-local", true
+	}
+	if ip.IsPrivate() {
+		return "private", true
+	}
+	if ip.IsUnspecified() || ip.IsMulticast() {
+		return ip.String(), true
+	}
+	if v4 := ip.To4(); v4 != nil {
+		if v4[0] == 0 {
+			return "unspecified", true
+		}
+		if v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127 {
+			return "cgnat", true
+		}
+		return "", false
+	}
+	// IPv6 ULA fc00::/7.
+	if b := ip.To16(); b != nil && b[0]&0xfe == 0xfc {
+		return "ula", true
+	}
+	return "", false
 }
 
 // Send выполняет POST payload по url с HMAC-подписью и заголовками
@@ -59,6 +197,9 @@ func NewClient(timeout time.Duration) *Client {
 // статус вне [200,300) — ошибка. URL вне localhost должен быть https.
 func (c *Client) Send(ctx context.Context, target, secret string, payload []byte) error {
 	if err := validateOutboundURL(target); err != nil {
+		return err
+	}
+	if err := c.validateTarget(ctx, target); err != nil {
 		return err
 	}
 	ts := time.Now().Unix()
@@ -85,6 +226,32 @@ func (c *Client) Send(ctx context.Context, target, secret string, payload []byte
 		return fmt.Errorf("integrations: webhook %s returned %d: %s", target, resp.StatusCode, truncate(body))
 	}
 	return nil
+}
+
+// validateTarget — SSRF-префляйт (S1-1): проверяет хост до отправки.
+// Финальная защита — пиннинг валидированного IP в DialContext.
+func (c *Client) validateTarget(ctx context.Context, target string) error {
+	u, err := url.Parse(target)
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("integrations: invalid webhook url %q", target)
+	}
+	host := u.Hostname()
+	if isLoopbackHost(host) && (c.policy.AllowLoopback || c.policy.allows(host)) {
+		return nil
+	}
+	if c.policy.allows(host) {
+		return nil
+	}
+	ips, err := c.resolve(ctx, host)
+	if err != nil {
+		return fmt.Errorf("integrations: resolve %s: %w", host, err)
+	}
+	for _, ip := range ips {
+		if _, blocked := classifyIP(ip, c.policy.AllowLoopback); !blocked {
+			return nil
+		}
+	}
+	return fmt.Errorf("integrations: %s blocked by SSRF policy (no allowed address)", host)
 }
 
 // validateOutboundURL — https вне localhost; dev/tests разрешают http://127.0.0.1.

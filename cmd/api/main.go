@@ -36,6 +36,7 @@ import (
 	paymentsinfra "stairplatform/internal/infrastructure/payments"
 	"stairplatform/internal/infrastructure/queue"
 	"stairplatform/internal/infrastructure/redisconf"
+	"stairplatform/internal/infrastructure/secrets"
 	infstorage "stairplatform/internal/infrastructure/storage"
 	"stairplatform/internal/infrastructure/tracing"
 	transporthttp "stairplatform/internal/transport/http"
@@ -127,6 +128,21 @@ func main() {
 	)
 	authSvc := auth.NewService(database.NewAuthRepository(pool), sessionTTL(), auditSvc)
 	intSvc := integrations.NewService(database.NewIntegrationRepository(pool), queueBackend.Queue())
+	// S1-2: шифрование webhook-секретов at rest (STAIR_SECRETS_KEY, hex 64).
+	if keyHex := os.Getenv("STAIR_SECRETS_KEY"); keyHex != "" {
+		key, err := secrets.KeyFromHex(keyHex)
+		if err != nil {
+			slog.Error("STAIR_SECRETS_KEY invalid (need 64 hex chars = 32 bytes)", "error", err)
+			os.Exit(1)
+		}
+		box, err := secrets.NewBox(key)
+		if err != nil {
+			slog.Error("secrets box init failed", "error", err)
+			os.Exit(1)
+		}
+		intSvc = intSvc.WithSecretCrypter(box)
+		slog.Info("integrations: webhook secrets encryption enabled")
+	}
 	// Jobs (EDR-0035): асинхронный расчёт — ставим в очередь, выполняет
 	// воркер (calc не нужен API-процессу).
 	jobsSvc := jobs.NewService(database.NewCalcJobRepository(pool), queueBackend.Queue(), nil)

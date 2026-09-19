@@ -5,11 +5,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"stairplatform/internal/infrastructure/queue"
+	"stairplatform/internal/infrastructure/secrets"
 )
+
+func testSecretsKey() []byte {
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i)
+	}
+	return key
+}
 
 // fakeRepo — тестовая реализация Repository в памяти.
 type fakeRepo struct {
@@ -121,6 +131,54 @@ func TestRegisterEndpoint(t *testing.T) {
 	}
 	if got, _ := repo.GetEndpoint(context.Background(), testTenant, ep.ID); got == nil {
 		t.Fatal("endpoint not persisted")
+	}
+}
+
+func TestRegisterEndpointSealsSecretWithCrypter(t *testing.T) {
+	box, err := secrets.NewBox(testSecretsKey())
+	if err != nil {
+		t.Fatalf("NewBox: %v", err)
+	}
+	svc, _, _ := newTestService()
+	svc.WithSecretCrypter(box)
+
+	ep, err := svc.RegisterEndpoint(context.Background(), testTenant, "ERP", "erp", "https://erp.example.com/hook", "secret-1")
+	if err != nil {
+		t.Fatalf("RegisterEndpoint: %v", err)
+	}
+	if strings.Contains(ep.SecretEnc, "secret-1") {
+		t.Fatalf("stored secret must be sealed, got %q", ep.SecretEnc)
+	}
+	if !strings.HasPrefix(ep.SecretEnc, secrets.TagV1) {
+		t.Fatalf("expected %s prefix, got %q", secrets.TagV1, ep.SecretEnc)
+	}
+
+	// Петля: SecretOf возвращает тот же plaintext.
+	got, err := svc.SecretOf(ep)
+	if err != nil {
+		t.Fatalf("SecretOf: %v", err)
+	}
+	if got != "secret-1" {
+		t.Fatalf("SecretOf = %q, want secret-1", got)
+	}
+}
+
+func TestSecretOfLegacyPlaintext(t *testing.T) {
+	box, err := secrets.NewBox(testSecretsKey())
+	if err != nil {
+		t.Fatalf("NewBox: %v", err)
+	}
+	svc, _, _ := newTestService()
+	svc.WithSecretCrypter(box)
+
+	// Строка без тега enc:v1: — legacy plaintext, возвращаем as-is (S1-2).
+	ep := &Endpoint{SecretEnc: "whsec_legacy"}
+	got, err := svc.SecretOf(ep)
+	if err != nil {
+		t.Fatalf("SecretOf: %v", err)
+	}
+	if got != "whsec_legacy" {
+		t.Fatalf("SecretOf = %q, want whsec_legacy", got)
 	}
 }
 
