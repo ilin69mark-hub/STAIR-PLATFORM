@@ -62,7 +62,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v1
 
       - name: Build, tag & push API/worker
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deployments/Dockerfile
@@ -71,7 +71,7 @@ jobs:
             ${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY_API || 'stairplatform/api' }}:${{ env.APP_VERSION }}
 
       - name: Build, tag & push admin
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deployments/admin.Dockerfile
@@ -80,7 +80,7 @@ jobs:
             ${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY_ADMIN || 'stairplatform/admin' }}:${{ env.APP_VERSION }}
 
       - name: Build, tag & push store
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deployments/store.Dockerfile
