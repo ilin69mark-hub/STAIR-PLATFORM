@@ -16,7 +16,9 @@ worker:
 image:
   repository: ghcr.io/stairplatform/api
   pullPolicy: IfNotPresent
-  tag: "latest"
+  # S2-3: НЕТ mutable-дефолта «latest». Пустой tag → Chart.AppVersion; CD
+  # задаёт image.tag=${{ github.sha }} — образ всегда воспроизводим.
+  tag: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -28,8 +30,29 @@ serviceAccount:
   name: ""
 
 podAnnotations: {}
-podSecurityContext: {}
-securityContext: {}
+
+# S2-1: безопасный runtime — pod-level security context. UID 10001 = appuser
+# в Dockerfile (adduser -D -H -u 10001 appuser). seccomp RuntimeDefault +
+# runAsNonRoot — базовый lockdown k8s.
+podSecurityContext:
+  fsGroup: 10001
+  runAsUser: 10001
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+# S2-1: container security context — cap drop ALL, RO rootfs (tmpfs для
+# /tmp, emptyDir для /data/storage), без escalation.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 10001
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
 
 service:
   type: ClusterIP
@@ -60,6 +83,17 @@ autoscaling:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 80
 
+# PDB (S2-1): защита api от вывода всех реплик при узлах/обновлениях.
+pdb:
+  enabled: true
+  minAvailable: 1
+  maxUnavailable: ""
+
+# Writable-пути при readOnlyRootFilesystem (S2-1): tmpfs для /tmp и emptyDir
+# для STAIR_STORAGE_DIR (файлы проектов; в проде рекомендуется PV/S3).
+storage:
+  dir: /data/storage
+
 nodeSelector: {}
 tolerations: []
 affinity: {}
@@ -75,6 +109,17 @@ database:
 # Redis configuration (optional)
 redis:
   addr: ""
+
+# Secrets (S1-2): master key для AES-GCM шифрования webhook-секретов
+# (64 hex = 32 bytes). Задаётся через --set или values-файл; empty = legacy.
+secretsKey: ""
+
+# Webhook SSRF allowlist (S1-1): хосты, которым разрешено резолвиться в
+# private/loopback (внутренние сервисы). Пустая строка = блок по умолчанию.
+webhookAllowHosts: ""
+
+# Environment (S2-1): production блокирует loopback в SSRF-политике воркера.
+environment: "production"
 
 # Security
 security:

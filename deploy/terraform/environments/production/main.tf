@@ -9,10 +9,6 @@ terraform {
       source  = "hashicorp/kubernetes"
       version = "~> 2.0"
     }
-    helm = {
-      source  = "hashicorp/helm"
-      version = "~> 2.0"
-    }
   }
 
   backend "s3" {
@@ -79,8 +75,8 @@ module "postgres" {
   username       = "stair"
   password       = var.database_password
 
-  vpc_id            = module.vpc.vpc_id
-  subnet_ids        = module.vpc.private_subnets
+  vpc_id              = module.vpc.vpc_id
+  subnet_ids          = module.vpc.private_subnets
   allowed_cidr_blocks = module.vpc.private_subnets_cidr_blocks
 
   tags = {
@@ -116,25 +112,14 @@ module "eks" {
   }
 }
 
-# Kubernetes resources
+# Kubernetes resources (S2-2): terraform = ТОЛЬКО infra (namespace).
+# Приложение (чарт deploy/helm) разворачивает CD (ci/cd.yml); image.tag и
+# прочие values задаются там, а не в terraform — один владелец ресурсов.
 module "kubernetes" {
   source = "../../modules/kubernetes"
 
   cluster_name = module.eks.cluster_name
   namespace    = "stair-platform"
-  release_name = "stair-platform"
-  chart_path   = "../../helm/stair-platform"
-
-  database_url = "postgres://stair:${var.database_password}@${module.postgres.endpoint}:${module.postgres.port}/${module.postgres.database_name}?sslmode=require"
-  replica_count = var.environment == "production" ? 3 : 1
-
-  values = {
-    "image.tag"                    = "latest"
-    "security.cookieSecure"        = "true"
-    "security.hstsEnabled"         = "true"
-    "monitoring.tracingEnabled"    = "true"
-    "monitoring.tracingEndpoint"   = "http://jaeger-collector:14268/api/traces"
-  }
 }
 
 output "vpc_id" {

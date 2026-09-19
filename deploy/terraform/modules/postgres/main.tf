@@ -105,10 +105,10 @@ resource "aws_security_group" "postgres" {
   vpc_id      = var.vpc_id
 
   ingress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    cidr_blocks     = var.allowed_cidr_blocks
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = var.allowed_cidr_blocks
   }
 
   egress {
@@ -160,12 +160,12 @@ resource "aws_rds_cluster" "postgres" {
 
   # P0-5: защита от случайного destroy — финальный снапшот обязателен,
   # удаление кластера только снятием защиты, бэкап ≥ 7 дней.
-  skip_final_snapshot        = false
-  final_snapshot_identifier  = "${var.identifier}-final"
-  deletion_protection       = var.deletion_protection
-  copy_tags_to_snapshot     = true
-  backup_retention_period   = var.backup_retention_period
-  preferred_backup_window   = var.preferred_backup_window
+  skip_final_snapshot          = false
+  final_snapshot_identifier    = "${var.identifier}-final"
+  deletion_protection          = var.deletion_protection
+  copy_tags_to_snapshot        = true
+  backup_retention_period      = var.backup_retention_period
+  preferred_backup_window      = var.preferred_backup_window
   preferred_maintenance_window = var.preferred_maintenance_window
 
   tags = var.tags

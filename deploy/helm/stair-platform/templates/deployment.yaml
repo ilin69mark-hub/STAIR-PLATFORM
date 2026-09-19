@@ -59,6 +59,13 @@ spec:
                 secretKeyRef:
                   name: {{ include "stair-platform.fullname" . }}-secrets
                   key: database-url
+            {{- if .Values.secretsKey }}
+            - name: STAIR_SECRETS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "stair-platform.fullname" . }}-secrets
+                  key: secrets-key
+            {{- end }}
             {{- if .Values.payments.stripeSecretKey }}
             - name: STAIR_STRIPE_SECRET_KEY
               valueFrom:
@@ -71,8 +78,21 @@ spec:
                   name: {{ include "stair-platform.fullname" . }}-secrets
                   key: stripe-webhook-secret
             {{- end }}
+          # S2-1: при readOnlyRootFilesystem — tmpfs для /tmp и emptyDir для storage.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: storage
+              mountPath: {{ .Values.storage.dir }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+      # S2-1: writable-точки fs (RO root).
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+        - name: storage
+          emptyDir: {}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

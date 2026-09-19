@@ -119,7 +119,7 @@ jobs:
       - name: Helm upgrade stair-platform
         run: |
           helm upgrade --install stair-platform ./deploy/helm/stair-platform \
-            --namespace stair-platform --create-namespace \
+            --namespace stair-platform \
             --atomic --timeout 10m \
             --set image.repository="${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY_API || 'stairplatform/api' }}" \
             --set image.tag="${{ env.APP_VERSION }}" \

@@ -44,8 +44,23 @@ spec:
                 secretKeyRef:
                   name: {{ include "stair-platform.fullname" . }}-secrets
                   key: database-url
+            {{- if .Values.secretsKey }}
+            - name: STAIR_SECRETS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "stair-platform.fullname" . }}-secrets
+                  key: secrets-key
+            {{- end }}
+          # S2-1: worker пишет только в ТЗ БД/Redis; /tmp — tmpfs (RO root).
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           resources:
             {{- toYaml .Values.worker.resources | default .Values.resources | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

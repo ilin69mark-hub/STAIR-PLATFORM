@@ -5,7 +5,12 @@ metadata:
   labels:
     {{- include "stair-platform.labels" . | nindent 4 }}
 data:
+  STAIR_ENVIRONMENT: {{ .Values.environment | quote }}
   STAIR_HTTP_ADDR: ":{{ .Values.service.port }}"
+  STAIR_STORAGE_DIR: {{ .Values.storage.dir | quote }}
+  {{- if .Values.webhookAllowHosts }}
+  STAIR_WEBHOOK_ALLOW_HOSTS: {{ .Values.webhookAllowHosts | quote }}
+  {{- end }}
   STAIR_DB_MAX_CONNS: {{ .Values.database.maxConns | quote }}
   STAIR_DB_MIN_CONNS: {{ .Values.database.minConns | quote }}
   STAIR_DB_MAX_CONN_LIFETIME: {{ .Values.database.maxConnLifetime | quote }}
