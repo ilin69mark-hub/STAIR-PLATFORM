@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"stairplatform/internal/infrastructure/redisconf"
 )
 
 // redisRateLimiter — распределённый лимитер через Redis (EDR-0014 §3.2).
@@ -47,7 +49,7 @@ func newRateLimiterStrategy(ctx context.Context, addr string, limit int, window 
 	if addr == "" {
 		return newRateLimiter(ctx, limit, window)
 	}
-	client := redis.NewClient(&redis.Options{Addr: addr})
+	client := redis.NewClient(redisconf.FromEnv(addr))
 	pingCtx, pingCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer pingCancel()
 	if err := client.Ping(pingCtx).Err(); err != nil {

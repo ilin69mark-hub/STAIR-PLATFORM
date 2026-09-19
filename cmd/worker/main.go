@@ -26,6 +26,7 @@ import (
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/infrastructure/database"
 	"stairplatform/internal/infrastructure/queue"
+	"stairplatform/internal/infrastructure/redisconf"
 	"stairplatform/internal/infrastructure/tracing"
 	"stairplatform/internal/version"
 )
@@ -117,7 +118,7 @@ func newQueueBackend(addr string) *queueBackend {
 	if addr == "" {
 		return &queueBackend{jobq: queue.NewMemoryQueue()}
 	}
-	client := redis.NewClient(&redis.Options{Addr: addr})
+	client := redis.NewClient(redisconf.FromEnv(addr))
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := client.Ping(ctx).Err(); err != nil {

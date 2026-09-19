@@ -21,6 +21,13 @@ function priceOf(o: OrderDTO): number | undefined {
   return undefined
 }
 
+function formatCreatedAt(raw: unknown): string {
+  if (typeof raw !== 'string') return '—'
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleString('ru-RU')
+}
+
 // Личный кабинет: мои заказы и их статусы.
 export function Cabinet() {
   const { user } = useAuth()
@@ -92,7 +99,7 @@ export function Cabinet() {
                   {configDims(o)}
                 </td>
                 <td>{fmt.rubMajor(priceOf(o))}</td>
-                <td>{new Date(o.created_at).toLocaleString('ru-RU')}</td>
+                <td>{formatCreatedAt(o.created_at)}</td>
               </tr>
             ))}
           </tbody>

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 )
 
 func TestStripeWebhookServiceCreation(t *testing.T) {
@@ -53,6 +54,7 @@ func TestStripeWebhookServiceHandleGoodSignature(t *testing.T) {
 
 	// Use Stripe's data.object format
 	raw := map[string]interface{}{
+		"id":   "evt_test_1",
 		"type": "checkout.completed",
 		"data": map[string]interface{}{
 			"object": map[string]interface{}{
@@ -67,8 +69,9 @@ func TestStripeWebhookServiceHandleGoodSignature(t *testing.T) {
 	}
 	payload, _ := json.Marshal(raw)
 
-	// Generate valid Stripe signature: t=timestamp,v1=signature
-	ts := fmt.Sprintf("%d", 1234567890)
+	// Generate valid Stripe signature: t=now,v1=signature (tolerance window,
+	// P1-1: статический timestamp из 2009 больше не проходит)
+	ts := fmt.Sprintf("%d", time.Now().Unix())
 	signedPayload := ts + "." + string(payload)
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(signedPayload))
@@ -78,6 +81,43 @@ func TestStripeWebhookServiceHandleGoodSignature(t *testing.T) {
 	err := svc.HandleStripeWebhook(context.Background(), payload, signature)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStripeWebhookServiceHandleStaleSignature(t *testing.T) {
+	// #nosec G101 -- test-only fake Stripe webhook secret
+	secret := "whsec_test_secret"
+	provider := NewStripeAdapter(NewStripeProvider("sk_test_xxx", secret))
+	svc := NewStripeWebhookService(provider, nil)
+
+	raw := map[string]interface{}{
+		"id":   "evt_test_stale",
+		"type": "checkout.completed",
+		"data": map[string]interface{}{
+			"object": map[string]interface{}{
+				"id":             "cs_test_456",
+				"status":         "complete",
+				"payment_status": "paid",
+				"amount_total":   1000,
+				"currency":       "usd",
+			},
+		},
+		"created": 1234567890,
+	}
+	payload, _ := json.Marshal(raw)
+
+	// Подпись отличная (HMAC валиден), но timestamp устарел (2009 год):
+	// деploy П1-1 требует отклонения replay даже при валидной подписи.
+	ts := fmt.Sprintf("%d", 1234567890)
+	signedPayload := ts + "." + string(payload)
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(signedPayload))
+	sig := hex.EncodeToString(mac.Sum(nil))
+	signature := fmt.Sprintf("t=%s,v1=%s", ts, sig)
+
+	err := svc.HandleStripeWebhook(context.Background(), payload, signature)
+	if err == nil {
+		t.Fatal("expected error for stale (replayed) signature")
 	}
 }
 
@@ -116,5 +156,117 @@ func TestParseStripeEventInvalid(t *testing.T) {
 	_, err := ParseStripeEvent([]byte("invalid json"))
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+// ---- Дедупликация webhook-событий (P1-1) ----
+
+type fakeDeduper struct {
+	seen         map[string]bool
+	cleared      map[string]bool
+	checkAndMark func(provider, eventID string) (bool, error)
+}
+
+func (f *fakeDeduper) CheckAndMark(_ context.Context, provider, eventID string) (bool, error) {
+	if f.checkAndMark != nil {
+		return f.checkAndMark(provider, eventID)
+	}
+	if f.seen[provider+":"+eventID] {
+		return false, nil
+	}
+	f.seen[provider+":"+eventID] = true
+	return true, nil
+}
+
+func (f *fakeDeduper) Clear(_ context.Context, provider, eventID string) error {
+	f.cleared[provider+":"+eventID] = true
+	return nil
+}
+
+func newFakeDeduper() *fakeDeduper {
+	return &fakeDeduper{seen: map[string]bool{}, cleared: map[string]bool{}}
+}
+
+func signedPayloadFor(t *testing.T, secret string, raw map[string]interface{}) ([]byte, string) {
+	t.Helper()
+	payload, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	ts := fmt.Sprintf("%d", time.Now().Unix())
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(ts + "." + string(payload)))
+	sig := hex.EncodeToString(mac.Sum(nil))
+	return payload, fmt.Sprintf("t=%s,v1=%s", ts, sig)
+}
+
+func webhookRaw(evtID, checkoutID string) map[string]interface{} {
+	return map[string]interface{}{
+		"id":   evtID,
+		"type": "checkout.completed",
+		"data": map[string]interface{}{
+			"object": map[string]interface{}{
+				"id":             checkoutID,
+				"status":         "complete",
+				"payment_status": "paid",
+				"amount_total":   1000,
+				"currency":       "usd",
+			},
+		},
+		"created": time.Now().Unix(),
+	}
+}
+
+type recordingProcessor struct {
+	applied  bool
+	applyErr error
+}
+
+func (r *recordingProcessor) ApplyVerifiedEvent(_ context.Context, _, _, _ string, _ int64, _ string, _ []byte) error {
+	r.applied = true
+	return r.applyErr
+}
+
+func TestStripeWebhookDeduplicates(t *testing.T) {
+	secret := "whsec_test_secret"
+	provider := NewStripeAdapter(NewStripeProvider("sk_test_xxx", secret))
+	deduper := newFakeDeduper()
+	proc := &recordingProcessor{}
+	svc := NewStripeWebhookService(provider, nil).WithIntentProcessor(proc).WithEventDeduper(deduper)
+
+	payload, signature := signedPayloadFor(t, secret, webhookRaw("evt_dup", "cs_dup"))
+	if err := svc.HandleStripeWebhook(context.Background(), payload, signature); err != nil {
+		t.Fatalf("first delivery failed: %v", err)
+	}
+	if !proc.applied {
+		t.Fatal("expected first event to be applied")
+	}
+
+	// Повторная доставка того же события: должна быть проигнорирована без
+	// повторного применения и без ошибки (Stripe считает 2xx успехом).
+	proc.applied = false
+	if err := svc.HandleStripeWebhook(context.Background(), payload, signature); err != nil {
+		t.Fatalf("duplicate delivery should not error: %v", err)
+	}
+	if proc.applied {
+		t.Fatal("duplicate event must not be applied twice")
+	}
+}
+
+func TestStripeWebhookDedupMarkerClearedOnFailure(t *testing.T) {
+	secret := "whsec_test_secret"
+	provider := NewStripeAdapter(NewStripeProvider("sk_test_xxx", secret))
+	deduper := newFakeDeduper()
+	failing := &recordingProcessor{}
+	failing.applyErr = fmt.Errorf("boom")
+	svc := NewStripeWebhookService(provider, nil).WithIntentProcessor(failing).WithEventDeduper(deduper)
+
+	payload, signature := signedPayloadFor(t, secret, webhookRaw("evt_fail", "cs_fail"))
+	if err := svc.HandleStripeWebhook(context.Background(), payload, signature); err == nil {
+		t.Fatal("expected error when processor fails")
+	}
+	// Метка должна быть снята, чтобы Stripe-retry того же события сработал.
+	if !deduper.cleared["stripe:evt_fail"] {
+		t.Fatal("expected dedup marker to be cleared on failure")
 	}
 }

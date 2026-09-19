@@ -72,6 +72,12 @@ export function Landing({ onStart }: Props) {
 }
 
 // Testimonials — опубликованные отзывы клиентов (из админки).
+function clampRating(rating: unknown): number {
+  const n = Number(rating)
+  if (!Number.isFinite(n)) return 0
+  return Math.max(0, Math.min(5, Math.round(n)))
+}
+
 function Testimonials({ items, error }: { items: TestimonialDTO[]; error: string | null }) {
   if (error) {
     return (
@@ -90,8 +96,8 @@ function Testimonials({ items, error }: { items: TestimonialDTO[]; error: string
         {items.map((t) => (
           <article className="testimonial" key={t.id}>
             <div className="testimonial-rating" aria-label={`Оценка ${t.rating} из 5`}>
-              {'★'.repeat(t.rating)}
-              <span className="empty">{'★'.repeat(5 - t.rating)}</span>
+              {'★'.repeat(clampRating(t.rating))}
+              <span className="empty">{'★'.repeat(5 - clampRating(t.rating))}</span>
             </div>
             <p className="testimonial-text">{t.text}</p>
             <p className="testimonial-author">{t.author}</p>

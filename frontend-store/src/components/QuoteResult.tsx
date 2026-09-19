@@ -5,6 +5,7 @@ import { materialLabel } from '@shared/config'
 import { VariationPicker } from '@shared/components/VariationPicker'
 import { elementLabel, severityLabel } from '@shared/validationText'
 import { solverOf } from './quoteView'
+import { ErrorBoundary } from '../ErrorBoundary'
 
 // Результат публичного расчёта: марш, геометрия и предварительная цена.
 // Покупателю показываем интерактивную 3D-модель (меш уже приходит в публичном
@@ -128,8 +129,15 @@ export function QuoteResult({
         {!quote.validation.blocking && quote.mesh?.Vertices?.length && quote.mesh?.Triangles && (
           <div className="scheme-3d">
             <h3 className="scheme-3d__title">3D-модель</h3>
-            <Suspense fallback={<p className="muted">Загрузка 3D…</p>}>
-              <GeometryViewer
+            <ErrorBoundary
+              fallback={
+                <div className="alert alert--error" role="alert">
+                  <p>Не удалось загрузить 3D-модель. Попробуйте перезагрузить страницу.</p>
+                </div>
+              }
+            >
+              <Suspense fallback={<p className="muted">Загрузка 3D…</p>}>
+                <GeometryViewer
                 mesh={quote.mesh}
                 roomMesh={quote.room_mesh}
                 railingMesh={quote.railing_mesh}
@@ -141,7 +149,8 @@ export function QuoteResult({
                 approachSpace={solver.approachSpace}
                 heightMM={heightMM}
               />
-            </Suspense>
+              </Suspense>
+            </ErrorBoundary>
           </div>
         )}
       </section>

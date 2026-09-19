@@ -50,6 +50,11 @@ type CheckoutSession struct {
 
 // StripeWebhookEvent — Stripe webhook event.
 type StripeWebhookEvent struct {
+	// EventID — уникальный идентификатор события PSA (de dup): у Stripe — id
+	// верхнеуровневого объекта event (evt_…). Пуст, если провайдер не отдаёт
+	// идентификатор — тогда защита от повторов строится на идемпотентности
+	// ApplyVerifiedEvent.
+	EventID     string    `json:"event_id"`
 	EventType   string    `json:"event_type"`
 	Provider    string    `json:"provider"`
 	CheckoutID  string    `json:"checkout_id"`

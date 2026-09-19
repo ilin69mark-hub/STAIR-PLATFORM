@@ -16,9 +16,13 @@ terraform {
   }
 
   backend "s3" {
-    bucket = "stair-platform-terraform"
-    key    = "production/terraform.tfstate"
-    region = "us-east-1"
+    bucket  = "stair-platform-terraform"
+    key     = "production/terraform.tfstate"
+    region  = "us-east-1"
+    encrypt = true
+    # Требуется перед работой в команде: создать DynamoDB table "stair-platform-tf-lock"
+    # (partition key: LockID, type: String) и раскомментировать строку ниже.
+    # dynamodb_table = "stair-platform-tf-lock"
   }
 }
 
