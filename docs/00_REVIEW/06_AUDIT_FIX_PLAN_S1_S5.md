@@ -138,9 +138,9 @@
 |-------|-----------|--------|-----------|
 | S1-1  | high      | DONE   | `1ce0fd9` |
 | S1-2  | high      | DONE   | `1ce0fd9` |
-| S2-1  | high      | DONE   |           |
-| S2-2  | high      | DONE   |           |
-| S2-3  | high      | DONE   |           |
+| S2-1  | high      | DONE   | `f26dc92` |
+| S2-2  | high      | DONE   | `f26dc92` |
+| S2-3  | high      | DONE   | `f26dc92` |
 | S3-1  | medium    | OPEN   |           |
 | S3-2  | medium    | OPEN   |           |
 | S4-1  | medium    | OPEN   |           |
