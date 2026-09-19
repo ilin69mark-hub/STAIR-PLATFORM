@@ -11,9 +11,12 @@ import (
 	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/engine/solver"
-) // maxBodyBytes — предельный размер тела запроса (защита от DoS,
-// SEC-0003): применяется в decodeJSON.
-var maxBodyBytes int64 = 1 << 20 // 1 MiB
+)
+
+// maxBodyBytes — предельный размер тела запроса (защита от DoS,
+// SEC-0003): применяется в decodeJSON. Всегда 1 MiB (см. DefaultConfig и
+// cmd/api/main.go); константа, чтобы у рантайма не было глобала-мутанта.
+const maxBodyBytes int64 = 1 << 20 // 1 MiB
 
 // decodeJSON декодирует тело запроса в dst с ограничением размера
 // (MaxBodyBytes). Возвращает ошибку при невалидном JSON.

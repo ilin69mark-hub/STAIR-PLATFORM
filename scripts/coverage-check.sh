@@ -10,21 +10,28 @@
 # Usage:
 #   scripts/coverage-check.sh [threshold]
 #   COVERAGE_THRESHOLD=85 scripts/coverage-check.sh
+#   COVERAGE_PROFILE=coverage.out scripts/coverage-check.sh 85   # reuse готового профиля (CI: без повторного go test)
 
 set -euo pipefail
 
 THRESHOLD="${COVERAGE_THRESHOLD:-${1:-85}}"
 DB_PKG="internal/infrastructure/database"
 
-profile="$(mktemp)"
-trap 'rm -f "$profile"' EXIT
-
-go test ./... -coverprofile="$profile" >/dev/null
+if [[ -n "${COVERAGE_PROFILE:-}" ]]; then
+    profile="$COVERAGE_PROFILE"
+    trap - EXIT
+else
+    profile="$(mktemp)"
+    trap 'rm -f "$profile"' EXIT
+    go test ./... -coverprofile="$profile" >/dev/null
+fi
 
 # Исключаем database-пакет, если тестовая БД не задана.
 if [[ -z "${STAIR_TEST_DATABASE_URL:-}" ]]; then
-    grep -v "$DB_PKG/" "$profile" > "${profile}.nodb" || true
-    profile="${profile}.nodb"
+    nodb="$(mktemp)"
+    trap 'rm -f "$nodb"' EXIT
+    grep -v "$DB_PKG/" "$profile" > "$nodb" || true
+    profile="$nodb"
 fi
 
 total="$(go tool cover -func="$profile" | awk '/total:/{gsub(/%/,"",$NF); print $NF}')"

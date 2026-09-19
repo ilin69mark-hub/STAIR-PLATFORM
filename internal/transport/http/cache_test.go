@@ -79,7 +79,7 @@ func TestCacheMiddleware_Immutable(t *testing.T) {
 func TestCacheMiddleware_ExactMatch(t *testing.T) {
 	policies := map[string]CachePolicy{
 		"/api/v1/auth/login": CacheNoCache,
-		"/api/v1/":          CacheShort,
+		"/api/v1/":           CacheShort,
 	}
 	handler := CacheMiddleware(policies)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok"))
@@ -153,8 +153,8 @@ func TestCachePolicy_String(t *testing.T) {
 
 func TestFindCachePolicy_LongestPrefix(t *testing.T) {
 	policies := map[string]CachePolicy{
-		"/api/":          CacheShort,
-		"/api/v1/auth/":  CacheNoCache,
+		"/api/":           CacheShort,
+		"/api/v1/auth/":   CacheNoCache,
 		"/api/v1/stairs/": CacheMedium,
 	}
 

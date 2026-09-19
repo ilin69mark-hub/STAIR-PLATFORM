@@ -9,7 +9,10 @@ import (
 )
 
 func TestItoa(t *testing.T) {
-	cases := []struct{ n int; want string }{{0, "0"}, {5, "5"}, {42, "42"}, {12345, "12345"}}
+	cases := []struct {
+		n    int
+		want string
+	}{{0, "0"}, {5, "5"}, {42, "42"}, {12345, "12345"}}
 	for _, c := range cases {
 		if got := itoa(c.n); got != c.want {
 			t.Fatalf("itoa(%d)=%q want %q", c.n, got, c.want)

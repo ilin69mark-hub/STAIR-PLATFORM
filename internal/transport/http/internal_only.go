@@ -10,13 +10,13 @@ import (
 func InternalOnlyMiddleware(next http.Handler) http.Handler {
 	// Разрешенные CIDR ranges для внутренних сетей
 	allowedCIDRs := []string{
-		"127.0.0.0/8",     // localhost
-		"10.0.0.0/8",      // private Class A
-		"172.16.0.0/12",   // private Class B
-		"192.168.0.0/16",  // private Class C
-		"::1/128",         // IPv6 localhost
-		"fc00::/7",        // IPv6 private
-		"fe80::/10",       // IPv6 link-local
+		"127.0.0.0/8",    // localhost
+		"10.0.0.0/8",     // private Class A
+		"172.16.0.0/12",  // private Class B
+		"192.168.0.0/16", // private Class C
+		"::1/128",        // IPv6 localhost
+		"fc00::/7",       // IPv6 private
+		"fe80::/10",      // IPv6 link-local
 	}
 
 	var allowedNets []*net.IPNet
@@ -29,7 +29,7 @@ func InternalOnlyMiddleware(next http.Handler) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := extractIP(r)
-		
+
 		if !isInternalIP(ip, allowedNets) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return

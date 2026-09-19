@@ -1,5 +1,5 @@
 // Package ws реализует WebSocket для real-time обновлений (ENG-WS-0001).
-// Использует gorilla/websocket для双向 общения.
+// Использует gorilla/websocket для двустороннего общения.
 package ws
 
 import (
@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	domevents "stairplatform/internal/domain/events"
 	"github.com/gorilla/websocket"
+	domevents "stairplatform/internal/domain/events"
 )
 
 var upgrader = websocket.Upgrader{
@@ -42,12 +42,12 @@ var upgrader = websocket.Upgrader{
 type MessageType string
 
 const (
-	MessageTypePipelineStatus MessageType = "pipeline_status"
-	MessageTypeAnalysisProgress MessageType = "analysis_progress"
+	MessageTypePipelineStatus    MessageType = "pipeline_status"
+	MessageTypeAnalysisProgress  MessageType = "analysis_progress"
 	MessageTypeDocumentGenerated MessageType = "document_generated"
-	MessageTypeNotification MessageType = "notification"
-	MessageTypePing MessageType = "ping"
-	MessageTypePong MessageType = "pong"
+	MessageTypeNotification      MessageType = "notification"
+	MessageTypePing              MessageType = "ping"
+	MessageTypePong              MessageType = "pong"
 )
 
 // Message — структура WebSocket сообщения.
@@ -254,14 +254,16 @@ func (h *Hub) LeaveRoom(client *Client, room string) {
 }
 
 // HandleWebSocket обрабатывает WebSocket подключения.
-func HandleWebSocket(hub *Hub, w http.ResponseWriter, r *http.Request) {
+// userID должен быть установлен вызывающей стороной из верифицированного
+// токена (аутентифицированным обработчиком) — никогда не берётся из запроса,
+// иначе клиент сможет подписаться на комнаты/уведомления другого пользователя.
+func HandleWebSocket(hub *Hub, w http.ResponseWriter, r *http.Request, userID string) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WS: upgrade error: %v", err)
 		return
 	}
 
-	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
 		userID = "anonymous"
 	}
@@ -365,11 +367,11 @@ func (c *Client) writePump() {
 
 // PipelineStatusPayload — payload для обновления статуса pipeline.
 type PipelineStatusPayload struct {
-	ConfigID   string `json:"configId"`
-	Status     string `json:"status"`
-	Stage      string `json:"stage"`
-	Progress   int    `json:"progress"`
-	Error      string `json:"error,omitempty"`
+	ConfigID string `json:"configId"`
+	Status   string `json:"status"`
+	Stage    string `json:"stage"`
+	Progress int    `json:"progress"`
+	Error    string `json:"error,omitempty"`
 }
 
 // AnalysisProgressPayload — payload для обновления анализа.

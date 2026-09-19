@@ -86,15 +86,15 @@ var DefaultSettings = Settings{
 
 // CircuitBreaker — реализует Circuit Breaker паттерн.
 type CircuitBreaker struct {
-	mu              sync.Mutex
-	settings        Settings
-	state           State
-	failureCount    int
-	successCount    int
-	lastFailureTime time.Time
+	mu               sync.Mutex
+	settings         Settings
+	state            State
+	failureCount     int
+	successCount     int
+	lastFailureTime  time.Time
 	halfOpenRequests int
-	name            string
-	onStateChange   func(name string, from, to State)
+	name             string
+	onStateChange    func(name string, from, to State)
 }
 
 // New создаёт новый Circuit Breaker с заданными настройками.

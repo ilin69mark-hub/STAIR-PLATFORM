@@ -85,8 +85,12 @@ func TestCircuitBreakerClosesFromHalfOpen(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Succeed from half-open
-	if err := cb.Execute(func() error { return nil }); err != nil { t.Fatal(err) }
-	if err := cb.Execute(func() error { return nil }); err != nil { t.Fatal(err) }
+	if err := cb.Execute(func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := cb.Execute(func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
 
 	if cb.State() != StateClosed {
 		t.Fatalf("expected closed, got %v", cb.State())

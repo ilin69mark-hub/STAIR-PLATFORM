@@ -172,9 +172,9 @@ func TestAssemblyTreeParts(t *testing.T) {
 					Quantity:   2,
 				},
 				{
-					ID:   "group-1",
-					Type: AssemblyNodeGroup,
-					Name: "Group",
+					ID:       "group-1",
+					Type:     AssemblyNodeGroup,
+					Name:     "Group",
 					Quantity: 1,
 					Children: []*AssemblyNode{
 						{

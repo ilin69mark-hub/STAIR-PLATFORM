@@ -9,15 +9,15 @@ import (
 type CNCFormat string
 
 const (
-	CNCFormatSTEP  CNCFormat = "step"
-	CNCFormatIGES  CNCFormat = "iges"
-	CNCFormatOBJ   CNCFormat = "obj"
-	CNCFormat3MF   CNCFormat = "3mf"
-	CNCFormatDXF   CNCFormat = "dxf"
-	CNCFormatSTL   CNCFormat = "stl"
-	CNCFormatCSV   CNCFormat = "csv"
-	CNCFormatJSON  CNCFormat = "json"
-	CNCFormatXML   CNCFormat = "xml"
+	CNCFormatSTEP CNCFormat = "step"
+	CNCFormatIGES CNCFormat = "iges"
+	CNCFormatOBJ  CNCFormat = "obj"
+	CNCFormat3MF  CNCFormat = "3mf"
+	CNCFormatDXF  CNCFormat = "dxf"
+	CNCFormatSTL  CNCFormat = "stl"
+	CNCFormatCSV  CNCFormat = "csv"
+	CNCFormatJSON CNCFormat = "json"
+	CNCFormatXML  CNCFormat = "xml"
 )
 
 // IsValid проверяет, что CNC-формат известен.
@@ -64,10 +64,10 @@ func (f CNCFormat) Extension() string {
 type CNCJobStatus string
 
 const (
-	CNCJobStatusPending  CNCJobStatus = "pending"
-	CNCJobStatusRunning  CNCJobStatus = "running"
-	CNCJobStatusDone     CNCJobStatus = "done"
-	CNCJobStatusFailed   CNCJobStatus = "failed"
+	CNCJobStatusPending CNCJobStatus = "pending"
+	CNCJobStatusRunning CNCJobStatus = "running"
+	CNCJobStatusDone    CNCJobStatus = "done"
+	CNCJobStatusFailed  CNCJobStatus = "failed"
 )
 
 // IsValid проверяет, что статус CNC-задания известен.
@@ -115,9 +115,9 @@ func (j *CNCJob) Validate() error {
 type AssemblyNodeType string
 
 const (
-	AssemblyNodeRoot    AssemblyNodeType = "root"
-	AssemblyNodeGroup   AssemblyNodeType = "group"
-	AssemblyNodePart    AssemblyNodeType = "part"
+	AssemblyNodeRoot  AssemblyNodeType = "root"
+	AssemblyNodeGroup AssemblyNodeType = "group"
+	AssemblyNodePart  AssemblyNodeType = "part"
 )
 
 // IsValid проверяет корректность типа узла сборки.
@@ -131,14 +131,14 @@ func (t AssemblyNodeType) IsValid() bool {
 
 // AssemblyNode — узел дерева сборки.
 type AssemblyNode struct {
-	ID           string
-	Type         AssemblyNodeType
-	Name         string
-	PartNumber   PartNumber // заполнено только для типа "part"
-	Quantity     int
-	Children     []*AssemblyNode
-	Position     [3]float64 // X, Y, Z позиция в сборке (мм)
-	Rotation     [3]float64 // Rx, Ry, Rz поворот в сборке (радианы)
+	ID         string
+	Type       AssemblyNodeType
+	Name       string
+	PartNumber PartNumber // заполнено только для типа "part"
+	Quantity   int
+	Children   []*AssemblyNode
+	Position   [3]float64 // X, Y, Z позиция в сборке (мм)
+	Rotation   [3]float64 // Rx, Ry, Rz поворот в сборке (радианы)
 }
 
 // Validate проверяет инварианты дерева сборки.

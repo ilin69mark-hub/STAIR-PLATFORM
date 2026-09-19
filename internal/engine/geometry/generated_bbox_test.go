@@ -36,7 +36,7 @@ type Case struct {
 	ComfortStepMM       float64 `json:"comfort_step_mm"`
 }
 
-func genMustLength(v float64) engineering.Length { l,_ := engineering.NewLength(v); return l }
+func genMustLength(v float64) engineering.Length { l, _ := engineering.NewLength(v); return l }
 
 func caseToConfig(c Case) *engineering.StairConfiguration {
 	var wL, hL = genMustLength(c.WidthMM), genMustLength(c.HeightMM)
@@ -55,7 +55,7 @@ func caseToConfig(c Case) *engineering.StairConfiguration {
 	if c.Flight == "spiral" {
 		cfg = &engineering.StairConfiguration{Width: wL, Height: hL, Flight: ft}
 	} else {
-		cfg,_ = engineering.NewStairConfiguration(wL, hL, ft)
+		cfg, _ = engineering.NewStairConfiguration(wL, hL, ft)
 	}
 	cfg.StepHeight = genMustLength(c.StepHeightMM)
 	cfg.StepThickness = genMustLength(c.StepThicknessMM)
@@ -86,7 +86,11 @@ func caseToConfig(c Case) *engineering.StairConfiguration {
 		cfg.LandingWidth = genMustLength(c.LandingWidthMM)
 		cfg.LandingDepth = genMustLength(c.LandingDepthMM)
 		cfg.LowerStepCount = c.LowerStepCount
-		if c.Direction == "left" { cfg.Direction = engineering.TurnLeft } else { cfg.Direction = engineering.TurnRight }
+		if c.Direction == "left" {
+			cfg.Direction = engineering.TurnLeft
+		} else {
+			cfg.Direction = engineering.TurnRight
+		}
 		var rs engineering.RailingSide
 		switch c.Railing {
 		case "none":
@@ -104,7 +108,11 @@ func caseToConfig(c Case) *engineering.StairConfiguration {
 	}
 	if c.Flight == "spiral" {
 		cfg.OuterRadius = genMustLength(c.OuterRadiusMM)
-		if c.SpiralDirection == "cw" { cfg.SpiralDirection = engineering.SpiralCW } else { cfg.SpiralDirection = engineering.SpiralCCW }
+		if c.SpiralDirection == "cw" {
+			cfg.SpiralDirection = engineering.SpiralCW
+		} else {
+			cfg.SpiralDirection = engineering.SpiralCCW
+		}
 	}
 	return cfg
 }
@@ -116,10 +124,14 @@ func TestGeneratedBbox500(t *testing.T) {
 	}
 	defer func() { _ = f.Close() }()
 	var cases []Case
-	if err := json.NewDecoder(f).Decode(&cases); err != nil { t.Fatalf("decode: %v", err) }
+	if err := json.NewDecoder(f).Decode(&cases); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	prof := constraint.StandardProfile("std")
 	for i, cs := range cases {
-		if i%4 != 0 { continue } // sample 500 from 2000 to keep <1s (500 cases)
+		if i%4 != 0 {
+			continue
+		} // sample 500 from 2000 to keep <1s (500 cases)
 		cs := cs
 		t.Run(fmt.Sprintf("%s_%d", cs.Flight, i), func(t *testing.T) {
 			t.Parallel()
@@ -135,12 +147,20 @@ func TestGeneratedBbox500(t *testing.T) {
 			case "spiral":
 				_, vr, _ = solver.SolveCheckedSpiral(cfg, prof)
 			}
-			if vr.Blocking { t.Fatalf("blocking: %+v", vr.Issues) }
+			if vr.Blocking {
+				t.Fatalf("blocking: %+v", vr.Issues)
+			}
 			gen, err := Generate(context.Background(), cfg)
-			if err != nil { t.Fatalf("Generate err: %v", err) }
-			if gen.Mesh == nil || len(gen.Mesh.Vertices)==0 { t.Fatal("empty mesh") }
+			if err != nil {
+				t.Fatalf("Generate err: %v", err)
+			}
+			if gen.Mesh == nil || len(gen.Mesh.Vertices) == 0 {
+				t.Fatal("empty mesh")
+			}
 			bb := gen.Measurement.BoundingBox
-			if bb.Max.X <= bb.Min.X || bb.Max.Y <= bb.Min.Y { t.Fatalf("invalid bbox %+v", bb) }
+			if bb.Max.X <= bb.Min.X || bb.Max.Y <= bb.Min.Y {
+				t.Fatalf("invalid bbox %+v", bb)
+			}
 		})
 	}
 }

@@ -8,16 +8,16 @@ import (
 type FinishingType string
 
 const (
-	FinishingNone           FinishingType = "none"
-	FinishingPainting       FinishingType = "painting"
-	FinishingPowderCoating  FinishingType = "powder-coating"
-	FinishingGalvanizing    FinishingType = "galvanizing"
-	FinishingHeatTreatment  FinishingType = "heat-treatment"
-	FinishingAnodizing      FinishingType = "anodizing"
-	FinishingBrushing       FinishingType = "brushing"
-	FinishingPolishing      FinishingType = "polishing"
-	FinishingSandblasting   FinishingType = "sandblasting"
-	FinishingCustom         FinishingType = "custom"
+	FinishingNone          FinishingType = "none"
+	FinishingPainting      FinishingType = "painting"
+	FinishingPowderCoating FinishingType = "powder-coating"
+	FinishingGalvanizing   FinishingType = "galvanizing"
+	FinishingHeatTreatment FinishingType = "heat-treatment"
+	FinishingAnodizing     FinishingType = "anodizing"
+	FinishingBrushing      FinishingType = "brushing"
+	FinishingPolishing     FinishingType = "polishing"
+	FinishingSandblasting  FinishingType = "sandblasting"
+	FinishingCustom        FinishingType = "custom"
 )
 
 // IsValid проверяет корректность типа отделки.
@@ -102,12 +102,12 @@ func (oc *OperationCost) Validate() error {
 
 // MaterialCost — стоимость материала для одной детали (PRC-0007).
 type MaterialCost struct {
-	PartNumber  string
-	Material    string
-	Volume      float64 // мм³
-	Density     float64 // кг/м³
-	PricePerKg  Money   // цена за кг в минорных единицах
-	TotalCost   Money   // итого = Volume × Density / 1e9 × PricePerKg
+	PartNumber string
+	Material   string
+	Volume     float64 // мм³
+	Density    float64 // кг/м³
+	PricePerKg Money   // цена за кг в минорных единицах
+	TotalCost  Money   // итого = Volume × Density / 1e9 × PricePerKg
 }
 
 // Validate проверяет инварианты стоимости материала.
@@ -142,16 +142,16 @@ func (mc *MaterialCost) Validate() error {
 
 // ProjectPricing — полный расчёт стоимости проекта (PRC-0014).
 type ProjectPricing struct {
-	ProjectID   string
-	Currency    Currency
-	Materials   []MaterialCost
-	Operations  []OperationCost
-	Finishings  []FinishingCost
-	Overhead    Rate // overhead rate (%)
-	Margin      Rate // margin rate (%)
-	Discount    Rate // discount rate (%)
-	Tax         Rate // tax rate (%)
-	Breakdown   *PriceBreakdown
+	ProjectID  string
+	Currency   Currency
+	Materials  []MaterialCost
+	Operations []OperationCost
+	Finishings []FinishingCost
+	Overhead   Rate // overhead rate (%)
+	Margin     Rate // margin rate (%)
+	Discount   Rate // discount rate (%)
+	Tax        Rate // tax rate (%)
+	Breakdown  *PriceBreakdown
 }
 
 // Validate проверяет инварианты расчёта проекта.

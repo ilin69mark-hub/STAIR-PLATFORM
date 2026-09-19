@@ -45,7 +45,7 @@ func handleSsoBegin(svc AuthService) http.HandlerFunc {
 // handleSsoCallback — GET /api/v1/auth/sso/callback (public, EDR-0017 §3.3).
 // Проверяет state, обменивает code, верифицирует id_token, создаёт сессию и
 // редиректит на фронтенд. Ошибки — редирект с ?error=... (без raw-деталей).
-func handleSsoCallback(svc AuthService) http.HandlerFunc {
+func handleSsoCallback(svc AuthService, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		code := r.URL.Query().Get("code")
 		state := r.URL.Query().Get("state")
@@ -65,7 +65,7 @@ func handleSsoCallback(svc AuthService) http.HandlerFunc {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		setSessionCookies(w, appOrigin(r), token)
+		setSessionCookies(w, appOrigin(r), token, secure)
 		target := "/"
 		if red := r.URL.Query().Get("redirect"); red != "" && isSafeRedirect(red) {
 			target = red

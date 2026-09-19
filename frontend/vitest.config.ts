@@ -23,7 +23,7 @@ export default defineConfig({
         '**/*.css',
         'shared/src/viewer/**',
       ],
-      thresholds: { lines: 50, statements: 50, functions: 40, branches: 40 },
+      thresholds: { lines: 80, statements: 80, functions: 75, branches: 70 },
     },
   },
 })

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	domevents "stairplatform/internal/domain/events"
 	docdomain "stairplatform/internal/domain/document"
+	domevents "stairplatform/internal/domain/events"
 	"stairplatform/internal/domain/manufacturing"
 )
 

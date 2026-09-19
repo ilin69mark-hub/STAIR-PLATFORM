@@ -5,26 +5,15 @@
 
 import type { ApiErrorBody } from '@shared/types'
 import { ApiError } from '@shared/types'
-
-const CSRF_COOKIE = 'csrf'
-
-function csrfToken(): string {
-  return document.cookie
-    .split('; ')
-    .find((c) => c.startsWith(`${CSRF_COOKIE}=`))
-    ?.slice(CSRF_COOKIE.length + 1) ?? ''
-}
+import { csrfHeaders } from '@shared/api/csrf'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(init?.headers as Record<string, string> | undefined),
-  }
   const method = (init?.method ?? 'GET').toUpperCase()
   const isMutating = !['GET', 'HEAD', 'OPTIONS'].includes(method)
-  if (isMutating) {
-    const csrf = csrfToken()
-    if (csrf) headers['X-CSRF-Token'] = csrf
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(isMutating ? csrfHeaders('store') : {}),
+    ...(init?.headers as Record<string, string> | undefined),
   }
 
   const res = await fetch(url, {

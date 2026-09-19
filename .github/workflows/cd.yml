@@ -1,0 +1,131 @@
+name: CD
+# Непрерывная доставка (P3-14): сборка образов API/worker/admin/store,
+# публикация в ECR и helm upgrade кластера EKS.
+#
+# Намеренно НЕ активен до появления секретов AWS (см. guard ниже) —
+# при отсутствии секретов джобы завершаются с SKIP, чтобы workflow не падал.
+# Необходимые repository secrets:
+#   AWS_ROLE_TO_ASSUME  — ARN IAM-роли (OIDC-федерация для GitHub Actions).
+#                         Роль: ecr:GetAuthorizationToken, ecr:BatchGetImage,
+#                         ecr:InitiateLayerUpload, ecr:UploadLayerPart,
+#                         ecr:CompleteLayerUpload, eks:DescribeCluster.
+#   AWS_REGION           — регион кластера (default: eu-central-1).
+#   EKS_CLUSTER          — имя кластера EKS.
+#   ECR_REGISTRY         — полное имя реестра вида 123456789012.dkr.ecr....amazonaws.com
+#   ECR_REPOSITORY_API   — имя репозитория API (default: stairplatform/api).
+#   ECR_REPOSITORY_ADMIN — имя репозитория admin (default: stairplatform/admin).
+#   ECR_REPOSITORY_STORE — имя репозитория store (default: stairplatform/store).
+#
+# Запуск: вручную (workflow_dispatch, с выбором версии) или по тегу v*.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "docker tag (например, sha-${{ github.sha }})"
+        required: false
+        default: ""
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'eu-central-1' }}
+  APP_VERSION: ${{ inputs.version || github.sha }}
+
+jobs:
+  release:
+    name: Build & release
+    runs-on: ubuntu-latest
+    # Guard: без роль для OIDC CD не выполняется (режим "staging off").
+    if: ${{ secrets.AWS_ROLE_TO_ASSUME != '' }}
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip marker
+        if: ${{ secrets.AWS_ROLE_TO_ASSUME == '' }}
+        run: echo "::notice::AWS_ROLE_TO_ASSUME не задан — CD отключён"
+        continue-on-error: true
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag & push API/worker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deployments/Dockerfile
+          push: true
+          tags: |
+            ${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY_API || 'stairplatform/api' }}:${{ env.APP_VERSION }}
+
+      - name: Build, tag & push admin
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deployments/admin.Dockerfile
+          push: true
+          tags: |
+            ${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY_ADMIN || 'stairplatform/admin' }}:${{ env.APP_VERSION }}
+
+      - name: Build, tag & push store
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deployments/store.Dockerfile
+          push: true
+          tags: |
+            ${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY_STORE || 'stairplatform/store' }}:${{ env.APP_VERSION }}
+
+  deploy:
+    name: Helm upgrade EKS
+    needs: release
+    runs-on: ubuntu-latest
+    if: ${{ secrets.AWS_ROLE_TO_ASSUME != '' }}
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.31"
+
+      - name: Configure kubeconfig (EKS)
+        run: |
+          aws eks update-kubeconfig --region "$AWS_REGION" \
+            --name "${{ secrets.EKS_CLUSTER }}" --alias stair-platform
+
+      - name: Install helm
+        uses: azure/setup-helm@v4
+
+      - name: Helm upgrade stair-platform
+        run: |
+          helm upgrade --install stair-platform ./deploy/helm/stair-platform \
+            --namespace stair-platform --create-namespace \
+            --atomic --timeout 10m \
+            --set image.repository="${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY_API || 'stairplatform/api' }}" \
+            --set image.tag="${{ env.APP_VERSION }}" \
+            --set imagePullSecrets[0].name=ecr-regcred
+
+      - name: Verify rollout
+        run: |
+          kubectl -n stair-platform rollout status deploy/stair-platform --timeout=8m
+          kubectl -n stair-platform rollout status deploy/stair-platform-worker --timeout=3m

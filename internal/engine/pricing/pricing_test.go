@@ -34,7 +34,11 @@ func testDataset(t *testing.T) *dommfg.ManufacturingCostDataset {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ds, err := engmfg.PrepareCost(pkg, engmfg.DefaultMaterialRegistry(), engmfg.DefaultMachineRates())
+	reg, err := engmfg.DefaultMaterialRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds, err := engmfg.PrepareCost(pkg, reg, engmfg.DefaultMachineRates())
 	if err != nil {
 		t.Fatal(err)
 	}

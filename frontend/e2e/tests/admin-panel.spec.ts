@@ -2,7 +2,8 @@
 // «Администрирование» → смена роли, политика безопасности, API-ключи,
 // заказы, отзывы. Админ создаётся напрямую в БД (SEC-0004: роль admin
 // назначается только через БД/seed), поэтому после регистрации повышаем
-// пользователя через psql в контейнере stair-platform-postgres.
+// пользователя через psql. Команда psql настраивается через STAIR_E2E_PSQL
+// (локально: docker exec в stair-platform-postgres; в CI: psql к postgres service).
 import { expect, test } from '@playwright/test'
 import { execSync } from 'node:child_process'
 import { login, register, uniqueEmail } from '../helpers/auth'
@@ -11,11 +12,11 @@ const adminEmail = uniqueEmail()
 const regularEmail = uniqueEmail()
 let seededOrderId = ''
 
+// Например, локально: `docker exec stair-platform-postgres psql -U stair -d stair_platform`.
+// В CI: `PGPASSWORD=testpassword psql -h localhost -U stair -d stair_platform_test`.
 function psql(sql: string): string {
-  return execSync(
-    `docker exec stair-platform-postgres psql -U stair -d stair_platform -tAc "${sql}"`,
-    { encoding: 'utf8' },
-  ).trim()
+  const base = process.env.STAIR_E2E_PSQL ?? 'docker exec stair-platform-postgres psql -U stair -d stair_platform'
+  return execSync(`${base} -tAc "${sql}"`, { encoding: 'utf8' }).trim()
 }
 
 function promoteToAdmin(email: string) {

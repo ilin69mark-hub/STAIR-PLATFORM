@@ -42,7 +42,7 @@ func (l *redisRateLimiter) Allow(ip string) bool {
 }
 
 // newRateLimiterStrategy строит лимитер по конфигурации: redis (если адрес
-// задан и клиент доступен) либо memory. Используется applyConfig.
+// задан и клиент доступен) либо memory. Вызывается в NewRouter (P2-11).
 func newRateLimiterStrategy(ctx context.Context, addr string, limit int, window time.Duration) RateLimiter {
 	if addr == "" {
 		return newRateLimiter(ctx, limit, window)

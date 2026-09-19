@@ -92,7 +92,7 @@ func TestEngineGenerateDocument(t *testing.T) {
 	}
 
 	ctx := &RenderContext{
-		ConfigID:   "config-1",
+		ConfigID:    "config-1",
 		GeneratedAt: time.Now(),
 	}
 

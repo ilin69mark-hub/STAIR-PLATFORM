@@ -84,17 +84,17 @@ type AnalysisStarted struct {
 
 type AnalysisCompleted struct {
 	BaseEvent
-	ConfigID string
-	Flight   string
+	ConfigID  string
+	Flight    string
 	StepCount int
-	Angle    float64
+	Angle     float64
 }
 
 // ─── Optimization Events (BC-005) ───────────────────────────────────────────
 
 const (
-	EventBetterSolutionFound   EventType = "optimization.better_solution_found"
-	EventOptimizationFinished  EventType = "optimization.finished"
+	EventBetterSolutionFound  EventType = "optimization.better_solution_found"
+	EventOptimizationFinished EventType = "optimization.finished"
 )
 
 type BetterSolutionFound struct {
@@ -105,17 +105,17 @@ type BetterSolutionFound struct {
 
 type OptimizationFinished struct {
 	BaseEvent
-	ConfigID    string
+	ConfigID       string
 	CandidateCount int
-	BestScore   float64
+	BestScore      float64
 }
 
 // ─── Manufacturing Events (BC-005) ──────────────────────────────────────────
 
 const (
-	EventBOMGenerated       EventType = "manufacturing.bom_generated"
-	EventDrawingGenerated   EventType = "manufacturing.drawing_generated"
-	EventPackageCompleted   EventType = "manufacturing.package_completed"
+	EventBOMGenerated     EventType = "manufacturing.bom_generated"
+	EventDrawingGenerated EventType = "manufacturing.drawing_generated"
+	EventPackageCompleted EventType = "manufacturing.package_completed"
 )
 
 type BOMGenerated struct {
@@ -127,8 +127,8 @@ type BOMGenerated struct {
 
 type PackageCompleted struct {
 	BaseEvent
-	ProjectID string
-	PartCount int
+	ProjectID  string
+	PartCount  int
 	SheetCount int
 }
 
@@ -140,9 +140,9 @@ const (
 
 type PriceCalculated struct {
 	BaseEvent
-	ProjectID   string
-	FinalPrice  int64
-	Currency    string
+	ProjectID  string
+	FinalPrice int64
+	Currency   string
 }
 
 // ─── Document Events (BC-009) ───────────────────────────────────────────────
@@ -169,25 +169,25 @@ type DocumentPublished struct {
 // ─── Engine Events (меж-engine коммуникация, ENG-0005) ──────────────────────
 
 const (
-	EventEngineGeometryFinished     EventType = "engine.geometry_finished"
-	EventEngineValidationFinished   EventType = "engine.validation_finished"
-	EventEngineAnalysisFinished     EventType = "engine.analysis_finished"
-	EventEngineOptimizationFinished EventType = "engine.optimization_finished"
+	EventEngineGeometryFinished      EventType = "engine.geometry_finished"
+	EventEngineValidationFinished    EventType = "engine.validation_finished"
+	EventEngineAnalysisFinished      EventType = "engine.analysis_finished"
+	EventEngineOptimizationFinished  EventType = "engine.optimization_finished"
 	EventEngineManufacturingFinished EventType = "engine.manufacturing_finished"
-	EventEnginePricingFinished      EventType = "engine.pricing_finished"
-	EventEngineRenderingFinished    EventType = "engine.rendering_finished"
-	EventEngineDocumentsFinished    EventType = "engine.documents_finished"
-	EventPipelineCompleted          EventType = "engine.pipeline_completed"
-	EventPipelineFailed             EventType = "engine.pipeline_failed"
+	EventEnginePricingFinished       EventType = "engine.pricing_finished"
+	EventEngineRenderingFinished     EventType = "engine.rendering_finished"
+	EventEngineDocumentsFinished     EventType = "engine.documents_finished"
+	EventPipelineCompleted           EventType = "engine.pipeline_completed"
+	EventPipelineFailed              EventType = "engine.pipeline_failed"
 )
 
 type EngineFinished struct {
 	BaseEvent
-	Engine    string
-	ConfigID  string
-	Duration  float64 // milliseconds
-	Success   bool
-	ErrorMsg  string
+	Engine   string
+	ConfigID string
+	Duration float64 // milliseconds
+	Success  bool
+	ErrorMsg string
 }
 
 type PipelineCompleted struct {

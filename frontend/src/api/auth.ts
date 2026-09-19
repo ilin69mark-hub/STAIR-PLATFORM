@@ -3,36 +3,22 @@
 // SSO (EDR-0017): OIDC Authorization Code flow.
 
 import { get, post } from './client'
-import type { User } from '@shared/types'
+import { createAuthApi, type AuthApi } from '@shared/api/auth'
 
-export interface RegisterRequest {
-  email: string
-  name: string
-  password: string
-}
-
-export interface LoginRequest {
-  email: string
-  password: string
-}
+// re-export для совместимости с существующими импортами `../api/auth`
+export type { RegisterRequest, LoginRequest } from '@shared/api/auth'
 
 export interface SsoConfig {
   enabled: boolean
   provider: string
 }
 
-interface AuthResponse {
-  user: User
-  token: string
-}
-
-export const authApi = {
-  register: (body: RegisterRequest) =>
-    post<AuthResponse>('/api/v1/auth/register', body).then((r) => r.user),
-  login: (body: LoginRequest) =>
-    post<AuthResponse>('/api/v1/auth/login', body).then((r) => r.user),
-  logout: () => post<undefined>('/api/v1/auth/logout', {}),
-  me: () => get<User>('/api/v1/auth/me'),
+export const authApi: AuthApi & { ssoConfig: () => Promise<SsoConfig>; ssoUrl: (redirect?: string) => string } = {
+  ...createAuthApi({
+    // ленивый доступ к live-bindings, чтобы vi.spyOn(client, ...) работал
+    get: (url) => get(url),
+    post: (url, body) => post(url, body),
+  }),
   ssoConfig: () => get<SsoConfig>('/api/v1/auth/sso/config'),
   ssoUrl: (redirect = '/') =>
     `/api/v1/auth/sso?redirect=${encodeURIComponent(redirect)}`,

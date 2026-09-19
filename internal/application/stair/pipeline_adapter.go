@@ -41,7 +41,7 @@ func (a *PipelineAdapter) RegisterStages(orch *pipeline.Orchestrator) {
 
 	// Стадия 2: Analysis (Solver)
 	orch.RegisterStage(pipeline.Stage{
-		Name:     "analysis",
+		Name:      "analysis",
 		DependsOn: []string{"validation"},
 		Execute: func(ctx context.Context, input *pipeline.Context) error {
 			return a.executeAnalysis(ctx, input)
@@ -50,7 +50,7 @@ func (a *PipelineAdapter) RegisterStages(orch *pipeline.Orchestrator) {
 
 	// Стадия 3: Geometry
 	orch.RegisterStage(pipeline.Stage{
-		Name:     "geometry",
+		Name:      "geometry",
 		DependsOn: []string{"analysis"},
 		Execute: func(ctx context.Context, input *pipeline.Context) error {
 			return a.executeGeometry(ctx, input)
@@ -59,7 +59,7 @@ func (a *PipelineAdapter) RegisterStages(orch *pipeline.Orchestrator) {
 
 	// Стадия 4: Manufacturing
 	orch.RegisterStage(pipeline.Stage{
-		Name:     "manufacturing",
+		Name:      "manufacturing",
 		DependsOn: []string{"geometry"},
 		Execute: func(ctx context.Context, input *pipeline.Context) error {
 			return a.executeManufacturing(ctx, input)
@@ -68,7 +68,7 @@ func (a *PipelineAdapter) RegisterStages(orch *pipeline.Orchestrator) {
 
 	// Стадия 5: Pricing
 	orch.RegisterStage(pipeline.Stage{
-		Name:     "pricing",
+		Name:      "pricing",
 		DependsOn: []string{"manufacturing"},
 		Execute: func(ctx context.Context, input *pipeline.Context) error {
 			return a.executePricing(ctx, input)
@@ -77,7 +77,7 @@ func (a *PipelineAdapter) RegisterStages(orch *pipeline.Orchestrator) {
 
 	// Стадия 6: Document
 	orch.RegisterStage(pipeline.Stage{
-		Name:     "document",
+		Name:      "document",
 		DependsOn: []string{"pricing"},
 		Execute: func(ctx context.Context, input *pipeline.Context) error {
 			return a.executeDocument(ctx, input)

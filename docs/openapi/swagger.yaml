@@ -3,13 +3,11 @@ info:
   title: "STAIR Platform API"
   description: "API for stair configuration, pricing, and manufacturing"
   version: "1.0.0"
-  contact:
-    name: "STAIR Platform"
 
 servers:
-  - url: "http://localhost:8080/api/v1"
+  - url: "http://localhost:8080"
     description: "Local development"
-  - url: "https://api.stairplatform.com/api/v1"
+  - url: "https://api.stairplatform.com"
     description: "Production"
 
 tags:
@@ -19,49 +17,814 @@ tags:
     description: "Project management"
   - name: "stairs"
     description: "Stair configurations"
-  - name: "configs"
-    description: "Configuration management"
-  - name: "payments"
-    description: "Payment processing"
   - name: "orders"
     description: "Order management"
-  - name: "testimonials"
-    description: "Client testimonials"
+  - name: "payments"
+    description: "Payment processing"
+  - name: "admin"
+    description: "Administration"
+  - name: "audit"
+    description: "Audit log"
   - name: "analytics"
     description: "Usage analytics"
+  - name: "assistant"
+    description: "Configuration assistant"
+  - name: "jobs"
+    description: "Async jobs"
+  - name: "integrations"
+    description: "Integrations"
   - name: "health"
     description: "Health checks"
   - name: "metrics"
     description: "Prometheus metrics"
 
 paths:
-  /auth/register:
+  /admin/analytics/cost:
+    get:
+      tags: ["admin"]
+      summary: "Аналитика: стоимость"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/analytics/manufacturing:
+    get:
+      tags: ["admin"]
+      summary: "Аналитика: производство"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/analytics/projects:
+    get:
+      tags: ["admin"]
+      summary: "Аналитика: проекты"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/analytics/usage:
+    get:
+      tags: ["admin"]
+      summary: "Аналитика: использование"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/api-keys:
+    get:
+      tags: ["admin"]
+      summary: "API-ключи (админ)"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
     post:
-      tags: ["auth"]
-      summary: "Register new user"
+      tags: ["admin"]
+      summary: "Создать API-ключ"
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: ["email", "password"]
-              properties:
-                email:
-                  type: string
-                  format: email
-                password:
-                  type: string
-                  minLength: 8
-                name:
-                  type: string
       responses:
-        "201":
-          description: "User registered"
-        "409":
-          description: "Email already exists"
-        "422":
-          description: "Validation error"
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/api-keys/{id}:
+    delete:
+      tags: ["admin"]
+      summary: "Отозвать API-ключ"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/export:
+    get:
+      tags: ["admin"]
+      summary: "Экспорт данных (админ)"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/orders:
+    get:
+      tags: ["admin"]
+      summary: "Заказы (админ)"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/orders/{id}/status:
+    patch:
+      tags: ["admin"]
+      summary: "Сменить статус заказа"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/overview:
+    get:
+      tags: ["admin"]
+      summary: "Обзор метрик АП (сводка)"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/settings:
+    get:
+      tags: ["admin"]
+      summary: "Настройки (админ)"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      tags: ["admin"]
+      summary: "Обновить настройки"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/testimonials:
+    get:
+      tags: ["admin"]
+      summary: "Отзывы (админ)"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      tags: ["admin"]
+      summary: "Добавить отзыв (админ)"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/testimonials/{id}:
+    delete:
+      tags: ["admin"]
+      summary: "Удалить отзыв"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    patch:
+      tags: ["admin"]
+      summary: "Обновить отзыв (модерация)"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/users:
+    get:
+      tags: ["admin"]
+      summary: "Пользователи (админ)"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/users/{id}:
+    patch:
+      tags: ["admin"]
+      summary: "Изменить пользователя (роль/блокировка)"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /assistant/{kind}:
+    post:
+      tags: ["assistant"]
+      summary: "Создать {kind}"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /audit:
+    get:
+      tags: ["audit"]
+      summary: "Журнал аудита"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      tags: ["audit"]
+      summary: "Запись в журнал аудита"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
           content:
             application/json:
               schema:
@@ -70,70 +833,45 @@ paths:
   /auth/login:
     post:
       tags: ["auth"]
-      summary: "Login"
+      summary: "Войти в систему (сессионная cookie)"
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: ["email", "password"]
-              properties:
-                email:
-                  type: string
-                  format: email
-                password:
-                  type: string
       responses:
-        "200":
-          description: "Login successful"
+        201:
+          description: OK
+        400:
+          description: Invalid request
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  token:
-                    type: string
-                  user:
-                    $ref: "#/components/schemas/User"
-        "401":
-          description: "Invalid credentials"
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
-  /projects:
-    get:
-      tags: ["projects"]
-      summary: "List projects"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: "page"
-          in: query
-          schema:
-            type: integer
-            default: 1
-        - name: "limit"
-          in: query
-          schema:
-            type: integer
-            default: 20
-            maximum: 100
-      responses:
-        "200":
-          description: "Projects list"
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  projects:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/Project"
-                  total:
-                    type: integer
+  /auth/logout:
     post:
-      tags: ["projects"]
-      summary: "Create project"
+      tags: ["auth"]
+      summary: "Выйти из системы"
       security:
         - bearerAuth: []
       requestBody:
@@ -142,714 +880,271 @@ paths:
           application/json:
             schema:
               type: object
-              required: ["name"]
-              properties:
-                name:
-                  type: string
-                description:
-                  type: string
       responses:
-        "201":
-          description: "Project created"
+        201:
+          description: OK
+        400:
+          description: Invalid request
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Project"
-
-  /projects/{id}:
-    get:
-      tags: ["projects"]
-      summary: "Get project by ID"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: "id"
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: "Project details"
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Project"
-        "404":
-          description: "Project not found"
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
-  /stairs:
+  /auth/me:
     get:
-      tags: ["stairs"]
-      summary: "List stairs"
+      tags: ["auth"]
+      summary: "Текущий пользователь"
       security:
         - bearerAuth: []
       responses:
-        "200":
-          description: "Stairs list"
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/register:
     post:
-      tags: ["stairs"]
-      summary: "Create stair configuration"
-      security:
-        - bearerAuth: []
+      tags: ["auth"]
+      summary: "Зарегистрировать пользователя"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/StairConfig"
+              type: object
       responses:
-        "201":
-          description: "Stair created"
-
-  /stairs/{id}/calculate:
-    post:
-      tags: ["stairs"]
-      summary: "Calculate stair pricing"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: "id"
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: "Calculation result"
+        201:
+          description: OK
+        400:
+          description: Invalid request
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/PricingResult"
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/sso:
+    get:
+      tags: ["auth"]
+      summary: "Начать SSO-вход (redirect на провайдера)"
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/sso/callback:
+    get:
+      tags: ["auth"]
+      summary: "Callback SSO-провайдера"
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/sso/config:
+    get:
+      tags: ["auth"]
+      summary: "Настройки SSO для фронтенда"
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /health:
     get:
       tags: ["health"]
-      summary: "Health check"
+      summary: "Живучесть сервиса"
       responses:
-        "200":
-          description: "Health OK"
-
-  /ready:
-    get:
-      tags: ["health"]
-      summary: "Readiness check"
-      responses:
-        "200":
-          description: "Ready"
-        "503":
-          description: "Not ready"
-
-  /metrics:
-    get:
-      tags: ["metrics"]
-      summary: "Prometheus metrics"
-      responses:
-        "200":
-          description: "Metrics in Prometheus format"
+        200:
+          description: OK
+        400:
+          description: Invalid request
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-
-  /orders:
-    post:
-      tags: ["orders"]
-      summary: "Create order"
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/OrderRequest"
-      responses:
-        "201":
-          description: "Order created"
-        "422":
-          description: "Validation error"
-    get:
-      tags: ["orders"]
-      summary: "List my orders"
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: "Orders list"
-
-  /admin/orders:
-    get:
-      tags: ["orders"]
-      summary: "Admin list orders"
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: "Orders list"
-
-  /public/testimonials:
-    get:
-      tags: ["testimonials"]
-      summary: "Public testimonials"
-      responses:
-        "200":
-          description: "Testimonials list"
-
-  /admin/analytics/usage:
-    get:
-      tags: ["analytics"]
-      summary: "Usage analytics"
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: "Usage analytics"
-
-  /admin/analytics/projects:
-    get:
-      tags: ["analytics"]
-      summary: "Projects analytics"
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: "Projects analytics"
-
-  /admin/analytics/manufacturing:
-    get:
-      tags: ["analytics"]
-      summary: "Manufacturing analytics"
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: "Manufacturing analytics"
-
-  /admin/analytics/cost:
-    get:
-      tags: ["analytics"]
-      summary: "Cost analytics"
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: "Cost analytics"
-
-  /admin/orders:
-    get:
-      tags: ["orders"]
-      summary: "Admin list all orders"
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: "Orders list"
-
-  /admin/overview:
-    get:
-      tags: ["admin"]
-      summary: "Admin overview dashboard"
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: "Admin overview"
-
-  /admin/settings:
-    get:
-      tags: ["admin"]
-      summary: "Get tenant settings"
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: "Settings"
-    put:
-      tags: ["admin"]
-      summary: "Update tenant settings"
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Settings"
-      responses:
-        "200":
-          description: "Settings updated"
-
-  /admin/users:
-    get:
-      tags: ["admin"]
-      summary: "List users"
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: "Users list"
-
-  /admin/users/{id}:
-    patch:
-      tags: ["admin"]
-      summary: "Update user"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                role:
-                  type: string
-                status:
-                  type: string
-      responses:
-        "200":
-          description: "User updated"
-
-  /admin/api-keys:
-    get:
-      tags: ["admin"]
-      summary: "List API keys"
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: "API keys list"
-    post:
-      tags: ["admin"]
-      summary: "Create API key"
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: ["name"]
-              properties:
-                name:
-                  type: string
-                permissions:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        "201":
-          description: "API key created"
-
-  /admin/api-keys/{id}:
-    delete:
-      tags: ["admin"]
-      summary: "Revoke API key"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "204":
-          description: "API key revoked"
-
-  /admin/testimonials:
-    get:
-      tags: ["testimonials"]
-      summary: "Admin list testimonials"
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: "Testimonials list"
-    post:
-      tags: ["testimonials"]
-      summary: "Create testimonial"
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/TestimonialRequest"
-      responses:
-        "201":
-          description: "Testimonial created"
-
-  /admin/testimonials/{id}:
-    patch:
-      tags: ["testimonials"]
-      summary: "Update testimonial"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/TestimonialRequest"
-      responses:
-        "200":
-          description: "Testimonial updated"
-    delete:
-      tags: ["testimonials"]
-      summary: "Delete testimonial"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "204":
-          description: "Testimonial deleted"
-
-  /projects:
-    get:
-      tags: ["projects"]
-      summary: "List projects"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: page
-          in: query
-          schema:
-            type: integer
-        - name: per_page
-          in: query
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: "Projects list"
-    post:
-      tags: ["projects"]
-      summary: "Create project"
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: ["name"]
-              properties:
-                name:
-                  type: string
-                description:
-                  type: string
-      responses:
-        "201":
-          description: "Project created"
-
-  /projects/{id}:
-    get:
-      tags: ["projects"]
-      summary: "Get project"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: "Project"
-    put:
-      tags: ["projects"]
-      summary: "Update project"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                name:
-                  type: string
-                description:
-                  type: string
-      responses:
-        "200":
-          description: "Project updated"
-    delete:
-      tags: ["projects"]
-      summary: "Delete project"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "204":
-          description: "Project deleted"
-
-  /projects/{id}/comments:
-    get:
-      tags: ["projects"]
-      summary: "List project comments"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: "Comments list"
-    post:
-      tags: ["projects"]
-      summary: "Add project comment"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: ["body"]
-              properties:
-                body:
-                  type: string
-                  maxLength: 10000
-      responses:
-        "201":
-          description: "Comment created"
-
-  /projects/{id}/members:
-    get:
-      tags: ["projects"]
-      summary: "List project members"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: "Members list"
-    post:
-      tags: ["projects"]
-      summary: "Add project member"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: ["user_id", "role"]
-              properties:
-                user_id:
-                  type: string
-                role:
-                  type: string
-                  enum: [viewer, editor, admin]
-      responses:
-        "201":
-          description: "Member added"
-
-  /projects/{id}/configurations:
-    get:
-      tags: ["projects"]
-      summary: "List project configurations"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: "Configurations list"
-
-  /projects/{id}/reviews:
-    get:
-      tags: ["projects"]
-      summary: "List project reviews"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: "Reviews list"
-
-  /projects/{id}/export:
-    get:
-      tags: ["projects"]
-      summary: "Export project as JSON"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: "Project export"
-
-  /projects/{id}/export/cad:
-    get:
-      tags: ["projects"]
-      summary: "Export project as CAD"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: format
-          in: query
-          schema:
-            type: string
-            enum: [stl, dxf, svg]
-      responses:
-        "200":
-          description: "CAD export"
-
-  /projects/{id}/checkout:
-    post:
-      tags: ["payments"]
-      summary: "Create checkout session"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: "Checkout session"
-
-  /projects/{id}/payments:
-    get:
-      tags: ["payments"]
-      summary: "List project payments"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: "Payments list"
-
-  /payments/{id}:
-    get:
-      tags: ["payments"]
-      summary: "Get payment"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: "Payment"
-
-  /payments/webhook:
-    post:
-      tags: ["payments"]
-      summary: "Payment webhook"
-      responses:
-        "200":
-          description: "Webhook processed"
-
-  /payments/stripe/webhook:
-    post:
-      tags: ["payments"]
-      summary: "Stripe webhook"
-      responses:
-        "200":
-          description: "Webhook processed"
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /integrations/endpoints:
     get:
       tags: ["integrations"]
-      summary: "List integration endpoints"
+      summary: "Эндпоинты интеграций"
       security:
         - bearerAuth: []
       responses:
-        "200":
-          description: "Endpoints list"
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
     post:
       tags: ["integrations"]
-      summary: "Create integration endpoint"
+      summary: "Зарегистрировать endpoint"
       security:
         - bearerAuth: []
       requestBody:
@@ -858,391 +1153,1707 @@ paths:
           application/json:
             schema:
               type: object
-              required: ["type", "url"]
-              properties:
-                type:
-                  type: string
-                url:
-                  type: string
-                config:
-                  type: object
       responses:
-        "201":
-          description: "Endpoint created"
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /integrations/endpoints/{id}:
     delete:
       tags: ["integrations"]
-      summary: "Delete integration endpoint"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "204":
-          description: "Endpoint deleted"
-
-  /orders:
-    post:
-      tags: ["orders"]
-      summary: "Create order"
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/OrderRequest"
-      responses:
-        "201":
-          description: "Order created"
-    get:
-      tags: ["orders"]
-      summary: "List my orders"
+      summary: "Удалить endpoint"
       security:
         - bearerAuth: []
       responses:
-        "200":
-          description: "Orders list"
-
-  /public/orders:
-    post:
-      tags: ["orders"]
-      summary: "Create public order (consultation)"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: ["name", "phone"]
-              properties:
-                name:
-                  type: string
-                phone:
-                  type: string
-                email:
-                  type: string
-                message:
-                  type: string
-      responses:
-        "201":
-          description: "Order created"
-
-  /audit:
-    get:
-      tags: ["admin"]
-      summary: "List tenant audit events"
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: "Audit events"
-    post:
-      tags: ["admin"]
-      summary: "Record audit event"
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: ["action"]
-              properties:
-                action:
-                  type: string
-                resource_id:
-                  type: string
-                detail:
-                  type: string
-      responses:
-        "201":
-          description: "Event recorded"
-
-  /assistant/{kind}:
-    post:
-      tags: ["assistant"]
-      summary: "AI assistant request"
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: kind
-          in: path
-          required: true
-          schema:
-            type: string
-            enum: [design, engineering, manufacturing, pricing]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                prompt:
-                  type: string
-      responses:
-        "200":
-          description: "Assistant response"
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /jobs/{id}:
     get:
       tags: ["jobs"]
-      summary: "Get job status"
+      summary: "Статус асинхронной задачи"
       security:
         - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
       responses:
-        "200":
-          description: "Job status"
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /metrics:
+    get:
+      tags: ["metrics"]
+      summary: "Prometheus-метрики"
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /orders:
+    get:
+      tags: ["orders"]
+      summary: "Заказы пользователя"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      tags: ["orders"]
+      summary: "Создать заказ"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /payments/stripe/webhook:
+    post:
+      tags: ["payments"]
+      summary: "Webhook Stripe"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /payments/webhook:
+    post:
+      tags: ["payments"]
+      summary: "Webhook платёжного провайдера"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /payments/{id}:
+    get:
+      tags: ["payments"]
+      summary: "Платёж по ID"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects:
+    get:
+      tags: ["projects"]
+      summary: "Список проектов"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      tags: ["projects"]
+      summary: "Создать проект"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}:
+    get:
+      tags: ["projects"]
+      summary: "Проект по ID"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/approvals:
+    get:
+      tags: ["projects"]
+      summary: "Согласования проекта"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/audit:
+    get:
+      tags: ["projects"]
+      summary: "Аудит действий по проекту"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/calculate:
+    post:
+      tags: ["projects"]
+      summary: "Рассчитать проект (сквозной конвейер)"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/checkout:
+    post:
+      tags: ["projects"]
+      summary: "Оформить заказ/оплату проекта"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/comments:
+    get:
+      tags: ["projects"]
+      summary: "Комментарии проекта"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      tags: ["projects"]
+      summary: "Добавить комментарий"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/comments/{commentID}:
+    delete:
+      tags: ["projects"]
+      summary: "Удалить комментарий"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/configurations:
+    get:
+      tags: ["projects"]
+      summary: "Конфигурации проекта"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/configurations/{configID}:
+    get:
+      tags: ["projects"]
+      summary: "Конфигурация проекта"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/configurations/{configID}/approval:
+    get:
+      tags: ["projects"]
+      summary: "Статус согласования конфигурации"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/configurations/{configID}/approve:
+    post:
+      tags: ["projects"]
+      summary: "Согласовать конфигурацию"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/configurations/{configID}/restore:
+    post:
+      tags: ["projects"]
+      summary: "Восстановить конфигурацию"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/crm-sync:
+    post:
+      tags: ["projects"]
+      summary: "Синхронизировать проект с CRM"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/export:
+    get:
+      tags: ["projects"]
+      summary: "Экспорт проекта (JSON)"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/export/cad:
+    get:
+      tags: ["projects"]
+      summary: "Экспорт CAD (DWG)"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/export/cad/store:
+    post:
+      tags: ["projects"]
+      summary: "Записать CAD-чертёж в хранилище"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/members:
+    get:
+      tags: ["projects"]
+      summary: "Участники проекта"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    post:
+      tags: ["projects"]
+      summary: "Пригласить участника"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/members/{userID}:
+    delete:
+      tags: ["projects"]
+      summary: "Удалить участника"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    patch:
+      tags: ["projects"]
+      summary: "Изменить роль участника"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/optimize:
+    post:
+      tags: ["projects"]
+      summary: "Оптимизация вальсы-нормативов"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/order-send:
+    post:
+      tags: ["projects"]
+      summary: "Передать проект в производство"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/payments:
+    get:
+      tags: ["projects"]
+      summary: "Платежи проекта"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/preview:
+    post:
+      tags: ["projects"]
+      summary: "Каркас решения для предпросмотра"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/quote-send:
+    post:
+      tags: ["projects"]
+      summary: "Отправить КП клиенту"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/review:
+    post:
+      tags: ["projects"]
+      summary: "Запрос ревью проекта"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/reviews:
+    get:
+      tags: ["projects"]
+      summary: "Ревью и подписи проекта"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/reviews/{reviewID}/changes:
+    post:
+      tags: ["projects"]
+      summary: "Правки по ревью"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /projects/{id}/reviews/{reviewID}/sign-off:
+    post:
+      tags: ["projects"]
+      summary: "Подпись ревью"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /public/orders:
+    post:
+      tags: ["stairs"]
+      summary: "Публичная заявка на расчёт"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /public/testimonials:
+    get:
+      tags: ["stairs"]
+      summary: "Публичные отзывы"
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /ready:
+    get:
+      tags: ["ready"]
+      summary: "Готовность (независимые проверки)"
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /storage/{key}:
+    delete:
+      tags: ["projects"]
+      summary: "Удалить файл из хранилища"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    get:
+      tags: ["projects"]
+      summary: "Загрузка файла из хранилища"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+
+  # Нестандартные RPC-маршруты с ":" в пути (см. x-rpc-routes) не могут быть ключами paths в OpenAPI 3.
+x-rpc-routes:
+  - "POST /stairs:calculate"
+  - "POST /stairs:calculate/async"
+  - "POST /stairs:optimize"
+  - "POST /stairs:validate"
+  - "POST /public/stairs:quote"
+  - "POST /public/stairs:validate"
 
 components:
   securitySchemes:
     bearerAuth:
-      type: "http"
+      type: http
       scheme: "bearer"
-      bearerFormat: "JWT"
-
+      description: "Токен из ответа /auth/login или API-ключ"
   schemas:
-    User:
-      type: "object"
-      properties:
-        id:
-          type: "string"
-          format: uuid
-        email:
-          type: string
-          format: email
-        name:
-          type: string
-        role:
-          type: string
-          enum: ["user", "admin"]
-
-    Project:
-      type: "object"
-      properties:
-        id:
-          type: "string"
-          format: uuid
-        name:
-          type: string
-        description:
-          type: string
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-
-    StairConfig:
-      type: "object"
-      properties:
-        project_id:
-          type: string
-          format: uuid
-        width:
-          type: number
-          format: double
-        height:
-          type: number
-          format: double
-        steps:
-          type: integer
-          minimum: 3
-          maximum: 30
-        material_id:
-          type: string
-          format: uuid
-
-    OrderRequest:
-      type: "object"
-      required: ["name", "phone"]
-      properties:
-        name:
-          type: string
-        phone:
-          type: string
-        email:
-          type: string
-          format: email
-        message:
-          type: string
-
-    PricingResult:
-      type: "object"
-      properties:
-        material_cost:
-          type: number
-          format: double
-        labor_cost:
-          type: number
-          format: double
-        total:
-          type: number
-          format: double
-        currency:
-          type: string
-          default: "RUB"
-
-    OrderRequest:
-      type: "object"
-      required: ["name", "phone"]
-      properties:
-        name:
-          type: string
-        phone:
-          type: string
-        email:
-          type: string
-          format: email
-        message:
-          type: string
-
-    Settings:
-      type: "object"
-      properties:
-        min_password_length:
-          type: integer
-        require_number:
-          type: boolean
-        require_upper:
-          type: boolean
-        session_ttl_seconds:
-          type: integer
-        login_rate_limit_per_min:
-          type: integer
-
-    TestimonialRequest:
-      type: "object"
-      required: ["author", "text", "rating"]
-      properties:
-        author:
-          type: string
-        text:
-          type: string
-        rating:
-          type: integer
-          minimum: 1
-          maximum: 5
-        published:
-          type: boolean
-
-    Comment:
-      type: "object"
-      properties:
-        id:
-          type: string
-        body:
-          type: string
-        author_id:
-          type: string
-        created_at:
-          type: string
-          format: date-time
-
-    Member:
-      type: "object"
-      properties:
-        user_id:
-          type: string
-        role:
-          type: string
-          enum: [viewer, editor, admin]
-        joined_at:
-          type: string
-          format: date-time
-
-    Payment:
-      type: "object"
-      properties:
-        id:
-          type: string
-        amount:
-          type: number
-          format: double
-        currency:
-          type: string
-        status:
-          type: string
-        created_at:
-          type: string
-          format: date-time
-
-    AuditEvent:
-      type: "object"
-      properties:
-        id:
-          type: string
-        actor_id:
-          type: string
-        action:
-          type: string
-        resource_id:
-          type: string
-        result:
-          type: string
-        detail:
-          type: string
-        created_at:
-          type: string
-          format: date-time
-
     Error:
-      type: "object"
+      type: object
+      required: [error]
       properties:
         error:
-          type: object
-          properties:
-            code:
-              type: string
-            message:
-              type: string
-            details:
-              type: array
-              items:
-                type: object
-                properties:
-                  field:
-                    type: string
-                  message:
-                    type: string
-
-  headers:
-    X-RateLimit-Limit:
-      description: "Request limit"
-      schema:
-        type: integer
-    X-RateLimit-Remaining:
-      description: "Remaining requests"
-      schema:
-        type: integer
-    X-RateLimit-Reset:
-      description: "Reset timestamp"
-      schema:
-        type: integer
-    X-Request-ID:
-      description: "Request ID"
-      schema:
-        type: string
-    X-API-Version:
-      description: "API version"
-      schema:
-        type: string
-    X-Trace-Id:
-      description: "Trace ID"
-      schema:
-        type: string
+          type: string
+          description: Описание ошибки
+        request_id:
+          type: string
+          description: Идентификатор запроса для поддержки
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        name:
+          type: string

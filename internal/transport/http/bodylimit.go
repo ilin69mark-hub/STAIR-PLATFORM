@@ -33,6 +33,12 @@ func BodySizeLimitDefault() func(http.Handler) http.Handler {
 	return BodySizeLimitMiddleware(DefaultMaxBodySize)
 }
 
+// BodySizeLimit — то же, что BodySizeLimitMiddleware; используется роутером
+// с cfg.MaxBodyBytes (инстанс-зависимое значение, P2-11).
+func BodySizeLimit(maxSize int64) func(http.Handler) http.Handler {
+	return BodySizeLimitMiddleware(maxSize)
+}
+
 // BodySizeLimitUpload возвращает middleware для файловых загрузок (50MB).
 func BodySizeLimitUpload() func(http.Handler) http.Handler {
 	return BodySizeLimitMiddleware(MaxUploadSize)

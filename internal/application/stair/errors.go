@@ -207,8 +207,10 @@ func configInputError(err error) *solver.InputError {
 		mm := materialThicknessFromError(msg)
 		part := materialPartFromError(msg)
 		minT, maxT := 20.0, 60.0
-		if m, ok := engmfg.DefaultMaterialRegistry().Find(dommfg.MaterialCode(mat)); ok {
-			minT, maxT = m.MinThickness, m.MaxThickness
+		if reg, err := engmfg.DefaultMaterialRegistry(); err == nil {
+			if m, ok := reg.Find(dommfg.MaterialCode(mat)); ok {
+				minT, maxT = m.MinThickness, m.MaxThickness
+			}
 		}
 		return &solver.InputError{
 			Code: constraint.MFG_MATERIAL, Field: "Материал",
@@ -224,8 +226,10 @@ func configInputError(err error) *solver.InputError {
 	case strings.Contains(msg, "width ") && strings.Contains(msg, "exceeds maximum") && strings.Contains(msg, "for material"):
 		mat := materialCodeFromError(msg)
 		maxW := 3000.0
-		if m, ok := engmfg.DefaultMaterialRegistry().Find(dommfg.MaterialCode(mat)); ok {
-			maxW = m.MaxWidthMm
+		if reg, err := engmfg.DefaultMaterialRegistry(); err == nil {
+			if m, ok := reg.Find(dommfg.MaterialCode(mat)); ok {
+				maxW = m.MaxWidthMm
+			}
 		}
 		return &solver.InputError{
 			Code: constraint.MFG_MATERIAL, Field: "Ширина марша",
@@ -237,8 +241,10 @@ func configInputError(err error) *solver.InputError {
 	case strings.Contains(msg, "rise height") && strings.Contains(msg, "exceeds maximum") && strings.Contains(msg, "for material"):
 		mat := materialCodeFromError(msg)
 		maxH := 4550.0
-		if m, ok := engmfg.DefaultMaterialRegistry().Find(dommfg.MaterialCode(mat)); ok {
-			maxH = m.MaxHeightMm
+		if reg, err := engmfg.DefaultMaterialRegistry(); err == nil {
+			if m, ok := reg.Find(dommfg.MaterialCode(mat)); ok {
+				maxH = m.MaxHeightMm
+			}
 		}
 		return &solver.InputError{
 			Code: constraint.MFG_MATERIAL, Field: "Высота",

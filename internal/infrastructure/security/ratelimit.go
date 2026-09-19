@@ -184,8 +184,8 @@ func ByUserEndpoint(r *http.Request) string {
 
 // MultiRateLimiter позволяет задать разные лимиты для разных endpoints.
 type MultiRateLimiter struct {
-	mu       sync.RWMutex
-	limiters map[string]*RateLimiter
+	mu             sync.RWMutex
+	limiters       map[string]*RateLimiter
 	defaultLimiter *RateLimiter
 }
 

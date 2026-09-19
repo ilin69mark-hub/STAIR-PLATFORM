@@ -49,7 +49,7 @@ type metricsConfig struct {
 
 var metricsCfg = &metricsConfig{}
 
-// SetMetricsConfig устанавливает конфигурацию метрик (вызывается из applyConfig).
+// SetMetricsConfig устанавливает конфигурацию метрик (вызывается в NewRouter).
 func SetMetricsConfig(region, instance string) {
 	metricsCfg.region = region
 	metricsCfg.instance = instance

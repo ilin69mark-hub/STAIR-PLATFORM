@@ -13,7 +13,7 @@ func TestPrepareCostMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ds, err := PrepareCost(pkg, DefaultMaterialRegistry(), DefaultMachineRates())
+	ds, err := PrepareCost(pkg, mustMaterials(t), DefaultMachineRates())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestPrepareCostConsumption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ds, err := PrepareCost(pkg, DefaultMaterialRegistry(), DefaultMachineRates())
+	ds, err := PrepareCost(pkg, mustMaterials(t), DefaultMachineRates())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,11 +97,11 @@ func TestPrepareCostDeterminism(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := PrepareCost(pkg, DefaultMaterialRegistry(), DefaultMachineRates())
+	a, err := PrepareCost(pkg, mustMaterials(t), DefaultMachineRates())
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := PrepareCost(pkg, DefaultMaterialRegistry(), DefaultMachineRates())
+	b, err := PrepareCost(pkg, mustMaterials(t), DefaultMachineRates())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestPrepareCostErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := PrepareCost(nil, DefaultMaterialRegistry(), DefaultMachineRates()); err == nil {
+	if _, err := PrepareCost(nil, mustMaterials(t), DefaultMachineRates()); err == nil {
 		t.Fatal("nil package must be rejected")
 	}
 	if _, err := PrepareCost(pkg, nil, DefaultMachineRates()); err == nil {
@@ -135,7 +135,7 @@ func TestPrepareCostErrors(t *testing.T) {
 	bad := &dommfg.ManufacturingPackage{}
 	*bad = *pkg
 	bad.CutList.Items[1].Quantity = 9999
-	if _, err := PrepareCost(bad, DefaultMaterialRegistry(), DefaultMachineRates()); err == nil {
+	if _, err := PrepareCost(bad, mustMaterials(t), DefaultMachineRates()); err == nil {
 		t.Fatal("cut list exceeding nesting sheets must be rejected")
 	}
 }

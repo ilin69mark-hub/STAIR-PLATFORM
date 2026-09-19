@@ -214,7 +214,11 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 		m := engmfg.DefaultMachineRates()
 		rates = &m
 	}
-	ds, err := engmfg.PrepareCost(pkg, engmfg.DefaultMaterialRegistry(), *rates)
+	reg, err := engmfg.DefaultMaterialRegistry()
+	if err != nil {
+		return nil, fmt.Errorf("stair: cost: %w", err)
+	}
+	ds, err := engmfg.PrepareCost(pkg, reg, *rates)
 	if err != nil {
 		return nil, fmt.Errorf("stair: cost: %w", err)
 	}
@@ -485,8 +489,10 @@ func manufacturingBlocked(feas *engmfg.FeasibilityError, stringerThick engineeri
 			material = dommfg.MaterialCode("STEEL-S235")
 		}
 	}
-	if l, w, ok := engmfg.LargestStockSheet(engmfg.DefaultStockSheetRegistry(), material); ok {
-		maxLen, maxWid = l, w
+	if sheets, err := engmfg.DefaultStockSheetRegistry(); err == nil {
+		if l, w, ok := engmfg.LargestStockSheet(sheets, material); ok {
+			maxLen, maxWid = l, w
+		}
 	}
 	return validation.Result{
 		Valid:    false,
@@ -569,7 +575,12 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 	// Выбранный материал (MFG-0005): должен быть в каталоге и поддерживать
 	// толщины косоура и ступени. Пустой материал — автоназначение по толщине.
 	if cfg.Material != "" {
-		mat, ok := engmfg.DefaultMaterialRegistry().Find(cfg.Material)
+		reg, err := engmfg.DefaultMaterialRegistry()
+		if err != nil {
+			return nil, configInputError(fmt.Errorf(
+				"stair: catalog unavailable: %w", err))
+		}
+		mat, ok := reg.Find(cfg.Material)
 		if !ok {
 			return nil, configInputError(fmt.Errorf(
 				"stair: material %q not found in catalog", cfg.Material))

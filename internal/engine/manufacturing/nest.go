@@ -15,56 +15,88 @@ import (
 // DefaultKerf — ширина реза по умолчанию (MFG-0006): 3 мм между деталями.
 const DefaultKerf = 3.0
 
-// DefaultStockSheetRegistry возвращает встроенный детерминированный каталог
-// стандартных листов (MFG-0012) для MVP-05: листы для материалов каталога
-// DefaultMaterialRegistry. Крупные листы — для косоуров, стандартные —
-// для проступей/подступенков. Возвращается разделяемый неизменяемый экземпляр;
-// вызывающий не должен его изменять.
-func DefaultStockSheetRegistry() *dommfg.StockSheetRegistry {
-	defaultStockSheetRegistry.once.Do(func() {
-		reg, err := dommfg.NewStockSheetRegistry(
-			&dommfg.StockSheet{MaterialCode: "STEEL-S235", Length: sheetLength(6000), Width: sheetLength(3000)},
-			&dommfg.StockSheet{MaterialCode: "STEEL-S235", Length: sheetLength(2500), Width: sheetLength(1250)},
-			// Крупные листы (энвелоп H ≤ 6000 мм, MFG-0012): худший косоур
-			// прямого марша = прогон ≈1.732·H × высота H−StepThickness
-			// (низ на полу, седла на уровне низа проступей). Для H=6000 это
-			// ≈10200×6000 → покрывается листом 10400×6200; средний 8000×4600
-			// дешевле для H до ~4550 (pickSheet берёт наименьший по площади).
-			&dommfg.StockSheet{MaterialCode: "STEEL-S235", Length: sheetLength(8000), Width: sheetLength(4600)},
-			&dommfg.StockSheet{MaterialCode: "STEEL-S235", Length: sheetLength(10400), Width: sheetLength(6200)},
-			&dommfg.StockSheet{MaterialCode: "ALUM-5083", Length: sheetLength(3000), Width: sheetLength(1500)},
-			// Крупные алюминиевые листы (выбор материала конструктора, MFG-0012):
-			// 6000×3000 — типовые марши (H ≤ ~2950 мм), 9000×4600 — до H ≈ 4550 мм.
-			&dommfg.StockSheet{MaterialCode: "ALUM-5083", Length: sheetLength(6000), Width: sheetLength(3000)},
-			&dommfg.StockSheet{MaterialCode: "ALUM-5083", Length: sheetLength(9000), Width: sheetLength(4600)},
-			// Дуб (выбор материала конструктора, MFG-0012): стандартный лист
-			// 2500×600 — для проступей/подступенков; крупные плиты 6000×3000
-			// покрывают типовые марши (H ≤ ~2950 мм), 9000×4600 — до H ≈ 4550 мм
-			// (ширина листа ≥ H+heel). pickSheet берёт наименьший по площади.
-			&dommfg.StockSheet{MaterialCode: "WOOD-OAK", Length: sheetLength(2500), Width: sheetLength(600)},
-			&dommfg.StockSheet{MaterialCode: "WOOD-OAK", Length: sheetLength(2500), Width: sheetLength(1250)},
-			&dommfg.StockSheet{MaterialCode: "WOOD-OAK", Length: sheetLength(6000), Width: sheetLength(3000)},
-			&dommfg.StockSheet{MaterialCode: "WOOD-OAK", Length: sheetLength(9000), Width: sheetLength(4600)},
-		)
-		if err != nil {
-			panic(fmt.Sprintf("manufacturing: default stock sheet registry: %v", err))
-		}
-		defaultStockSheetRegistry.reg = reg
-	})
-	return defaultStockSheetRegistry.reg
+// defaultStockSheetsMM — инвариантные размеры листов каталога (мм).
+var defaultStockSheetsMM = [][2]float64{
+	{6000, 3000}, {2500, 1250},
+	// Крупные листы (энвелоп H ≤ 6000 мм, MFG-0012): худший косоур
+	// прямого марша = прогон ≈1.732·H × высота H−StepThickness
+	// (низ на полу, седла на уровне низа проступей). Для H=6000 это
+	// ≈10200×6000 → покрывается листом 10400×6200; средний 8000×4600
+	// дешевле для H до ~4550 (pickSheet берёт наименьший по площади).
+	{8000, 4600}, {10400, 6200},
+	{3000, 1500},
+	// Крупные алюминиевые листы (выбор материала конструктора, MFG-0012):
+	// 6000×3000 — типовые марши (H ≤ ~2950 мм), 9000×4600 — до H ≈ 4550 мм.
+	{6000, 3000}, {9000, 4600},
+	// Дуб (выбор материала конструктора, MFG-0012): стандартный лист
+	// 2500×600 — для проступей/подступенков; крупные плиты 6000×3000
+	// покрывают типовые марши (H ≤ ~2950 мм), 9000×4600 — до H ≈ 4550 мм
+	// (ширина листа ≥ H+heel). pickSheet берёт наименьший по площади.
+	{2500, 600}, {2500, 1250}, {6000, 3000}, {9000, 4600},
 }
 
+// buildDefaultStockSheets материализует листы каталога из мм-констант как
+// error-результат (P2-12): ни одного panic на всём пути сборки реестров.
+func buildDefaultStockSheets() ([]*dommfg.StockSheet, error) {
+	sheets := make([]*dommfg.StockSheet, 0, len(defaultStockSheetsMM))
+	for i, dim := range defaultStockSheetsMM {
+		l, errL := engineering.NewLength(dim[0])
+		if errL != nil {
+			return nil, fmt.Errorf("manufacturing: stock sheet %d length %v: %w", i, dim[0], errL)
+		}
+		w, errW := engineering.NewLength(dim[1])
+		if errW != nil {
+			return nil, fmt.Errorf("manufacturing: stock sheet %d width %v: %w", i, dim[1], errW)
+		}
+		sheets = append(sheets, &dommfg.StockSheet{
+			MaterialCode: materialsByIndex(i),
+			Length:       l,
+			Width:        w,
+		})
+	}
+	return sheets, nil
+}
+
+// materialsByIndex сопоставляет позицию в каталоге материалов (см.
+// defaultMaterialRegistry в material.go) и список листов по порядку.
+func materialsByIndex(i int) dommfg.MaterialCode {
+	switch {
+	case i <= 3:
+		return "STEEL-S235"
+	case i <= 6:
+		return "ALUM-5083"
+	default:
+		return "WOOD-OAK"
+	}
+}
+
+// defaultStockSheetRegistry — общий неизменяемый каталог листов, созданный
+// один раз (EM-06); ошибка сборки запоминается в err-поле (P2-12).
 var defaultStockSheetRegistry struct {
 	once sync.Once
 	reg  *dommfg.StockSheetRegistry
+	err  error
 }
 
-func sheetLength(mm float64) engineering.Length {
-	l, err := engineering.NewLength(mm)
-	if err != nil {
-		panic(fmt.Sprintf("manufacturing: stock sheet length %v: %v", mm, err))
-	}
-	return l
+// DefaultStockSheetRegistry возвращает встроенный детерминированный каталог
+// стандартных листов (MFG-0012) для MVP-05: листы для материалов каталога
+// DefaultMaterialRegistry. Возвращается разделяемый неизменяемый экземпляр;
+// вызывающий не должен его изменять. Ошибка — вместо паники (P2-12).
+func DefaultStockSheetRegistry() (*dommfg.StockSheetRegistry, error) {
+	defaultStockSheetRegistry.once.Do(func() {
+		sheets, err := buildDefaultStockSheets()
+		if err != nil {
+			defaultStockSheetRegistry.err = err
+			return
+		}
+		reg, err := dommfg.NewStockSheetRegistry(sheets...)
+		if err != nil {
+			defaultStockSheetRegistry.err = fmt.Errorf("manufacturing: default stock sheet registry: %w", err)
+			return
+		}
+		defaultStockSheetRegistry.reg = reg
+	})
+	return defaultStockSheetRegistry.reg, defaultStockSheetRegistry.err
 }
 
 // Rect — прямоугольник детали в плоскости раскроя (мм). Length ≥ Width

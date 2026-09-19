@@ -8,19 +8,19 @@ import (
 
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
-	domevents "stairplatform/internal/domain/events"
 	"stairplatform/internal/domain/engineering"
+	domevents "stairplatform/internal/domain/events"
 	"stairplatform/internal/infrastructure/events"
 )
 
 // Resolver — корневой resolver GraphQL.
 type Resolver struct {
-	service    *stair.Service
-	bus        *events.Bus
+	service     *stair.Service
+	bus         *events.Bus
 	projectRepo project.Repository
-	configs    map[string]*stair.Config
-	results    map[string]*stair.Result
-	documents  map[string][]*DocumentDTO
+	configs     map[string]*stair.Config
+	results     map[string]*stair.Result
+	documents   map[string][]*DocumentDTO
 }
 
 // NewResolver создаёт новый resolver.
@@ -55,18 +55,18 @@ type StairConfigurationDTO struct {
 
 // AnalysisResultDTO — DTO для результата анализа.
 type AnalysisResultDTO struct {
-	ID           string           `json:"id"`
-	ConfigID     string           `json:"configId"`
-	Status       string           `json:"status"`
-	Flight       string           `json:"flight,omitempty"`
-	StepCount    int              `json:"stepCount,omitempty"`
-	Angle        float64          `json:"angle,omitempty"`
-	RiserHeight  float64          `json:"riserHeight,omitempty"`
-	TreadDepth   float64          `json:"treadDepth,omitempty"`
-	ComfortScore float64          `json:"comfortScore,omitempty"`
-	SafetyScore  float64          `json:"safetyScore,omitempty"`
+	ID           string               `json:"id"`
+	ConfigID     string               `json:"configId"`
+	Status       string               `json:"status"`
+	Flight       string               `json:"flight,omitempty"`
+	StepCount    int                  `json:"stepCount,omitempty"`
+	Angle        float64              `json:"angle,omitempty"`
+	RiserHeight  float64              `json:"riserHeight,omitempty"`
+	TreadDepth   float64              `json:"treadDepth,omitempty"`
+	ComfortScore float64              `json:"comfortScore,omitempty"`
+	SafetyScore  float64              `json:"safetyScore,omitempty"`
 	Issues       []ValidationIssueDTO `json:"issues,omitempty"`
-	CreatedAt    time.Time        `json:"createdAt"`
+	CreatedAt    time.Time            `json:"createdAt"`
 }
 
 // ValidationIssueDTO — DTO для проблемы валидации.
@@ -92,12 +92,12 @@ type OptimizationVariantDTO struct {
 
 // PipelineStatusDTO — DTO для статуса pipeline.
 type PipelineStatusDTO struct {
-	ConfigID    string            `json:"configId"`
-	Status      string            `json:"status"`
+	ConfigID    string             `json:"configId"`
+	Status      string             `json:"status"`
 	Stages      []PipelineStageDTO `json:"stages"`
-	StartedAt   *time.Time        `json:"startedAt,omitempty"`
-	CompletedAt *time.Time        `json:"completedAt,omitempty"`
-	Error       string            `json:"error,omitempty"`
+	StartedAt   *time.Time         `json:"startedAt,omitempty"`
+	CompletedAt *time.Time         `json:"completedAt,omitempty"`
+	Error       string             `json:"error,omitempty"`
 }
 
 // PipelineStageDTO — DTO для стадии pipeline.
@@ -121,12 +121,12 @@ type DocumentDTO struct {
 
 // CNCJobDTO — DTO для CNC-задания.
 type CNCJobDTO struct {
-	ID         string     `json:"id"`
-	ConfigID   string     `json:"configId"`
-	Format     string     `json:"format"`
-	Status     string     `json:"status"`
-	OutputPath string     `json:"outputPath,omitempty"`
-	CreatedAt  time.Time  `json:"createdAt"`
+	ID         string    `json:"id"`
+	ConfigID   string    `json:"configId"`
+	Format     string    `json:"format"`
+	Status     string    `json:"status"`
+	OutputPath string    `json:"outputPath,omitempty"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 // Query возвращает корневой resolver для запросов.
@@ -183,24 +183,24 @@ type NotificationDTO struct {
 
 // SearchParams — параметры поиска.
 type SearchParams struct {
-	ProjectID *string  `json:"projectId,omitempty"`
-	MinWidth  *float64 `json:"minWidth,omitempty"`
-	MaxWidth  *float64 `json:"maxWidth,omitempty"`
-	MinHeight *float64 `json:"minHeight,omitempty"`
-	MaxHeight *float64 `json:"maxHeight,omitempty"`
-	FlightType *string `json:"flightType,omitempty"`
-	Limit     *int     `json:"limit,omitempty"`
-	Offset    *int     `json:"offset,omitempty"`
+	ProjectID  *string  `json:"projectId,omitempty"`
+	MinWidth   *float64 `json:"minWidth,omitempty"`
+	MaxWidth   *float64 `json:"maxWidth,omitempty"`
+	MinHeight  *float64 `json:"minHeight,omitempty"`
+	MaxHeight  *float64 `json:"maxHeight,omitempty"`
+	FlightType *string  `json:"flightType,omitempty"`
+	Limit      *int     `json:"limit,omitempty"`
+	Offset     *int     `json:"offset,omitempty"`
 }
 
 // CreateStairInput — входные данные для создания конфигурации.
 type CreateStairInput struct {
-	ProjectID         string  `json:"projectId"`
-	Name              string  `json:"name"`
-	Width             float64 `json:"width"`
-	Height            float64 `json:"height"`
-	FlightType        string  `json:"flightType"`
-	StepCount         *int    `json:"stepCount,omitempty"`
+	ProjectID         string   `json:"projectId"`
+	Name              string   `json:"name"`
+	Width             float64  `json:"width"`
+	Height            float64  `json:"height"`
+	FlightType        string   `json:"flightType"`
+	StepCount         *int     `json:"stepCount,omitempty"`
 	StepHeight        *float64 `json:"stepHeight,omitempty"`
 	TreadDepth        *float64 `json:"treadDepth,omitempty"`
 	StringerThickness *float64 `json:"stringerThickness,omitempty"`

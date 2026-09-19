@@ -65,7 +65,7 @@ func BenchmarkNest(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := Nest(cut, DefaultStockSheetRegistry(), DefaultKerf); err != nil {
+		if _, err := Nest(cut, mustSheets(b), DefaultKerf); err != nil {
 			b.Fatal(err)
 		}
 	}

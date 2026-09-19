@@ -166,7 +166,7 @@ func toUserDTO(u *auth.User) userDTO {
 // handleRegister — POST /api/v1/auth/register (public).
 // 201 — пользователь создан (сессия выставлена, авто-вход);
 // 409 — email занят; 422 — невалидный вход.
-func handleRegister(svc AuthService) http.HandlerFunc {
+func handleRegister(svc AuthService, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req registerRequest
 		if err := decodeJSON(w, r, &req); err != nil {
@@ -185,7 +185,7 @@ func handleRegister(svc AuthService) http.HandlerFunc {
 			}
 			return
 		}
-		setSessionCookies(w, appOrigin(r), token)
+		setSessionCookies(w, appOrigin(r), token, secure)
 		writeJSON(w, http.StatusCreated, authResponse{User: toUserDTO(u), Token: token})
 	}
 }
@@ -194,7 +194,7 @@ func handleRegister(svc AuthService) http.HandlerFunc {
 // session (httpOnly) и csrf cookie; клиент читает csrf и шлёт его в
 // X-CSRF-Token на мутирующие запросы (double-submit).
 // 200 — вход; 401 — неверные учётные данные; 422 — невалидный вход.
-func handleLogin(svc AuthService) http.HandlerFunc {
+func handleLogin(svc AuthService, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req loginRequest
 		if err := decodeJSON(w, r, &req); err != nil {
@@ -213,20 +213,20 @@ func handleLogin(svc AuthService) http.HandlerFunc {
 			}
 			return
 		}
-		setSessionCookies(w, appOrigin(r), token)
+		setSessionCookies(w, appOrigin(r), token, secure)
 		writeJSON(w, http.StatusOK, authResponse{User: toUserDTO(u), Token: token})
 	}
 }
 
 // handleLogout — POST /api/v1/auth/logout (auth+CSRF). 204 — сессия удалена.
-func handleLogout(svc AuthService) http.HandlerFunc {
+func handleLogout(svc AuthService, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := sessionToken(r)
 		if err := svc.Logout(r.Context(), token); err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
-		clearSessionCookies(w, appOrigin(r))
+		clearSessionCookies(w, appOrigin(r), secure)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -282,8 +282,8 @@ func originCookieNames(origin string) (session, csrf string) {
 }
 
 // setSessionCookies выставляет session (httpOnly) и csrf (доступный JS).
-func setSessionCookies(w http.ResponseWriter, origin string, token string) {
-	setSessionCookie(w, origin, token)
+func setSessionCookies(w http.ResponseWriter, origin string, token string, secure bool) {
+	setSessionCookie(w, origin, token, secure)
 	// CSRF-cookie намеренно доступен JS (double-submit) и не является session-токеном.
 	http.SetCookie(w, &http.Cookie{ // #nosec G124 // CSRF-cookie: HttpOnly=false намеренно (double-submit); Secure/sameSite заданы
 		Name:     csrfCookieFor(origin),
@@ -291,25 +291,25 @@ func setSessionCookies(w http.ResponseWriter, origin string, token string) {
 		Path:     "/",
 		HttpOnly: false,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   cookieSecure,
+		Secure:   secure,
 	})
 }
 
 // setSessionCookie выставляет только session-cookie (httpOnly). Используется
 // при ротации сессии (EDR-0014 §3.1), когда csrf-cookie менять не нужно.
-func setSessionCookie(w http.ResponseWriter, origin string, token string) {
+func setSessionCookie(w http.ResponseWriter, origin string, token string, secure bool) {
 	http.SetCookie(w, &http.Cookie{ // #nosec G124 // Secure управляется STAIR_COOKIE_SECURE
 		Name:     sessionCookieFor(origin),
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   cookieSecure,
+		Secure:   secure,
 		Expires:  time.Now().Add(24 * time.Hour),
 	})
 }
 
-func clearSessionCookies(w http.ResponseWriter, origin string) {
+func clearSessionCookies(w http.ResponseWriter, origin string, secure bool) {
 	session, csrf := originCookieNames(origin)
 	for _, name := range []string{session, csrf} {
 		http.SetCookie(w, &http.Cookie{ // #nosec G124 // Secure управляется STAIR_COOKIE_SECURE
@@ -319,7 +319,7 @@ func clearSessionCookies(w http.ResponseWriter, origin string) {
 			MaxAge:   -1,
 			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,
-			Secure:   cookieSecure,
+			Secure:   secure,
 		})
 	}
 }

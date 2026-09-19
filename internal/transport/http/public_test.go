@@ -538,7 +538,7 @@ func TestPublicQuoteAngle_UserScenario(t *testing.T) {
 		"lowerStepCountMM": "lower_step_count", "roomWidthMM": "room_width_mm",
 		"roomLengthMM": "room_length_mm", "approachSpaceMM": "approach_space_mm",
 		"outerRadiusMM": "outer_radius_mm",
-		"clearanceMm": "clearance_mm", "railingMm": "railing_height_mm",
+		"clearanceMm":   "clearance_mm", "railingMm": "railing_height_mm",
 		"stringerThicknessMm": "stringer_thickness_mm", "stepThicknessMm": "step_thickness_mm",
 		"direction": "direction", "railingLower": "railing_lower",
 		"railingLanding": "railing_landing", "railingUpper": "railing_upper",

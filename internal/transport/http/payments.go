@@ -162,7 +162,8 @@ func handleGetPayment(svc PaymentService) http.HandlerFunc {
 // за счёт HMAC-подписи). Верифицирует подпись PSP, переводит статус интента.
 // 200 — принято; 401 — невалидная подпись; 404 — нет интента;
 // 409 — расхождение суммы/валюты; 422 — невалидное тело/статус.
-func handlePaymentWebhook(svc PaymentService) http.HandlerFunc {
+// secret — секрет верификации подписи (инстанс-зависимый, P2-11).
+func handlePaymentWebhook(svc PaymentService, secret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 		if err != nil {
@@ -170,7 +171,7 @@ func handlePaymentWebhook(svc PaymentService) http.HandlerFunc {
 			return
 		}
 		_, err = svc.HandleWebhook(r.Context(),
-			paymentsWebhookSecret,
+			secret,
 			r.Header.Get(integrations.HeaderTimestamp),
 			r.Header.Get(integrations.HeaderSignature),
 			body)

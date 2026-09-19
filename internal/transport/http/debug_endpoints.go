@@ -7,16 +7,16 @@ import (
 
 // DebugCBStatus статус circuit breaker для debug endpoint.
 type DebugCBStatus struct {
-	Name           string `json:"name"`
-	State          string `json:"state"`
-	Failures       int    `json:"failures"`
-	Successes      int    `json:"successes"`
-	LastFailure    string `json:"last_failure,omitempty"`
+	Name        string `json:"name"`
+	State       string `json:"state"`
+	Failures    int    `json:"failures"`
+	Successes   int    `json:"successes"`
+	LastFailure string `json:"last_failure,omitempty"`
 }
 
 // circuitBreakerRegistry глобальный реестр CB для debug endpoint.
 var circuitBreakerRegistry = struct {
-	mu      sync.RWMutex
+	mu       sync.RWMutex
 	breakers map[string]*DebugCBStatus
 }{
 	breakers: make(map[string]*DebugCBStatus),

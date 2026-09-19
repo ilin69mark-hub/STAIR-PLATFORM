@@ -124,11 +124,11 @@ func TestVersionMiddleware_PathPriorityOverHeader(t *testing.T) {
 
 func TestExtractVersion(t *testing.T) {
 	tests := []struct {
-		name string
-		path string
+		name   string
+		path   string
 		accept string
-		query string
-		want string
+		query  string
+		want   string
 	}{
 		{"path only", "/api/v1/projects", "", "", "v1"},
 		{"header only", "/projects", "application/vnd.stair.v1+json", "", "v1"},

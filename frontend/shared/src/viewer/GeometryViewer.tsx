@@ -176,8 +176,9 @@ export function GeometryViewer({
     // Сохраняем последний кадр для КП — вариант А (твой ракурс)
     const saveLastFrame = () => {
       try {
-        ;(window as any).__stairLast3D = renderer.domElement.toDataURL('image/png')
-        try { sessionStorage.setItem('stairLast3D', (window as any).__stairLast3D) } catch {}
+        const dataURL = renderer.domElement.toDataURL('image/png')
+        ;(window as Window & { __stairLast3D?: string }).__stairLast3D = dataURL
+        try { sessionStorage.setItem('stairLast3D', dataURL) } catch {}
       } catch {}
     }
 

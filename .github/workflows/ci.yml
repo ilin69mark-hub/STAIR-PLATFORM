@@ -65,6 +65,20 @@ jobs:
   test-backend:
     name: Test Backend
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: stair
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: stair_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v7
 
@@ -72,8 +86,22 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Run tests
-        run: go test -race -coverprofile=coverage.out ./... -timeout 15m
+      # БД включается обязательно: без STAIR_TEST_DATABASE_URL весь
+      # internal/infrastructure/database (17 integration-файлов) скипается и
+      # в CI никогда не исполняется. -p 1 требуется для БД-тестов, иначе
+      # golang-migrate ловит «Dirty database version» при параллельных пакетах.
+      - name: Run tests (unit + DB integration, -race)
+        run: go test -race -p 1 -coverprofile=coverage.out ./... -timeout 25m
+        env:
+          STAIR_TEST_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_test?sslmode=disable
+
+      # Покрытие-гейт (TEST-0028): порог 85%, повторный прогон не нужен —
+      # переиспользуем coverage.out. Если регресс ниже порога — джоба падает.
+      - name: Coverage gate (>=85%)
+        run: ./scripts/coverage-check.sh 85
+        env:
+          STAIR_TEST_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_test?sslmode=disable
+          COVERAGE_PROFILE: coverage.out
 
       - name: Upload coverage
         uses: actions/upload-artifact@v7
@@ -281,6 +309,162 @@ jobs:
           path: frontend-store/blob-report
           retention-days: 7
 
+  # Playwright e2e админ-панели: 11 спеков (кроме report-400 — 400 проектов,
+  # ~30 мин, гоняется локально через R400_N). API поднимает сам Playwright
+  # webServer (см. frontend/playwright.config.ts), БД — postgres service.
+  test-e2e-admin:
+    name: E2E Admin (Playwright)
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend-admin]
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: stair
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: stair_platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      STAIR_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_platform_test?sslmode=disable
+      # admin-panel.spec повышает роль через psql к postgres service
+      STAIR_E2E_PSQL: PGPASSWORD=testpassword psql -h localhost -U stair -d stair_platform_test
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install psql client (for admin setup)
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
+      - name: Run migrations
+        run: go run ./cmd/migrate up
+
+      - name: Run Admin E2E tests
+        run: npx playwright test e2e/tests/admin-panel.spec.ts e2e/tests/assistant.spec.ts e2e/tests/boundary.spec.ts e2e/tests/lshape.spec.ts e2e/tests/project-lifecycle.spec.ts e2e/tests/roles-parallel.spec.ts e2e/tests/room-fit-variants.spec.ts e2e/tests/spiral.spec.ts e2e/tests/ui-20.spec.ts e2e/tests/ushape.spec.ts e2e/tests/validation.spec.ts
+        working-directory: frontend
+        env:
+          CI: 'true'
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-admin
+          path: frontend/playwright-report
+          retention-days: 7
+
+  # Playwright e2e клиентского сайта: rails-matrix, room-fit, store.
+  # (quote-matrix 2000 живёт в отдельной матричной джобе.)
+  test-e2e-store:
+    name: E2E Store (Playwright)
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend-store]
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: stair
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: stair_platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            frontend-store/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install store dependencies
+        run: npm ci
+        working-directory: frontend-store
+
+      # @shared-исходники из frontend/shared резолвят react/three через
+      # frontend/node_modules (install вместо ci: lock frontend/ отстаёт).
+      - name: Install shared deps (frontend)
+        run: npm install --no-audit --no-fund
+        working-directory: frontend
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend-store
+
+      - name: Run migrations
+        run: go run ./cmd/migrate up
+        env:
+          STAIR_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_platform_test?sslmode=disable
+
+      - name: Start API server
+        run: |
+          go run ./cmd/api &
+          sleep 5
+        env:
+          STAIR_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_platform_test?sslmode=disable
+          STAIR_HTTP_ADDR: :8080
+          STAIR_SESSION_TTL: 86400
+          STAIR_LOGIN_RATE_LIMIT: 100
+          STAIR_REGISTER_RATE_LIMIT: 100
+          STAIR_QUOTE_RATE_LIMIT: 600
+
+      # store.spec логинится под user@user.ru — создаём его (409 «уже есть»
+      # при повторных прогонах — приемлемо и не роняет шаг).
+      - name: Seed store e2e user
+        run: |
+          curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:8080/api/v1/auth/register \
+            -H 'Content-Type: application/json' \
+            -d '{"name":"Store E2E","email":"user@user.ru","password":"user1234"}' || true
+
+      - name: Run Store E2E tests
+        run: npx playwright test e2e/tests/rails-matrix.spec.ts e2e/tests/room-fit.spec.ts e2e/tests/store.spec.ts
+        working-directory: frontend-store
+        env:
+          CI: 'true'
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-store
+          path: frontend-store/playwright-report
+          retention-days: 7
+
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
@@ -297,13 +481,15 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
+      # gosec и trivy-action закреплены на стабильных тегах (supply-chain):
+      # «@master» привязал бы к mutable-ветке и ломал воспроизводимость.
       - name: Run gosec
-        uses: securego/gosec@master
+        uses: securego/gosec@v2.28.1
         with:
           args: ./...
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.29.0
         with:
           scan-type: 'fs'
           scan-ref: '.'

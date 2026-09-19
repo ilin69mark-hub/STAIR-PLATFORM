@@ -108,7 +108,7 @@ func TestItoa64(t *testing.T) {
 		{100, "100"},
 		{-1, "-1"},
 		{1024, "1024"},
-		{1<<20, "1048576"},
+		{1 << 20, "1048576"},
 	}
 	for _, tt := range tests {
 		if got := itoa64(tt.n); got != tt.want {

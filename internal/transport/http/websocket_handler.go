@@ -91,7 +91,7 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		"remote_addr", r.RemoteAddr,
 	)
 
-	ws.HandleWebSocket(h.hub, w, r)
+	ws.HandleWebSocket(h.hub, w, r, userID)
 }
 
 // GetHub возвращает WebSocket hub.

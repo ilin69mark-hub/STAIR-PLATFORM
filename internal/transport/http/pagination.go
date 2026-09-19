@@ -48,11 +48,11 @@ func (p PaginationParams) Offset() int {
 
 // PaginatedResponse ответ с пагинацией.
 type PaginatedResponse struct {
-	Data       any   `json:"data"`
-	Page       int   `json:"page"`
-	PerPage    int   `json:"per_page"`
-	Total      int   `json:"total"`
-	TotalPages int   `json:"total_pages"`
+	Data       any `json:"data"`
+	Page       int `json:"page"`
+	PerPage    int `json:"per_page"`
+	Total      int `json:"total"`
+	TotalPages int `json:"total_pages"`
 }
 
 // NewPaginatedResponse создаёт ответ с пагинацией.

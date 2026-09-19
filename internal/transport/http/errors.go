@@ -238,8 +238,8 @@ func writeAppError(w http.ResponseWriter, err *AppError) {
 func writeAppErrorWithRequestID(w http.ResponseWriter, r *http.Request, err *AppError) {
 	writeJSON(w, err.StatusCode(), map[string]any{
 		"error": map[string]any{
-			"code":      err.Code,
-			"message":   err.Message,
+			"code":       err.Code,
+			"message":    err.Message,
 			"request_id": RequestID(r.Context()),
 		},
 	})

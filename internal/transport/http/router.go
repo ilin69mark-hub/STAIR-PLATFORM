@@ -15,7 +15,51 @@ import (
 // (SEC-0003); мутирующие — CSRF (double-submit). Роутер оборачивает все
 // маршруты middleware логгирования/request-id (наблюдаемость).
 func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, cfg Config, auditSvc ...AuditService) http.Handler {
-	applyConfig(cfg)
+	// P2-11: все ранее глобальные переключатели (rate-limit, cookie, секреты,
+	// region) живут как локальные значения инстанса роутера — никаких
+	// applyConfig-мутаций пакетного состояния.
+	if cfg.LoginRateLimit <= 0 {
+		cfg.LoginRateLimit = DefaultConfig().LoginRateLimit
+	}
+	if cfg.LoginRateWindow <= 0 {
+		cfg.LoginRateWindow = DefaultConfig().LoginRateWindow
+	}
+	if cfg.RegisterRateLimit <= 0 {
+		cfg.RegisterRateLimit = DefaultConfig().RegisterRateLimit
+	}
+	if cfg.RegisterRateWindow <= 0 {
+		cfg.RegisterRateWindow = DefaultConfig().RegisterRateWindow
+	}
+	if cfg.QuoteRateLimit <= 0 {
+		cfg.QuoteRateLimit = DefaultConfig().QuoteRateLimit
+	}
+	if cfg.QuoteRateWindow <= 0 {
+		cfg.QuoteRateWindow = DefaultConfig().QuoteRateWindow
+	}
+	if cfg.ValidateRateLimit <= 0 {
+		cfg.ValidateRateLimit = DefaultConfig().ValidateRateLimit
+	}
+	if cfg.ValidateRateWindow <= 0 {
+		cfg.ValidateRateWindow = DefaultConfig().ValidateRateWindow
+	}
+	if cfg.AuthRateLimit <= 0 {
+		cfg.AuthRateLimit = DefaultConfig().AuthRateLimit
+	}
+	if cfg.AuthRateWindow <= 0 {
+		cfg.AuthRateWindow = DefaultConfig().AuthRateWindow
+	}
+	if cfg.MaxBodyBytes <= 0 {
+		cfg.MaxBodyBytes = DefaultConfig().MaxBodyBytes
+	}
+	SetMetricsConfig(cfg.Region, cfg.InstanceID)
+
+	loginLimiter := newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.LoginRateLimit, cfg.LoginRateWindow)
+	registerLimiter := newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.RegisterRateLimit, cfg.RegisterRateWindow)
+	quoteLimiter := newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.QuoteRateLimit, cfg.QuoteRateWindow)
+	validateLimiter := newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.ValidateRateLimit, cfg.ValidateRateWindow)
+	// Authenticated rate limiter: 200 req/min per user/API key
+	authRateLimiter := newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.AuthRateLimit, cfg.AuthRateWindow)
+	secure := cfg.CookieSecure
 
 	var auditsvc AuditService
 	if len(auditSvc) > 0 {
@@ -31,7 +75,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	ordersSvc := cfg.Orders
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", handleHealth)
+	mux.HandleFunc("GET /health", handleHealth(cfg.Region))
 	mux.Handle("GET /metrics", InternalOnlyMiddleware(http.HandlerFunc(handleMetrics)))
 	if readiness != nil {
 		mux.HandleFunc("GET /ready", handleReady(readiness))
@@ -39,8 +83,8 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	// Swagger UI (internal only)
 	mux.Handle("GET /swagger", InternalOnlyMiddleware(http.HandlerFunc(handleSwaggerUI)))
 	mux.Handle("GET /docs/openapi/swagger.yaml", InternalOnlyMiddleware(http.HandlerFunc(handleSwaggerSpec)))
-	mux.Handle("POST /api/v1/auth/register", limitRate(registerLimiter, handleRegister(authSvc)))
-	mux.Handle("POST /api/v1/auth/login", limitRate(loginLimiter, handleLogin(authSvc)))
+	mux.Handle("POST /api/v1/auth/register", limitRate(registerLimiter, handleRegister(authSvc, secure)))
+	mux.Handle("POST /api/v1/auth/login", limitRate(loginLimiter, handleLogin(authSvc, secure)))
 
 	// Публичный расчёт предварительной цены для клиентского сайта (store).
 	// Без аутентификации; rate-limiter защищает от злоупотреблений.
@@ -53,18 +97,18 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	mux.Handle("POST /api/v1/public/orders", limitRate(quoteLimiter, handleCreateConsultation(ordersSvc, authSvc)))
 
 	authProtected := func(next http.Handler) http.Handler {
-		return requireAuth(authSvc)(next)
+		return requireAuth(authSvc, authRateLimiter, secure)(next)
 	}
 	authMutating := func(next http.Handler) http.Handler {
-		return requireAuth(authSvc)(requireCSRF(next))
+		return requireAuth(authSvc, authRateLimiter, secure)(requireCSRF(next))
 	}
 
 	mux.Handle("GET /api/v1/auth/me", authProtected(handleMe()))
-	mux.Handle("POST /api/v1/auth/logout", authMutating(handleLogout(authSvc)))
+	mux.Handle("POST /api/v1/auth/logout", authMutating(handleLogout(authSvc, secure)))
 
 	// SSO (EDR-0017 §6): публичные маршруты (начала и колбэк).
 	mux.HandleFunc("GET /api/v1/auth/sso", handleSsoBegin(authSvc))
-	mux.HandleFunc("GET /api/v1/auth/sso/callback", handleSsoCallback(authSvc))
+	mux.HandleFunc("GET /api/v1/auth/sso/callback", handleSsoCallback(authSvc, secure))
 	mux.HandleFunc("GET /api/v1/auth/sso/config", handleSsoConfig(authSvc))
 
 	mux.Handle("GET /api/v1/admin/users", authProtected(handleListUsers(authSvc)))
@@ -155,7 +199,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	if payments != nil {
 		// Входящий webhook PSP публичный (вызывает внешняя система); публичность
 		// безопасна — подпись верифицируется (EDR-0027 §3.4).
-		mux.HandleFunc("POST /api/v1/payments/webhook", handlePaymentWebhook(payments))
+		mux.HandleFunc("POST /api/v1/payments/webhook", handlePaymentWebhook(payments, cfg.PaymentsWebhookSecret))
 		mux.Handle("POST /api/v1/projects/{id}/checkout", authMutating(handleCheckout(projects, payments)))
 		mux.Handle("GET /api/v1/projects/{id}/payments", authProtected(handleListPayments(projects, payments)))
 		mux.Handle("GET /api/v1/payments/{id}", authProtected(handleGetPayment(payments)))
@@ -178,11 +222,11 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		mux.HandleFunc("GET /ws", cfg.WebSocketHandler.HandleWebSocket)
 	}
 
-	// GraphQL endpoint — требует аутентификации (SEC).
-	if cfg.GraphQLHandler != nil {
-		mux.Handle("POST /graphql", authProtected(cfg.GraphQLHandler))
-		mux.Handle("GET /graphql", authProtected(cfg.GraphQLHandler))
-	}
+	// GraphQL НЕ регистрируется в production: schema обещает 15 операций,
+	// а реализованы только 5 (substring-диспатч), Subscription-рут не реализован.
+	// Пакет internal/transport/graphql остаётся как протестированная библиотека
+	// для будущей полноценной реализации (см. docs/09_API). Не выставлять в проде,
+	// пока не реализованы все операции и валидация schema.graphql.
 
 	mux.HandleFunc("GET /", handleNotFound)
 
@@ -214,82 +258,32 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	// Security middleware (CORS, HSTS, CSP)
 	secMiddleware := SecurityMiddleware(cfg.SecurityConfig)
 
-	return TraceMiddleware(VersionMiddleware(PanicRecoveryMiddleware(RouteTimeoutMiddleware(DefaultAPIRouteTimeouts())(CompressionMiddleware(BodySizeLimitDefault()(CacheMiddleware(cachePolicies)(respCache(dedup(secMiddleware(withLogging(mux)))))))))))
+	// Middleware-конвейер: строится изнутри наружу (inner → outer).
+	h := http.Handler(withLogging(mux))
+	h = secMiddleware(h)
+	h = dedup(h)
+	h = respCache(h)
+	h = CacheMiddleware(cachePolicies)(h)
+	h = BodySizeLimit(cfg.MaxBodyBytes)(h)
+	h = CompressionMiddleware(h)
+	h = RouteTimeoutMiddleware(DefaultAPIRouteTimeouts())(h)
+	h = PanicRecoveryMiddleware(h)
+	h = VersionMiddleware(h)
+	return TraceMiddleware(h)
 }
 
-// applyConfig применяет конфигурацию HTTP-слоя (глобальные переключатели
-// cookie/rate-limit; вызывается один раз при сборке роутера).
-func applyConfig(cfg Config) {
-	cookieSecure = cfg.CookieSecure
-	if cfg.LoginRateLimit <= 0 {
-		cfg.LoginRateLimit = DefaultConfig().LoginRateLimit
+func handleHealth(region string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		resp := map[string]any{
+			"status":  "ok",
+			"service": "stair-platform-api",
+			"version": "1.0.0",
+		}
+		if region != "" {
+			resp["region"] = region
+		}
+		writeJSON(w, http.StatusOK, resp)
 	}
-	if cfg.LoginRateWindow <= 0 {
-		cfg.LoginRateWindow = DefaultConfig().LoginRateWindow
-	}
-	if cfg.RegisterRateLimit <= 0 {
-		cfg.RegisterRateLimit = DefaultConfig().RegisterRateLimit
-	}
-	if cfg.RegisterRateWindow <= 0 {
-		cfg.RegisterRateWindow = DefaultConfig().RegisterRateWindow
-	}
-	if cfg.QuoteRateLimit <= 0 {
-		cfg.QuoteRateLimit = DefaultConfig().QuoteRateLimit
-	}
-	if cfg.QuoteRateWindow <= 0 {
-		cfg.QuoteRateWindow = DefaultConfig().QuoteRateWindow
-	}
-	if cfg.ValidateRateLimit <= 0 {
-		cfg.ValidateRateLimit = DefaultConfig().ValidateRateLimit
-	}
-	if cfg.ValidateRateWindow <= 0 {
-		cfg.ValidateRateWindow = DefaultConfig().ValidateRateWindow
-	}
-	if cfg.AuthRateLimit <= 0 {
-		cfg.AuthRateLimit = DefaultConfig().AuthRateLimit
-	}
-	if cfg.AuthRateWindow <= 0 {
-		cfg.AuthRateWindow = DefaultConfig().AuthRateWindow
-	}
-	if cfg.MaxBodyBytes <= 0 {
-		cfg.MaxBodyBytes = DefaultConfig().MaxBodyBytes
-	}
-	maxBodyBytes = cfg.MaxBodyBytes
-	region = cfg.Region
-	SetMetricsConfig(cfg.Region, cfg.InstanceID)
-	loginLimiter = newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.LoginRateLimit, cfg.LoginRateWindow)
-	registerLimiter = newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.RegisterRateLimit, cfg.RegisterRateWindow)
-	quoteLimiter = newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.QuoteRateLimit, cfg.QuoteRateWindow)
-	validateLimiter = newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.ValidateRateLimit, cfg.ValidateRateWindow)
-	// Authenticated rate limiter: 200 req/min per user/API key
-	authRateLimiter = newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.AuthRateLimit, cfg.AuthRateWindow)
-	paymentsWebhookSecret = cfg.PaymentsWebhookSecret
-}
-
-var (
-	loginLimiter    RateLimiter
-	registerLimiter RateLimiter
-	quoteLimiter    RateLimiter
-	validateLimiter RateLimiter
-	// authRateLimiter — rate limiter для всех authenticated запросов
-	authRateLimiter RateLimiter
-	region          string
-	// paymentsWebhookSecret — секрет верификации входящего webhook PSP
-	// (EDR-0027 §3.4); глобал из-за единственного публичного маршрута,
-	// применяется один раз при сборке роутера.
-	paymentsWebhookSecret string
-)
-
-func handleHealth(w http.ResponseWriter, _ *http.Request) {
-	resp := map[string]any{
-		"status":  "ok",
-		"service": "stair-platform-api",
-		"version": "1.0.0",
-	}
-	if region != "" {
-		resp["region"] = region
-	}
-	writeJSON(w, http.StatusOK, resp)
 }
 
 func handleNotFound(w http.ResponseWriter, _ *http.Request) {

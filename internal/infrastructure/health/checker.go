@@ -27,8 +27,8 @@ type Checker struct {
 
 // HealthResult — результат проверки здоровья.
 type HealthResult struct {
-	Status   string            `json:"status"`
-	Checks   map[string]Check  `json:"checks"`
+	Status string           `json:"status"`
+	Checks map[string]Check `json:"checks"`
 }
 
 // Check — результат одной проверки.

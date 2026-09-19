@@ -1,0 +1,42 @@
+name: "Load test (nightly)"
+# Ночной нагрузочный прогон k6 (P3-16). Источник нагрузки: MISF happy
+# (стандартный план бесперебойного тестирования). Окружение — staging,
+# адрес задаётся repository variable STAGING_URL, иначе прогон мягко
+# пропускается до первого реального staging.
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  k6:
+    name: k6 smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Skip if no staging
+        if: ${{ vars.STAGING_URL == '' }}
+        run: echo "::notice::STAGING_URL не задан — пропускаю"
+
+      - uses: grafana/setup-k6-action@v1
+        if: ${{ vars.STAGING_URL != '' }}
+        with:
+          k6-version: "0.53.0"
+
+      - name: Run k6 smoke
+        if: ${{ vars.STAGING_URL != '' }}
+        env:
+          BASE_URL: ${{ vars.STAGING_URL }}
+        run: |
+          k6 run --summary-trend-stats="avg,min,med,p(95),p(99),max" k6/scripts/smoke.js
+
+      - name: Comment on failure
+        if: ${{ failure() && vars.STAGING_URL != '' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.setFailed("k6: пороги нарушены — проверь console + staging-логи; см. docs/17_INFRASTRUCTURE/22_SLO_REPORTING.md")

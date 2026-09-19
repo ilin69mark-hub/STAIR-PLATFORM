@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	domevents "stairplatform/internal/domain/events"
 	"stairplatform/internal/domain/engineering"
+	domevents "stairplatform/internal/domain/events"
 	engmfg "stairplatform/internal/engine/manufacturing"
 	engprc "stairplatform/internal/engine/pricing"
 	engsolver "stairplatform/internal/engine/solver"

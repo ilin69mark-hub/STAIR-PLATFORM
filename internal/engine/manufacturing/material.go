@@ -14,12 +14,15 @@ import (
 var defaultMaterialRegistry struct {
 	once sync.Once
 	reg  *dommfg.MaterialRegistry
+	err  error
 }
 
 // DefaultMaterialRegistry возвращает встроенный детерминированный каталог
 // материалов (MFG-0005) для MVP-05. Возвращается разделяемый неизменяемый
-// экземпляр; вызывающий не должен его изменять.
-func DefaultMaterialRegistry() *dommfg.MaterialRegistry {
+// экземпляр; вызывающий не должен его изменять. Ошибка — вместо паники
+// (P2-12): реестр строит из инвариантных констант и может не собраться
+// только при потере инвариантов → сообщаем вызывающему, не валим процесс.
+func DefaultMaterialRegistry() (*dommfg.MaterialRegistry, error) {
 	defaultMaterialRegistry.once.Do(func() {
 		reg, err := dommfg.NewMaterialRegistry(
 			&dommfg.Material{
@@ -45,11 +48,12 @@ func DefaultMaterialRegistry() *dommfg.MaterialRegistry {
 			},
 		)
 		if err != nil {
-			panic(fmt.Sprintf("manufacturing: default registry: %v", err))
+			defaultMaterialRegistry.err = err
+			return
 		}
 		defaultMaterialRegistry.reg = reg
 	})
-	return defaultMaterialRegistry.reg
+	return defaultMaterialRegistry.reg, defaultMaterialRegistry.err
 }
 
 // assignMaterial назначает материал детали: первый материал каталога,
@@ -68,5 +72,9 @@ func assignMaterial(registry *dommfg.MaterialRegistry, thickness float64) (dommf
 // (MFG-0005) по толщине детали — та же политика, что в Manufacture.
 // Используется советником для оценки раскроя кандидатов.
 func DefaultMaterialForThickness(thickness float64) (dommfg.MaterialCode, error) {
-	return assignMaterial(DefaultMaterialRegistry(), thickness)
+	registry, err := DefaultMaterialRegistry()
+	if err != nil {
+		return "", fmt.Errorf("manufacturing: default registry: %w", err)
+	}
+	return assignMaterial(registry, thickness)
 }

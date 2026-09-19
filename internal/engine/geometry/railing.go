@@ -240,7 +240,7 @@ func straightRailingSolids(n int, b, h, rh, w float64, side engineering.RailingS
 	H := float64(n) * h
 	var sols []*kerngeo.Solid
 	slope := h / b
-		railOverhang := b / 2
+	railOverhang := b / 2
 	for _, edge := range sides {
 		railY := edgeInset(edge, w, railWidth/2)
 		balY := edgeInset(edge, w, balusterSize/2)

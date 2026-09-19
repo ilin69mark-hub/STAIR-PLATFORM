@@ -57,10 +57,10 @@ func TestDocumentValidationInvalidType(t *testing.T) {
 
 func TestDocumentTransitionToRendered(t *testing.T) {
 	doc := &Document{
-		ID:     "doc-1",
-		Type:   DocumentTypeTechnicalSpec,
-		Format: FormatJSON,
-		Status: DocumentStatusDraft,
+		ID:         "doc-1",
+		Type:       DocumentTypeTechnicalSpec,
+		Format:     FormatJSON,
+		Status:     DocumentStatusDraft,
 		TemplateID: "tpl-1",
 		ConfigID:   "config-1",
 		Metadata: DocumentMetadata{
@@ -77,10 +77,10 @@ func TestDocumentTransitionToRendered(t *testing.T) {
 
 func TestDocumentInvalidTransition(t *testing.T) {
 	doc := &Document{
-		ID:     "doc-1",
-		Type:   DocumentTypeTechnicalSpec,
-		Format: FormatJSON,
-		Status: DocumentStatusArchived,
+		ID:         "doc-1",
+		Type:       DocumentTypeTechnicalSpec,
+		Format:     FormatJSON,
+		Status:     DocumentStatusArchived,
 		TemplateID: "tpl-1",
 		ConfigID:   "config-1",
 		Metadata: DocumentMetadata{
@@ -186,9 +186,9 @@ func TestDocumentPackageValidation(t *testing.T) {
 
 func TestDocumentPackageAddDocument(t *testing.T) {
 	pkg := &DocumentPackage{
-		ID:       "pkg-1",
-		ConfigID: "config-1",
-		Status:   PackageStatusPending,
+		ID:        "pkg-1",
+		ConfigID:  "config-1",
+		Status:    PackageStatusPending,
 		Documents: []*Document{},
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),

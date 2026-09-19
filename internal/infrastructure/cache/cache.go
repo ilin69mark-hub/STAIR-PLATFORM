@@ -14,9 +14,9 @@ type Entry[T any] struct {
 
 // Cache — потокобезопасный in-memory кэш с LRU eviction.
 type Cache[T any] struct {
-	mu       sync.RWMutex
-	items    map[string]Entry[T]
-	maxSize  int
+	mu         sync.RWMutex
+	items      map[string]Entry[T]
+	maxSize    int
 	defaultTTL time.Duration
 }
 

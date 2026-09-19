@@ -2,29 +2,13 @@
 // Сессионная cookie выставляется сервером (httpOnly); csrf — доступная JS.
 
 import { get, post } from './client'
-import type { User } from '@shared/types'
+import { createAuthApi } from '@shared/api/auth'
 
-export interface RegisterRequest {
-  email: string
-  name: string
-  password: string
-}
+// re-export для совместимости с существующими импортами `../api/auth`
+export type { RegisterRequest, LoginRequest } from '@shared/api/auth'
 
-export interface LoginRequest {
-  email: string
-  password: string
-}
-
-interface AuthResponse {
-  user: User
-  token: string
-}
-
-export const authApi = {
-  register: (body: RegisterRequest) =>
-    post<AuthResponse>('/api/v1/auth/register', body).then((r) => r.user),
-  login: (body: LoginRequest) =>
-    post<AuthResponse>('/api/v1/auth/login', body).then((r) => r.user),
-  logout: () => post<undefined>('/api/v1/auth/logout', {}),
-  me: () => get<User>('/api/v1/auth/me'),
-}
+export const authApi = createAuthApi({
+  // ленивый доступ к live-bindings, чтобы vi.spyOn(client, ...) работал
+  get: (url) => get(url),
+  post: (url, body) => post(url, body),
+})

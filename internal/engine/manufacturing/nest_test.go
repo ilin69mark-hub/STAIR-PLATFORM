@@ -24,7 +24,7 @@ func rectCut(t *testing.T, material dommfg.MaterialCode, thickness, length, widt
 func TestNestSingleSheet(t *testing.T) {
 	// 12 проступей 800×270 на листе 2500×1250 (kerf 3): 4 ряда × 3 — один лист.
 	cut := rectCut(t, "STEEL-S235", 40, 800, 270, 12)
-	res, err := Nest(cut, DefaultStockSheetRegistry(), DefaultKerf)
+	res, err := Nest(cut, mustSheets(t), DefaultKerf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestNestSingleSheet(t *testing.T) {
 func TestNestMultipleSheets(t *testing.T) {
 	// 2 косоура 4050×2750: по одному на лист 6000×3000 → 2 листа.
 	cut := rectCut(t, "STEEL-S235", 50, 4050, 2750, 2)
-	res, err := Nest(cut, DefaultStockSheetRegistry(), DefaultKerf)
+	res, err := Nest(cut, mustSheets(t), DefaultKerf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestNestMultipleSheets(t *testing.T) {
 func TestNestPicksSmallestSheet(t *testing.T) {
 	// 1 деталь 800×270: выбирается лист 2500×1250, а не 6000×3000.
 	cut := rectCut(t, "STEEL-S235", 40, 800, 270, 1)
-	res, err := Nest(cut, DefaultStockSheetRegistry(), DefaultKerf)
+	res, err := Nest(cut, mustSheets(t), DefaultKerf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,11 +87,11 @@ func TestNestDeterminism(t *testing.T) {
 		{PartNumber: "RSR", MaterialCode: "STEEL-S235", Thickness: mustLength(t, 40), Length: mustLength(t, 800), Width: mustLength(t, 180), Quantity: 15},
 		{PartNumber: "STR", MaterialCode: "STEEL-S235", Thickness: mustLength(t, 50), Length: mustLength(t, 4050), Width: mustLength(t, 2750), Quantity: 2},
 	}}
-	a, err := Nest(cut, DefaultStockSheetRegistry(), DefaultKerf)
+	a, err := Nest(cut, mustSheets(t), DefaultKerf)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := Nest(cut, DefaultStockSheetRegistry(), DefaultKerf)
+	b, err := Nest(cut, mustSheets(t), DefaultKerf)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,28 +104,28 @@ func TestNestDeterminism(t *testing.T) {
 }
 
 func TestNestErrors(t *testing.T) {
-	if _, err := Nest(dommfg.CutList{}, DefaultStockSheetRegistry(), DefaultKerf); err == nil {
+	if _, err := Nest(dommfg.CutList{}, mustSheets(t), DefaultKerf); err == nil {
 		t.Fatal("empty cut list must be rejected")
 	}
 	if _, err := Nest(rectCut(t, "STEEL-S235", 40, 800, 270, 1), nil, DefaultKerf); err == nil {
 		t.Fatal("nil registry must be rejected")
 	}
-	if _, err := Nest(rectCut(t, "STEEL-S235", 40, 800, 270, 1), DefaultStockSheetRegistry(), -1); err == nil {
+	if _, err := Nest(rectCut(t, "STEEL-S235", 40, 800, 270, 1), mustSheets(t), -1); err == nil {
 		t.Fatal("negative kerf must be rejected")
 	}
 	// материал без листов в каталоге.
-	if _, err := Nest(rectCut(t, "TITAN-X", 40, 800, 270, 1), DefaultStockSheetRegistry(), DefaultKerf); err == nil {
+	if _, err := Nest(rectCut(t, "TITAN-X", 40, 800, 270, 1), mustSheets(t), DefaultKerf); err == nil {
 		t.Fatal("material without sheets must be rejected")
 	}
 	// деталь крупнее любого листа каталога.
-	if _, err := Nest(rectCut(t, "STEEL-S235", 40, 12000, 12000, 1), DefaultStockSheetRegistry(), DefaultKerf); err == nil {
+	if _, err := Nest(rectCut(t, "STEEL-S235", 40, 12000, 12000, 1), mustSheets(t), DefaultKerf); err == nil {
 		t.Fatal("part larger than any sheet must be rejected")
 	}
 }
 
 func TestNestFeasibilityError(t *testing.T) {
 	cut := rectCut(t, "STEEL-S235", 50, 12000, 9000, 1)
-	_, err := Nest(cut, DefaultStockSheetRegistry(), DefaultKerf)
+	_, err := Nest(cut, mustSheets(t), DefaultKerf)
 	var feas *FeasibilityError
 	if !errors.As(err, &feas) {
 		t.Fatalf("want *FeasibilityError, got %T: %v", err, err)
@@ -136,7 +136,7 @@ func TestNestFeasibilityError(t *testing.T) {
 }
 
 func TestSheetFeasible(t *testing.T) {
-	reg := DefaultStockSheetRegistry()
+	reg := mustSheets(t)
 	cases := []struct {
 		name   string
 		rects  []Rect
@@ -158,11 +158,11 @@ func TestSheetFeasible(t *testing.T) {
 }
 
 func TestLargestStockSheet(t *testing.T) {
-	l, w, ok := LargestStockSheet(DefaultStockSheetRegistry(), "STEEL-S235")
+	l, w, ok := LargestStockSheet(mustSheets(t), "STEEL-S235")
 	if !ok || l != 10400 || w != 6200 {
 		t.Fatalf("largest steel sheet = %v×%v ok=%v, want 10400×6200", l, w, ok)
 	}
-	if _, _, ok := LargestStockSheet(DefaultStockSheetRegistry(), "TITAN-X"); ok {
+	if _, _, ok := LargestStockSheet(mustSheets(t), "TITAN-X"); ok {
 		t.Fatal("unknown material must report ok=false")
 	}
 }
@@ -237,7 +237,7 @@ var materialCases = []struct {
 }
 
 func TestSheetFeasiblePerMaterial(t *testing.T) {
-	reg := DefaultStockSheetRegistry()
+	reg := mustSheets(t)
 	for _, tc := range materialCases {
 		for _, p := range tc.parts {
 			ok := SheetFeasible(reg, tc.material, DefaultKerf, Rect{Length: p.length, Width: p.width})
@@ -256,7 +256,7 @@ func TestNestChoosesMinMidMaxSheetPerMaterial(t *testing.T) {
 				continue
 			}
 			res, err := Nest(rectCut(t, tc.material, 40, p.length, p.width, 1),
-				DefaultStockSheetRegistry(), DefaultKerf)
+				mustSheets(t), DefaultKerf)
 			if err != nil {
 				t.Fatalf("%s / %s: Nest: %v", tc.name, p.label, err)
 			}
@@ -282,7 +282,7 @@ func TestNestTallFlightStringer(t *testing.T) {
 	for _, qty := range []int{1, 2} {
 		wantSheets := qty
 		cut := rectCut(t, "STEEL-S235", 50, 10200, 6050, dommfg.Quantity(qty))
-		res, err := Nest(cut, DefaultStockSheetRegistry(), DefaultKerf)
+		res, err := Nest(cut, mustSheets(t), DefaultKerf)
 		if err != nil {
 			t.Fatalf("Nest qty=%d: %v", qty, err)
 		}
@@ -310,7 +310,7 @@ func TestLargestStockSheetPerMaterial(t *testing.T) {
 		{"WOOD-OAK", 9000, 4600},
 	}
 	for _, tc := range cases {
-		l, w, ok := LargestStockSheet(DefaultStockSheetRegistry(), tc.material)
+		l, w, ok := LargestStockSheet(mustSheets(t), tc.material)
 		if !ok || l != tc.length || w != tc.width {
 			t.Errorf("%s: largest sheet = %v×%v ok=%v, want %v×%v",
 				tc.material, l, w, ok, tc.length, tc.width)
@@ -334,7 +334,7 @@ func assertNoOverlap(t *testing.T, s dommfg.SheetLayout) {
 
 func TestNestAreaMetrics(t *testing.T) {
 	cut := rectCut(t, "STEEL-S235", 40, 800, 270, 12)
-	res, err := Nest(cut, DefaultStockSheetRegistry(), DefaultKerf)
+	res, err := Nest(cut, mustSheets(t), DefaultKerf)
 	if err != nil {
 		t.Fatal(err)
 	}

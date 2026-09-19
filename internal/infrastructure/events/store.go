@@ -9,17 +9,17 @@ import (
 
 // StoreEntry — запись в Event Store (append-only log).
 type StoreEntry struct {
-	Event     domevents.Event
-	StoredAt  time.Time
-	ReplayID  uint64 // порядковый номер для replay
+	Event    domevents.Event
+	StoredAt time.Time
+	ReplayID uint64 // порядковый номер для replay
 }
 
 // Store — append-only лог доменных событий с replay capability.
 // Потокобезопасен. Zero value непригоден — используйте NewStore.
 type Store struct {
-	mu      sync.RWMutex
-	entries []StoreEntry
-	counter uint64
+	mu       sync.RWMutex
+	entries  []StoreEntry
+	counter  uint64
 	capacity int
 }
 

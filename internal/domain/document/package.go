@@ -29,12 +29,12 @@ func (s PackageStatus) IsValid() bool {
 // DocumentPackage — aggregate root Document (BC-008): комплект
 // документов для одной конфигурации лестницы.
 type DocumentPackage struct {
-	ID         PackageID
-	ConfigID   string
-	Status     PackageStatus
-	Documents  []*Document
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID        PackageID
+	ConfigID  string
+	Status    PackageStatus
+	Documents []*Document
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Validate проверяет инварианты комплекта документов.

@@ -25,25 +25,25 @@ type SearchParams struct {
 
 // SearchResult — результат поиска.
 type SearchResult struct {
-	Items      []*SearchItem `json:"items"`
-	Total      int           `json:"total"`
-	Limit      int           `json:"limit"`
-	Offset     int           `json:"offset"`
-	HasMore    bool          `json:"hasMore"`
-	QueryTime  time.Duration `json:"queryTime"`
+	Items     []*SearchItem `json:"items"`
+	Total     int           `json:"total"`
+	Limit     int           `json:"limit"`
+	Offset    int           `json:"offset"`
+	HasMore   bool          `json:"hasMore"`
+	QueryTime time.Duration `json:"queryTime"`
 }
 
 // SearchItem — элемент поиска.
 type SearchItem struct {
-	ID          string    `json:"id"`
-	Type        string    `json:"type"` // "project", "configuration", "document"
-	Title       string    `json:"title"`
-	Description string    `json:"description,omitempty"`
-	ProjectID   string    `json:"projectId,omitempty"`
-	TenantID    string    `json:"tenantId"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
-	Score       float64   `json:"score,omitempty"`
+	ID          string                 `json:"id"`
+	Type        string                 `json:"type"` // "project", "configuration", "document"
+	Title       string                 `json:"title"`
+	Description string                 `json:"description,omitempty"`
+	ProjectID   string                 `json:"projectId,omitempty"`
+	TenantID    string                 `json:"tenantId"`
+	CreatedAt   time.Time              `json:"createdAt"`
+	UpdatedAt   time.Time              `json:"updatedAt"`
+	Score       float64                `json:"score,omitempty"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 

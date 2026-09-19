@@ -22,10 +22,10 @@ type DLQEntry struct {
 // DLQ — Dead Letter Queue для failed event handlers.
 // Хранит записи для последующего retry или анализа.
 type DLQ struct {
-	mu      sync.RWMutex
-	entries []DLQEntry
+	mu       sync.RWMutex
+	entries  []DLQEntry
 	capacity int
-	logger  *slog.Logger
+	logger   *slog.Logger
 }
 
 // NewDLQ создаёт DLQ с заданной ёмкостью.

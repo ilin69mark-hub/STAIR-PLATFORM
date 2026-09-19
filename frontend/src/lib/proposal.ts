@@ -2,20 +2,19 @@
 // Содержит: шапка, описание, параметры, итоговую цену, 2D и 3D скриншоты.
 
 import { jsPDF } from 'jspdf'
-import { notoSansBase64 } from './fonts/notoSans'
-import type { Snapshot, Project } from '@shared/types'
+import type { Mesh, Snapshot, Project } from '@shared/types'
 
 const FONT_NAME = 'NotoSans'
 
-function ensureFont(doc: jsPDF) {
-  // Статический импорт — без ленивой загрузки, чанк не нужен (гарантия в проде)
-  // Каждый new jsPDF() — свой VFS/словарь
+// Шрифт (base64, ~759KB) подгружается лениво только при генерации КП —
+// иначе 759KB без нужды лежат в стартовом чанке (P2-10).
+function ensureFont(doc: jsPDF, notoSansBase64: string) {
   try {
     doc.addFileToVFS('NotoSans-Regular.ttf', notoSansBase64)
   } catch {}
   try {
-    // @ts-ignore — Identity-H для кириллицы и ₽
-    doc.addFont('NotoSans-Regular.ttf', FONT_NAME, 'normal', 'Identity-H' as any)
+    // Identity-H — кодировка для кириллицы и символа ₽
+    doc.addFont('NotoSans-Regular.ttf', FONT_NAME, 'normal', 'Identity-H')
   } catch {}
 }
 
@@ -35,7 +34,7 @@ export function flightLabel(s: Snapshot): string {
 function tryCaptureCanvas(): string | null {
   // Вариант А: сначала твой ракурс из GeometryViewer (сохранён при каждом кадре)
   try {
-    const stored = (window as any).__stairLast3D as string | undefined
+    const stored = (window as Window & { __stairLast3D?: string }).__stairLast3D
     if (stored && stored.startsWith('data:image/png')) return stored
     const sess = sessionStorage.getItem('stairLast3D')
     if (sess && sess.startsWith('data:image/png')) return sess
@@ -94,8 +93,8 @@ async function renderOffscreenSvg(snapshot: Snapshot): Promise<string | null> {
     document.body.appendChild(container)
     const root = ReactDOM.createRoot(container)
     const el = isStraight
-      ? React.createElement((profileMod as any).StairProfile, { flight: sch.flight as any, railing: sch.railing } as any)
-      : React.createElement((planMod as any).StairPlan, { flight: sch.flight as any, kind: sch.kind, solver: sch.solver } as any)
+      ? React.createElement(profileMod.StairProfile, { flight: sch.flight, railing: sch.railing })
+      : React.createElement(planMod.StairPlan, { flight: sch.flight, kind: sch.kind, solver: sch.solver })
     root.render(el)
     // Два rAF + таймаут — гарантируем, что React успел отрендерить SVG
     await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
@@ -114,9 +113,9 @@ async function renderOffscreenSvg(snapshot: Snapshot): Promise<string | null> {
 async function renderOffscreen3D(snapshot: Snapshot): Promise<string | null> {
   if (!snapshot.mesh || snapshot.mesh.Vertices.length === 0) return null
   let container: HTMLDivElement | null = null
-  let renderer: any = null
+  let renderer: import('three').WebGLRenderer | null = null
   try {
-    const THREE: any = await import('three')
+    const THREE = await import('three')
     const { toThreePositions } = await import('@shared/viewer/projection')
     const width = 1200, height = 800
     container = document.createElement('div')
@@ -129,7 +128,7 @@ async function renderOffscreen3D(snapshot: Snapshot): Promise<string | null> {
     const scene = new THREE.Scene()
     scene.background = new THREE.Color('#f7f9fc')
     const camera = new THREE.PerspectiveCamera(45, width / height, 1, 100000)
-    renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: false } as any)
+    renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: false })
     renderer.setSize(width, height)
     renderer.setPixelRatio(1)
     container.appendChild(renderer.domElement)
@@ -140,10 +139,10 @@ async function renderOffscreen3D(snapshot: Snapshot): Promise<string | null> {
     const dir2 = new THREE.DirectionalLight(0xffffff, 0.5)
     dir2.position.set(-2000, -1000, -3000)
     scene.add(dir2)
-    const makeMesh = (api: any, material: any) => {
+    const makeMesh = (api: Mesh, material: import('three').Material) => {
       const positions = new Float32Array(toThreePositions(api.Vertices))
       const indices = new Uint32Array(api.Triangles.length * 3)
-      api.Triangles.forEach((t: number[], i: number) => {
+      api.Triangles.forEach((t: [number, number, number], i: number) => {
         indices[i * 3] = t[0]; indices[i * 3 + 1] = t[1]; indices[i * 3 + 2] = t[2]
       })
       const g = new THREE.BufferGeometry()
@@ -154,36 +153,36 @@ async function renderOffscreen3D(snapshot: Snapshot): Promise<string | null> {
       const m = new THREE.Mesh(g, material)
       return { mesh: m, geo: g }
     }
-    const stairMat = new THREE.MeshStandardMaterial({ color: 0x4f8df7, roughness: 0.55, metalness: 0.12, side: THREE.DoubleSide } as any)
+    const stairMat = new THREE.MeshStandardMaterial({ color: 0x4f8df7, roughness: 0.55, metalness: 0.12, side: THREE.DoubleSide })
     const stair = makeMesh(snapshot.mesh, stairMat)
     // зеркалим прямой марш как в GeometryViewer
     const flightKind = snapshot.spiral ? 'spiral' : snapshot.ushape ? 'ushape' : snapshot.lshape ? 'lshape' : 'straight'
     if (flightKind === 'straight') {
-      const pos = stair.geo.attributes.position as any
-      for (let i = 0; i < pos.count; i++) pos.setX(i, -pos.getX(i))
-      pos.needsUpdate = true
+      const { position } = stair.geo.attributes
+      for (let i = 0; i < position.count; i++) position.setX(i, -position.getX(i))
+      position.needsUpdate = true
       stair.geo.computeBoundingBox()
     }
     scene.add(stair.mesh)
     if (snapshot.room_mesh && snapshot.room_mesh.Vertices.length > 0) {
-      const roomMat = new THREE.MeshStandardMaterial({ color: 0xffa94d, roughness: 0.9, transparent: true, opacity: 0.32, side: THREE.DoubleSide } as any)
+      const roomMat = new THREE.MeshStandardMaterial({ color: 0xffa94d, roughness: 0.9, transparent: true, opacity: 0.32, side: THREE.DoubleSide })
       const room = makeMesh(snapshot.room_mesh, roomMat)
       scene.add(room.mesh)
     }
     if (snapshot.railing_mesh && snapshot.railing_mesh.Vertices.length > 0) {
-      const railMat = new THREE.MeshStandardMaterial({ color: 0x9aa7b8, roughness: 0.5, side: THREE.DoubleSide } as any)
+      const railMat = new THREE.MeshStandardMaterial({ color: 0x9aa7b8, roughness: 0.5, side: THREE.DoubleSide })
       const positions = new Float32Array(toThreePositions(snapshot.railing_mesh.Vertices))
       const indices = new Uint32Array(snapshot.railing_mesh.Triangles.length * 3)
-      snapshot.railing_mesh.Triangles.forEach((t: number[], i: number) => { indices[i*3]=t[0]; indices[i*3+1]=t[1]; indices[i*3+2]=t[2] })
+      snapshot.railing_mesh.Triangles.forEach((t: [number, number, number], i: number) => { indices[i*3]=t[0]; indices[i*3+1]=t[1]; indices[i*3+2]=t[2] })
       const g = new THREE.BufferGeometry()
       g.setAttribute('position', new THREE.BufferAttribute(positions,3))
       g.setIndex(new THREE.BufferAttribute(indices,1))
       g.computeVertexNormals()
       g.computeBoundingBox()
       if (flightKind === 'straight') {
-        const p = g.attributes.position as any
-        for (let i=0;i<p.count;i++) p.setX(i, -p.getX(i))
-        p.needsUpdate=true
+        const { position } = g.attributes
+        for (let i=0;i<position.count;i++) position.setX(i, -position.getX(i))
+        position.needsUpdate=true
       }
       scene.add(new THREE.Mesh(g, railMat))
     }
@@ -198,7 +197,7 @@ async function renderOffscreen3D(snapshot: Snapshot): Promise<string | null> {
     renderer.render(scene, camera)
     const dataUrl = renderer.domElement.toDataURL('image/png')
     renderer.dispose()
-    scene.traverse((obj: any) => { if (obj.geometry) obj.geometry.dispose(); if (obj.material) obj.material.dispose() })
+    scene.traverse((obj) => { if (obj instanceof THREE.Mesh) { obj.geometry.dispose(); obj.material.dispose() } })
     if (container && container.parentNode) container.remove()
     return dataUrl
   } catch {
@@ -245,8 +244,10 @@ async function svgDataUrlToPng(svgDataUrl: string, width = 1200, height = 600): 
 }
 
 export async function generateProposalPdf(project: Project, snapshot: Snapshot): Promise<void> {
+  // Ленивый импорт шрифта: выпадает в отдельный чанк, тянется только тут.
+  const { notoSansBase64 } = await import('./fonts/notoSans')
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
-  ensureFont(doc)
+  ensureFont(doc, notoSansBase64)
   doc.setFont(FONT_NAME, 'normal')
 
   const pageW = 210

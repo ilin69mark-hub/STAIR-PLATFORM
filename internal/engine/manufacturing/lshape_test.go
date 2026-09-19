@@ -112,7 +112,7 @@ func TestManufactureLShapeDimensions(t *testing.T) {
 	}
 	// материал назначен каждому косоуру/проступи/подступенку из каталога.
 	for _, p := range pkg.Parts {
-		if _, ok := DefaultMaterialRegistry().Find(p.Material); !ok {
+		if _, ok := mustMaterials(t).Find(p.Material); !ok {
 			t.Fatalf("part %q material %q not in registry", p.Number, p.Material)
 		}
 	}

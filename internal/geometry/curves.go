@@ -9,11 +9,11 @@ import (
 // Дуга задана центром, радиусом, нормалью плоскости и углами.
 // Все углы в радианах (ADR-0008).
 type Arc struct {
-	Center  Point3
-	Radius  float64
-	Normal  Vector3
-	Start   float64 // радианы
-	End     float64 // радианы
+	Center Point3
+	Radius float64
+	Normal Vector3
+	Start  float64 // радианы
+	End    float64 // радианы
 }
 
 // NewArc создаёт дугу окружности. Радиус должен быть положительным,
@@ -126,9 +126,9 @@ func (b *Bezier) ApproximateLength(segments int) float64 {
 
 // Fillet — скругление ребра (ENG-GEO-0022).
 type Fillet struct {
-	Edge    [2]Point3
-	Radius  float64
-	Normal  Vector3
+	Edge   [2]Point3
+	Radius float64
+	Normal Vector3
 }
 
 // NewFillet создаёт скругление. Радиус должен быть положительным.
@@ -181,9 +181,9 @@ func (f *Fillet) Tessellate(n int) []Point3 {
 
 // Chamfer — фаска на ребре (ENG-GEO-0023).
 type Chamfer struct {
-	Edge    [2]Point3
-	Width   float64
-	Normal  Vector3
+	Edge   [2]Point3
+	Width  float64
+	Normal Vector3
 }
 
 // NewChamfer создаёт фаску. Ширина должна быть положительной.

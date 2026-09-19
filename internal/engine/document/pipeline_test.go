@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	domevents "stairplatform/internal/domain/events"
 	docdomain "stairplatform/internal/domain/document"
+	domevents "stairplatform/internal/domain/events"
 	"stairplatform/internal/domain/manufacturing"
 )
 
@@ -47,12 +47,12 @@ func TestDocumentPipeline_Execute(t *testing.T) {
 	mfgPkg := &manufacturing.ManufacturingPackage{
 		Parts: []manufacturing.Part{
 			{
-				Number:   "P-001",
-				Kind:     manufacturing.PartTread,
-				Material: "steel",
+				Number:    "P-001",
+				Kind:      manufacturing.PartTread,
+				Material:  "steel",
 				Thickness: 10,
-				Length:   1000,
-				Width:    300,
+				Length:    1000,
+				Width:     300,
 			},
 		},
 		BOM: manufacturing.BOM{
@@ -129,12 +129,12 @@ func TestDocumentPipeline_NilEvents(t *testing.T) {
 	mfgPkg := &manufacturing.ManufacturingPackage{
 		Parts: []manufacturing.Part{
 			{
-				Number:   "P-001",
-				Kind:     manufacturing.PartTread,
-				Material: "steel",
+				Number:    "P-001",
+				Kind:      manufacturing.PartTread,
+				Material:  "steel",
 				Thickness: 10,
-				Length:   1000,
-				Width:    300,
+				Length:    1000,
+				Width:     300,
 			},
 		},
 		BOM: manufacturing.BOM{

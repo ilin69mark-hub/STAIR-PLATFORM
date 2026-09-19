@@ -16,8 +16,6 @@ import (
 	"stairplatform/internal/application/payments"
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
-	gqlhttp "stairplatform/internal/transport/graphql"
-	"stairplatform/internal/infrastructure/events"
 )
 
 // ---- validation helpers ----
@@ -47,11 +45,11 @@ func TestValidationHelpers(t *testing.T) {
 	if err := ValidateEmail("email", "bad"); err == nil {
 		t.Fatal("expected email error")
 	}
-	if err := ValidateEmail("email", "a@b.c"); err != nil {
+	if err := ValidateEmail("email", "a@b.co"); err != nil {
 		t.Fatalf("unexpected: %v", err)
 	}
-	if err := ValidateEmail("email", "a@b"); err == nil {
-		t.Fatal("expected email missing dot")
+	if err := ValidateEmail("email", "a@b.c"); err == nil {
+		t.Fatal("expected email error (TLD < 2 chars)")
 	}
 	if err := ValidateMinValue("num", 1, 5); err == nil {
 		t.Fatal("expected min value error")
@@ -364,7 +362,7 @@ func TestDebugEndpoints(t *testing.T) {
 	}
 	cache := &responseCache{
 		entries: make(map[string]*ResponseCacheEntry),
-		config: ResponseCacheConfig{MaxEntries: 10, DefaultTTL: time.Minute},
+		config:  ResponseCacheConfig{MaxEntries: 10, DefaultTTL: time.Minute},
 	}
 	cache.Set("k", &ResponseCacheEntry{Body: []byte("x"), StatusCode: 200, ExpiresAt: time.Now().Add(time.Minute)})
 	h := HandleDebugCache(cache)
@@ -388,7 +386,7 @@ func TestDebugEndpoints(t *testing.T) {
 func TestResponseCacheInvalidate(t *testing.T) {
 	cache := &responseCache{
 		entries: make(map[string]*ResponseCacheEntry),
-		config: ResponseCacheConfig{MaxEntries: 10, DefaultTTL: time.Minute},
+		config:  ResponseCacheConfig{MaxEntries: 10, DefaultTTL: time.Minute},
 	}
 	cache.Set("/a?x=1", &ResponseCacheEntry{Body: []byte("a"), StatusCode: 200, ExpiresAt: time.Now().Add(time.Minute)})
 	cache.Set("/a?x=2", &ResponseCacheEntry{Body: []byte("b"), StatusCode: 200, ExpiresAt: time.Now().Add(time.Minute)})
@@ -426,150 +424,6 @@ func TestCompressionWriterUnwrap(t *testing.T) {
 	if cw.Unwrap() != inner {
 		t.Fatal("Unwrap mismatch")
 	}
-}
-
-// ---- GraphQL handler ----
-
-func TestGraphQLHandler(t *testing.T) {
-	bus := events.NewBus()
-	svc := stair.NewService()
-	resolver := gqlhttp.NewResolver(svc, bus, nil)
-	h := NewGraphQLHTTPHandler(resolver)
-
-	if h.Resolver() != resolver {
-		t.Fatal("Resolver mismatch")
-	}
-	if !containsQuery("query { stairConfiguration }", "stairConfiguration") {
-		t.Fatal("containsQuery expected true")
-	}
-	if containsQuery("query { other }", "stairConfiguration") {
-		t.Fatal("containsQuery expected false")
-	}
-	// OPTIONS
-	t.Run("options", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodOptions, "/graphql", nil)
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d", rec.Code)
-		}
-	})
-	// Method not allowed
-	t.Run("method_not_allowed", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPut, "/graphql", nil)
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		if rec.Code != http.StatusMethodNotAllowed {
-			t.Fatalf("expected 405, got %d", rec.Code)
-		}
-	})
-	// Invalid JSON POST
-	t.Run("invalid_json", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/graphql", strings.NewReader("{bad"))
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		if rec.Code != http.StatusBadRequest {
-			t.Fatalf("expected 400, got %d", rec.Code)
-		}
-	})
-	// GET with query
-	t.Run("get_query", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/graphql?query=stairConfiguration", nil)
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d", rec.Code)
-		}
-	})
-	// POST stairConfiguration not found
-	t.Run("post_stairConfiguration", func(t *testing.T) {
-		body, _ := json.Marshal(map[string]interface{}{"query": "query { stairConfiguration }", "variables": map[string]interface{}{"id": "missing"}})
-		req := httptest.NewRequest(http.MethodPost, "/graphql", bytes.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d", rec.Code)
-		}
-		var resp gqlhttp.Response
-		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-			t.Fatalf("decode: %v", err)
-		}
-		if len(resp.Errors) == 0 {
-			t.Fatal("expected error for missing config")
-		}
-	})
-	// POST createStairConfiguration
-	t.Run("post_create", func(t *testing.T) {
-		body, _ := json.Marshal(map[string]interface{}{
-			"query": "mutation { createStairConfiguration }",
-			"variables": map[string]interface{}{"input": map[string]interface{}{"projectId": "p-1", "name": "test", "width": 1000.0, "height": 2700.0, "flightType": "straight"}},
-		})
-		req := httptest.NewRequest(http.MethodPost, "/graphql", bytes.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d", rec.Code)
-		}
-		var resp gqlhttp.Response
-		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-			t.Fatalf("decode: %v", err)
-		}
-		if len(resp.Errors) != 0 {
-			t.Fatalf("unexpected errors: %+v", resp.Errors)
-		}
-		if resp.Data == nil {
-			t.Fatal("expected data")
-		}
-	})
-	// POST unknown query
-	t.Run("unknown", func(t *testing.T) {
-		body, _ := json.Marshal(map[string]interface{}{"query": "query { unknownField }"})
-		req := httptest.NewRequest(http.MethodPost, "/graphql", bytes.NewReader(body))
-		req.Header.Set("Content-Type", "application/json")
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d", rec.Code)
-		}
-		var resp gqlhttp.Response
-		_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-		if len(resp.Errors) == 0 {
-			t.Fatal("expected unknown query error")
-		}
-	})
-	// ServeHTTPWithContext direct: projectConfigurations and runAnalysis/runPipeline branches
-	t.Run("with_context", func(t *testing.T) {
-		// create a config first via resolver to have ID for subsequent queries
-		ctx := context.Background()
-		created, err := resolver.Mutation().CreateStairConfiguration(ctx, gqlhttp.CreateStairInput{ProjectID: "p-1", Width: 900, Height: 2700, FlightType: "straight"})
-		if err != nil {
-			t.Fatalf("create: %v", err)
-		}
-		id := created.ID
-
-		tests := []struct {
-			name string
-			req  gqlhttp.Request
-		}{
-			{"projectConfigurations", gqlhttp.Request{Query: "projectConfigurations", Variables: map[string]interface{}{"projectId": "default"}}},
-			{"runAnalysis", gqlhttp.Request{Query: "runAnalysis", Variables: map[string]interface{}{"configId": id}}},
-			{"runPipeline", gqlhttp.Request{Query: "runPipeline", Variables: map[string]interface{}{"configId": id}}},
-			{"createStairConfiguration_op", gqlhttp.Request{Operation: "CreateStairConfiguration", Variables: map[string]interface{}{"input": map[string]interface{}{"projectId": "p-1", "name": "x", "width": 1000.0, "height": 2700.0}}}},
-			{"stairConfiguration_op", gqlhttp.Request{Operation: "StairConfiguration", Variables: map[string]interface{}{"id": id}}},
-		}
-		for _, tc := range tests {
-			t.Run(tc.name, func(t *testing.T) {
-				rec := httptest.NewRecorder()
-				req := httptest.NewRequest(http.MethodPost, "/graphql", nil)
-				h.ServeHTTPWithContext(ctx, rec, req, tc.req)
-				if rec.Code != http.StatusOK {
-					t.Fatalf("expected 200, got %d", rec.Code)
-				}
-			})
-		}
-	})
 }
 
 // ---- preview project ----

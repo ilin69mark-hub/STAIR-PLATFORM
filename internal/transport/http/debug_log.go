@@ -33,7 +33,7 @@ func DebugLoggingMiddleware(next http.Handler) http.Handler {
 		var reqBody []byte
 		if r.Body != nil {
 			reader := io.LimitReader(r.Body, 64*1024)
-		 reqBody, _ = io.ReadAll(reader)
+			reqBody, _ = io.ReadAll(reader)
 			_ = r.Body.Close()
 			// Восстанавливаем тело для следующего handler
 			r.Body = io.NopCloser(bytes.NewReader(reqBody))

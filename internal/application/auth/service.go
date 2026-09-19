@@ -7,12 +7,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"regexp"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
 	"stairplatform/internal/application/audit"
+	domainemail "stairplatform/internal/domain/email"
 )
 
 // Ошибки auth (SEC-0003).
@@ -76,10 +76,6 @@ func (s *Service) record(ctx context.Context, actorID, tenantID string, action a
 	})
 }
 
-// emailPattern — минимальная проверка формата email.
-// Используется unified validation package.
-var emailPattern = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
-
 // sessionTTLFor возвращает TTL сессии по политике tenant (EDR-0016 §3.2).
 // При отсутствии настроек — дефолт конструктора (sessionTTL).
 func (s *Service) sessionTTLFor(ctx context.Context, tenantID string) time.Duration {
@@ -141,7 +137,7 @@ func (s *Service) DefaultTenant(ctx context.Context) (*Tenant, error) {
 // Роль — user (SEC-0004: админ создаётся только через БД/seed).
 // Сразу создаёт сессию (авто-вход): возвращает user и session-токен.
 func (s *Service) Register(ctx context.Context, email, name, password string) (*User, string, error) {
-	if !emailPattern.MatchString(email) {
+	if !domainemail.Valid(email) {
 		return nil, "", ErrInvalidEmail
 	}
 	tenant, err := s.repo.DefaultTenant(ctx)

@@ -12,7 +12,8 @@ import (
 
 // cookieSecure — Secure-флаг cookie. По умолчанию off (локальная разработка
 // на http://localhost); включается через STAIR_COOKIE_SECURE=1.
-var cookieSecure bool
+// Прокидывается в хендлеры параметром из NewRouter(cfg.CookieSecure) —
+// глобал-переменная не используется (P2-11).
 
 // Config — конфигурация HTTP-слоя (BE-0029 Configuration).
 type Config struct {
@@ -88,9 +89,6 @@ type Config struct {
 	// WebSocketHandler — handler для WebSocket подключений; nil —
 	// маршрут /ws не регистрируется.
 	WebSocketHandler *WebSocketHandler
-	// GraphQLHandler — handler для GraphQL запросов; nil —
-	// маршрут /graphql не регистрируется.
-	GraphQLHandler *GraphQLHTTPHandler
 	// SecurityConfig — конфигурация security middleware; nil —
 	// security headers не добавляются.
 	SecurityConfig *SecurityConfig
@@ -122,7 +120,9 @@ func DefaultConfig() Config {
 // §7, интеграции). Читает токен, проверяет через auth.Service и кладёт
 // субъект в контекст. При ротации сессии (EDR-0014 §3.1) обновляет
 // session-cookie новым токеном. 401 — нет/невалидная сессия.
-func requireAuth(svc AuthService) func(http.Handler) http.Handler {
+// rateLimiter — per-user/api-key лимит; secure — флаг Secure для cookie
+// (оба инстанс-зависимые значения из NewRouter, P2-11).
+func requireAuth(svc AuthService, rateLimiter RateLimiter, secure bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// API-ключ (Bearer): не-браузерный клиент, CSRF не требуется.
@@ -133,8 +133,8 @@ func requireAuth(svc AuthService) func(http.Handler) http.Handler {
 					return
 				}
 				// Per-API-key rate limiting
-				if authRateLimiter != nil {
-					if !authRateLimiter.Allow("apikey:" + key.ID) {
+				if rateLimiter != nil {
+					if !rateLimiter.Allow("apikey:" + key.ID) {
 						w.Header().Set("Retry-After", "60")
 						writeError(w, http.StatusTooManyRequests, "rate_limit_exceeded",
 							"Превышен лимит запросов для API ключа.")
@@ -151,13 +151,13 @@ func requireAuth(svc AuthService) func(http.Handler) http.Handler {
 			}
 			u, rotatedToken, err := svc.Authenticate(r.Context(), token)
 			if err != nil {
-				clearSessionCookies(w, appOrigin(r))
+				clearSessionCookies(w, appOrigin(r), secure)
 				writeError(w, http.StatusUnauthorized, "unauthorized", "Сессия истекла или недействительна.")
 				return
 			}
 			// Per-user rate limiting для authenticated запросов
-			if authRateLimiter != nil {
-				if !authRateLimiter.Allow("user:" + u.ID) {
+			if rateLimiter != nil {
+				if !rateLimiter.Allow("user:" + u.ID) {
 					w.Header().Set("Retry-After", "60")
 					writeError(w, http.StatusTooManyRequests, "rate_limit_exceeded",
 						"Превышен лимит запросов.")
@@ -166,7 +166,7 @@ func requireAuth(svc AuthService) func(http.Handler) http.Handler {
 			}
 			if rotatedToken != "" {
 				// Сессия ротирована: выдаём новый session-cookie (httpOnly).
-				setSessionCookie(w, appOrigin(r), rotatedToken)
+				setSessionCookie(w, appOrigin(r), rotatedToken, secure)
 			}
 			next.ServeHTTP(w, r.WithContext(withAuthUser(r.Context(), u)))
 		})

@@ -30,7 +30,7 @@ func TestOrchestratorBasicPipeline(t *testing.T) {
 		},
 	})
 	orch.RegisterStage(Stage{
-		Name:     "validation",
+		Name:      "validation",
 		DependsOn: []string{"geometry"},
 		Execute: func(ctx context.Context, input *Context) error {
 			mu.Lock()
@@ -41,7 +41,7 @@ func TestOrchestratorBasicPipeline(t *testing.T) {
 		},
 	})
 	orch.RegisterStage(Stage{
-		Name:     "manufacturing",
+		Name:      "manufacturing",
 		DependsOn: []string{"validation"},
 		Execute: func(ctx context.Context, input *Context) error {
 			mu.Lock()
@@ -82,7 +82,7 @@ func TestOrchestratorStageFailure(t *testing.T) {
 		},
 	})
 	orch.RegisterStage(Stage{
-		Name:     "validation",
+		Name:      "validation",
 		DependsOn: []string{"geometry"},
 		Execute: func(ctx context.Context, input *Context) error {
 			t.Fatal("validation should not run after geometry failure")
@@ -226,7 +226,7 @@ func TestOrchestratorDependenciesNotSatisfied(t *testing.T) {
 	orch := NewOrchestrator(bus, store, nil)
 
 	orch.RegisterStage(Stage{
-		Name:     "manufacturing",
+		Name:      "manufacturing",
 		DependsOn: []string{"validation"}, // validation не зарегистрирована
 		Execute: func(ctx context.Context, input *Context) error {
 			return nil

@@ -24,8 +24,8 @@ func PanicRecoveryMiddleware(next http.Handler) http.Handler {
 				// Отправляем структурированную ошибку
 				writeJSON(w, http.StatusInternalServerError, map[string]any{
 					"error": map[string]any{
-						"code":      "internal",
-						"message":   "Internal server error",
+						"code":       "internal",
+						"message":    "Internal server error",
 						"request_id": RequestID(r.Context()),
 					},
 				})

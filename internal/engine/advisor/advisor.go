@@ -59,7 +59,11 @@ type Input struct {
 // (та же политика, что в Manufacture).
 func advisorMaterial(in Input) (dommfg.MaterialCode, error) {
 	if in.Material != "" {
-		if _, ok := engmfg.DefaultMaterialRegistry().Find(in.Material); ok {
+		reg, err := engmfg.DefaultMaterialRegistry()
+		if err != nil {
+			return "", fmt.Errorf("advisor: default registry: %w", err)
+		}
+		if _, ok := reg.Find(in.Material); ok {
 			return in.Material, nil
 		}
 	}
@@ -120,9 +124,11 @@ func manufacturingIssue(in Input, worst [2]float64) validation.Issue {
 	if err != nil {
 		material = dommfg.MaterialCode("STEEL-S235")
 	}
-	maxLen, maxWid, ok := engmfg.LargestStockSheet(engmfg.DefaultStockSheetRegistry(), material)
-	if !ok {
-		maxLen, maxWid = 6000, 3000
+	var maxLen, maxWid float64 = 6000, 3000
+	if sheets, err := engmfg.DefaultStockSheetRegistry(); err == nil {
+		if l, w, ok := engmfg.LargestStockSheet(sheets, material); ok {
+			maxLen, maxWid = l, w
+		}
 	}
 	return validation.Issue{
 		Code:     constraint.MFG_SHEET,
@@ -463,7 +469,11 @@ func manufactureFeasible(in Input, rects ...[2]float64) bool {
 	for _, r := range rects {
 		mfrects = append(mfrects, engmfg.Rect{Length: r[0], Width: r[1]})
 	}
-	return engmfg.SheetFeasible(engmfg.DefaultStockSheetRegistry(), material, engmfg.DefaultKerf, mfrects...)
+	sheets, err := engmfg.DefaultStockSheetRegistry()
+	if err != nil {
+		return false
+	}
+	return engmfg.SheetFeasible(sheets, material, engmfg.DefaultKerf, mfrects...)
 }
 
 // passes проверяет кандидата по всем активным нормам конфигурации.

@@ -9,7 +9,7 @@ import (
 )
 
 func TestTimeoutMiddleware_SetsDeadline(t *testing.T) {
-	handler := TimeoutMiddleware(100*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := TimeoutMiddleware(100 * time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		deadline, ok := r.Context().Deadline()
 		if !ok {
 			t.Error("expected context to have deadline")
@@ -32,7 +32,7 @@ func TestTimeoutMiddleware_SetsDeadline(t *testing.T) {
 }
 
 func TestTimeoutMiddleware_FastHandler(t *testing.T) {
-	handler := TimeoutMiddleware(100*time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := TimeoutMiddleware(100 * time.Millisecond)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	}))
 

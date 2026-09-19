@@ -21,12 +21,12 @@ type Measurement struct {
 // preview mesh, отчёт валидации и измерения. Mesh и измерения являются
 // производными величинами и никогда не являются источником истины.
 type GenerationResult struct {
-	Model        *kerngeo.Compound
-	Mesh         *kerngeo.Mesh
-	RailingMesh  *kerngeo.Mesh
-	RoomMesh     *kerngeo.Mesh
-	Issues       []kerngeo.ValidationIssue
-	Measurement  Measurement
+	Model       *kerngeo.Compound
+	Mesh        *kerngeo.Mesh
+	RailingMesh *kerngeo.Mesh
+	RoomMesh    *kerngeo.Mesh
+	Issues      []kerngeo.ValidationIssue
+	Measurement Measurement
 }
 
 // Generate строит параметрическую B-Rep модель марша (прямого,

@@ -16,8 +16,8 @@ import (
 
 // Stage — этап pipeline с именем и функцией выполнения.
 type Stage struct {
-	Name     string
-	Execute  func(ctx context.Context, input *Context) error
+	Name      string
+	Execute   func(ctx context.Context, input *Context) error
 	DependsOn []string // имена стадий, от которых зависит эта
 }
 
@@ -35,13 +35,13 @@ type Context struct {
 // Orchestrator — event-driven pipeline orchestrator.
 // Управляет порядком выполнения стадий, pub/sub событиями, timeline.
 type Orchestrator struct {
-	bus      *events.Bus
-	store    *events.Store
-	stages   map[string]*Stage
-	order    []string // топологический порядок стадий
-	logger   *slog.Logger
-	mu       sync.RWMutex
-	active   map[string]*Context // активные pipeline по ConfigID
+	bus    *events.Bus
+	store  *events.Store
+	stages map[string]*Stage
+	order  []string // топологический порядок стадий
+	logger *slog.Logger
+	mu     sync.RWMutex
+	active map[string]*Context // активные pipeline по ConfigID
 }
 
 // NewOrchestrator создаёт Pipeline Orchestrator.

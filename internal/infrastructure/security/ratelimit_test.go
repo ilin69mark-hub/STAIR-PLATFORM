@@ -100,11 +100,11 @@ func TestRateLimitMiddleware(t *testing.T) {
 
 func TestByIP(t *testing.T) {
 	tests := []struct {
-		name     string
+		name       string
 		remoteAddr string
-		xff      string
-		xri      string
-		expected string
+		xff        string
+		xri        string
+		expected   string
 	}{
 		{
 			name:       "remote addr only",
@@ -221,7 +221,7 @@ func TestRateLimiterHeaders(t *testing.T) {
 }
 
 func TestMultiRateLimiter(t *testing.T) {
-	mrl := NewMultiRateLimiter(10, time.Minute) // default: 10 req/min
+	mrl := NewMultiRateLimiter(10, time.Minute)           // default: 10 req/min
 	mrl.AddEndpoint("/api/v1/auth/login", 3, time.Minute) // login: 3 req/min
 
 	handler := mrl.RateLimit(ByIP)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

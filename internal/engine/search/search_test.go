@@ -8,7 +8,7 @@ import (
 
 // MockRepository — мок для тестирования.
 type MockRepository struct {
-	configs []*SearchItem
+	configs  []*SearchItem
 	projects []*SearchItem
 }
 

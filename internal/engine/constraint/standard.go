@@ -1,6 +1,9 @@
 package constraint
 
-import "fmt"
+import (
+	"fmt"
+	"log/slog"
+)
 
 // Стандартные коды ограничений (EDR-0002).
 const (
@@ -160,11 +163,13 @@ func StandardProfile(name string) *ConstraintSet {
 	return set
 }
 
-// mustAdd добавляет нормативное правило; ошибка невозможна для
-// корректных кодовых констант, поэтому паникуем при инвариантном сбое.
+// mustAdd добавляет нормативное правило без паники (P2-12): невозможная
+// инвариантная ошибка фиксируется логом; профиль деградирует до пустого
+// набора (валидация пропустит всё), но процесс не валится. АО, Zero-budget:
+// ошибка достижима только при потере инвариантов кодовых констант.
 func mustAdd(set *ConstraintSet, c *Constraint) {
 	if err := set.Add(c); err != nil {
-		panic(fmt.Sprintf("constraint: standard profile: %v", err))
+		slog.Error("constraint: standard profile: rule skipped", "code", c.Code, "err", err)
 	}
 }
 

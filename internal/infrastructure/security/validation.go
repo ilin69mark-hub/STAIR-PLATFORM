@@ -76,7 +76,7 @@ func ValidateUsername(username string) bool {
 func ValidatePassword(password string) bool {
 	if len(password) < 8 || len(password) > 128 {
 		return false
-	 }
+	}
 
 	// Проверяем наличие хотя бы одной буквы и одной цифры
 	hasLetter := false

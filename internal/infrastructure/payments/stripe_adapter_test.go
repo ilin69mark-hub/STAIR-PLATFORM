@@ -47,11 +47,11 @@ func TestStripeAdapterParseWebhookEvent(t *testing.T) {
 		"type": "checkout.completed",
 		"data": map[string]interface{}{
 			"object": map[string]interface{}{
-				"id":            "cs_test_123",
-				"status":        "complete",
+				"id":             "cs_test_123",
+				"status":         "complete",
 				"payment_status": "paid",
-				"amount_total":  1000,
-				"currency":      "usd",
+				"amount_total":   1000,
+				"currency":       "usd",
 			},
 		},
 		"created": 1234567890,

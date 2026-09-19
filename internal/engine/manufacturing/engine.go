@@ -41,7 +41,10 @@ func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResu
 	if err != nil {
 		return nil, err
 	}
-	registry := DefaultMaterialRegistry()
+	registry, err := DefaultMaterialRegistry()
+	if err != nil {
+		return nil, fmt.Errorf("manufacturing: default registry: %w", err)
+	}
 	for i := range parts {
 		// Выбранный материал (MFG-0005, конструктор): применяется ко всем
 		// деталям, пока поддерживает их толщину; иначе — автоназначение по
@@ -60,7 +63,11 @@ func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResu
 	}
 
 	bom, cut := buildBOM(parts)
-	nesting, err := Nest(cut, DefaultStockSheetRegistry(), DefaultKerf)
+	sheets, err := DefaultStockSheetRegistry()
+	if err != nil {
+		return nil, fmt.Errorf("manufacturing: default stock sheet registry: %w", err)
+	}
+	nesting, err := Nest(cut, sheets, DefaultKerf)
 	if err != nil {
 		return nil, err
 	}

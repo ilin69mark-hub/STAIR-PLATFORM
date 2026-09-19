@@ -13,16 +13,16 @@ import (
 // клиент получает только геометрию, валидацию, предварительную цену,
 // габаритную ширину и preview-сетку (mesh) для 3D-визуализации.
 type publicQuoteDTO struct {
-	Validation validationDTO `json:"validation"`
-	Flight     flightDTO     `json:"flight"`
-	LShape     *lshapeDTO    `json:"lshape,omitempty"`
-	UShape     *ushapeDTO    `json:"ushape,omitempty"`
-	Spiral     *spiralDTO    `json:"spiral,omitempty"`
-	Geometry   geometryDTO   `json:"geometry"`
-	Pricing    *pricingDTO   `json:"pricing,omitempty"`
-	Mesh         *kerngeo.Mesh `json:"mesh,omitempty"`
-	RailingMesh  *kerngeo.Mesh `json:"railing_mesh,omitempty"`
-	RoomMesh     *kerngeo.Mesh `json:"room_mesh,omitempty"`
+	Validation  validationDTO `json:"validation"`
+	Flight      flightDTO     `json:"flight"`
+	LShape      *lshapeDTO    `json:"lshape,omitempty"`
+	UShape      *ushapeDTO    `json:"ushape,omitempty"`
+	Spiral      *spiralDTO    `json:"spiral,omitempty"`
+	Geometry    geometryDTO   `json:"geometry"`
+	Pricing     *pricingDTO   `json:"pricing,omitempty"`
+	Mesh        *kerngeo.Mesh `json:"mesh,omitempty"`
+	RailingMesh *kerngeo.Mesh `json:"railing_mesh,omitempty"`
+	RoomMesh    *kerngeo.Mesh `json:"room_mesh,omitempty"`
 }
 
 // handlePublicQuote — POST /api/v1/public/stairs:quote.

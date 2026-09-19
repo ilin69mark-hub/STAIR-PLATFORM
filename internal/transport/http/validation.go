@@ -1,6 +1,7 @@
 package http
 
 import (
+	domainemail "stairplatform/internal/domain/email"
 	"strconv"
 	"strings"
 )
@@ -47,12 +48,13 @@ func ValidateMaxLength(field, value string, max int) *ValidationError {
 	return nil
 }
 
-// ValidateEmail проверяет формат email (базовая проверка).
+// ValidateEmail проверяет формат email (базовая проверка; строгий формат —
+// domain/email.Valid, здесь только dto-префрагмент).
 func ValidateEmail(field, value string) *ValidationError {
 	if value == "" {
 		return nil
 	}
-	if !strings.Contains(value, "@") || !strings.Contains(value, ".") {
+	if !domainemail.Valid(value) {
 		return &ValidationError{Field: field, Message: "must be a valid email address"}
 	}
 	return nil

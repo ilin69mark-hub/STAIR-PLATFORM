@@ -29,8 +29,8 @@ type Bus struct {
 }
 
 type handlerEntry struct {
-	id      string
-	handler Handler
+	id       string
+	handler  Handler
 	priority int
 }
 

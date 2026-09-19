@@ -1,6 +1,6 @@
 // Package document реализует EDM для Document Context (BC-008).
 // Документы — это output pipeline: спецификации, чертежи, письма для
-//rms и CNC-пакеты. Домен не зависит от HTTP, БД, ORM, UI и AI (ADR-0006).
+// rms и CNC-пакеты. Домен не зависит от HTTP, БД, ORM, UI и AI (ADR-0006).
 // Единицы: мм/кг по ADR-0008.
 package document
 
@@ -16,12 +16,12 @@ type DocumentID string
 type DocumentType string
 
 const (
-	DocumentTypeTechnicalSpec  DocumentType = "technical_spec"
-	DocumentTypeDrawing        DocumentType = "drawing"
-	DocumentTypeLetter         DocumentType = "letter"
-	DocumentTypeManufacturing  DocumentType = "manufacturing"
-	DocumentTypeAssembly       DocumentType = "assembly"
-	DocumentTypeCostEstimate   DocumentType = "cost_estimate"
+	DocumentTypeTechnicalSpec DocumentType = "technical_spec"
+	DocumentTypeDrawing       DocumentType = "drawing"
+	DocumentTypeLetter        DocumentType = "letter"
+	DocumentTypeManufacturing DocumentType = "manufacturing"
+	DocumentTypeAssembly      DocumentType = "assembly"
+	DocumentTypeCostEstimate  DocumentType = "cost_estimate"
 )
 
 // IsValid проверяет, что тип документа известен.
@@ -95,7 +95,7 @@ type Document struct {
 	ConfigID   string // ID конфигурации лестницы
 	Metadata   DocumentMetadata
 	Data       map[string]interface{} // данные для рендеринга шаблона
-	Content    []byte                  // сгенерированный контент
+	Content    []byte                 // сгенерированный контент
 }
 
 // Validate проверяет инварианты документа (DOC-0001).

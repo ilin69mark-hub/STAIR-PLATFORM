@@ -549,9 +549,9 @@ func stringerProfile(n int, b, h, st, yOff, t float64) []kerngeo.Point3 {
 	// (перпендикулярен полу, как нижний), спинка упирается в пол (z = 0).
 	L := math.Hypot(b, h)
 	pTop := kerngeo.NewPoint3(
-		float64(n)*b,                // верхний срез вертикален (x = n·b)
+		float64(n)*b, // верхний срез вертикален (x = n·b)
 		yOff,
-		float64(n)*h-st-t*b/L,       // z = n·h − st − t·b/L
+		float64(n)*h-st-t*b/L, // z = n·h − st − t·b/L
 	)
 	fx := pTop.X - pTop.Z/h*b
 	if fx < 0 {

@@ -553,13 +553,19 @@ func TestHandleWebSocketConnectAndPingPong(t *testing.T) {
 	defer hub.Stop()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		HandleWebSocket(hub, w, r)
+		// userID приходит от вызывающей стороны (аутентифицированный handler);
+		// query-параметр user_id намеренно игнорируется.
+		userID := r.Header.Get("X-Test-User")
+		HandleWebSocket(hub, w, r, userID)
 	}))
 	defer srv.Close()
 
-	// dial ws
-	wsURL := "ws" + srv.URL[len("http"):] + "/ws?user_id=tester"
-	conn, hr0, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	// dial ws — намеренно передаём посторонний user_id в query, чтобы
+	// убедиться, что он ИГНОРИРУЕТСЯ и берётся только проверенное значение.
+	wsURL := "ws" + srv.URL[len("http"):] + "/ws?user_id=victim"
+	headerTester := http.Header{}
+	headerTester.Set("X-Test-User", "tester")
+	conn, hr0, err := websocket.DefaultDialer.Dial(wsURL, headerTester)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -574,6 +580,9 @@ func TestHandleWebSocketConnectAndPingPong(t *testing.T) {
 	}
 	if hub.ClientCountByUser("tester") != 1 {
 		t.Fatalf("expected 1 for tester")
+	}
+	if hub.ClientCountByUser("victim") != 0 {
+		t.Fatalf("query param user_id must be ignored (impersonation fix)")
 	}
 
 	// send ping, expect pong
@@ -596,7 +605,7 @@ func TestHandleWebSocketConnectAndPingPong(t *testing.T) {
 		t.Fatalf("expected pong, got %s", got.Type)
 	}
 
-	// test anonymous user fallback — second connection without user_id
+	// test anonymous user fallback — вторая сессия без проверенного userID
 	wsURLAnon := "ws" + srv.URL[len("http"):] + "/ws"
 	conn2, hr, err := websocket.DefaultDialer.Dial(wsURLAnon, nil)
 	if err != nil {
@@ -652,7 +661,7 @@ func TestHandleWebSocketUpgradeFailure(t *testing.T) {
 	// plain HTTP request (not websocket) should trigger upgrade error path without panic
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
 	rr := httptest.NewRecorder()
-	HandleWebSocket(hub, rr, req)
+	HandleWebSocket(hub, rr, req, "tester")
 	// upgrader writes 400 Bad Request on failure - StatusCode may be 400
 	if rr.Code != http.StatusBadRequest {
 		// some versions return 400, allow any 4xx
@@ -671,11 +680,11 @@ func TestHandleWebSocketBroadcastRoundTrip(t *testing.T) {
 	defer hub.Stop()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		HandleWebSocket(hub, w, r)
+		HandleWebSocket(hub, w, r, "broadcaster")
 	}))
 	defer srv.Close()
 
-	wsURL := "ws" + srv.URL[len("http"):] + "/ws?user_id=broadcaster"
+	wsURL := "ws" + srv.URL[len("http"):] + "/ws?user_id=ignored"
 	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
@@ -722,11 +731,11 @@ func TestStopGracefullyWithRealConn(t *testing.T) {
 	go hub.Run()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		HandleWebSocket(hub, w, r)
+		HandleWebSocket(hub, w, r, "grace")
 	}))
 	defer srv.Close()
 
-	wsURL := "ws" + srv.URL[len("http"):] + "/ws?user_id=grace"
+	wsURL := "ws" + srv.URL[len("http"):] + "/ws?user_id=ignored"
 	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
@@ -753,11 +762,11 @@ func TestDisconnectClientWithRealConn(t *testing.T) {
 	defer hub.Stop()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		HandleWebSocket(hub, w, r)
+		HandleWebSocket(hub, w, r, "disc")
 	}))
 	defer srv.Close()
 
-	wsURL := "ws" + srv.URL[len("http"):] + "/ws?user_id=disc"
+	wsURL := "ws" + srv.URL[len("http"):] + "/ws?user_id=ignored"
 	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
@@ -793,7 +802,7 @@ func TestOriginCheckAllowedAndBlocked(t *testing.T) {
 	defer hub.Stop()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		HandleWebSocket(hub, w, r)
+		HandleWebSocket(hub, w, r, "")
 	}))
 	defer srv.Close()
 

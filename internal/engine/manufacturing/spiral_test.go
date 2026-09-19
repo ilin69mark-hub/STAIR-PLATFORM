@@ -83,7 +83,7 @@ func TestManufactureSpiralColumn(t *testing.T) {
 		t.Errorf("column width = %v, want %v (2πr)", col.Width.Millimeters(), circ)
 	}
 	// материал назначен из каталога.
-	if _, ok := DefaultMaterialRegistry().Find(col.Material); !ok {
+	if _, ok := mustMaterials(t).Find(col.Material); !ok {
 		t.Fatalf("column material %q not in registry", col.Material)
 	}
 }

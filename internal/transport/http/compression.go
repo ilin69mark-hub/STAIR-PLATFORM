@@ -1,8 +1,8 @@
 package http
 
 import (
-	"compress/gzip"
 	"bytes"
+	"compress/gzip"
 	"net/http"
 	"strings"
 	"sync"
