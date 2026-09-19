@@ -484,7 +484,7 @@ jobs:
       # gosec и trivy-action закреплены на стабильных тегах (supply-chain):
       # «@master» привязал бы к mutable-ветке и ломал воспроизводимость.
       - name: Run gosec
-        uses: securego/gosec@v2.28.1
+        uses: securego/gosec@v2.29.0
         with:
           args: ./...
 
