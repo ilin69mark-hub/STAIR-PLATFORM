@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { register, uniqueEmail } from '../helpers/auth'
 
-// E2E S3-2 (EDR-0012 Session Management): «сессия протухла → защищённый
+// E2E S3-2 (EDR-0040 Session Management): «сессия протухла → защищённый
 // запрос вернул 401 → централизованный интерцептор → редирект на логин» для
 // админ-приложения (admin :5173 dev под Playwright).
 //

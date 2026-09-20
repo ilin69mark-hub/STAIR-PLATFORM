@@ -49,7 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const clear = useCallback(() => setUser(null), [])
 
-  // S3-2 (EDR-0012): подписка на шину 401 → сброс user → App рендерит логин.
+  // S3-2 (EDR-0040): подписка на шину 401 → сброс user → App рендерит логин.
   // useEffect возвращает функцию отписки (cleanup) — в dev strict-mode 
   // подписка не дублируется.
   useEffect(() => onUnauthorized(clear), [clear])

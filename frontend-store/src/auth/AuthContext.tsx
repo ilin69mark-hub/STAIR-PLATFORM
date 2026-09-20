@@ -49,7 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const clear = useCallback(() => setUser(null), [])
 
-  // S3-2 (EDR-0012 Session Management): подписка на шину 401 — истёкшая сессия
+  // S3-2 (EDR-0040 Session Management): подписка на шину 401 — истёкшая сессия
   // (запрос к защищённому эндпоинту вернул 401) → clear() → user=null →
   // #cabinet и #landing рендерят <AuthForm/>. onUnauthorized возвращает
   // функцию отписки → в dev strict-mode подписка не дублируется.

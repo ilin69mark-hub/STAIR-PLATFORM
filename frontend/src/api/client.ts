@@ -34,8 +34,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     return undefined as T
   }
 
-  // 401 на защищённом эндпоинте (не /auth/*) = истёкшая сессия (EDR-0012
-  // Session Management, EDR-0012 S3-2). Централизованно оповещаем всех
+  // 401 на защищённом эндпоинте (не /auth/*) = истёкшая сессия (EDR-0040
+  // Session Management). Централизованно оповещаем всех
   // подписчиков (AuthProvider каждого приложения → clear() → редирект на
   // логин). Дублировать в store-клиенте не нужно — fireUnauthorized живёт в
   // shared-модуле session и вызывается из каждого клиента.
