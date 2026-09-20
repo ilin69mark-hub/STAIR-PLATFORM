@@ -313,6 +313,33 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
     setActiveVariantId(undefined)
   }
 
+  // Экспорт JSON-снапшота проекта (GET /api/v1/projects/{id}/export).
+  // Скачивание клиентское (fetch + Blob): переход на export-URL не передаёт
+  // origin-заголовок администратора, и API находит не ту session-cookie (401).
+  const handleExport = async () => {
+    try {
+      const res = await fetch(projectsApi.exportUrl(projectId), {
+        credentials: 'include',
+        headers: { 'X-App-Origin': 'admin' },
+      })
+      if (!res.ok) {
+        setError('Не удалось экспортировать проект')
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'project-export.json'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      setError('Не удалось экспортировать проект')
+    }
+  }
+
   const handleStatusChange = (status: ProjectStatus) => {
     setProject((p) => (p ? { ...p, status } : p))
   }
@@ -362,6 +389,9 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
             title={project?.status === 'in_review' ? 'Оптимизация заморожена до решения владельца' : undefined}
           >
             {busy ? 'Поиск…' : 'Оптимизировать'}
+          </button>
+          <button className="btn" onClick={handleExport} disabled={!calculation}>
+            Экспорт JSON
           </button>
           <button className="btn btn--accent" onClick={handleProposal} disabled={!calculation || proposalBusy}>
             {proposalBusy ? 'Формируем…' : 'Коммерческое предложение (PDF)'}
