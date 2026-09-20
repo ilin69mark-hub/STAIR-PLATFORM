@@ -27,7 +27,8 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          # S2-3: mutable «latest» pinned — воспроизводимый линт при сборке.
+          version: v2.13.2
 
   architecture-checks:
     name: Architecture Fitness
@@ -61,6 +62,9 @@ jobs:
         run: |
           echo "Checking package naming conventions..."
           go vet ./... 2>&1 | grep -i "name" || echo "OK: Package names valid"
+
+      - name: Check infra ownership (S2-2: single owner per resource)
+        run: ./scripts/check-infra-ownership.sh
 
   test-backend:
     name: Test Backend

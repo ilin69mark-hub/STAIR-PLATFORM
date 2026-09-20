@@ -3,6 +3,7 @@ package integrations
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -144,5 +145,119 @@ func TestParseTimestampRejectsBad(t *testing.T) {
 func BenchmarkSign(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_, _ = Sign("secret", 1, []byte("payload"))
+	}
+}
+
+// stubbedResolver — тестовый резолвер, управляющий DNS (DNS-rebinding и
+// детерминированные блокировки без внешней сети).
+type stubbedResolver struct {
+	ips map[string][]net.IP
+}
+
+func (s *stubbedResolver) resolve(ctx context.Context, host string) ([]net.IP, error) {
+	if ips, ok := s.ips[host]; ok {
+		return ips, nil
+	}
+	return nil, fmt.Errorf("no such host: %s", host)
+}
+
+func ip(s string) net.IP { return net.ParseIP(s) }
+
+func TestSSRFBlocksPrivateAndLinkLocal(t *testing.T) {
+	// link-local метаданные облака (169.254.169.254) и RFC1918 — блок.
+	for _, host := range []string{"169.254.169.254", "10.0.0.5", "192.168.1.10", "172.16.0.1"} {
+		c := NewPolicyClient(0, Policy{})
+		c.resolve = func(ctx context.Context, h string) ([]net.IP, error) {
+			return []net.IP{ip(host)}, nil
+		}
+		if err := c.validateTarget(context.Background(), "http://"+host+"/hook"); err == nil {
+			t.Errorf("expected SSRF block for %s", host)
+		}
+	}
+}
+
+func TestSSRFBlocksLoopbackInProduction(t *testing.T) {
+	// Прод (AllowLoopback=false) блокирует loopback и литералы private IP.
+	strict := NewPolicyClient(0, Policy{})
+	for _, target := range []string{"http://127.0.0.1:9000/h", "http://localhost:9000/h"} {
+		// loopback-хосты без резолва тоже должны блокироваться: резолвим явно.
+		strict.resolve = func(ctx context.Context, h string) ([]net.IP, error) {
+			return []net.IP{ip("127.0.0.1")}, nil
+		}
+		if err := strict.validateTarget(context.Background(), target); err == nil {
+			t.Errorf("expected loopback block for %s in production policy", target)
+		}
+	}
+}
+
+func TestSSRFAllowsLoopbackInDev(t *testing.T) {
+	// Dev-клиент (NewClient) с резолвом на loopback — проходит.
+	dev := NewClient(0)
+	dev.resolve = func(ctx context.Context, h string) ([]net.IP, error) {
+		return []net.IP{ip("127.0.0.1")}, nil
+	}
+	if err := dev.validateTarget(context.Background(), "http://127.0.0.1:9000/h"); err != nil {
+		t.Errorf("expected dev loopback allow, got %v", err)
+	}
+}
+
+func TestSSRFPublicHostAllowed(t *testing.T) {
+	c := NewPolicyClient(0, Policy{})
+	c.resolve = func(ctx context.Context, h string) ([]net.IP, error) {
+		return []net.IP{ip("8.8.8.8")}, nil
+	}
+	if err := c.validateTarget(context.Background(), "https://hooks.example.com/e"); err != nil {
+		t.Errorf("expected public host allowed, got %v", err)
+	}
+}
+
+func TestSSRFAllowlistOverridesBlock(t *testing.T) {
+	c := NewPolicyClient(0, Policy{AllowLoopback: true, AllowHosts: []string{"internal.erp.local"}})
+	c.resolve = func(ctx context.Context, h string) ([]net.IP, error) {
+		if h == "internal.erp.local" {
+			return []net.IP{ip("10.1.2.3")}, nil
+		}
+		return []net.IP{ip("8.8.8.8")}, nil
+	}
+	// Allowlist-хост с private-резолвом — разрешён.
+	if err := c.validateTarget(context.Background(), "http://internal.erp.local/hook"); err != nil {
+		t.Errorf("expected allowlist override, got %v", err)
+	}
+}
+
+func TestSSRFConsidersAllResolvedIPs(t *testing.T) {
+	// Если хотя бы один A-запись публичная — пропускаем (не все IP приватные).
+	c := NewPolicyClient(0, Policy{})
+	c.resolve = func(ctx context.Context, h string) ([]net.IP, error) {
+		return []net.IP{ip("10.1.2.3"), ip("8.8.8.8")}, nil
+	}
+	if err := c.validateTarget(context.Background(), "https://both.example.com/e"); err != nil {
+		t.Errorf("expected allow when any IP public, got %v", err)
+	}
+	// Все IP заблокированы — отказ.
+	c.resolve = func(ctx context.Context, h string) ([]net.IP, error) {
+		return []net.IP{ip("10.1.2.3"), ip("169.254.169.254")}, nil
+	}
+	if err := c.validateTarget(context.Background(), "https://allblocked.example.com/e"); err == nil {
+		t.Error("expected block when all resolved IPs are blocked")
+	}
+}
+
+func TestSSRFAppliesAtDial(t *testing.T) {
+	// Финальный рубеж — DialContext: подключение к заблокированному IP не
+	// происходит даже если validateTarget пропустил (DNS-rebinding: при
+	// валидации резолвится публичный IP, при dial — private).
+	calls := 0
+	c := NewPolicyClient(0, Policy{})
+	c.resolve = func(ctx context.Context, h string) ([]net.IP, error) {
+		calls++
+		if calls == 1 { // validateTarget: публичный → проходит
+			return []net.IP{ip("8.8.8.8")}, nil
+		}
+		return []net.IP{ip("10.1.2.3")}, nil // dial: private → блок
+	}
+	err := c.Send(context.Background(), "https://rebind.example.com/h", "s", []byte("{}"))
+	if err == nil {
+		t.Fatal("expected error when target resolves to private IP at dial (rebinding)")
 	}
 }

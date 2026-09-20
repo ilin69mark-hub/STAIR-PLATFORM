@@ -22,6 +22,7 @@ type IntentProcessor interface {
 type StripeWebhookServiceImpl struct {
 	provider  *StripeAdapter
 	processor IntentProcessor
+	deduper   EventDeduper
 	logger    *slog.Logger
 }
 
@@ -44,8 +45,15 @@ func (s *StripeWebhookServiceImpl) WithIntentProcessor(p IntentProcessor) *Strip
 	return s
 }
 
+// WithEventDeduper подключает защиту от повторной обработки событий (P1-1).
+// Без дедупера обработка полагается на идемпотентность ApplyVerifiedEvent.
+func (s *StripeWebhookServiceImpl) WithEventDeduper(d EventDeduper) *StripeWebhookServiceImpl {
+	s.deduper = d
+	return s
+}
+
 // HandleStripeWebhook обрабатывает входящий Stripe webhook.
-func (s *StripeWebhookServiceImpl) HandleStripeWebhook(ctx context.Context, payload []byte, signature string) error {
+func (s *StripeWebhookServiceImpl) HandleStripeWebhook(ctx context.Context, payload []byte, signature string) (err error) {
 	// Верифицируем подпись Stripe
 	if err := s.provider.VerifyWebhookSignature(payload, signature); err != nil {
 		s.logger.Error("stripe webhook signature verification failed", "error", err)
@@ -64,6 +72,29 @@ func (s *StripeWebhookServiceImpl) HandleStripeWebhook(ctx context.Context, payl
 		"checkout_id", event.CheckoutID,
 		"status", event.Status,
 	)
+
+	// Дедупликация по event.id (P1-1): повторная доставка или replay того же
+	// события не должна приводить к повторному переводу интента. Метка
+	// снимается при ошибке, чтобы Stripe-retry применился с новым id.
+	if s.deduper != nil && event.EventID != "" {
+		processed, dedupErr := s.deduper.CheckAndMark(ctx, event.Provider, event.EventID)
+		if dedupErr != nil {
+			s.logger.Error("stripe webhook dedup check failed", "event_id", event.EventID, "error", dedupErr)
+			return fmt.Errorf("stripe webhook: dedup check failed: %w", dedupErr)
+		}
+		if !processed {
+			s.logger.Warn("stripe webhook: duplicate event ignored",
+				"event_id", event.EventID, "checkout_id", event.CheckoutID)
+			return nil
+		}
+		defer func() {
+			if err != nil {
+				if cerr := s.deduper.Clear(ctx, event.Provider, event.EventID); cerr != nil {
+					s.logger.Error("stripe webhook: clear dedup marker failed", "event_id", event.EventID, "error", cerr)
+				}
+			}
+		}()
+	}
 
 	if s.processor == nil {
 		s.logger.Warn("stripe webhook: no intent processor configured, event ignored")

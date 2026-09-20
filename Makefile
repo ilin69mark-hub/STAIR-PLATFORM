@@ -8,7 +8,8 @@ COMPOSE   ?= docker compose
 NPM       ?= npm
 
 # Host-side DB URL (used by migrate/seed/run). Default matches docker-compose.
-STAIR_DATABASE_URL ?= postgres://stair:stair@127.0.0.1:5432/stair_platform?sslmode=disable
+# Для локальной разработки: POSTGRES_PASSWORD задаётся в deployments/.env.
+STAIR_DATABASE_URL ?= postgres://stair:changeme@127.0.0.1:5432/stair_platform?sslmode=disable
 
 # Release versioning (P3): подставляется в бинарь через ldflags →
 # internal/version. VERSION берётся из git tag/describe.

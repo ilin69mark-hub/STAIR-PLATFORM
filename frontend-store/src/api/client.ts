@@ -6,6 +6,7 @@
 import type { ApiErrorBody } from '@shared/types'
 import { ApiError } from '@shared/types'
 import { csrfHeaders } from '@shared/api/csrf'
+import { fireUnauthorized, isAuthEndpoint } from '@shared/api/session'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const method = (init?.method ?? 'GET').toUpperCase()
@@ -26,6 +27,10 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     return undefined as T
   }
 
+  if (res.status === 401 && !isAuthEndpoint(url)) {
+    fireUnauthorized()
+  }
+
   const text = await res.text()
   let payload: unknown = null
   if (text) {
@@ -37,6 +42,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   }
 
   if (!res.ok) {
+    // 401 обработан выше (fireUnauthorized вызывается ОДИН раз до чтения тела).
     const body = payload as ApiErrorBody | null
     throw new ApiError(
       res.status,

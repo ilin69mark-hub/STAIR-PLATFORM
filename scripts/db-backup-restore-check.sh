@@ -8,7 +8,7 @@
 #   PG_CONTAINER        контейнер PostgreSQL (default stair-platform-postgres)
 set -euo pipefail
 
-STAIR_DATABASE_URL="${STAIR_DATABASE_URL:-postgres://stair:stair@127.0.0.1:5432/stair_platform?sslmode=disable}"
+STAIR_DATABASE_URL="${STAIR_DATABASE_URL:-postgres://stair:changeme@127.0.0.1:5432/stair_platform?sslmode=disable}"
 PG_CONTAINER="${PG_CONTAINER:-stair-platform-postgres}"
 
 url_no_params="${STAIR_DATABASE_URL%%\?*}"

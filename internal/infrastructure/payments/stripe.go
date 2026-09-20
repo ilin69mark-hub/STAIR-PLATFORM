@@ -10,12 +10,18 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 )
+
+// webhookTolerance — допустимое отклонение timestamp подписи webhook от NOW:
+// защита от replay перехваченного запроса (P1-1). События Stripe, доставленные
+// повторной попыткой, подписываются заново (новый t), поэтому retry не страдает.
+const webhookTolerance = 5 * time.Minute
 
 // StripeProvider — реализация Provider для Stripe.
 type StripeProvider struct {
@@ -148,7 +154,10 @@ func (p *StripeProvider) GetSession(ctx context.Context, sessionID string) (*Che
 	}, nil
 }
 
-// VerifyWebhookSignature проверяет подпись Stripe webhook.
+// VerifyWebhookSignature проверяет подпись Stripe webhook: HMAC-SHA256
+// payload вместе с timestamp (Stripe-формат Signature t=ts,v1=sig) И окно
+// времени (P1-1): подпись старше webhookTolerance отклоняется — это защита
+// от replay перехваченного запроса.
 func (p *StripeProvider) VerifyWebhookSignature(payload []byte, signature string) error {
 	// Stripe использует формат: t=timestamp,v1=signature
 	parts := strings.Split(signature, ",")
@@ -186,12 +195,24 @@ func (p *StripeProvider) VerifyWebhookSignature(payload []byte, signature string
 		return fmt.Errorf("stripe: invalid signature")
 	}
 
+	// Окно времени: timestamp передаётся открыто в подписи, но подпись
+	// защищает его от подмены — проверка корректна.
+	ts, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil {
+		return fmt.Errorf("stripe: invalid signature timestamp: %w", err)
+	}
+	eventTime := time.Unix(ts, 0)
+	if d := time.Since(eventTime); d > webhookTolerance || d < -webhookTolerance {
+		return fmt.Errorf("stripe: signature timestamp outside tolerance window (age %s)", d.Round(time.Second))
+	}
+
 	return nil
 }
 
 // ParseWebhookEvent парсит Stripe webhook event.
 func (p *StripeProvider) ParseWebhookEvent(payload []byte) (*StripeWebhookEvent, error) {
 	var event struct {
+		ID   string `json:"id"`
 		Type string `json:"type"`
 		Data struct {
 			Object struct {
@@ -232,6 +253,7 @@ func (p *StripeProvider) ParseWebhookEvent(payload []byte) (*StripeWebhookEvent,
 	}
 
 	return &StripeWebhookEvent{
+		EventID:     event.ID,
 		EventType:   webhookType,
 		Provider:    "stripe",
 		CheckoutID:  event.Data.Object.ID,

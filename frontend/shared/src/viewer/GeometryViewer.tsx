@@ -101,6 +101,18 @@ function mirrorX(geo: THREE.BufferGeometry) {
   geo.computeVertexNormals()
 }
 
+// Превью WebGL-контекста: не каждый браузер/устройство поддерживает трёхмерный
+// рендер (P0-6). Проверяем доступность контекста заранее, чтобы не создавать
+// THREE.WebGLRenderer без поддержки.
+function webglSupported(): boolean {
+  try {
+    const canvas = document.createElement('canvas')
+    return !!(canvas.getContext('webgl2') || canvas.getContext('webgl'))
+  } catch {
+    return false
+  }
+}
+
 export function GeometryViewer({
   mesh,
   roomMesh,
@@ -116,6 +128,10 @@ export function GeometryViewer({
   heightMM,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
+  // WebGL в браузере может быть отключён/недоступен (старые драйверы,
+  // headless-окружение, аппаратное ограничение) — вместо краха компонента
+  // (P0-6) показываем текстовый фолбэк, геометрия и цена доступны в таблицах.
+  const [webglError, setWebglError] = useState(false)
   // Виджет «стены»: независимый тумблер на каждую из 4 сторон периметра
   // (В/Н/П/Л). По умолчанию все стены выключены — лестница рисуется чистой.
   const [walls, setWalls] = useState<Record<WallSide, boolean>>({
@@ -158,6 +174,11 @@ export function GeometryViewer({
     const container = containerRef.current
     if (!container || !mesh?.Vertices || mesh.Vertices.length === 0 || !mesh.Triangles) return
 
+    if (!webglSupported()) {
+      setWebglError(true)
+      return
+    }
+
     const width = container.clientWidth || 600
     const height = container.clientHeight || 380
 
@@ -165,9 +186,16 @@ export function GeometryViewer({
     scene.background = new THREE.Color('#f7f9fc')
 
     const camera = new THREE.PerspectiveCamera(45, width / height, 1, 100000)
-    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
+    let renderer: THREE.WebGLRenderer
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
+    } catch (err) {
+      console.error('WebGL renderer init failed:', err)
+      setWebglError(true)
+      return
+    }
     renderer.setSize(width, height)
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
     container.appendChild(renderer.domElement)
 
     const controls = new OrbitControls(camera, renderer.domElement)
@@ -540,20 +568,28 @@ export function GeometryViewer({
     controls.target.copy(center)
     controls.update()
 
+    // Экономия CPU (P1-7): рендерим только при фактическом изменении, а не в
+    // постоянном цикле с фиксированной частотой. OrbitControls помечает
+    // needsRender при взаимодействии; в покое лишние кадры не генерируются.
+    let needsRender = true
     let lastCapture = 0
-    const onControlsChange = () => saveLastFrame()
-    controls.addEventListener('change', onControlsChange)
+    const onChange = () => {
+      needsRender = true
+    }
+    controls.addEventListener('change', onChange)
     renderer.setAnimationLoop(() => {
       controls.update()
+      if (!needsRender) return
+      needsRender = false
       renderer.render(scene, camera)
+      // Кадр для КП сохраняем только ПОСЛЕ фактической отрисовки и не чаще
+      // 150 мс при непрерывном вращении — фиксированного PNG-цикла больше нет.
       const now = performance.now()
-      if (now - lastCapture > 300) {
-        saveLastFrame()
+      if (now - lastCapture >= 150) {
         lastCapture = now
+        saveLastFrame()
       }
     })
-    // первый кадр сразу
-    saveLastFrame()
 
     const ro = new ResizeObserver(() => {
       const w = container.clientWidth || 600
@@ -567,7 +603,7 @@ export function GeometryViewer({
     return () => {
       renderer.setAnimationLoop(null)
       ro.disconnect()
-      controls.removeEventListener('change', onControlsChange)
+      controls.removeEventListener('change', onChange)
       controls.dispose()
       stairMat.dispose()
       stair.geo.dispose()
@@ -617,6 +653,17 @@ export function GeometryViewer({
   // Стены строятся по периметру помещения: без заданных габаритов (ширины и
   // длины) строить не из чего, поэтому тумблеры залочены и выводится подсказка.
   const roomSizes = (roomWidth ?? 0) > 0 && (roomLength ?? 0) > 0
+
+  if (webglError) {
+    return (
+      <div className="viewer viewer--fallback" role="status">
+        <p>
+          3D-визуализация недоступна в этом браузере: WebGL не поддерживается
+          или отключён. Геометрия, габариты и цена остаются доступны в таблицах ниже.
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="viewer">

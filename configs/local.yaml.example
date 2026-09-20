@@ -6,7 +6,7 @@ http:
   addr: ":8080"
 
 database:
-  url: "postgres://stair:stair@localhost:5432/stair_platform?sslmode=disable"
+  url: "postgres://stair:changeme@localhost:5432/stair_platform?sslmode=disable"
 
 redis:
   addr: "localhost:6379"

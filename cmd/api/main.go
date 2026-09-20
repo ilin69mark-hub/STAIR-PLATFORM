@@ -35,6 +35,8 @@ import (
 	"stairplatform/internal/infrastructure/oidc"
 	paymentsinfra "stairplatform/internal/infrastructure/payments"
 	"stairplatform/internal/infrastructure/queue"
+	"stairplatform/internal/infrastructure/redisconf"
+	"stairplatform/internal/infrastructure/secrets"
 	infstorage "stairplatform/internal/infrastructure/storage"
 	"stairplatform/internal/infrastructure/tracing"
 	transporthttp "stairplatform/internal/transport/http"
@@ -126,6 +128,21 @@ func main() {
 	)
 	authSvc := auth.NewService(database.NewAuthRepository(pool), sessionTTL(), auditSvc)
 	intSvc := integrations.NewService(database.NewIntegrationRepository(pool), queueBackend.Queue())
+	// S1-2: шифрование webhook-секретов at rest (STAIR_SECRETS_KEY, hex 64).
+	if keyHex := os.Getenv("STAIR_SECRETS_KEY"); keyHex != "" {
+		key, err := secrets.KeyFromHex(keyHex)
+		if err != nil {
+			slog.Error("STAIR_SECRETS_KEY invalid (need 64 hex chars = 32 bytes)", "error", err)
+			os.Exit(1)
+		}
+		box, err := secrets.NewBox(key)
+		if err != nil {
+			slog.Error("secrets box init failed", "error", err)
+			os.Exit(1)
+		}
+		intSvc = intSvc.WithSecretCrypter(box)
+		slog.Info("integrations: webhook secrets encryption enabled")
+	}
 	// Jobs (EDR-0035): асинхронный расчёт — ставим в очередь, выполняет
 	// воркер (calc не нужен API-процессу).
 	jobsSvc := jobs.NewService(database.NewCalcJobRepository(pool), queueBackend.Queue(), nil)
@@ -156,13 +173,31 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Redis: единственный клиент на процесс. Используется для readiness,
+	// rate limiter, очередей и дедупликации webhook-событий (P1-1). При
+	// отсутствии STAIR_REDIS_ADDR — nil (readiness просто без Redis).
+	var redisClient *redis.Client
+	if redisAddr := os.Getenv("STAIR_REDIS_ADDR"); redisAddr != "" {
+		redisClient = redis.NewClient(redisconf.FromEnv(redisAddr))
+		defer func() { _ = redisClient.Close() }()
+	}
+
 	// Payments (EDR-0027 §3.3): платёжные интенты + входящий webhook PSP.
 	// maxAge=0 → верификатор использует MaxTimestampAge (5 мин).
+	// Production guard: в проде платежи обязательны — без ключей Stripe
+	// процесс не стартует, иначе заказы «оплачивались» бы локально без
+	// реального списания (mock-провайдер допустим только в dev).
+	env := os.Getenv("STAIR_ENVIRONMENT")
+	isProduction := strings.EqualFold(env, "production") || strings.EqualFold(env, "prod")
 	var paymentProvider payments.Provider
 	var stripeWebhookService transporthttp.StripeWebhookService
 	if stripeKey := os.Getenv("STAIR_STRIPE_SECRET_KEY"); stripeKey != "" {
 		sp := paymentsinfra.NewStripeProvider(stripeKey, os.Getenv("STAIR_STRIPE_WEBHOOK_SECRET"))
-		adapter := paymentsinfra.NewStripeAdapter(sp)
+		storeURL := envString("STAIR_STORE_URL", "http://localhost:8080")
+		adapter := paymentsinfra.NewStripeAdapter(sp).WithReturnURLs(
+			storeURL+"/#cabinet",
+			storeURL,
+		)
 		// Оборачиваем в CircuitBreaker для отказоустойчивости
 		cb := circuitbreaker.New("stripe", circuitbreaker.Settings{
 			FailureThreshold: envInt("STAIR_CB_FAILURE_THRESHOLD", 5),
@@ -173,9 +208,12 @@ func main() {
 		paymentProvider = paymentsinfra.NewCBStripeAdapter(adapter, cb)
 		stripeWebhookService = paymentsinfra.NewStripeWebhookService(adapter, logger)
 		slog.Info("payments: using Stripe provider with circuit breaker")
+	} else if isProduction {
+		slog.Error("STAIR_STRIPE_SECRET_KEY is not set (payments are mandatory in production)")
+		os.Exit(1)
 	} else {
 		paymentProvider = paymentsinfra.NewMockProvider(envString("STAIR_PAYMENT_BASE_URL", "http://localhost:8080"))
-		slog.Info("payments: using mock provider")
+		slog.Info("payments: using mock provider (dev only)")
 	}
 	paymentSvc := payments.NewService(
 		database.NewPaymentRepository(pool),
@@ -188,6 +226,11 @@ func main() {
 	// тестами сохранена — процессор подключается отдельным сеттером.
 	if s, ok := stripeWebhookService.(*paymentsinfra.StripeWebhookServiceImpl); ok {
 		s.WithIntentProcessor(paymentSvc)
+		// Дедупликация входящих webhook (replay-защита P1-1) — при наличии Redis.
+		if redisClient != nil {
+			s.WithEventDeduper(paymentsinfra.NewRedisEventDeduper(redisClient))
+			slog.Info("payments: stripe webhook dedup enabled (redis)")
+		}
 	}
 	paymentWebhookSecret := os.Getenv("STAIR_PAYMENT_WEBHOOK_SECRET")
 
@@ -250,11 +293,6 @@ func main() {
 	}
 
 	// Readiness (EDR-0018 §3.2): SELECT 1 + Redis PING.
-	var redisClient *redis.Client
-	if cfg.RedisAddr != "" {
-		redisClient = redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
-		defer func() { _ = redisClient.Close() }()
-	}
 	cfg.Readiness = &health.Checker{
 		DB:    pool,
 		Redis: redisClient,
@@ -453,7 +491,7 @@ func newAPIQueueBackend(addr string) *apiQueueBackend {
 	if addr == "" {
 		return &apiQueueBackend{jobq: queue.NewMemoryQueue()}
 	}
-	client := redis.NewClient(&redis.Options{Addr: addr})
+	client := redis.NewClient(redisconf.FromEnv(addr))
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := client.Ping(ctx).Err(); err != nil {

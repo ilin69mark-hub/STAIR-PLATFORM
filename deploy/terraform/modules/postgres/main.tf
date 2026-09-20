@@ -64,6 +64,36 @@ variable "allowed_cidr_blocks" {
   default     = []
 }
 
+variable "backup_retention_period" {
+  description = "Backup retention in days"
+  type        = number
+  default     = 7
+}
+
+variable "deletion_protection" {
+  description = "Prevent accidental cluster deletion"
+  type        = bool
+  default     = true
+}
+
+variable "preferred_backup_window" {
+  description = "Daily backup window (UTC)"
+  type        = string
+  default     = "02:00-03:00"
+}
+
+variable "preferred_maintenance_window" {
+  description = "Weekly maintenance window (UTC)"
+  type        = string
+  default     = "sun:04:00-sun:05:00"
+}
+
+variable "parameter_group_family" {
+  description = "DB parameter group family (match engine_version)"
+  type        = string
+  default     = "aurora-postgresql16"
+}
+
 variable "tags" {
   description = "Tags for the RDS instance"
   type        = map(string)
@@ -75,10 +105,10 @@ resource "aws_security_group" "postgres" {
   vpc_id      = var.vpc_id
 
   ingress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    cidr_blocks     = var.allowed_cidr_blocks
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = var.allowed_cidr_blocks
   }
 
   egress {
@@ -100,17 +130,43 @@ resource "aws_db_subnet_group" "postgres" {
   tags = var.tags
 }
 
+# Параметры кластера: принудительный SSL (rds.force_ssl) для соответствия
+# sslmode=require на клиенте (P0-4). Family подбирается под engine_version.
+resource "aws_rds_cluster_parameter_group" "postgres" {
+  name        = "${var.identifier}-pg-secure"
+  family      = var.parameter_group_family
+  description = "STAIR Aurora PostgreSQL: force SSL"
+
+  parameter {
+    name         = "rds.force_ssl"
+    value        = "1"
+    apply_method = "pending-reboot"
+  }
+
+  tags = var.tags
+}
+
 resource "aws_rds_cluster" "postgres" {
-  cluster_identifier     = var.identifier
-  engine                 = "aurora-postgresql"
-  engine_version         = var.engine_version
-  database_name          = var.db_name
-  master_username        = var.username
-  master_password        = var.password
-  vpc_security_group_ids = [aws_security_group.postgres.id]
-  db_subnet_group_name   = aws_db_subnet_group.postgres.name
-  storage_encrypted      = true
-  skip_final_snapshot    = true
+  cluster_identifier              = var.identifier
+  engine                          = "aurora-postgresql"
+  engine_version                  = var.engine_version
+  database_name                   = var.db_name
+  master_username                 = var.username
+  master_password                 = var.password
+  vpc_security_group_ids          = [aws_security_group.postgres.id]
+  db_subnet_group_name            = aws_db_subnet_group.postgres.name
+  db_cluster_parameter_group_name = aws_rds_cluster_parameter_group.postgres.name
+  storage_encrypted               = true
+
+  # P0-5: защита от случайного destroy — финальный снапшот обязателен,
+  # удаление кластера только снятием защиты, бэкап ≥ 7 дней.
+  skip_final_snapshot          = false
+  final_snapshot_identifier    = "${var.identifier}-final"
+  deletion_protection          = var.deletion_protection
+  copy_tags_to_snapshot        = true
+  backup_retention_period      = var.backup_retention_period
+  preferred_backup_window      = var.preferred_backup_window
+  preferred_maintenance_window = var.preferred_maintenance_window
 
   tags = var.tags
 }

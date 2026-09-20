@@ -27,6 +27,18 @@ func TestStripeAdapterCreateCheckout(t *testing.T) {
 	}
 }
 
+func TestStripeAdapterWithReturnURLs(t *testing.T) {
+	provider := NewStripeProvider("sk_test_xxx", "whsec_xxx")
+	adapter := NewStripeAdapter(provider).WithReturnURLs("https://shop.example/#cabinet", "https://shop.example")
+
+	if adapter.successURL != "https://shop.example/#cabinet" {
+		t.Fatalf("expected success URL to be set, got %q", adapter.successURL)
+	}
+	if adapter.cancelURL != "https://shop.example" {
+		t.Fatalf("expected cancel URL to be set, got %q", adapter.cancelURL)
+	}
+}
+
 func TestStripeAdapterVerifyWebhookSignature(t *testing.T) {
 	provider := NewStripeProvider("sk_test_xxx", "whsec_test_secret")
 	adapter := NewStripeAdapter(provider)

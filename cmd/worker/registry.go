@@ -92,6 +92,19 @@ func (r *registry) calcCalculate(ctx context.Context, job queue.Job) error {
 // overrideWebhook подменяет клиент webhook в тестах.
 func (r *registry) overrideWebhook(s webhookSender) { r.webhook = s }
 
+// withWebhookClient настраивает клиент webhook-доставки с SSRF-политикой (S1-1).
+func (r *registry) withWebhookClient(c *infintegrations.Client) *registry {
+	r.webhook = c
+	return r
+}
+
+// withSecretCrypter включает шифрование секретов интеграций at rest (S1-2).
+// Вызывается из main при наличии STAIR_SECRETS_KEY.
+func (r *registry) withSecretCrypter(c integrations.SecretCrypter) *registry {
+	r.integrationsSvc.WithSecretCrypter(c)
+	return r
+}
+
 // deliverEvent доставляет событие внешней системе (EDR-0023 §3.4, EDR-0024
 // §3.4): читает событие доставки и эндпоинт, отправляет webhook с
 // HMAC-подписью, отмечает delivered; при ошибке — failed/DLQ по политике
@@ -114,7 +127,12 @@ func (r *registry) deliverEvent(ctx context.Context, job queue.Job) error {
 		return fmt.Errorf("worker: get endpoint: %w", err)
 	}
 
-	if err := r.webhook.Send(ctx, ep.URL, ep.SecretEnc, d.Payload); err != nil {
+	secret, err := r.integrationsSvc.SecretOf(ep)
+	if err != nil {
+		return fmt.Errorf("worker: decrypt endpoint secret: %w", err)
+	}
+
+	if err := r.webhook.Send(ctx, ep.URL, secret, d.Payload); err != nil {
 		if serr := r.integrationsSvc.MarkFailed(ctx, p.TenantID, p.EventID, d.Attempts+1, err.Error()); serr != nil {
 			slog.Error("worker: mark delivery failed", "event_id", p.EventID, "error", serr)
 		}
