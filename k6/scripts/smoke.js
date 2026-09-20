@@ -1,14 +1,14 @@
-// k6 (grafana/k6). Ночной нагрузочный прогон (P3-16): дымовой сценарий
-// против staging. Цель — поймать регрессии производительности и деградацию
-// конвейера под нагрузкой, не перегружая окружение.
+// k6 (grafana/k6). PR-смок (S5-2) + ночной нагрузочный прогон (P3-16):
+// дымовой сценарий против локального CI-API / staging. Цель — поймать
+// регрессии производительности, не перегружая окружение.
 //
 // Запуск локально:
 //   k6 run --env BASE_URL=http://localhost:8080 k6/scripts/smoke.js
 //
-// Пороговые значения (error budget INFRA-0022):
-//   - no failed requests;
-//   - p95 времени расчёта < 2s;
-//   - p95 валидации < 500ms.
+// Пороговые значения (error budget INFRA-0022, S5-2):
+//   - no failed requests (abortOnFail — ред фолд сразу);
+//   - p95 валидации (паблик-расчёт) < 500ms;
+//   - p95 всех запросов (health + validate) < 1000ms.
 import http from "k6/http";
 import { check, sleep } from "k6";
 
@@ -21,6 +21,7 @@ export const options = {
   thresholds: {
     http_req_failed: [{ threshold: "rate<0.01", abortOnFail: true }],
     http_req_duration: [{ threshold: "p(95)<1000" }],
+    "http_req_duration{name:validate}": [{ threshold: "p(95)<500" }],
   },
   summaryTrendStats: ["avg", "min", "med", "p(95)", "p(99)", "max"],
 };
@@ -40,19 +41,22 @@ const PARAMS = {
 };
 
 export default function () {
-  // Живучесть: почти нулевая цена.
-  const health = http.get(`${BASE_URL}/api/v1/health`);
+  // Живучесть: почти нулевая цена. GET /health (router.go).
+  const health = http.get(`${BASE_URL}/health`);
   check(health, { "health 200": (r) => r.status === 200 });
 
   // Валидация параметров (без авторизации, лимит validate_rate_limit).
+  // name-таг «validate» — отдельный порог p95<500ms (S5-2).
   const valid = http.post(
     `${BASE_URL}/api/v1/public/stairs:validate`,
     JSON.stringify(PARAMS),
-    { headers: { "Content-Type": "application/json" } },
+    {
+      headers: { "Content-Type": "application/json" },
+      tags: { name: "validate" },
+    },
   );
   check(valid, {
     "validate 200": (r) => r.status === 200,
-    "validate p95 < 1.5s": (r) => r.timings.duration < 1500,
   });
 
   sleep(0.1);

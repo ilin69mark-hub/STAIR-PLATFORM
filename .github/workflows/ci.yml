@@ -469,6 +469,73 @@ jobs:
           path: frontend-store/playwright-report
           retention-days: 7
 
+  load-smoke:
+    # S5-2: нагрузочный smoke на каждый PR (k6), пороги в k6/scripts/smoke.js
+    # (validate p95<500ms, http_req_failed rate<0.01 abortOnFail). Полный
+    # нагрузочный прогон — nightly-load.yml на staging.
+    name: k6 smoke on PR (S5-2)
+    runs-on: ubuntu-latest
+    needs: [test-backend]
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: stair
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: stair_platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: grafana/setup-k6-action@v1
+        with:
+          k6-version: "0.53.0"
+
+      - name: Run migrations
+        run: go run ./cmd/migrate up
+        env:
+          STAIR_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_platform_test?sslmode=disable
+
+      - name: Start API server
+        run: |
+          go run ./cmd/api &
+          sleep 5
+        env:
+          STAIR_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_platform_test?sslmode=disable
+          STAIR_HTTP_ADDR: :8080
+          STAIR_SESSION_TTL: 86400
+          STAIR_LOGIN_RATE_LIMIT: 100
+          STAIR_REGISTER_RATE_LIMIT: 100
+          STAIR_QUOTE_RATE_LIMIT: 600
+          # S5-2: validate — публичный эндпоинт; дефолтный лимит 120 слишком
+          # мал для 20 VU k6-smoke. Для load-теста поднимаем как в e2e.
+          STAIR_VALIDATE_RATE_LIMIT: 600
+
+      - name: Wait for API health
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8080/health >/dev/null && exit 0
+            sleep 2
+          done
+          echo "api not healthy" >&2
+          exit 1
+
+      - name: Run k6 smoke (validate p95<500ms, 0 failed)
+        run: k6 run --summary-trend-stats="avg,min,med,p(95),p(99),max" k6/scripts/smoke.js
+        env:
+          BASE_URL: http://localhost:8080
+
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
