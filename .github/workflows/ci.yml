@@ -380,7 +380,7 @@ jobs:
           path: frontend/playwright-report
           retention-days: 7
 
-  # Playwright e2e клиентского сайта: rails-matrix, room-fit, store.
+  # Playwright e2e клиентского сайта: rails-matrix, room-fit, seo, session-expired, store.
   # (quote-matrix 2000 живёт в отдельной матричной джобе.)
   test-e2e-store:
     name: E2E Store (Playwright)
@@ -456,7 +456,7 @@ jobs:
             -d '{"name":"Store E2E","email":"user@user.ru","password":"user1234"}' || true
 
       - name: Run Store E2E tests
-        run: npx playwright test e2e/tests/rails-matrix.spec.ts e2e/tests/room-fit.spec.ts e2e/tests/store.spec.ts
+        run: npx playwright test e2e/tests/rails-matrix.spec.ts e2e/tests/room-fit.spec.ts e2e/tests/seo.spec.ts e2e/tests/session-expired.spec.ts e2e/tests/store.spec.ts
         working-directory: frontend-store
         env:
           CI: 'true'
