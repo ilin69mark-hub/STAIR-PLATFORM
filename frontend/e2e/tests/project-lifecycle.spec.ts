@@ -3,6 +3,7 @@
 
 import { expect, test } from '@playwright/test'
 import { register, uniqueEmail } from '../helpers/auth'
+import { expectResultPanel } from '../helpers/resultPanel'
 
 function uniqueName(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e4)}`
@@ -25,14 +26,16 @@ test('полный критический workflow: регистрация → �
   await page.getByRole('button', { name: 'Рассчитать' }).click()
   await expect(page.getByText('Расчёт сохранён')).toBeVisible()
 
-  // Панели результата конвейера.
+  // Панели результата конвейера (спрятаны за result-tabs, S-100):
+  // «Марш (Solver)» виден по умолчанию, остальные — после клика по табу.
   await expect(page.getByText('Марш (Solver)')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Геометрия' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Производство' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Стоимость (RUB)' })).toBeVisible()
+  await expectResultPanel(page, 'Геометрия', 'Геометрия')
+  await expectResultPanel(page, 'Производство', 'Производство')
+  await expectResultPanel(page, 'Стоимость', 'Стоимость (RUB)')
   await expect(page.getByText('Итоговая цена')).toBeVisible()
 
-  // Экспорт BOM (CSV) — скачивается файл с ожидаемым именем.
+  // Экспорт BOM (CSV) — кнопка в панели «Производство» (за табом).
+  await expectResultPanel(page, 'Производство', 'Производство')
   const bomDownload = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Экспорт BOM (CSV)' }).click()
   const bomFile = await bomDownload

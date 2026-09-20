@@ -3,6 +3,7 @@
 
 import { expect, test } from '@playwright/test'
 import { register, uniqueEmail } from '../helpers/auth'
+import { expectResultPanel } from '../helpers/resultPanel'
 
 function uniqueName(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e4)}`
@@ -31,8 +32,8 @@ test('Спиральный марш: настройка → расчёт → п�
   await expect(page.getByText('Радиус колонны r')).toBeVisible()
   await expect(page.getByText('Наружный радиус R', { exact: true })).toBeVisible()
 
-  // Остальные панели конвейера также присутствуют.
-  await expect(page.getByRole('heading', { name: 'Геометрия' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Производство' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Стоимость (RUB)' })).toBeVisible()
+  // Остальные панели конвейера также присутствуют (за result-tabs).
+  await expectResultPanel(page, 'Геометрия', 'Геометрия')
+  await expectResultPanel(page, 'Производство', 'Производство')
+  await expectResultPanel(page, 'Стоимость', 'Стоимость (RUB)')
 })
