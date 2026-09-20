@@ -456,7 +456,7 @@ jobs:
             -d '{"name":"Store E2E","email":"user@user.ru","password":"user1234"}' || true
 
       - name: Run Store E2E tests
-run: npx playwright test e2e/tests/rails-matrix.spec.ts e2e/tests/room-fit.spec.ts e2e/tests/seo.spec.ts e2e/tests/session-expired.spec.ts e2e/tests/store.spec.ts
+        run: npx playwright test e2e/tests/rails-matrix.spec.ts e2e/tests/room-fit.spec.ts e2e/tests/seo.spec.ts e2e/tests/session-expired.spec.ts e2e/tests/store.spec.ts
         working-directory: frontend-store
         env:
           CI: 'true'
