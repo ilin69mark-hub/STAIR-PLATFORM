@@ -313,7 +313,7 @@ jobs:
           path: frontend-store/blob-report
           retention-days: 7
 
-  # Playwright e2e админ-панели: 11 спеков (кроме report-400 — 400 проектов,
+  # Playwright e2e админ-панели: 12 спеков (кроме report-400 — 400 проектов,
   # ~30 мин, гоняется локально через R400_N). API поднимает сам Playwright
   # webServer (см. frontend/playwright.config.ts), БД — postgres service.
   test-e2e-admin:
@@ -367,7 +367,7 @@ jobs:
         run: go run ./cmd/migrate up
 
       - name: Run Admin E2E tests
-        run: npx playwright test e2e/tests/admin-panel.spec.ts e2e/tests/assistant.spec.ts e2e/tests/boundary.spec.ts e2e/tests/lshape.spec.ts e2e/tests/project-lifecycle.spec.ts e2e/tests/roles-parallel.spec.ts e2e/tests/room-fit-variants.spec.ts e2e/tests/spiral.spec.ts e2e/tests/ui-20.spec.ts e2e/tests/ushape.spec.ts e2e/tests/validation.spec.ts
+        run: npx playwright test e2e/tests/admin-panel.spec.ts e2e/tests/assistant.spec.ts e2e/tests/boundary.spec.ts e2e/tests/lshape.spec.ts e2e/tests/project-lifecycle.spec.ts e2e/tests/roles-parallel.spec.ts e2e/tests/room-fit-variants.spec.ts e2e/tests/session-expired.spec.ts e2e/tests/spiral.spec.ts e2e/tests/ui-20.spec.ts e2e/tests/ushape.spec.ts e2e/tests/validation.spec.ts
         working-directory: frontend
         env:
           CI: 'true'
@@ -380,7 +380,7 @@ jobs:
           path: frontend/playwright-report
           retention-days: 7
 
-  # Playwright e2e клиентского сайта: rails-matrix, room-fit, store.
+  # Playwright e2e клиентского сайта: rails-matrix, room-fit, session-expired, store.
   # (quote-matrix 2000 живёт в отдельной матричной джобе.)
   test-e2e-store:
     name: E2E Store (Playwright)
@@ -456,7 +456,7 @@ jobs:
             -d '{"name":"Store E2E","email":"user@user.ru","password":"user1234"}' || true
 
       - name: Run Store E2E tests
-        run: npx playwright test e2e/tests/rails-matrix.spec.ts e2e/tests/room-fit.spec.ts e2e/tests/store.spec.ts
+        run: npx playwright test e2e/tests/rails-matrix.spec.ts e2e/tests/room-fit.spec.ts e2e/tests/session-expired.spec.ts e2e/tests/store.spec.ts
         working-directory: frontend-store
         env:
           CI: 'true'
