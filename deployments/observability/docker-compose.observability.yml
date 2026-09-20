@@ -60,7 +60,7 @@ services:
     container_name: stair-platform-alert-sink
     command: ["node", "/srv/sink.js"]
     volumes:
-      - ./alert-sink/sink.js:/srv/sink.js:ro
+      - ./observability/alert-sink/sink.js:/srv/sink.js:ro
     ports:
       - "8099:8099"
     restart: unless-stopped
