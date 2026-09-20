@@ -44,8 +44,25 @@ services:
     volumes:
       - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - stair-alertmanager-data:/alertmanager
+    depends_on:
+      alert-sink:
+        condition: service_started
     ports:
       - "9093:9093"
+    restart: unless-stopped
+
+  # S5-1: локальный/dev-канал доставки алертов (вместо blackhole). URL этого
+  # sink — в alertmanager.yml (receiver notify). Логи: docker logs
+  # stair-platform-alert-sink. В проде заменить uri у webhook_configs на
+  # реальный канал (см. docs/17_INFRASTRUCTURE/21_ALERTING.md § Delivery).
+  alert-sink:
+    image: node:22-alpine
+    container_name: stair-platform-alert-sink
+    command: ["node", "/srv/sink.js"]
+    volumes:
+      - ./alert-sink/sink.js:/srv/sink.js:ro
+    ports:
+      - "8099:8099"
     restart: unless-stopped
 
   grafana:

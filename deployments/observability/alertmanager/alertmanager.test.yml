@@ -1,0 +1,16 @@
+# S5-1 CI smoke-конфиг: идентичен прод-роутингу (route → receiver notify →
+# webhook), но с короткими таймерами, чтобы тест доставки не ждал 30s+5m.
+# Дублирование — намеренное: тест должен ловить регрессию blackhole-роута,
+# поэтому проверяется тот же путь маршрутизации.
+route:
+  receiver: notify
+  group_by: [alertname, severity, service]
+  group_wait: 1s
+  group_interval: 1s
+  repeat_interval: 1m
+
+receivers:
+  - name: notify
+    webhook_configs:
+      - url: "http://alert-sink:8099/hooks/stair-alerts"
+        send_resolved: true

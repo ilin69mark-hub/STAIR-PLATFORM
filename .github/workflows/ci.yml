@@ -469,6 +469,48 @@ jobs:
           path: frontend-store/playwright-report
           retention-days: 7
 
+  test-alerting:
+    name: Alerting smoke (S5-1)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Start alertmanager + webhook sink
+        run: docker compose -f deployments/observability/docker-compose.alerting-test.yml up -d
+
+      - name: Wait for Alertmanager health
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:19093/-/healthy >/dev/null && exit 0
+            sleep 2
+          done
+          echo "alertmanager not healthy" >&2
+          exit 1
+
+      - name: Fire synthetic alert via API
+        run: |
+          curl -sf -X POST http://localhost:19093/api/v2/alerts \
+            -H 'Content-Type: application/json' \
+            -d '[{"labels":{"alertname":"StairAlertDeliveryProbe","severity":"critical","service":"stair-api"},"annotations":{"summary":"S5-1 проверка доставки через webhook-канал","description":"smoke: alert должен дойти в alert-sink"}}]'
+
+      - name: Verify webhook delivery in sink log
+        run: |
+          for i in $(seq 1 30); do
+            if docker exec stair-alert-sink-test sh -c 'grep -q StairAlertDeliveryProbe /var/log/alert-sink.log'; then
+              echo "ALERT DELIVERED to webhook sink"
+              docker exec stair-alert-sink-test sh -c 'tail -6 /var/log/alert-sink.log'
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "alert not delivered to webhook sink" >&2
+          exit 1
+
+      - name: Cleanup stack
+        if: always()
+        run: docker compose -f deployments/observability/docker-compose.alerting-test.yml down -v
+
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
