@@ -518,9 +518,10 @@ jobs:
           STAIR_LOGIN_RATE_LIMIT: 100
           STAIR_REGISTER_RATE_LIMIT: 100
           STAIR_QUOTE_RATE_LIMIT: 600
-          # S5-2: validate — публичный эндпоинт; дефолтный лимит 120 слишком
-          # мал для 20 VU k6-smoke. Для load-теста поднимаем как в e2e.
-          STAIR_VALIDATE_RATE_LIMIT: 600
+          # S5-2: validate — публичный эндпоинт; для perf-smoke в ephemeral API
+          # лимит 600/мин выбивался бы 20 VU за секунды → уводим, дефолт/прод
+          # не трогаем (в проде smoke ограничен реальным validate_rate_limit).
+          STAIR_VALIDATE_RATE_LIMIT: 100000
 
       - name: Wait for API health
         run: |

@@ -28,12 +28,17 @@ export const options = {
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
 
-// Минимально валидные параметры лестницы (прямой марш).
+// Минимально валидные параметры лестницы (прямой марш). Ширина уникальна
+// по VU (без модуля!): DeduplicateMiddleware (dedup.go) отдаёт 429 на
+// параллельные запросы с одинаковым ключом (IP+метод+путь+хэш тела),
+// а все VU шлют из одной сети — повторяющийся payload ломал бы порог
+// http_req_failed. Абсолютное значение ширины не критично: check требует
+// 200, валидация геометрии в теле не влияет на код ответа.
 const PARAMS = {
   format: "direct",
   height: 3000,
   depth: 300,
-  width: 1000,
+  width: 1000 + __VU,
   stepHeight: 175,
   treadDepth: 280,
   stringerThickness: 10,
