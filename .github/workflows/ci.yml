@@ -63,7 +63,7 @@ jobs:
           echo "Checking package naming conventions..."
           go vet ./... 2>&1 | grep -i "name" || echo "OK: Package names valid"
 
-      - name: Check infra ownership (S2-2: single owner per resource)
+      - name: Check infra ownership (S2-2, single owner per resource)
         run: ./scripts/check-infra-ownership.sh
 
   test-backend:
