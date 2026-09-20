@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { authApi, type LoginRequest, type RegisterRequest } from '../api/auth'
 import type { User } from '@shared/types'
 import { AuthContext } from './context'
+import { onUnauthorized } from '@shared/api/session'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -47,6 +48,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const clear = useCallback(() => setUser(null), [])
+
+  // S3-2 (EDR-0012): подписка на шину 401 → сброс user → App рендерит логин.
+  // useEffect возвращает функцию отписки (cleanup) — в dev strict-mode 
+  // подписка не дублируется.
+  useEffect(() => onUnauthorized(clear), [clear])
 
   const value = useMemo(
     () => ({ user, loading, login, register, logout, clear }),

@@ -6,6 +6,7 @@
 import type { ApiErrorBody } from '@shared/types'
 import { ApiError } from '@shared/types'
 import { csrfHeaders, type AppOrigin } from '@shared/api/csrf'
+import { fireUnauthorized, isAuthEndpoint } from '@shared/api/session'
 
 // Admin-приложение (:5174) — origin «admin»: сервер пишет сессионные cookie
 // с суффиксом «_admin» (session_admin/csrf_admin), чтобы не делить host-only
@@ -31,6 +32,15 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
   if (res.status === 204) {
     return undefined as T
+  }
+
+  // 401 на защищённом эндпоинте (не /auth/*) = истёкшая сессия (EDR-0012
+  // Session Management, EDR-0012 S3-2). Централизованно оповещаем всех
+  // подписчиков (AuthProvider каждого приложения → clear() → редирект на
+  // логин). Дублировать в store-клиенте не нужно — fireUnauthorized живёт в
+  // shared-модуле session и вызывается из каждого клиента.
+  if (res.status === 401 && !isAuthEndpoint(url)) {
+    fireUnauthorized()
   }
 
   const text = await res.text()
