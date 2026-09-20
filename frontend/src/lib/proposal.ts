@@ -1,7 +1,9 @@
 // Коммерческое предложение — генерация PDF (клиентский, без себестоимости/раскроя)
 // Содержит: шапка, описание, параметры, итоговую цену, 2D и 3D скриншоты.
 
-import { jsPDF } from 'jspdf'
+// type-only импорт: значение jsPDF тянется динамически при генерации КП
+// (S4-1 — иначе тяжёлый чанк jspdf лежит в стартовом бандле).
+import type { jsPDF } from 'jspdf'
 import type { Mesh, Snapshot, Project } from '@shared/types'
 
 const FONT_NAME = 'NotoSans'
@@ -246,6 +248,8 @@ async function svgDataUrlToPng(svgDataUrl: string, width = 1200, height = 600): 
 export async function generateProposalPdf(project: Project, snapshot: Snapshot): Promise<void> {
   // Ленивый импорт шрифта: выпадает в отдельный чанк, тянется только тут.
   const { notoSansBase64 } = await import('./fonts/notoSans')
+  // jspdf тоже лениво: ВАЖНО до конструктора — это отдельный lazy-чанк (S4-1).
+  const { jsPDF } = await import('jspdf')
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
   ensureFont(doc, notoSansBase64)
   doc.setFont(FONT_NAME, 'normal')
