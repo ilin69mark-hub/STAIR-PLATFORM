@@ -79,13 +79,16 @@ func TestDeleteExpiredSsoStates(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	expired := &auth.SsoState{StateHash: uniqueHash("st-exp"), Nonce: "n1", PKCEVerifier: "v1", Redirect: "/", ExpiresAt: now.Add(-time.Minute)}
-	if err := ar.CreateSsoState(ctx, expired); err != nil {
-		t.Fatalf("create expired sso state: %v", err)
-	}
+	// Активное состояние создаём ПЕРВЫМ: CreateSsoState prune'ит истёкшие
+	// состояния перед INSERT (S-109), поэтому expired, созданный после active,
+	// доживает до DeleteExpiredSsoStates.
 	active := &auth.SsoState{StateHash: uniqueHash("st-act"), Nonce: "n2", PKCEVerifier: "v2", Redirect: "/", ExpiresAt: now.Add(time.Hour)}
 	if err := ar.CreateSsoState(ctx, active); err != nil {
 		t.Fatalf("create active sso state: %v", err)
+	}
+	expired := &auth.SsoState{StateHash: uniqueHash("st-exp"), Nonce: "n1", PKCEVerifier: "v1", Redirect: "/", ExpiresAt: now.Add(-time.Minute)}
+	if err := ar.CreateSsoState(ctx, expired); err != nil {
+		t.Fatalf("create expired sso state: %v", err)
 	}
 
 	n, err := ar.DeleteExpiredSsoStates(ctx)

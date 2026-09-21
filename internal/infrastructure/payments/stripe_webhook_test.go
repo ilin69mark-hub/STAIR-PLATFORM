@@ -228,7 +228,7 @@ func (r *recordingProcessor) ApplyVerifiedEvent(_ context.Context, _, _, _ strin
 }
 
 func TestStripeWebhookDeduplicates(t *testing.T) {
-	secret := "whsec_test_secret"
+	secret := "whsec_test_secret" //nolint:gosec // тестовая фикстура, не реальный секрет
 	provider := NewStripeAdapter(NewStripeProvider("sk_test_xxx", secret))
 	deduper := newFakeDeduper()
 	proc := &recordingProcessor{}
@@ -254,7 +254,7 @@ func TestStripeWebhookDeduplicates(t *testing.T) {
 }
 
 func TestStripeWebhookDedupMarkerClearedOnFailure(t *testing.T) {
-	secret := "whsec_test_secret"
+	secret := "whsec_test_secret" //nolint:gosec // тестовая фикстура, не реальный секрет
 	provider := NewStripeAdapter(NewStripeProvider("sk_test_xxx", secret))
 	deduper := newFakeDeduper()
 	failing := &recordingProcessor{}

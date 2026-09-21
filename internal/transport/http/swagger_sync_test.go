@@ -10,11 +10,11 @@ import (
 
 // nonRESTRoutes — маршруты, не входящие в REST-спецификацию (мета/инфра).
 var nonRESTRoutes = map[string]bool{
-	"/":                         true,
-	"/ws":                       true,
-	"/swagger":                  true,
+	"/":                          true,
+	"/ws":                        true,
+	"/swagger":                   true,
 	"/docs/openapi/swagger.yaml": true,
-	"/n/swagger.yaml":           true,
+	"/n/swagger.yaml":            true,
 }
 
 // syncRoutes извлекает (method, path) из router-регистраций транспортного
@@ -42,9 +42,7 @@ func syncRoutes(t *testing.T) (map[string]map[string]bool, []string) {
 			} else {
 				met, path = "GET", raw
 			}
-			if strings.HasPrefix(path, "/api/v1") {
-				path = strings.TrimPrefix(path, "/api/v1")
-			}
+			path = strings.TrimPrefix(path, "/api/v1")
 			if strings.Contains(path, ":") {
 				rpc = append(rpc, met+" "+path)
 				continue
@@ -66,11 +64,12 @@ func syncRoutes(t *testing.T) (map[string]map[string]bool, []string) {
 func specPaths(t *testing.T) (map[string]map[string]bool, []string) {
 	t.Helper()
 	spec := readEmbed(t, "swagger/swagger.yaml")
-	var rpc []string
 	pathRe := regexp.MustCompile(`(?m)^  (/\S+):\s*$`)
 	rpcRe := regexp.MustCompile(`(?m)^  - "(POST|GET|PUT|PATCH|DELETE)\s+(\S+)"\s*$`)
 	methods := map[string]map[string]bool{}
-	for _, m := range rpcRe.FindAllStringSubmatch(spec, -1) {
+	rpcMatches := rpcRe.FindAllStringSubmatch(spec, -1)
+	rpc := make([]string, 0, len(rpcMatches))
+	for _, m := range rpcMatches {
 		rpc = append(rpc, m[1]+" "+m[2])
 	}
 	for _, line := range pathRe.FindAllStringSubmatch(spec, -1) {
@@ -150,7 +149,7 @@ func TestSwaggerSpecMatchesRoutes(t *testing.T) {
 
 func readDisk(t *testing.T, name string) string {
 	t.Helper()
-	b, err := os.ReadFile(name)
+	b, err := os.ReadFile(name) //nolint:gosec // контролируемый тестовый путь
 	if err != nil {
 		t.Fatalf("read %s: %v", name, err)
 	}

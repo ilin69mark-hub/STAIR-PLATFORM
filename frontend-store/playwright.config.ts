@@ -15,7 +15,7 @@ export default defineConfig({
   // «duplicate request in progress». Повтор того же тела по-прежнему давится.
   workers: 4,
   reporter: process.env.CI
-    ? [['list'], ['html', { open: 'never' }]]
+    ? [['list'], ['html', { open: 'never' }], ['blob', { outputDir: 'blob-report' }]]
     : 'list',
   use: {
     // Локальная разработка — Vite dev (:5175); готовый стек (Docker) — store :3000.

@@ -148,19 +148,6 @@ func BenchmarkSign(b *testing.B) {
 	}
 }
 
-// stubbedResolver — тестовый резолвер, управляющий DNS (DNS-rebinding и
-// детерминированные блокировки без внешней сети).
-type stubbedResolver struct {
-	ips map[string][]net.IP
-}
-
-func (s *stubbedResolver) resolve(ctx context.Context, host string) ([]net.IP, error) {
-	if ips, ok := s.ips[host]; ok {
-		return ips, nil
-	}
-	return nil, fmt.Errorf("no such host: %s", host)
-}
-
 func ip(s string) net.IP { return net.ParseIP(s) }
 
 func TestSSRFBlocksPrivateAndLinkLocal(t *testing.T) {

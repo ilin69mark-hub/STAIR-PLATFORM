@@ -19,12 +19,6 @@ func preAuthRequest(method, path, body string) *http.Request {
 	return r.WithContext(withAuthUser(r.Context(), &auth.User{ID: "u-1", TenantID: "t-1"}))
 }
 
-func runRouter(req *http.Request) *httptest.ResponseRecorder {
-	rec := httptest.NewRecorder()
-	testRouterWithProjects(newFakeProjectService()).ServeHTTP(rec, req)
-	return rec
-}
-
 func TestCreateProjectUnauthorized(t *testing.T) {
 	h := handleCreateProject(newFakeProjectService())
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"x"}`))

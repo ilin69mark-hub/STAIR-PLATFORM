@@ -572,13 +572,15 @@ jobs:
 
       # gosec и trivy-action закреплены на стабильных тегах (supply-chain):
       # «@master» привязал бы к mutable-ветке и ломал воспроизводимость.
+      # trivy-action >= v0.30 пиннит setup-trivy по SHA (v0.29.0 пиннил
+      # несуществующий тег setup-trivy@v0.2.2 → Security Scan падал на резолве).
       - name: Run gosec
         uses: securego/gosec@v2.29.0
         with:
           args: ./...
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@0.29.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
           scan-ref: '.'

@@ -110,11 +110,9 @@ func (h *configurableIDP) validPayload() map[string]any {
 	}
 }
 
-func (h *configurableIDP) issueIDToken(t *testing.T, header, payload map[string]any) string {
+func (h *configurableIDP) issueIDToken(t *testing.T, payload map[string]any) string {
 	t.Helper()
-	if header == nil {
-		header = map[string]any{"alg": "RS256", "kid": h.kid, "typ": "JWT"}
-	}
+	header := map[string]any{"alg": "RS256", "kid": h.kid, "typ": "JWT"}
 	return signJWT(t, h.key, header, payload)
 }
 
@@ -385,7 +383,7 @@ func TestVerifyIDTokenJWKSRequestError(t *testing.T) {
 	defer idp.Close()
 	idp.discoBody = idp.discoJSON("", "http://ex%zzam.com")
 	c := idp.client()
-	raw := idp.issueIDToken(t, nil, idp.validPayload())
+	raw := idp.issueIDToken(t, idp.validPayload())
 	if _, err := c.VerifyIDToken(context.Background(), raw, "n-1"); err == nil {
 		t.Fatal("expected jwks request error")
 	}
@@ -396,7 +394,7 @@ func TestVerifyIDTokenJWKSFetchError(t *testing.T) {
 	defer idp.Close()
 	idp.discoBody = idp.discoJSON("", closedServerURL())
 	c := idp.client()
-	raw := idp.issueIDToken(t, nil, idp.validPayload())
+	raw := idp.issueIDToken(t, idp.validPayload())
 	if _, err := c.VerifyIDToken(context.Background(), raw, "n-1"); err == nil {
 		t.Fatal("expected jwks fetch error")
 	}
@@ -407,7 +405,7 @@ func TestVerifyIDTokenJWKSNonOKStatus(t *testing.T) {
 	defer idp.Close()
 	idp.jwksCode = http.StatusForbidden
 	c := idp.client()
-	raw := idp.issueIDToken(t, nil, idp.validPayload())
+	raw := idp.issueIDToken(t, idp.validPayload())
 	if _, err := c.VerifyIDToken(context.Background(), raw, "n-1"); err == nil {
 		t.Fatal("expected jwks status error")
 	}
@@ -418,7 +416,7 @@ func TestVerifyIDTokenJWKSReadError(t *testing.T) {
 	defer idp.Close()
 	idp.jwksCL = 100
 	c := idp.client()
-	raw := idp.issueIDToken(t, nil, idp.validPayload())
+	raw := idp.issueIDToken(t, idp.validPayload())
 	if _, err := c.VerifyIDToken(context.Background(), raw, "n-1"); err == nil {
 		t.Fatal("expected jwks read error")
 	}
@@ -429,7 +427,7 @@ func TestVerifyIDTokenJWKSMalformedJSON(t *testing.T) {
 	defer idp.Close()
 	idp.jwksBody = "notjson"
 	c := idp.client()
-	raw := idp.issueIDToken(t, nil, idp.validPayload())
+	raw := idp.issueIDToken(t, idp.validPayload())
 	if _, err := c.VerifyIDToken(context.Background(), raw, "n-1"); err == nil {
 		t.Fatal("expected jwks decode error")
 	}
@@ -440,7 +438,7 @@ func TestVerifyIDTokenNoRSAKey(t *testing.T) {
 	defer idp.Close()
 	idp.jwksBody = `{"keys":[{"kid":"cfg-kid","kty":"EC","n":"x","e":"AQAB"}]}`
 	c := idp.client()
-	raw := idp.issueIDToken(t, nil, idp.validPayload())
+	raw := idp.issueIDToken(t, idp.validPayload())
 	if _, err := c.VerifyIDToken(context.Background(), raw, "n-1"); err == nil {
 		t.Fatal("expected no matching RSA key error")
 	}
@@ -451,7 +449,7 @@ func TestVerifyIDTokenJWKNDecodeError(t *testing.T) {
 	defer idp.Close()
 	idp.jwksBody = `{"keys":[{"kid":"cfg-kid","kty":"RSA","n":"!","e":"AQAB"}]}`
 	c := idp.client()
-	raw := idp.issueIDToken(t, nil, idp.validPayload())
+	raw := idp.issueIDToken(t, idp.validPayload())
 	if _, err := c.VerifyIDToken(context.Background(), raw, "n-1"); err == nil {
 		t.Fatal("expected jwk n decode error")
 	}
@@ -462,7 +460,7 @@ func TestVerifyIDTokenJWKEDecodeError(t *testing.T) {
 	defer idp.Close()
 	idp.jwksBody = `{"keys":[{"kid":"cfg-kid","kty":"RSA","n":"AQAB","e":"!"}]}`
 	c := idp.client()
-	raw := idp.issueIDToken(t, nil, idp.validPayload())
+	raw := idp.issueIDToken(t, idp.validPayload())
 	if _, err := c.VerifyIDToken(context.Background(), raw, "n-1"); err == nil {
 		t.Fatal("expected jwk e decode error")
 	}
@@ -473,7 +471,7 @@ func TestVerifyIDTokenJWKInvalidExponent(t *testing.T) {
 	defer idp.Close()
 	idp.jwksBody = `{"keys":[{"kid":"cfg-kid","kty":"RSA","n":"AQAB","e":"AA"}]}`
 	c := idp.client()
-	raw := idp.issueIDToken(t, nil, idp.validPayload())
+	raw := idp.issueIDToken(t, idp.validPayload())
 	if _, err := c.VerifyIDToken(context.Background(), raw, "n-1"); err == nil {
 		t.Fatal("expected invalid jwk e error")
 	}

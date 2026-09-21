@@ -259,7 +259,7 @@ func randomValid(flight string) (*Case, bool) {
 	case "u_shape":
 		_, vr, err = solver.SolveCheckedUShape(stairCfg, prof, S)
 	case "spiral":
-			_, vr, err = solver.SolveCheckedSpiral(stairCfg, prof)
+		_, vr, err = solver.SolveCheckedSpiral(stairCfg, prof)
 	}
 	if err != nil || vr.Blocking {
 		if flight == "spiral" {

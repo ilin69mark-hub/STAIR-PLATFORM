@@ -172,7 +172,7 @@ func TestSecretOfLegacyPlaintext(t *testing.T) {
 	svc.WithSecretCrypter(box)
 
 	// Строка без тега enc:v1: — legacy plaintext, возвращаем as-is (S1-2).
-	ep := &Endpoint{SecretEnc: "whsec_legacy"}
+	ep := &Endpoint{SecretEnc: "whsec_legacy"} //nolint:gosec // тестовая фикстура, не реальный секрет
 	got, err := svc.SecretOf(ep)
 	if err != nil {
 		t.Fatalf("SecretOf: %v", err)

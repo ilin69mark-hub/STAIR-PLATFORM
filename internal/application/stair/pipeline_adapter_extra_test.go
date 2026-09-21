@@ -68,11 +68,21 @@ func TestPipelineAdapterNoBus(t *testing.T) {
 	adapter := NewPipelineAdapter(NewService(), nil)
 	ctx := context.Background()
 
-	adapter.executeAnalysis(ctx, &pipeline.Context{Data: map[string]any{"config_id": "c"}})
-	adapter.executeGeometry(ctx, &pipeline.Context{Data: map[string]any{"config_id": "c"}})
-	adapter.executeManufacturing(ctx, &pipeline.Context{Data: map[string]any{"config_id": "c"}})
-	adapter.executePricing(ctx, &pipeline.Context{Data: map[string]any{"config_id": "c"}})
-	adapter.executeDocument(ctx, &pipeline.Context{Data: map[string]any{"config_id": "c"}})
+	if err := adapter.executeAnalysis(ctx, &pipeline.Context{Data: map[string]any{"config_id": "c"}}); err != nil {
+		t.Fatalf("analysis without bus: %v", err)
+	}
+	if err := adapter.executeGeometry(ctx, &pipeline.Context{Data: map[string]any{"config_id": "c"}}); err != nil {
+		t.Fatalf("geometry without bus: %v", err)
+	}
+	if err := adapter.executeManufacturing(ctx, &pipeline.Context{Data: map[string]any{"config_id": "c"}}); err != nil {
+		t.Fatalf("manufacturing without bus: %v", err)
+	}
+	if err := adapter.executePricing(ctx, &pipeline.Context{Data: map[string]any{"config_id": "c"}}); err != nil {
+		t.Fatalf("pricing without bus: %v", err)
+	}
+	if err := adapter.executeDocument(ctx, &pipeline.Context{Data: map[string]any{"config_id": "c"}}); err != nil {
+		t.Fatalf("document without bus: %v", err)
+	}
 
 	// Валидация без конфигурации в Data — ошибка раньше вызова Calculate.
 	if err := adapter.executeValidation(ctx, &pipeline.Context{Data: map[string]any{"config_id": "c"}}); err == nil {

@@ -1,4 +1,5 @@
 //go:build ignore
+
 package main
 
 import (
@@ -10,7 +11,7 @@ import (
 	"stairplatform/internal/engine/solver"
 )
 
-func mustLength(v float64) engineering.Length { l,_ := engineering.NewLength(v); return l }
+func mustLength(v float64) engineering.Length { l, _ := engineering.NewLength(v); return l }
 
 func main() {
 	W := 600.0

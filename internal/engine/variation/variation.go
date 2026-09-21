@@ -366,7 +366,6 @@ func smallerLandingVariant(ctx context.Context, cfg *engineering.StairConfigurat
 // крутизны (см. buildOtherType): система сама подбирает параметры, чтобы
 // лестница влезла в заданный периметр.
 func otherTypeVariants(ctx context.Context, cfg *engineering.StairConfiguration, height engineering.Length, comfort float64, set *constraint.ConstraintSet, rw, rl, tol float64) []validation.Variation {
-	var out []validation.Variation
 	var candidates []engineering.FlightType
 	switch cfg.Flight {
 	case engineering.FlightLShape:
@@ -380,6 +379,7 @@ func otherTypeVariants(ctx context.Context, cfg *engineering.StairConfiguration,
 	default:
 		candidates = []engineering.FlightType{engineering.FlightStraight, engineering.FlightLShape, engineering.FlightUShape}
 	}
+	out := make([]validation.Variation, 0, len(candidates))
 	for _, ft := range candidates {
 		out = append(out, buildOtherTypes(ctx, cfg, ft, height, comfort, set, rw, rl, tol)...)
 	}
