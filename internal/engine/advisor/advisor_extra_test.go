@@ -73,7 +73,7 @@ func TestExtraManufacturingIssue_MaterialFallback(t *testing.T) {
 }
 
 func TestExtraSpiralInfeasibleIssue(t *testing.T) {
-	in := inSpiral(6000, 190, 900, 1300)
+	in := inSpiral(900, 1300)
 	it := spiralInfeasibleIssue(in)
 	if it.Code != constraint.GEO_SPIRAL_TREAD || it.Severity != constraint.SeverityError {
 		t.Fatalf("code/severity = %s/%s", it.Code, it.Severity)
@@ -150,7 +150,7 @@ func TestExtraClampF(t *testing.T) {
 }
 
 func TestExtraManufactureFeasible(t *testing.T) {
-	in := inSpiral(6000, 190, 900, 1300)
+	in := inSpiral(900, 1300)
 	if !manufactureFeasible(in, [2]float64{9000, 3000}) {
 		t.Fatal("spiral must always be feasible")
 	}
@@ -195,7 +195,7 @@ func TestExtraWinderCandidates(t *testing.T) {
 }
 
 func TestExtraSpiralGeometry_ZeroWidth(t *testing.T) {
-	in := inSpiral(6000, 190, 0, 0)
+	in := inSpiral(0, 0)
 	out, inf, _ := spiralGeometry(in, standard(), 30, 40)
 	if out != nil || inf {
 		t.Fatalf("zero width must return nil,false: %v, %v", out, inf)

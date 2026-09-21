@@ -353,11 +353,13 @@ func findIssue(issues []validation.Issue, code constraint.RuleCode) *validation.
 }
 
 // inSpiral — типовой вход советника для спирального марша (EDR-0007).
-func inSpiral(h, h0, w, r float64) Input {
+// Высота (6000 мм) и целевая ступень (190 мм) фиксированы: все спиральные
+// кейсы тестируются на них; варьируются ширина и радиус.
+func inSpiral(w, r float64) Input {
 	return Input{
 		Flight:          engineering.FlightSpiral,
-		HeightMm:        h,
-		TargetStepMm:    h0,
+		HeightMm:        6000,
+		TargetStepMm:    190,
 		ComfortMm:       solver.DefaultComfortStep,
 		WidthMm:         w,
 		OuterRadiusMm:   r,
@@ -390,7 +392,7 @@ func TestAdviseSpiralSuggestionsCarryRadiusAndWidth(t *testing.T) {
 		Value:   543, Min: 260, Max: 320, HasMin: true, HasMax: true,
 	}}}
 
-	got := Advise(inSpiral(6000, 190, 1000, 3100), set, vr)
+	got := Advise(inSpiral(1000, 3100), set, vr)
 	issue := findIssue(got.Issues, constraint.GEO_SPIRAL_TREAD)
 	if issue == nil {
 		t.Fatalf("missing GEO_SPIRAL_TREAD issue: %+v", got.Issues)
@@ -432,7 +434,7 @@ func TestAdviseSpiralReducesInfeasibleWidth(t *testing.T) {
 		Value:   20, Min: 100, HasMin: true,
 	}}}
 
-	got := Advise(inSpiral(6000, 190, 3000, 3100), set, vr)
+	got := Advise(inSpiral(3000, 3100), set, vr)
 	issue := findIssue(got.Issues, constraint.GEO_SPIRAL_TREAD)
 	if issue == nil {
 		t.Fatalf("missing GEO_SPIRAL_TREAD issue: %+v", got.Issues)
@@ -458,7 +460,7 @@ func TestAdviseSpiralGuideFromRuleTemplate(t *testing.T) {
 		Message: "Проступь у колонны меньше 100 мм",
 		Value:   20, Min: 100, HasMin: true,
 	}}}
-	got := Advise(inSpiral(6000, 190, 3000, 3100), set, vr)
+	got := Advise(inSpiral(3000, 3100), set, vr)
 	issue := findIssue(got.Issues, constraint.GEO_SPIRAL_TREAD)
 	if issue == nil {
 		t.Fatalf("missing GEO_SPIRAL_TREAD issue")

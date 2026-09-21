@@ -139,7 +139,7 @@ func (c *Client) resolveDialIP(ctx context.Context, host string) (net.IP, error)
 		return nil, fmt.Errorf("integrations: resolve %s: %w", host, err)
 	}
 	for _, ip := range ips {
-		if _, blocked := classifyIP(ip, c.policy.AllowLoopback); blocked {
+		if classifyIP(ip, c.policy.AllowLoopback) {
 			continue
 		}
 		return ip, nil
@@ -155,41 +155,38 @@ func isLoopbackHost(host string) bool {
 	return false
 }
 
-// classifyIP классифицирует адрес, блокируемый SSRF-политикой (S1-1).
+// classifyIP сообщает, блокируется ли адрес SSRF-политикой (S1-1).
 // link-local покрывает метаданные облака 169.254.169.254.
-func classifyIP(ip net.IP, allowLoopback bool) (string, bool) {
+func classifyIP(ip net.IP, allowLoopback bool) bool {
 	if ip == nil {
-		return "", false
+		return false
 	}
 	if ip.IsLoopback() {
-		if allowLoopback {
-			return "", false
-		}
-		return "loopback", true
+		return !allowLoopback
 	}
 	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return "link-local", true
+		return true
 	}
 	if ip.IsPrivate() {
-		return "private", true
+		return true
 	}
 	if ip.IsUnspecified() || ip.IsMulticast() {
-		return ip.String(), true
+		return true
 	}
 	if v4 := ip.To4(); v4 != nil {
 		if v4[0] == 0 {
-			return "unspecified", true
+			return true
 		}
 		if v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127 {
-			return "cgnat", true
+			return true
 		}
-		return "", false
+		return false
 	}
 	// IPv6 ULA fc00::/7.
 	if b := ip.To16(); b != nil && b[0]&0xfe == 0xfc {
-		return "ula", true
+		return true
 	}
-	return "", false
+	return false
 }
 
 // Send выполняет POST payload по url с HMAC-подписью и заголовками
@@ -247,7 +244,7 @@ func (c *Client) validateTarget(ctx context.Context, target string) error {
 		return fmt.Errorf("integrations: resolve %s: %w", host, err)
 	}
 	for _, ip := range ips {
-		if _, blocked := classifyIP(ip, c.policy.AllowLoopback); !blocked {
+		if !classifyIP(ip, c.policy.AllowLoopback) {
 			return nil
 		}
 	}

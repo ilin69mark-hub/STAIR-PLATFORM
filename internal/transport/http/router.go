@@ -268,7 +268,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	secMiddleware := SecurityMiddleware(cfg.SecurityConfig)
 
 	// Middleware-конвейер: строится изнутри наружу (inner → outer).
-	h := http.Handler(withLogging(mux))
+	h := withLogging(mux)
 	h = secMiddleware(h)
 	h = dedup(h)
 	h = respCache(h)
