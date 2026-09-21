@@ -614,7 +614,7 @@ jobs:
         run: echo "time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Build and push API
-        uses: docker/build-push-action@v7.4.0
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deployments/Dockerfile
@@ -630,7 +630,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push Store
-        uses: docker/build-push-action@v7.4.0
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deployments/store.Dockerfile
@@ -642,7 +642,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push Admin
-        uses: docker/build-push-action@v7.4.0
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deployments/admin.Dockerfile
