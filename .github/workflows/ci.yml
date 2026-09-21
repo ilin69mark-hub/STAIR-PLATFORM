@@ -126,20 +126,11 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: |
-            frontend-store/package-lock.json
-            frontend/package-lock.json
+          cache-dependency-path: package-lock.json
 
-      - name: Install dependencies
+      - name: Install dependencies (npm workspaces)
         run: npm ci
-
-      # @shared-исходники живут в frontend/shared, а их зависимости
-      # (react, three) резолвятся через frontend/node_modules — ставим и их,
-      # иначе tsc -b не находит react для shared-файлов. install вместо ci:
-      # lock frontend/ отстаёт от package.json (pre-existing drift).
-      - name: Install shared deps (frontend)
-        run: npm install --no-audit --no-fund
-        working-directory: frontend
+        working-directory: .
 
       - name: Run lint
         run: npm run lint
@@ -163,10 +154,11 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: package-lock.json
 
-      - name: Install dependencies
+      - name: Install dependencies (npm workspaces)
         run: npm ci
+        working-directory: .
 
       - name: Run lint
         run: npm run lint
@@ -261,21 +253,14 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: |
-            frontend-store/package-lock.json
-            frontend/package-lock.json
+          cache-dependency-path: package-lock.json
 
-      - name: Install store dependencies
+      - name: Install dependencies (npm workspaces)
         run: npm ci
-        working-directory: frontend-store
+        working-directory: .
 
-      # Vite dev отдаёт @shared-исходники из frontend/shared, а three/react
-      # для них резолвятся через frontend/node_modules — без них падает
-      # dependency scan и вьювер (install вместо ci: lock frontend/ отстаёт,
-      # pre-existing drift).
-      - name: Install shared deps (frontend)
-        run: npm install --no-audit --no-fund
-        working-directory: frontend
+      # Vite dev отдаёт @shared-исходники из frontend/shared, deps (three/react)
+      # резолвятся из корневого node_modules (npm workspaces).
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
@@ -350,14 +335,13 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Install psql client (for admin setup)
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
-      - name: Install dependencies
+      - name: Install dependencies (npm workspaces)
         run: npm ci
-        working-directory: frontend
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
@@ -412,19 +396,10 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: |
-            frontend-store/package-lock.json
-            frontend/package-lock.json
+          cache-dependency-path: package-lock.json
 
-      - name: Install store dependencies
+      - name: Install dependencies (npm workspaces)
         run: npm ci
-        working-directory: frontend-store
-
-      # @shared-исходники из frontend/shared резолвят react/three через
-      # frontend/node_modules (install вместо ci: lock frontend/ отстаёт).
-      - name: Install shared deps (frontend)
-        run: npm install --no-audit --no-fund
-        working-directory: frontend
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium

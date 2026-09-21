@@ -1,5 +1,6 @@
 # Dependabot (P3): еженедельные PRs на обновление зависимостей.
 # Закрывает пробел «нет зависимости от багов снабжения» — Go и оба npm-фронта.
+# npm через корневые workspaces: один package-lock.json на frontend + frontend-store.
 version: 2
 updates:
   - package-ecosystem: gomod
@@ -17,29 +18,20 @@ updates:
         patterns: ['go.opentelemetry.io/*']
 
   - package-ecosystem: npm
-    directory: /frontend
+    directory: '/'
     schedule:
       interval: weekly
       day: monday
       time: '06:00'
     open-pull-requests-limit: 5
-    labels: ['dependencies', 'frontend-admin']
+    labels: ['dependencies', 'frontend']
     commit-message:
       prefix: 'chore(deps)'
     groups:
       react:
         patterns: ['react', 'react-dom', '@types/react', '@types/react-dom']
-
-  - package-ecosystem: npm
-    directory: /frontend-store
-    schedule:
-      interval: weekly
-      day: monday
-      time: '06:00'
-    open-pull-requests-limit: 5
-    labels: ['dependencies', 'frontend-store']
-    commit-message:
-      prefix: 'chore(deps)'
+      vitest:
+        patterns: ['vitest', '@vitest/*']
 
   - package-ecosystem: github-actions
     directory: '/'

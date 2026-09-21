@@ -1,0 +1,12 @@
+{
+  "name": "stair-platform",
+  "private": true,
+  "version": "1.2.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "frontend",
+    "frontend-store"
+  ]
+}
