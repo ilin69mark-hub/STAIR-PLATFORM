@@ -301,24 +301,19 @@ describe('AdminPanel', () => {
 
   it('экспорт открывает URL с scope и форматом', async () => {
     mockApi()
-    const hrefs: string[] = []
-    const loc = {
-      get href() {
-        return hrefs[hrefs.length - 1] ?? ''
-      },
-      set href(v: string) {
-        hrefs.push(v)
-      },
-    } as Location
-    vi.spyOn(window, 'location', 'get').mockReturnValue(loc)
-    render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
+    const exportUrls: string[] = []
+    render(
+      <AdminPanel
+        currentUserId="u-admin"
+        onBack={vi.fn()}
+        onExport={(url) => exportUrls.push(url)}
+      />,
+    )
 
     await screen.findByText('Экспорт данных')
     fireEvent.click(screen.getByRole('button', { name: 'users · CSV' }))
 
-    await waitFor(() =>
-      expect(hrefs).toContain('/api/v1/admin/export?scope=users&format=csv'),
-    )
+    await waitFor(() => expect(exportUrls).toContain('/api/v1/admin/export?scope=users&format=csv'))
   })
 
   it('показывает аналитику использования и меняет гранулярность', async () => {
