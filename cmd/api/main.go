@@ -128,7 +128,12 @@ func main() {
 	)
 	authSvc := auth.NewService(database.NewAuthRepository(pool), sessionTTL(), auditSvc)
 	intSvc := integrations.NewService(database.NewIntegrationRepository(pool), queueBackend.Queue())
+	// S-104: нормализованный продакшен-детект (используется S1-2-гардом
+	// и Stripe-guard'ом ниже).
+	env := os.Getenv("STAIR_ENVIRONMENT")
+	isProduction := strings.EqualFold(env, "production") || strings.EqualFold(env, "prod")
 	// S1-2: шифрование webhook-секретов at rest (STAIR_SECRETS_KEY, hex 64).
+	// S-104: в проде ключ обязателен — без него webhook-секреты лежат plaintext.
 	if keyHex := os.Getenv("STAIR_SECRETS_KEY"); keyHex != "" {
 		key, err := secrets.KeyFromHex(keyHex)
 		if err != nil {
@@ -142,6 +147,9 @@ func main() {
 		}
 		intSvc = intSvc.WithSecretCrypter(box)
 		slog.Info("integrations: webhook secrets encryption enabled")
+	} else if isProduction {
+		slog.Error("STAIR_SECRETS_KEY is not set (webhook secrets encryption mandatory in production)")
+		os.Exit(1)
 	}
 	// Jobs (EDR-0035): асинхронный расчёт — ставим в очередь, выполняет
 	// воркер (calc не нужен API-процессу).
@@ -187,8 +195,6 @@ func main() {
 	// Production guard: в проде платежи обязательны — без ключей Stripe
 	// процесс не стартует, иначе заказы «оплачивались» бы локально без
 	// реального списания (mock-провайдер допустим только в dev).
-	env := os.Getenv("STAIR_ENVIRONMENT")
-	isProduction := strings.EqualFold(env, "production") || strings.EqualFold(env, "prod")
 	var paymentProvider payments.Provider
 	var stripeWebhookService transporthttp.StripeWebhookService
 	if stripeKey := os.Getenv("STAIR_STRIPE_SECRET_KEY"); stripeKey != "" {

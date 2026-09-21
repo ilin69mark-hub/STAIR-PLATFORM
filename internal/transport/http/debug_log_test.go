@@ -103,3 +103,57 @@ func TestBodyCaptureWriter(t *testing.T) {
 		t.Errorf("expected recorder status 201, got %d", w.Code)
 	}
 }
+
+type debugStubHandler struct{}
+
+func (debugStubHandler) ServeHTTP(http.ResponseWriter, *http.Request) {}
+
+func TestDebugLoggingMiddleware_RefusesProductionAlways(t *testing.T) {
+	next := &debugStubHandler{}
+	for _, env := range []string{"production", "prod", "PRODUCTION"} {
+		t.Setenv("STAIR_ENVIRONMENT", env)
+		t.Setenv("STAIR_DEBUG_LOGGING", "true")
+		handler := DebugLoggingMiddleware(next)
+		if handler != http.Handler(next) {
+			t.Errorf("env=%s + STAIR_DEBUG_LOGGING=true: expected passthrough (refused), got wrapper", env)
+		}
+	}
+}
+
+func TestDebugLoggingMiddleware_EnabledInDevOnly(t *testing.T) {
+	next := &debugStubHandler{}
+	t.Setenv("STAIR_ENVIRONMENT", "development")
+	t.Setenv("STAIR_DEBUG_LOGGING", "true")
+	handler := DebugLoggingMiddleware(next)
+	if handler == http.Handler(next) {
+		t.Errorf("development + STAIR_DEBUG_LOGGING=true: expected wrapper, got passthrough")
+	}
+}
+
+func TestDebugLoggingMiddleware_ProductionEmpty(t *testing.T) {
+	next := &debugStubHandler{}
+	t.Setenv("STAIR_ENVIRONMENT", "production")
+	t.Setenv("STAIR_DEBUG_LOGGING", "")
+	handler := DebugLoggingMiddleware(next)
+	if handler != http.Handler(next) {
+		t.Errorf("production without debug flag: expected passthrough, got wrapper")
+	}
+}
+
+func TestRedactSensitive(t *testing.T) {
+	cases := map[string]string{
+		`{"password":"hunter2","email":"a@b.c"}`:    `{"password":"***","email":"a@b.c"}`,
+		`{"secret":  "abc", "token":"xyz"}`:          `{"secret":  "***", "token":"***"}`,
+		`Authorization: Bearer abcdef`:               `Authorization: Bearer abcdef`,
+		`password=Hunter2&login=admin`:               `password=***&login=admin`,
+		`{"api_key":"k123","payload":[1,2]}`:         `{"api_key":"***","payload":[1,2]}`,
+		`{"client_secret":"s"}`:                      `{"client_secret":"***"}`,
+		`{"safe":"keep-me"}`:                         `{"safe":"keep-me"}`,
+		`{"username":"name","passwd":"p"}`:           `{"username":"name","passwd":"***"}`,
+	}
+	for in, want := range cases {
+		if got := redactSensitive(in); got != want {
+			t.Errorf("redactSensitive(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
