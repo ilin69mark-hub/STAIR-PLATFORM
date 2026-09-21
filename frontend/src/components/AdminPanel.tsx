@@ -47,6 +47,7 @@ const ADMIN_SECTION_IDS = ADMIN_SECTIONS.map((s) => s.id)
 interface Props {
   currentUserId: string
   onBack: () => void
+  onExport?: (url: string) => void
 }
 
 const emptyPolicy: AdminPolicy = {
@@ -57,7 +58,7 @@ const emptyPolicy: AdminPolicy = {
   login_rate_limit_per_min: 10,
 }
 
-export function AdminPanel({ currentUserId, onBack }: Props) {
+export function AdminPanel({ currentUserId, onBack, onExport }: Props) {
   const [overview, setOverview] = useState<AdminOverview | null>(null)
   const [users, setUsers] = useState<AdminUser[]>([])
   const [policy, setPolicy] = useState<AdminPolicy>(emptyPolicy)
@@ -217,7 +218,12 @@ export function AdminPanel({ currentUserId, onBack }: Props) {
     setPolicy((p) => ({ ...p, [key]: value as never }))
 
   const handleExport = (scope: string, format: 'json' | 'csv') => {
-    window.location.href = adminApi.exportUrl(scope, format)
+    const url = adminApi.exportUrl(scope, format)
+    if (onExport) {
+      onExport(url)
+    } else {
+      window.location.href = url
+    }
   }
 
   const handleOrderStatus = async (id: string, status: string) => {
