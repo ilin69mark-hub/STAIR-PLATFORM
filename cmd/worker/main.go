@@ -81,12 +81,15 @@ func main() {
 
 	reg := newRegistry(database.NewAuthRepository(pool), database.NewAuditRepository(pool),
 		database.NewIntegrationRepository(pool), newJobsService(pool), retentionDays)
+	// S-104: нормализованный продакшен-детект (production|prod, EqualFold).
+	// Неканоничное значение STAIR_ENVIRONMENT не должно отключать SSRF-политику.
+	isProduction := strings.EqualFold(os.Getenv("STAIR_ENVIRONMENT"), "production") ||
+		strings.EqualFold(os.Getenv("STAIR_ENVIRONMENT"), "prod")
 	// S1-1: SSRF-политика webhook-доставки. В проде loopback запрещён,
 	// внутренние хосты — только через STAIR_WEBHOOK_ALLOW_HOSTS.
 	{
-		env := os.Getenv("STAIR_ENVIRONMENT")
 		policy := infintegrations.Policy{}
-		if env != "production" {
+		if !isProduction {
 			policy.AllowLoopback = true
 		}
 		for _, h := range strings.Split(os.Getenv("STAIR_WEBHOOK_ALLOW_HOSTS"), ",") {
@@ -111,6 +114,9 @@ func main() {
 		}
 		reg.withSecretCrypter(box)
 		slog.Info("worker: webhook secrets encryption enabled")
+	} else if isProduction {
+		slog.Error("STAIR_SECRETS_KEY is not set (webhook secrets encryption mandatory in production)")
+		os.Exit(1)
 	}
 
 	stop := make(chan os.Signal, 1)

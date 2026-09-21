@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -14,17 +15,21 @@ import (
 // Включается через STAIR_DEBUG_LOGGING=true. НЕ использовать в проде
 // из-за чувствительных данных в телах запросов.
 //
-// PRODUCTION GUARD: Middleware проверяет STAIR_ENVIRONMENT и отказывается
-// работать в production, если STAIR_DEBUG_LOGGING не установлен явно.
+// S-111 PRODUCTION GUARD: middleware безусловно отключается в production —
+// независимо от STAIR_DEBUG_LOGGING. Чувствительные поля тел
+// (password/secret/token/authorization/cookie) маскируются.
 func DebugLoggingMiddleware(next http.Handler) http.Handler {
-	// Проверяем production guard
+	// S-111: в production не работаем никогда — тела запросов могут содержать
+	// секреты, даже при STAIR_DEBUG_LOGGING=true.
 	env := os.Getenv("STAIR_ENVIRONMENT")
-	debugLogging := os.Getenv("STAIR_DEBUG_LOGGING")
 	isProduction := strings.EqualFold(env, "production") || strings.EqualFold(env, "prod")
+	if isProduction {
+		slog.Warn("debug logging refused in production (request bodies may contain secrets)")
+		return next
+	}
 
-	// В production отказываемся работать, если debug logging не установлен явно
-	if isProduction && debugLogging != "true" {
-		slog.Warn("debug logging disabled in production environment")
+	// Вне продакшена включается только явным флагом.
+	if os.Getenv("STAIR_DEBUG_LOGGING") != "true" {
 		return next
 	}
 
@@ -48,12 +53,15 @@ func DebugLoggingMiddleware(next http.Handler) http.Handler {
 
 		dur := time.Since(start)
 
-		// Логируем (обрезаем большие тела)
+		// Логируем (обрезаем большие тела, маскируем секреты)
 		logBody := func(b []byte, max int) string {
+			truncated := b
+			marker := ""
 			if len(b) > max {
-				return string(b[:max]) + "...(truncated)"
+				truncated = b[:max]
+				marker = "...(truncated)"
 			}
-			return string(b)
+			return redactSensitive(string(truncated)) + marker
 		}
 
 		slog.Debug("http debug",
@@ -66,6 +74,18 @@ func DebugLoggingMiddleware(next http.Handler) http.Handler {
 			"content_type", w.Header().Get("Content-Type"),
 		)
 	})
+}
+
+// redactSensitive маскирует значения чувствительных полей в телах
+// запросов/ответов (JSON и form-encoded) перед логированием.
+func redactSensitive(s string) string {
+	if re, err := regexp.Compile(`(?i)("(?:password|passwd|secret|token|authorization|cookie|api[-_]?key|client[-_]?secret)"\s*:\s*")([^"]*)(")`); err == nil {
+		s = re.ReplaceAllString(s, `${1}***${3}`)
+	}
+	if re, err := regexp.Compile(`(?i)((?:password|passwd|secret|token|authorization|cookie|api[-_]?key|client[-_]?secret)=)([^&\s"]*)`); err == nil {
+		s = re.ReplaceAllString(s, `${1}***`)
+	}
+	return s
 }
 
 // bodyCaptureWriter захватывает тело ответа для логирования.
