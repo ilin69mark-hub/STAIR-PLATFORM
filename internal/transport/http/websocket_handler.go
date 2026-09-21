@@ -31,10 +31,23 @@ func NewWebSocketHandler(hub *ws.Hub, logger *slog.Logger, validator TokenValida
 }
 
 // HandleWebSocket обрабатывает WebSocket upgrade.
+// Аутентификация — только через session-cookie (браузер) или
+// Authorization: Bearer <token>; query-параметр token намеренно отклоняется
+// (токен в URL светится в логах/истории/referrer — S-110, WS-TOKEN-IN-QUERY).
 func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Query-токен отклоняем явно, даже если рядом есть валидная cookie —
+	// чтобы практика передавать токен в URL не могла незаметно сохраниться.
+	if r.URL.Query().Get("token") != "" {
+		h.logger.Warn("websocket: token in query string is not supported",
+			"remote_addr", r.RemoteAddr,
+		)
+		http.Error(w, "unauthorized: use session cookie or Authorization header", http.StatusUnauthorized)
+		return
+	}
+
 	userID := ""
 
-	// 1. Пробуем Authorization: Bearer <token>
+	// 1. Authorization: Bearer <token> (не-браузерные клиенты, API-ключи).
 	if auth := r.Header.Get("Authorization"); auth != "" {
 		if strings.HasPrefix(auth, "Bearer ") {
 			token := strings.TrimPrefix(auth, "Bearer ")
@@ -51,12 +64,13 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	// 2. Пробуем token query parameter
+	// 2. Session cookie (store: «session», admin: «session_admin»);
+	//    браузер шлёт её на WS-handshake автоматически (same-origin).
 	if userID == "" {
-		if token := r.URL.Query().Get("token"); token != "" {
+		if token := sessionToken(r); token != "" {
 			uid, err := h.validator.Authenticate(r.Context(), token)
 			if err != nil {
-				h.logger.Warn("websocket: invalid query token",
+				h.logger.Warn("websocket: invalid session cookie",
 					"error", err,
 					"remote_addr", r.RemoteAddr,
 				)
@@ -67,7 +81,7 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	// 3. Если нет валидного токена — reject
+	// 3. Если нет валидной аутентификации — reject
 	if userID == "" {
 		h.logger.Warn("websocket: no valid authentication",
 			"remote_addr", r.RemoteAddr,
@@ -76,14 +90,8 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Проверяем origin
+	// Origin проверяется в ws.OriginChecker (upgrader) — см. S-112.
 	origin := r.Header.Get("Origin")
-	if origin == "" {
-		h.logger.Warn("websocket: missing origin header",
-			"user_id", userID,
-			"remote_addr", r.RemoteAddr,
-		)
-	}
 
 	h.logger.Info("websocket: authenticated connection",
 		"user_id", userID,

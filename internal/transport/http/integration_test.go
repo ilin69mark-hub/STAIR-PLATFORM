@@ -17,8 +17,9 @@ func TestWebSocketHandlerIntegration(t *testing.T) {
 	validator := &mockTokenValidator{}
 	handler := NewWebSocketHandler(hub, logger, validator)
 
-	// Создаем тестовый запрос с токеном
-	req := httptest.NewRequest(http.MethodGet, "/ws?token=valid-token", nil)
+	// Создаем тестовый запрос с Bearer-токеном (query-токен отклоняется, S-110)
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
 	rr := httptest.NewRecorder()
 
 	// Обрабатываем запрос
