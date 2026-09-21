@@ -98,6 +98,12 @@ func TestIsSafeRedirect(t *testing.T) {
 		{"dashboard", false},
 		{"", false},
 		{"///evil", false},
+		// SSO-OPEN-REDIRECT-BACKSLASH (S-106): браузер трактует "\" как "/".
+		{`/\evil.com`, false},
+		{`/%5Cevil.com`, false},
+		{`/%5cevil.com`, false},
+		{`/a\b`, false},
+		{`/legit/path`, true},
 	}
 	for _, c := range cases {
 		if got := isSafeRedirect(c.input); got != c.want {

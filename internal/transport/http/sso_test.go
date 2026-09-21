@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -165,5 +166,28 @@ func TestSsoCallbackDenied(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", resp.StatusCode)
+	}
+}
+
+// TestRateLimitSso — регресс-тест S-109: публичные SSO-роуты лимитируются по
+// IP. После исчерпания лимита — 429. Уникальный query на запрос — чтобы
+// response-cache не перехватывал GET раньше лимитера.
+func TestRateLimitSso(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SsoRateLimit = 2
+	router := NewRouter(stair.NewService(), nil, newFakeAuth(), cfg)
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/auth/sso/config?i=%d", i), nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("attempt %d: expected 200, got %d", i+1, rec.Code)
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/sso/config?i=3", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 after sso limit, got %d", rec.Code)
 	}
 }

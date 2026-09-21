@@ -276,6 +276,8 @@ func main() {
 		ValidateRateWindow:    time.Minute,
 		AuthRateLimit:         envInt("STAIR_AUTH_RATE_LIMIT", 200),
 		AuthRateWindow:        time.Minute,
+		SsoRateLimit:          envInt("STAIR_SSO_RATE_LIMIT", 20),
+		SsoRateWindow:         time.Minute,
 		RedisAddr:             os.Getenv("STAIR_REDIS_ADDR"),
 		MaxBodyBytes:          1 << 20,
 		InstanceID:            instanceID,
