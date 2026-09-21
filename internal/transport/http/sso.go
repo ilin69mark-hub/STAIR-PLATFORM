@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"stairplatform/internal/application/auth"
 )
@@ -79,16 +80,26 @@ func handleSsoCallback(svc AuthService, secure bool) http.HandlerFunc {
 // isSafeRedirect проверяет что redirect URL безопасен — только relative paths
 // без scheme:// (защита от Open Redirect).
 func isSafeRedirect(raw string) bool {
+	// Разрешаем только относительные пути, начинающиеся с /.
+	if len(raw) == 0 || raw[0] != '/' {
+		return false
+	}
+	// Backslash-байпас (SSO-OPEN-REDIRECT-BACKSLASH): браузеры трактуют "\"
+	// как "/", поэтому "/\evil.com" превращается в "//evil.com" — open redirect.
+	// Отклоняем backslash как в raw, так и в percent-encoded (%5C) виде.
+	if strings.ContainsRune(raw, '\\') || strings.Contains(strings.ToLower(raw), "%5c") {
+		return false
+	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
 		return false
 	}
-	// Отклоняем абсолютные URL (http://evil.com, //evil.com)
-	if parsed.IsAbs() || (len(raw) > 1 && raw[0] == '/' && raw[1] == '/') {
+	// Отклоняем абсолютные URL (http://evil.com, //evil.com) и backslash,
+	// проявившийся после percent-декодирования (%5C → \).
+	if parsed.IsAbs() || (len(raw) > 1 && raw[1] == '/') || strings.ContainsRune(parsed.Path, '\\') {
 		return false
 	}
-	// Разрешаем только paths начинающиеся с /
-	return len(raw) > 0 && raw[0] == '/'
+	return true
 }
 
 // handleSsoConfig — GET /api/v1/auth/sso/config (public). Информирует

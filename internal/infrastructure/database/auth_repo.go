@@ -388,8 +388,26 @@ func (r *AuthRepository) ListOAuthAccounts(ctx context.Context, userID string) (
 	return out, nil
 }
 
+// maxSsoStates — жёсткий предел числа одноразовых OIDC-состояний в таблице
+// (S-109): защита от неограниченного роста sso_states при спаме /auth/sso.
+// При превышении удаляются самые старые записи (по created_at).
+const maxSsoStates = 10000
+
 // CreateSsoState сохраняет одноразовый OIDC-state (EDR-0017 §3.3).
 func (r *AuthRepository) CreateSsoState(ctx context.Context, s *auth.SsoState) error {
+	// Prune: истёкшие состояния + удержание жёсткого предела таблицы (S-109).
+	if _, err := r.pool.Exec(ctx,
+		`DELETE FROM sso_states WHERE expires_at < now()`,
+	); err != nil {
+		return fmt.Errorf("auth: prune expired sso states: %w", err)
+	}
+	if _, err := r.pool.Exec(ctx,
+		`DELETE FROM sso_states WHERE id IN (
+			SELECT id FROM sso_states ORDER BY created_at DESC OFFSET $1
+		)`, maxSsoStates,
+	); err != nil {
+		return fmt.Errorf("auth: cap sso states: %w", err)
+	}
 	err := r.pool.QueryRow(ctx,
 		`INSERT INTO sso_states (state_hash, nonce, pkce_verifier, redirect, expires_at)
 		 VALUES ($1, $2, $3, $4, $5)

@@ -361,3 +361,33 @@ func TestOrderSendNoEndpoint(t *testing.T) {
 		t.Fatalf("expected error code no_endpoint: %s", rec.Body.String())
 	}
 }
+
+// TestMutatingIntegrationRoutesRequireCSRF — регресс-тест S-108: все
+// mutating-роуты integrations (DELETE endpoints, quote-send, crm-sync,
+// order-send) обязаны быть под CSRF-мидлварью. Запрос с валидной сессией,
+// но без csrf-cookie/заголовка → 403 (а не исполнение handler'а).
+func TestMutatingIntegrationRoutesRequireCSRF(t *testing.T) {
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodDelete, "/api/v1/integrations/endpoints/ep-1"},
+		{http.MethodPost, "/api/v1/projects/p-1/quote-send"},
+		{http.MethodPost, "/api/v1/projects/p-1/crm-sync"},
+		{http.MethodPost, "/api/v1/projects/p-1/order-send"},
+	}
+	for _, rt := range routes {
+		t.Run(rt.method+" "+rt.path, func(t *testing.T) {
+			i, projects := integrationsTestSetup()
+			i.endpoints = []*integrations.Endpoint{{ID: "ep-1", Name: "ERP", Kind: integrations.KindERP}}
+			router := testRouterWithIntegrations(projects, i)
+			req := httptest.NewRequest(rt.method, rt.path, nil)
+			req.AddCookie(testCookie(sessionCookieName, "token-1"))
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("expected 403 without CSRF, got %d: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}

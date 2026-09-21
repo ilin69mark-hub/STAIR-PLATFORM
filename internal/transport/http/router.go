@@ -48,6 +48,12 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	if cfg.AuthRateWindow <= 0 {
 		cfg.AuthRateWindow = DefaultConfig().AuthRateWindow
 	}
+	if cfg.SsoRateLimit <= 0 {
+		cfg.SsoRateLimit = DefaultConfig().SsoRateLimit
+	}
+	if cfg.SsoRateWindow <= 0 {
+		cfg.SsoRateWindow = DefaultConfig().SsoRateWindow
+	}
 	if cfg.MaxBodyBytes <= 0 {
 		cfg.MaxBodyBytes = DefaultConfig().MaxBodyBytes
 	}
@@ -59,6 +65,8 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	validateLimiter := newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.ValidateRateLimit, cfg.ValidateRateWindow)
 	// Authenticated rate limiter: 200 req/min per user/API key
 	authRateLimiter := newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.AuthRateLimit, cfg.AuthRateWindow)
+	// SSO rate limiter: публичные begin/callback/config (S-109).
+	ssoLimiter := newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.SsoRateLimit, cfg.SsoRateWindow)
 	secure := cfg.CookieSecure
 
 	var auditsvc AuditService
@@ -106,10 +114,11 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	mux.Handle("GET /api/v1/auth/me", authProtected(handleMe()))
 	mux.Handle("POST /api/v1/auth/logout", authMutating(handleLogout(authSvc, secure)))
 
-	// SSO (EDR-0017 §6): публичные маршруты (начала и колбэк).
-	mux.HandleFunc("GET /api/v1/auth/sso", handleSsoBegin(authSvc))
-	mux.HandleFunc("GET /api/v1/auth/sso/callback", handleSsoCallback(authSvc, secure))
-	mux.HandleFunc("GET /api/v1/auth/sso/config", handleSsoConfig(authSvc))
+	// SSO (EDR-0017 §6): публичные маршруты (начала и колбэк). Rate-limited
+	// по IP (S-109), чтобы исключить спам и неограниченный рост sso_states.
+	mux.Handle("GET /api/v1/auth/sso", limitRate(ssoLimiter, handleSsoBegin(authSvc)))
+	mux.Handle("GET /api/v1/auth/sso/callback", limitRate(ssoLimiter, handleSsoCallback(authSvc, secure)))
+	mux.Handle("GET /api/v1/auth/sso/config", limitRate(ssoLimiter, handleSsoConfig(authSvc)))
 
 	mux.Handle("GET /api/v1/admin/users", authProtected(handleListUsers(authSvc)))
 	mux.Handle("PATCH /api/v1/admin/users/{id}", authMutating(handleUpdateUser(authSvc)))
@@ -190,10 +199,10 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	if integrations != nil {
 		mux.Handle("GET /api/v1/integrations/endpoints", authProtected(handleListEndpoints(integrations)))
 		mux.Handle("POST /api/v1/integrations/endpoints", authMutating(handleCreateEndpoint(integrations)))
-		mux.Handle("DELETE /api/v1/integrations/endpoints/{id}", authProtected(handleDeleteEndpoint(integrations)))
-		mux.Handle("POST /api/v1/projects/{id}/quote-send", authProtected(handleQuoteSend(projects, integrations)))
-		mux.Handle("POST /api/v1/projects/{id}/crm-sync", authProtected(handleProjectSync(projects, integrations)))
-		mux.Handle("POST /api/v1/projects/{id}/order-send", authProtected(handleOrderSend(projects, integrations)))
+		mux.Handle("DELETE /api/v1/integrations/endpoints/{id}", authMutating(handleDeleteEndpoint(integrations)))
+		mux.Handle("POST /api/v1/projects/{id}/quote-send", authMutating(handleQuoteSend(projects, integrations)))
+		mux.Handle("POST /api/v1/projects/{id}/crm-sync", authMutating(handleProjectSync(projects, integrations)))
+		mux.Handle("POST /api/v1/projects/{id}/order-send", authMutating(handleOrderSend(projects, integrations)))
 	}
 
 	if payments != nil {

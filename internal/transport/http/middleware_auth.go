@@ -43,6 +43,12 @@ type Config struct {
 	AuthRateLimit int
 	// AuthRateWindow — окно rate-limit авторизованных запросов.
 	AuthRateWindow time.Duration
+	// SsoRateLimit — максимум запросов к публичным SSO-роутам с одного IP за
+	// окно (STAIR_SSO_RATE_LIMIT); защищает begin/callback от спама и
+	// неограниченного роста sso_states. По умолчанию 20 req/min.
+	SsoRateLimit int
+	// SsoRateWindow — окно rate-limit SSO-роутов.
+	SsoRateWindow time.Duration
 	// RedisAddr — адрес Redis для распределённого лимитера; пусто — memory.
 	RedisAddr string
 	// MaxBodyBytes — предельный размер тела запроса (защита от DoS).
@@ -111,6 +117,8 @@ func DefaultConfig() Config {
 		ValidateRateWindow: time.Minute,
 		AuthRateLimit:      200,
 		AuthRateWindow:     time.Minute,
+		SsoRateLimit:       20,
+		SsoRateWindow:      time.Minute,
 		MaxBodyBytes:       1 << 20, // 1 MiB
 	}
 }
