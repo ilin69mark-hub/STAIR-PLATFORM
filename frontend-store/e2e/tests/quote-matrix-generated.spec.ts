@@ -105,14 +105,18 @@ all.forEach((c, i) => {
     // Кейсы валидны на бэкенде (SolveChecked без блокировок), но фронт может
     // быть строже (перила 0, узкая площадка) — принимаем цену или блокировку,
     // главное: нет белого экрана и pageerror.
+    // Таймаут 45s: тяжёлые кейсы (33+ ступеней, большая геометрия) на
+    // 2-vCPU CI-раннере под 4 воркерами считаются ~10-13x дольше локального
+    // (кейс #852: 1.7s сервер → >15s в CI; #638: 13.3s — у лимита).
     const price = page.getByText('Предварительная цена')
     const blocking = page.getByText(/блокирующие|Исправьте поля/)
-    await expect(price.or(blocking)).toBeVisible({ timeout: 15_000 })
+    await expect(price.or(blocking)).toBeVisible({ timeout: 45_000 })
 
     if (await price.isVisible()) {
       // 3D вьювер ленивый (three.js по требованию): под параллельной
-      // нагрузкой (4 воркера) монтирование занимает секунды.
-      await expect(page.locator('.geometry-viewer, .viewer__stage')).toBeVisible({ timeout: 15_000 })
+      // нагрузкой (4 воркера) монтирование занимает секунды, тяжёлые меши —
+      // дольше.
+      await expect(page.locator('.geometry-viewer, .viewer__stage')).toBeVisible({ timeout: 45_000 })
     }
     expect(audit403, `audit 403: ${audit403.join(',')}`).toHaveLength(0)
     expect(errors, errors.join('\n')).toEqual([])
