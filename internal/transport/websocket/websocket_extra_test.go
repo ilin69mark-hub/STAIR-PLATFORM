@@ -556,7 +556,7 @@ func TestHandleWebSocketConnectAndPingPong(t *testing.T) {
 		// userID приходит от вызывающей стороны (аутентифицированный handler);
 		// query-параметр user_id намеренно игнорируется.
 		userID := r.Header.Get("X-Test-User")
-		HandleWebSocket(hub, w, r, userID)
+		HandleWebSocket(hub, w, r, userID, nil)
 	}))
 	defer srv.Close()
 
@@ -661,7 +661,7 @@ func TestHandleWebSocketUpgradeFailure(t *testing.T) {
 	// plain HTTP request (not websocket) should trigger upgrade error path without panic
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
 	rr := httptest.NewRecorder()
-	HandleWebSocket(hub, rr, req, "tester")
+	HandleWebSocket(hub, rr, req, "tester", nil)
 	// upgrader writes 400 Bad Request on failure - StatusCode may be 400
 	if rr.Code != http.StatusBadRequest {
 		// some versions return 400, allow any 4xx
@@ -680,7 +680,7 @@ func TestHandleWebSocketBroadcastRoundTrip(t *testing.T) {
 	defer hub.Stop()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		HandleWebSocket(hub, w, r, "broadcaster")
+		HandleWebSocket(hub, w, r, "broadcaster", nil)
 	}))
 	defer srv.Close()
 
@@ -731,7 +731,7 @@ func TestStopGracefullyWithRealConn(t *testing.T) {
 	go hub.Run()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		HandleWebSocket(hub, w, r, "grace")
+		HandleWebSocket(hub, w, r, "grace", nil)
 	}))
 	defer srv.Close()
 
@@ -762,7 +762,7 @@ func TestDisconnectClientWithRealConn(t *testing.T) {
 	defer hub.Stop()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		HandleWebSocket(hub, w, r, "disc")
+		HandleWebSocket(hub, w, r, "disc", nil)
 	}))
 	defer srv.Close()
 
@@ -797,12 +797,15 @@ func TestDisconnectClientWithRealConn(t *testing.T) {
 }
 
 func TestOriginCheckAllowedAndBlocked(t *testing.T) {
+	// origins из конфига: exact-матч http://localhost:3000 разрешён,
+	// http://evil.com отклоняется (upgrade 403).
 	hub := NewHub()
 	go hub.Run()
 	defer hub.Stop()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		HandleWebSocket(hub, w, r, "")
+		// allowedOrigins приходят из конфига (S-112); здесь — явный список.
+		HandleWebSocket(hub, w, r, "", []string{"http://localhost:3000"})
 	}))
 	defer srv.Close()
 

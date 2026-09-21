@@ -264,6 +264,12 @@ func main() {
 		}))
 	}
 
+	// Ориджины CORS и WebSocket (S-112, WS-ORIGIN-HARDCODED-LOCALHOST):
+	// WS использует отдельный STAIR_WS_ORIGINS; если не задан — список CORS.
+	// Пустой список на WS = только same-origin (безопасный дефолт).
+	corsOrigins := envStringSlice("STAIR_CORS_ORIGINS", []string{"http://localhost:3000"})
+	wsOrigins := envStringSlice("STAIR_WS_ORIGINS", corsOrigins)
+
 	cfg := transporthttp.Config{
 		CookieSecure:          envBool("STAIR_COOKIE_SECURE", false),
 		LoginRateLimit:        envInt("STAIR_LOGIN_RATE_LIMIT", 10),
@@ -292,9 +298,9 @@ func main() {
 		Assistant:             assistantSvc,
 		Orders:                ordersSvc,
 		Testimonials:          testimonialSvc,
-		WebSocketHandler:      transporthttp.NewWebSocketHandler(hub, logger, &authTokenValidator{authSvc}),
+		WebSocketHandler:      transporthttp.NewWebSocketHandler(hub, logger, &authTokenValidator{authSvc}, wsOrigins),
 		SecurityConfig: &transporthttp.SecurityConfig{
-			AllowedOrigins: envStringSlice("STAIR_CORS_ORIGINS", []string{"http://localhost:3000"}),
+			AllowedOrigins: corsOrigins,
 			EnableHSTS:     envBool("STAIR_HSTS_ENABLED", false),
 		},
 		StripeWebhookService: stripeWebhookService,

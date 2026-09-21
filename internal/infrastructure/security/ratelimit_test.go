@@ -1,7 +1,6 @@
 package security
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -49,6 +48,10 @@ func TestRateLimiterWindow(t *testing.T) {
 	}
 }
 
+// remoteAddrKey — ключ лимитера по RemoteAddr (без доверия XFF/X-Real-IP,
+// EDR-0014 §3.2.1; S-112 RATELIMIT-DEAD-XFF-CODE).
+func remoteAddrKey(r *http.Request) string { return r.RemoteAddr }
+
 func TestRateLimiterDifferentKeys(t *testing.T) {
 	limiter := NewRateLimiter(1, time.Minute)
 
@@ -70,7 +73,7 @@ func TestRateLimiterDifferentKeys(t *testing.T) {
 
 func TestRateLimitMiddleware(t *testing.T) {
 	limiter := NewRateLimiter(2, time.Minute)
-	handler := limiter.RateLimit(ByIP)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := limiter.RateLimit(remoteAddrKey)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -98,86 +101,6 @@ func TestRateLimitMiddleware(t *testing.T) {
 	}
 }
 
-func TestByIP(t *testing.T) {
-	tests := []struct {
-		name       string
-		remoteAddr string
-		xff        string
-		xri        string
-		expected   string
-	}{
-		{
-			name:       "remote addr only",
-			remoteAddr: "192.168.1.1:12345",
-			expected:   "192.168.1.1",
-		},
-		{
-			name:       "X-Forwarded-For",
-			remoteAddr: "10.0.0.1:12345",
-			xff:        "203.0.113.195, 70.41.3.18",
-			expected:   "203.0.113.195",
-		},
-		{
-			name:       "X-Real-IP",
-			remoteAddr: "10.0.0.1:12345",
-			xri:        "203.0.113.195",
-			expected:   "203.0.113.195",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			req.RemoteAddr = tt.remoteAddr
-			if tt.xff != "" {
-				req.Header.Set("X-Forwarded-For", tt.xff)
-			}
-			if tt.xri != "" {
-				req.Header.Set("X-Real-IP", tt.xri)
-			}
-
-			result := ByIP(req)
-			if result != tt.expected {
-				t.Errorf("ByIP() = %q, want %q", result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestByEndpoint(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/stairs", nil)
-	req.RemoteAddr = "192.168.1.1:12345"
-
-	result := ByEndpoint(req)
-	expected := "/api/v1/stairs:192.168.1.1"
-	if result != expected {
-		t.Errorf("ByEndpoint() = %q, want %q", result, expected)
-	}
-}
-
-func TestByUser_Authenticated(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.RemoteAddr = "192.168.1.1:12345"
-	ctx := req.Context()
-	ctx = context.WithValue(ctx, ctxUserID, "user-123")
-	req = req.WithContext(ctx)
-
-	result := ByUser(req)
-	if result != "user:user-123" {
-		t.Errorf("ByUser() = %q, want %q", result, "user:user-123")
-	}
-}
-
-func TestByUser_Unauthenticated(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.RemoteAddr = "192.168.1.1:12345"
-
-	result := ByUser(req)
-	if result != "192.168.1.1" {
-		t.Errorf("ByUser() = %q, want %q", result, "192.168.1.1")
-	}
-}
-
 func TestRateLimiterStats(t *testing.T) {
 	limiter := NewRateLimiter(3, time.Minute)
 	limiter.Allow("key-1")
@@ -200,7 +123,7 @@ func TestRateLimiterStats(t *testing.T) {
 
 func TestRateLimiterHeaders(t *testing.T) {
 	limiter := NewRateLimiter(5, time.Minute)
-	handler := limiter.RateLimit(ByIP)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := limiter.RateLimit(remoteAddrKey)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -224,7 +147,7 @@ func TestMultiRateLimiter(t *testing.T) {
 	mrl := NewMultiRateLimiter(10, time.Minute)           // default: 10 req/min
 	mrl.AddEndpoint("/api/v1/auth/login", 3, time.Minute) // login: 3 req/min
 
-	handler := mrl.RateLimit(ByIP)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mrl.RateLimit(remoteAddrKey)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -262,7 +185,7 @@ func TestMultiRateLimiter(t *testing.T) {
 func TestMultiRateLimiterDefault(t *testing.T) {
 	mrl := NewMultiRateLimiter(2, time.Minute)
 
-	handler := mrl.RateLimit(ByIP)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := mrl.RateLimit(remoteAddrKey)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -299,30 +222,5 @@ func TestIntToString(t *testing.T) {
 		if got := intToString(tt.n); got != tt.want {
 			t.Errorf("intToString(%d) = %q, want %q", tt.n, got, tt.want)
 		}
-	}
-}
-
-func TestByUserEndpoint_Authenticated(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
-	req.RemoteAddr = "192.168.1.1:12345"
-	ctx := req.Context()
-	ctx = context.WithValue(ctx, ctxUserID, "user-123")
-	req = req.WithContext(ctx)
-
-	result := ByUserEndpoint(req)
-	expected := "user:user-123:/api/v1/projects"
-	if result != expected {
-		t.Errorf("ByUserEndpoint() = %q, want %q", result, expected)
-	}
-}
-
-func TestByUserEndpoint_Unauthenticated(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects", nil)
-	req.RemoteAddr = "192.168.1.1:12345"
-
-	result := ByUserEndpoint(req)
-	expected := "192.168.1.1:/api/v1/projects"
-	if result != expected {
-		t.Errorf("ByUserEndpoint() = %q, want %q", result, expected)
 	}
 }

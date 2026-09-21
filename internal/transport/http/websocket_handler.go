@@ -19,14 +19,18 @@ type WebSocketHandler struct {
 	hub       *ws.Hub
 	logger    *slog.Logger
 	validator TokenValidator
+	// allowedOrigins — разрешённые Origin для WS-handshake (STAIR_WS_ORIGINS /
+	// STAIR_CORS_ORIGINS); nil/пусто — безопасный дефолт same-origin (S-112).
+	allowedOrigins []string
 }
 
 // NewWebSocketHandler создаёт новый handler.
-func NewWebSocketHandler(hub *ws.Hub, logger *slog.Logger, validator TokenValidator) *WebSocketHandler {
+func NewWebSocketHandler(hub *ws.Hub, logger *slog.Logger, validator TokenValidator, allowedOrigins []string) *WebSocketHandler {
 	return &WebSocketHandler{
-		hub:       hub,
-		logger:    logger,
-		validator: validator,
+		hub:            hub,
+		logger:         logger,
+		validator:      validator,
+		allowedOrigins: allowedOrigins,
 	}
 }
 
@@ -99,7 +103,7 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		"remote_addr", r.RemoteAddr,
 	)
 
-	ws.HandleWebSocket(h.hub, w, r, userID)
+	ws.HandleWebSocket(h.hub, w, r, userID, h.allowedOrigins)
 }
 
 // GetHub возвращает WebSocket hub.

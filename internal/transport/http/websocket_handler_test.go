@@ -28,7 +28,7 @@ func TestWebSocketHandlerCreation(t *testing.T) {
 
 	logger := slog.Default()
 	validator := &mockTokenValidator{}
-	handler := NewWebSocketHandler(hub, logger, validator)
+	handler := NewWebSocketHandler(hub, logger, validator, nil)
 
 	if handler == nil {
 		t.Fatal("expected non-nil handler")
@@ -47,7 +47,7 @@ func TestWebSocketHandlerGetHub(t *testing.T) {
 
 	logger := slog.Default()
 	validator := &mockTokenValidator{}
-	handler := NewWebSocketHandler(hub, logger, validator)
+	handler := NewWebSocketHandler(hub, logger, validator, nil)
 
 	if handler.GetHub() != hub {
 		t.Fatal("expected same hub instance")
@@ -60,7 +60,7 @@ func TestWebSocketHandlerHandleWebSocket(t *testing.T) {
 
 	logger := slog.Default()
 	validator := &mockTokenValidator{}
-	handler := NewWebSocketHandler(hub, logger, validator)
+	handler := NewWebSocketHandler(hub, logger, validator, nil)
 
 	// Создаем тестовый запрос с валидным Bearer-токеном
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
@@ -82,7 +82,7 @@ func TestWebSocketHandlerWithAnonymousUser(t *testing.T) {
 
 	logger := slog.Default()
 	validator := &mockTokenValidator{}
-	handler := NewWebSocketHandler(hub, logger, validator)
+	handler := NewWebSocketHandler(hub, logger, validator, nil)
 
 	// Создаем тестовый запрос без токена
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
@@ -103,7 +103,7 @@ func TestWebSocketHandlerWithOrigin(t *testing.T) {
 
 	logger := slog.Default()
 	validator := &mockTokenValidator{}
-	handler := NewWebSocketHandler(hub, logger, validator)
+	handler := NewWebSocketHandler(hub, logger, validator, nil)
 
 	// Создаем тестовый запрос с origin и Bearer-токеном
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
@@ -130,7 +130,7 @@ func TestWebSocketHandlerWithInvalidToken(t *testing.T) {
 			return "", context.Canceled
 		},
 	}
-	handler := NewWebSocketHandler(hub, logger, validator)
+	handler := NewWebSocketHandler(hub, logger, validator, nil)
 
 	// Создаем тестовый запрос с невалидным Bearer-токеном
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
@@ -152,7 +152,7 @@ func TestWebSocketHandlerWithBearerToken(t *testing.T) {
 
 	logger := slog.Default()
 	validator := &mockTokenValidator{}
-	handler := NewWebSocketHandler(hub, logger, validator)
+	handler := NewWebSocketHandler(hub, logger, validator, nil)
 
 	// Создаем тестовый запрос с Bearer токеном
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
@@ -176,7 +176,7 @@ func TestWebSocketHandlerRejectsQueryToken(t *testing.T) {
 
 	logger := slog.Default()
 	validator := &mockTokenValidator{} // принимает любой токен
-	handler := NewWebSocketHandler(hub, logger, validator)
+	handler := NewWebSocketHandler(hub, logger, validator, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/ws?token=valid-token", nil)
 	rr := httptest.NewRecorder()
@@ -196,7 +196,7 @@ func TestWebSocketHandlerRejectsQueryTokenEvenWithCookie(t *testing.T) {
 
 	logger := slog.Default()
 	validator := &mockTokenValidator{}
-	handler := NewWebSocketHandler(hub, logger, validator)
+	handler := NewWebSocketHandler(hub, logger, validator, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/ws?token=leaked-token", nil)
 	req.AddCookie(testCookie(sessionCookieName, "valid-cookie"))
@@ -217,7 +217,7 @@ func TestWebSocketHandlerWithSessionCookie(t *testing.T) {
 
 	logger := slog.Default()
 	validator := &mockTokenValidator{}
-	handler := NewWebSocketHandler(hub, logger, validator)
+	handler := NewWebSocketHandler(hub, logger, validator, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
 	req.AddCookie(testCookie(sessionCookieName, "valid-token"))
@@ -241,7 +241,7 @@ func TestWebSocketHandlerWithAdminSessionCookie(t *testing.T) {
 
 	logger := slog.Default()
 	validator := &mockTokenValidator{}
-	handler := NewWebSocketHandler(hub, logger, validator)
+	handler := NewWebSocketHandler(hub, logger, validator, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
 	req.Header.Set(appOriginHeader, appOriginAdmin)
@@ -269,7 +269,7 @@ func TestWebSocketHandlerInvalidSessionCookie(t *testing.T) {
 			return "", context.Canceled
 		},
 	}
-	handler := NewWebSocketHandler(hub, logger, validator)
+	handler := NewWebSocketHandler(hub, logger, validator, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
 	req.AddCookie(testCookie(sessionCookieName, "bad-token"))
