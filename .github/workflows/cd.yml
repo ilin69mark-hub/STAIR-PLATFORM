@@ -123,7 +123,8 @@ jobs:
             --atomic --timeout 10m \
             --set image.repository="${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY_API || 'stairplatform/api' }}" \
             --set image.tag="${{ env.APP_VERSION }}" \
-            --set imagePullSecrets[0].name=ecr-regcred
+            --set imagePullSecrets[0].name=ecr-regcred \
+            --set secretsKey="${{ secrets.STAIR_SECRETS_KEY }}"
 
       - name: Verify rollout
         run: |

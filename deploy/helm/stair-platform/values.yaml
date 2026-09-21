@@ -111,7 +111,9 @@ redis:
   addr: ""
 
 # Secrets (S1-2): master key для AES-GCM шифрования webhook-секретов
-# (64 hex = 32 bytes). Задаётся через --set или values-файл; empty = legacy.
+# (64 hex = 32 bytes). ОБЯЗАТЕЛЕН (S-105): пустое значение = fail-fast при
+# helm template/install (required в templates/secret.yaml). Задаётся через
+# --set secretsKey=... или values-файл.
 secretsKey: ""
 
 # Webhook SSRF allowlist (S1-1): хосты, которым разрешено резолвиться в
@@ -121,12 +123,14 @@ webhookAllowHosts: ""
 # Environment (S2-1): production блокирует loopback в SSRF-политике воркера.
 environment: "production"
 
-# Security
+# Security (S-105): secure defaults — HSTS и Secure-cookie включены по
+# умолчанию (требуют HTTPS на ingress; для локального dev без TLS можно
+# осознанно переопределить на false).
 security:
   sessionTTL: "86400"
   corsOrigins: "http://localhost:3000,http://localhost:5173"
-  hstsEnabled: false
-  cookieSecure: false
+  hstsEnabled: true
+  cookieSecure: true
 
 # Monitoring
 monitoring:

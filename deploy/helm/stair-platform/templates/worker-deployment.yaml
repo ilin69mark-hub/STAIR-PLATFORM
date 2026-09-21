@@ -44,13 +44,12 @@ spec:
                 secretKeyRef:
                   name: {{ include "stair-platform.fullname" . }}-secrets
                   key: database-url
-            {{- if .Values.secretsKey }}
+            # S-105: secretsKey обязателен (required в secret.yaml) — env всегда.
             - name: STAIR_SECRETS_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "stair-platform.fullname" . }}-secrets
                   key: secrets-key
-            {{- end }}
           # S2-1: worker пишет только в ТЗ БД/Redis; /tmp — tmpfs (RO root).
           volumeMounts:
             - name: tmp
