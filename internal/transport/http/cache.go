@@ -53,6 +53,16 @@ func CacheMiddleware(policies map[string]CachePolicy) func(http.Handler) http.Ha
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			policy := findCachePolicy(r.URL.Path, policies)
+			// S-107 (PROJECTS-BROWSER-CACHE-LEAK): `private` запрещает кешировать
+			// только разделяемым прокси, но НЕ браузеру. Поэтому ответы на запросы
+			// с identity (session-cookie / Bearer) принудительно не кешируются:
+			// иначе пользовательские данные остаются в дисковом кеше браузера и
+			// отдаются после logout или смены пользователя на общем ПК.
+			// Ограничение действует только для Private-политик (данные пользователя),
+			// публичные статические ассеты (CacheLong/CacheImmutable) не затрагиваются.
+			if policy.Private && isIdentityBearerRequest(r) {
+				policy = CacheNoCache
+			}
 			w.Header().Set("Cache-Control", policy.String())
 			next.ServeHTTP(w, r)
 		})

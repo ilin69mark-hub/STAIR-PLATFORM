@@ -173,3 +173,65 @@ func TestFindCachePolicy_LongestPrefix(t *testing.T) {
 		}
 	}
 }
+
+// S-107: Private-политика не должна оставлять ответ в браузерном кеше, если
+// запрос несёт identity (session-cookie) — иначе данные утекают после logout.
+func TestCacheMiddleware_PrivateDowngradedWithIdentity(t *testing.T) {
+	policies := map[string]CachePolicy{
+		"/api/v1/projects/": CacheShort,
+		"/api/v1/":          CacheNoCache,
+	}
+	handler := CacheMiddleware(policies)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/projects/123", nil)
+	req.AddCookie(testCookie(sessionCookieName, "token-1"))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if got := w.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("authenticated GET must be no-store, got %q", got)
+	}
+
+	// Без identity политика сохраняется (downgrade скоупнут на identity).
+	anon := httptest.NewRequest(http.MethodGet, "/api/v1/projects/123", nil)
+	aw := httptest.NewRecorder()
+	handler.ServeHTTP(aw, anon)
+	if got := aw.Header().Get("Cache-Control"); got != "max-age=300, private, must-revalidate" {
+		t.Fatalf("anonymous GET must keep policy, got %q", got)
+	}
+}
+
+// S-107: публичные статические ассеты не должны терять кеш из-за cookie.
+func TestCacheMiddleware_PublicAssetKeepsCacheWithIdentity(t *testing.T) {
+	policies := map[string]CachePolicy{"/assets/": CacheImmutable}
+	handler := CacheMiddleware(policies)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/assets/app.abc123.js", nil)
+	req.AddCookie(testCookie(sessionCookieName, "token-1"))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if got := w.Header().Get("Cache-Control"); got != "max-age=31536000" {
+		t.Fatalf("public asset must stay cacheable, got %q", got)
+	}
+}
+
+// S-107 (PROJECTS-BROWSER-CACHE-LEAK): реальный роутер на аутентифицированном
+// GET /api/v1/projects не должен отдавать max-age/private.
+func TestProjectsAuthenticatedResponseIsNotBrowserCached(t *testing.T) {
+	req := authedRequest(http.MethodGet, "/api/v1/projects", "")
+	rec := httptest.NewRecorder()
+	testRouterWithProjects(newFakeProjectService()).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	got := rec.Header().Get("Cache-Control")
+	if got != "no-store" {
+		t.Fatalf("projects response must be no-store, got %q", got)
+	}
+}
