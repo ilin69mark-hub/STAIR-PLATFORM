@@ -239,10 +239,13 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 
 	mux.HandleFunc("GET /", handleNotFound)
 
-	// Cache policies по путям
+	// Cache policies по путям.
+	// S-107: /api/v1/projects/ намеренно НЕ указан — проекты всегда
+	// аутентифицированы и не должны попадать в браузерный кеш (наследует
+	// "/api/v1/" → no-store). Дополнительно CacheMiddleware принудительно
+	// снимает кеш с Private-политик при наличии identity.
 	cachePolicies := map[string]CachePolicy{
 		"/api/v1/":             CacheNoCache,   // API — no cache
-		"/api/v1/projects/":    CacheShort,     // проекты — 5 min
 		"/api/v1/configs/":     CacheShort,     // конфигурации — 5 min
 		"/api/v1/assortments/": CacheMedium,    // ассортимент — 1 hour
 		"/api/v1/materials/":   CacheMedium,    // материалы — 1 hour
