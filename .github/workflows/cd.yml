@@ -2,17 +2,32 @@ name: CD
 # Непрерывная доставка (P3-14): сборка образов API/worker/admin/store,
 # публикация в ECR и helm upgrade кластера EKS.
 #
-# Намеренно НЕ активен до появления секретов AWS (см. guard ниже) —
-# при отсутствии секретов джобы завершаются с SKIP, чтобы workflow не падал.
+# Триггеры: тег v* (push) или вручную (workflow_dispatch).
+# Квирк GitHub Actions: run создаётся и на push веток, несмотря на tags-only
+# фильтр (пример: push dev/swarm/* -> run с 0 джоб -> conclusion=failure).
+# Поэтому:
+#   * guard-джоба запускается ВСЕГДА и завершается success с notice — run на
+#     push ветки становится зелёным no-op вместо красного 0-job failure;
+#   * реальные джобы release/deploy выполняются ТОЛЬКО по тегам v* или
+#     workflow_dispatch (if по github.ref_type / github.event_name).
+#
+# CD по-прежнему не активен до появления секретов AWS. Секреты НЕ доступны
+# ни в jobs.<id>.if, ни в steps.<id>.if (GitHub docs, таблица "Context
+# availability"; единственный способ проверить наличие секрета в условии —
+# пробросить его через jobs.<id>.env, где secrets разрешены, и проверять
+# env-переменную в steps.if). Без AWS_ROLE_TO_ASSUME AWS-зависимые шаги
+# пропускаются с notice, джобы завершаются success, workflow не падает.
 # Необходимые repository secrets:
 #   AWS_ROLE_TO_ASSUME  — ARN IAM-роли (OIDC-федерация для GitHub Actions).
 #                         Роль: ecr:GetAuthorizationToken, ecr:BatchGetImage,
 #                         ecr:InitiateLayerUpload, ecr:UploadLayerPart,
 #                         ecr:CompleteLayerUpload, eks:DescribeCluster.
-#   AWS_REGION           — регион кластера (default: eu-central-1).
-#   EKS_CLUSTER          — имя кластера EKS.
-#   ECR_REGISTRY         — полное имя реестра вида 123456789012.dkr.ecr....amazonaws.com
-#   ECR_REPOSITORY_API   — имя репозитория API (default: stairplatform/api).
+#   STAIR_SECRETS_KEY   — мастер-ключ приложения (fail-fast в проде, S-104).
+#   EKS_CLUSTER         — имя кластера EKS.
+# (Repository variables:)
+#   AWS_REGION          — регион кластера (default: eu-central-1).
+#   ECR_REGISTRY        — полное имя реестра вида 123456789012.dkr.ecr....amazonaws.com
+#   ECR_REPOSITORY_API  — имя репозитория API (default: stairplatform/api).
 #   ECR_REPOSITORY_ADMIN — имя репозитория admin (default: stairplatform/admin).
 #   ECR_REPOSITORY_STORE — имя репозитория store (default: stairplatform/store).
 #
@@ -21,7 +36,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "docker tag (например, sha-${{ github.sha }})"
+        description: "docker tag (например, sha-<commit sha>)"
         required: false
         default: ""
   push:
@@ -37,31 +52,50 @@ env:
   APP_VERSION: ${{ inputs.version || github.sha }}
 
 jobs:
+  # Guard-джоба всегда запускается и всегда зелёная: именно она превращает
+  # неизбежный run на push ветки (тот самый квирк GH) из failure в no-op,
+  # а по тегам v* / workflow_dispatch даёт понятный notice о старте CD.
+  guard:
+    name: Trigger guard (теги v* / workflow_dispatch)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notice
+        run: echo "::notice::CD запускается только по тегам v* (push) или вручную (workflow_dispatch). На push веток джобы release/deploy пропускаются."
+
   release:
     name: Build & release
+    needs: guard
     runs-on: ubuntu-latest
-    # Guard: без роль для OIDC CD не выполняется (режим "staging off").
-    if: ${{ secrets.AWS_ROLE_TO_ASSUME != '' }}
+    # if не проверяет secrets (недоступен на уровне джобы) — только событие.
+    if: ${{ github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' }}
     environment: production
+    # Мост для проверки секрета в steps.if (в steps.if secrets недоступны,
+    # в jobs.env — доступны): пустая строка, если секрет не задан.
+    env:
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Skip marker
-        if: ${{ secrets.AWS_ROLE_TO_ASSUME == '' }}
+      # Режим "staging off": без роли OIDC AWS-шаги ниже пропускаются,
+      # джоба завершается success с notice, workflow не падает.
+      - name: Guard — секреты AWS отсутствуют (джоба release пропущена)
+        if: ${{ env.AWS_ROLE_TO_ASSUME == '' }}
         run: echo "::notice::AWS_ROLE_TO_ASSUME не задан — CD отключён"
-        continue-on-error: true
 
       - name: Configure AWS credentials (OIDC)
+        if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         id: ecr
+        if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build, tag & push API/worker
+        if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -71,6 +105,7 @@ jobs:
             ${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY_API || 'stairplatform/api' }}:${{ env.APP_VERSION }}
 
       - name: Build, tag & push admin
+        if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -80,6 +115,7 @@ jobs:
             ${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY_ADMIN || 'stairplatform/admin' }}:${{ env.APP_VERSION }}
 
       - name: Build, tag & push store
+        if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -92,31 +128,43 @@ jobs:
     name: Helm upgrade EKS
     needs: release
     runs-on: ubuntu-latest
-    if: ${{ secrets.AWS_ROLE_TO_ASSUME != '' }}
+    # См. комментарий в release: условие только по событию, секреты — в шагах.
+    if: ${{ github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' }}
     environment: production
+    env:
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
     steps:
       - uses: actions/checkout@v4
 
+      - name: Guard — секреты AWS отсутствуют (джоба deploy пропущена)
+        if: ${{ env.AWS_ROLE_TO_ASSUME == '' }}
+        run: echo "::notice::AWS_ROLE_TO_ASSUME не задан — CD отключён"
+
       - name: Configure AWS credentials (OIDC)
+        if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Setup kubectl
+        if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
         uses: azure/setup-kubectl@v5
         with:
           version: "v1.31"
 
       - name: Configure kubeconfig (EKS)
+        if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
         run: |
           aws eks update-kubeconfig --region "$AWS_REGION" \
             --name "${{ secrets.EKS_CLUSTER }}" --alias stair-platform
 
       - name: Install helm
+        if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
         uses: azure/setup-helm@v4
 
       - name: Helm upgrade stair-platform
+        if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
         run: |
           helm upgrade --install stair-platform ./deploy/helm/stair-platform \
             --namespace stair-platform \
@@ -127,6 +175,7 @@ jobs:
             --set secretsKey="${{ secrets.STAIR_SECRETS_KEY }}"
 
       - name: Verify rollout
+        if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
         run: |
           kubectl -n stair-platform rollout status deploy/stair-platform --timeout=8m
           kubectl -n stair-platform rollout status deploy/stair-platform-worker --timeout=3m
