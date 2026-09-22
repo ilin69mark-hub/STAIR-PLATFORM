@@ -56,7 +56,11 @@ services:
       STAIR_CORS_ORIGINS: "http://localhost:3000,http://localhost:5173,http://localhost:5174"
       STAIR_COOKIE_SECURE: "false"
     ports:
-      - "8080:8080"
+      # S-113: bind только на localhost — /metrics, /swagger, /debug/pprof
+      # (InternalOnlyMiddleware) не должны светиться в LAN через docker-proxy
+      # (RemoteAddr = bridge 172.17.x ∈ allowedCIDRs). Прод-доступ — через
+      # nginx/ingress (проксируется только /api/).
+      - "127.0.0.1:8080:8080"
     restart: unless-stopped
 
   worker:

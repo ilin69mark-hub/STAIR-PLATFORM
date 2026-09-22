@@ -53,3 +53,51 @@ func BenchmarkLoginTimingUnknownEmail(b *testing.B) {
 		}
 	}
 }
+
+// TestLoginTimingEqualized — S-113: после фикса dummy-bcrypt неизвестный
+// email проходит bcrypt-сравнение, и время ответа не выдаёт существование
+// аккаунта. Нижняя граница (≥10 мс) доказывает, что bcrypt выполнен;
+// верхняя (≤ 5×known + 20 мс) — что ветки сравнялись (щедрый допуск на
+// шум CI/race).
+func TestLoginTimingEqualized(t *testing.T) {
+	repo := newFakeRepo()
+	hash, err := bcrypt.GenerateFromPassword([]byte("correct-password"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.CreateUser(context.Background(), &User{
+		Email:        "known@example.com",
+		PasswordHash: string(hash),
+		Status:       StatusActive,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(repo, time.Hour)
+	ctx := context.Background()
+
+	// Прогрев: ленивая генерация dummy-хеша + JIT.
+	_, _, _ = svc.Login(ctx, "unknown@example.com", "x")
+	_, _, _ = svc.Login(ctx, "known@example.com", "wrong")
+
+	measure := func(email, password string) time.Duration {
+		start := time.Now()
+		_, _, _ = svc.Login(ctx, email, password)
+		return time.Since(start)
+	}
+
+	const samples = 5
+	var unknown, known time.Duration
+	for i := 0; i < samples; i++ {
+		unknown += measure("unknown@example.com", "x")
+		known += measure("known@example.com", "wrong")
+	}
+	unknown /= samples
+	known /= samples
+
+	if unknown < 10*time.Millisecond {
+		t.Errorf("unknown-email login too fast (%v): dummy bcrypt compare not executed", unknown)
+	}
+	if unknown > known*5+20*time.Millisecond {
+		t.Errorf("unknown (%v) still much slower than known (%v) — timing leak remains", unknown, known)
+	}
+}

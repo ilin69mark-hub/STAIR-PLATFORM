@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -42,6 +43,12 @@ type Service struct {
 	sessionTTL time.Duration
 	audit      *audit.Service
 	sso        OIDCProvider
+
+	// dummyHash — фиксированный bcrypt-хеш для выравнивания времени ответа
+	// при неизвестном email (S-113: LOGIN-TIMING-ENUMERATION). Генерируется
+	// лениво (sync.Once), чтобы не платить ~50 мс на каждый конструктор.
+	dummyHashOnce sync.Once
+	dummyHash     string
 }
 
 // NewService создаёт сервис auth. sessionTTL — время жизни сессии
@@ -57,6 +64,31 @@ func NewService(repo Repository, sessionTTL time.Duration, auditSvc ...*audit.Se
 	}
 	return s
 }
+
+// dummyBcryptCompare выполняет bcrypt-сравнение с фиксированным хешем,
+// имитируя ветку «известный email» для неизвестных адресов (S-113,
+// LOGIN-TIMING-ENUMERATION). Хеш генерируется один раз (лениво).
+func (s *Service) dummyBcryptCompare(password string) {
+	s.dummyHashOnce.Do(func() {
+		h, err := bcrypt.GenerateFromPassword([]byte(dummyBcryptPassword), bcrypt.DefaultCost)
+		if err != nil {
+			// bcrypt с DefaultCost не может упасть (пароль < 72 байт);
+			// fallback — заранее известный валидный хеш.
+			s.dummyHash = dummyBcryptFallbackHash
+			return
+		}
+		s.dummyHash = string(h)
+	})
+	_ = bcrypt.CompareHashAndPassword([]byte(s.dummyHash), []byte(password))
+}
+
+// dummyBcryptPassword — пароль для генерации dummy-хеша (не используется
+// нигде, кроме выравнивания таймингов).
+const dummyBcryptPassword = "stair-platform-dummy-timing-password"
+
+// dummyBcryptFallbackHash — валидный bcrypt-хеш (cost 10) на случай
+// невозможной ошибки генерации; тоже годится для тайминг-выравнивания.
+const dummyBcryptFallbackHash = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
 
 // record пишет событие аудита (best-effort, EDR-0013 §4.1). Ошибка
 // журнала не ломает бизнес-операцию: только логируется.
@@ -187,6 +219,11 @@ func (s *Service) Login(ctx context.Context, email, password string) (*User, str
 	u, err := s.repo.GetUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
+			// S-113: выравниваем время ответа с веткой «известный email» —
+			// bcrypt-сравнение с фиксированным хешем (защита от
+			// тайминг-энумерации: раньше неизвестный email отвечал за ~0.16 мкс
+			// против ~50 мс у известного).
+			s.dummyBcryptCompare(password)
 			s.record(ctx, "", "", audit.ActionAuthLoginDenied, audit.ResultDenied, "unknown email: "+email)
 			return nil, "", ErrInvalidCreds
 		}
