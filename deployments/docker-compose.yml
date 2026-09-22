@@ -55,6 +55,9 @@ services:
       STAIR_AUTH_RATE_LIMIT: "10000"
       STAIR_CORS_ORIGINS: "http://localhost:3000,http://localhost:5173,http://localhost:5174"
       STAIR_COOKIE_SECURE: "false"
+      # S-120/S-121: nginx дописывает X-Forwarded-For; per-IP rate-limiter
+      # доверяет XFF только от Docker-bridge (дефолтная compose-сеть).
+      STAIR_TRUSTED_PROXIES: "172.16.0.0/12"
     ports:
       # S-113: bind только на localhost — /metrics, /swagger, /debug/pprof
       # (InternalOnlyMiddleware) не должны светиться в LAN через docker-proxy
