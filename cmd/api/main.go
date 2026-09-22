@@ -582,10 +582,10 @@ type authTokenValidator struct {
 	svc *auth.Service
 }
 
-func (v *authTokenValidator) Authenticate(ctx context.Context, token string) (string, error) {
+func (v *authTokenValidator) Authenticate(ctx context.Context, token string) (string, string, error) {
 	user, _, err := v.svc.Authenticate(ctx, token)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return user.ID, nil
+	return user.ID, string(user.Role), nil
 }

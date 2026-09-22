@@ -10,16 +10,21 @@ import (
 	ws "stairplatform/internal/transport/websocket"
 )
 
-// mockTokenValidator для тестов.
+// mockTokenValidator для тестов. role — роль по умолчанию ("" → "user").
 type mockTokenValidator struct {
-	validateFunc func(ctx context.Context, token string) (string, error)
+	role         string
+	validateFunc func(ctx context.Context, token string) (string, string, error)
 }
 
-func (m *mockTokenValidator) Authenticate(ctx context.Context, token string) (string, error) {
+func (m *mockTokenValidator) Authenticate(ctx context.Context, token string) (string, string, error) {
 	if m.validateFunc != nil {
 		return m.validateFunc(ctx, token)
 	}
-	return "test-user", nil
+	role := m.role
+	if role == "" {
+		role = "user"
+	}
+	return "test-user", role, nil
 }
 
 func TestWebSocketHandlerCreation(t *testing.T) {
@@ -126,8 +131,8 @@ func TestWebSocketHandlerWithInvalidToken(t *testing.T) {
 
 	logger := slog.Default()
 	validator := &mockTokenValidator{
-		validateFunc: func(ctx context.Context, token string) (string, error) {
-			return "", context.Canceled
+		validateFunc: func(ctx context.Context, token string) (string, string, error) {
+			return "", "", context.Canceled
 		},
 	}
 	handler := NewWebSocketHandler(hub, logger, validator, nil)
@@ -234,15 +239,16 @@ func TestWebSocketHandlerWithSessionCookie(t *testing.T) {
 	}
 }
 
-// TestWebSocketHandlerWithAdminSessionCookie — session_admin cookie (admin).
+// TestWebSocketHandlerWithAdminSessionCookie — session_admin cookie + роль admin.
 // S-116: admin-namespace определяется ПУТЁМ /ws/admin (браузерный WebSocket
 // API не умеет ставить заголовок X-App-Origin), а не заголовком.
+// S-119: дополнительно требуется роль admin (role-гейт).
 func TestWebSocketHandlerWithAdminSessionCookie(t *testing.T) {
 	hub := ws.NewHub()
 	go hub.Run()
 
 	logger := slog.Default()
-	validator := &mockTokenValidator{}
+	validator := &mockTokenValidator{role: "admin"}
 	handler := NewWebSocketHandler(hub, logger, validator, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/ws/admin", nil)
@@ -251,11 +257,72 @@ func TestWebSocketHandlerWithAdminSessionCookie(t *testing.T) {
 
 	handler.HandleWebSocket(rr, req)
 
-	if rr.Code == http.StatusUnauthorized {
-		t.Errorf("expected authenticated via admin session cookie on /ws/admin, got 401")
+	if rr.Code == http.StatusUnauthorized || rr.Code == http.StatusForbidden {
+		t.Errorf("expected authenticated admin via admin session cookie on /ws/admin, got %d", rr.Code)
 	}
 	if rr.Code != http.StatusBadRequest && rr.Code != http.StatusOK {
 		t.Errorf("expected status 200 or 400, got %d", rr.Code)
+	}
+}
+
+// TestWebSocketHandlerNonAdminRejectedOnAdminPath — S-119: валидная
+// session_admin cookie обычного пользователя (role=user) на /ws/admin → 403
+// (cookie получает любой зарегистрированный юзер, роль — только админ).
+func TestWebSocketHandlerNonAdminRejectedOnAdminPath(t *testing.T) {
+	hub := ws.NewHub()
+	go hub.Run()
+
+	logger := slog.Default()
+	validator := &mockTokenValidator{role: "user"}
+	handler := NewWebSocketHandler(hub, logger, validator, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/ws/admin", nil)
+	req.AddCookie(testCookie(sessionCookieName+adminOriginCookieSuffix, "valid-token"))
+	rr := httptest.NewRecorder()
+
+	handler.HandleWebSocket(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403: non-admin must not enter /ws/admin, got %d", rr.Code)
+	}
+}
+
+// TestWebSocketHandlerBearerRoleGateOnAdminPath — S-119: Bearer-токен обычного
+// пользователя на /ws/admin → 403; админа → 200/400 (гейт по пути, не по методу).
+func TestWebSocketHandlerBearerRoleGateOnAdminPath(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		role        string
+		wantCode    int
+		wantNotCode int
+	}{
+		{name: "user forbidden", role: "user", wantCode: http.StatusForbidden},
+		{name: "admin passes gate", role: "admin", wantNotCode: http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hub := ws.NewHub()
+			go hub.Run()
+
+			logger := slog.Default()
+			validator := &mockTokenValidator{role: tc.role}
+			handler := NewWebSocketHandler(hub, logger, validator, nil)
+
+			req := httptest.NewRequest(http.MethodGet, "/ws/admin", nil)
+			req.Header.Set("Authorization", "Bearer valid-token")
+			rr := httptest.NewRecorder()
+
+			handler.HandleWebSocket(rr, req)
+
+			if tc.wantCode != 0 && rr.Code != tc.wantCode {
+				t.Errorf("expected %d, got %d", tc.wantCode, rr.Code)
+			}
+			if tc.wantNotCode != 0 && rr.Code == tc.wantNotCode {
+				t.Errorf("did not expect %d, got it", tc.wantNotCode)
+			}
+			if tc.wantNotCode != 0 && rr.Code != http.StatusBadRequest && rr.Code != http.StatusOK {
+				t.Errorf("expected status 200 or 400, got %d", rr.Code)
+			}
+		})
 	}
 }
 
@@ -309,8 +376,8 @@ func TestWebSocketHandlerInvalidSessionCookie(t *testing.T) {
 
 	logger := slog.Default()
 	validator := &mockTokenValidator{
-		validateFunc: func(ctx context.Context, token string) (string, error) {
-			return "", context.Canceled
+		validateFunc: func(ctx context.Context, token string) (string, string, error) {
+			return "", "", context.Canceled
 		},
 	}
 	handler := NewWebSocketHandler(hub, logger, validator, nil)
