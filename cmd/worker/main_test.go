@@ -11,8 +11,47 @@ import (
 	"stairplatform/internal/application/integrations"
 	"stairplatform/internal/application/jobs"
 	"stairplatform/internal/application/stair"
+	infintegrations "stairplatform/internal/infrastructure/integrations"
 	"stairplatform/internal/infrastructure/queue"
 )
+
+// S-113 / WEBHOOK-MAPPED-LINKLOCAL-BYPASS: STAIR_ENVIRONMENT=prod (в т.ч.
+// неканоничные регистры) НЕ должен отключать SSRF-политику (S-104).
+// Loopback-доставка в проде запрещена.
+func TestWebhookPolicyProductionBlocksLoopback(t *testing.T) {
+	for _, env := range []string{"production", "prod", "PROD", "Production", "PrOd"} {
+		p := webhookPolicy(env, "")
+		if p.AllowLoopback {
+			t.Errorf("env=%q: AllowLoopback must be false in production", env)
+		}
+		client := infintegrations.NewPolicyClient(0, p)
+		if err := client.Send(context.Background(), "http://127.0.0.1:9999/hook", "secret", []byte("{}")); err == nil {
+			t.Errorf("env=%q: loopback webhook delivery must be blocked by SSRF policy", env)
+		}
+	}
+}
+
+// S-113: dev-окружение (не production) разрешает loopback — обратная
+// совместимость для локальных интеграций.
+func TestWebhookPolicyDevAllowsLoopback(t *testing.T) {
+	for _, env := range []string{"", "development", "dev", "staging"} {
+		p := webhookPolicy(env, "")
+		if !p.AllowLoopback {
+			t.Errorf("env=%q: AllowLoopback must be true outside production", env)
+		}
+	}
+}
+
+// S-113: allowlist хостов применяется независимо от окружения.
+func TestWebhookPolicyAllowHosts(t *testing.T) {
+	p := webhookPolicy("production", "internal.erp.local, 10.0.0.5")
+	if p.AllowLoopback {
+		t.Fatal("production must not allow loopback")
+	}
+	if len(p.AllowHosts) != 2 || p.AllowHosts[0] != "internal.erp.local" || p.AllowHosts[1] != "10.0.0.5" {
+		t.Fatalf("unexpected AllowHosts: %v", p.AllowHosts)
+	}
+}
 
 // TestRegistryUnknownJobType: неизвестный тип задания → ошибка (retry).
 func TestRegistryUnknownJobType(t *testing.T) {
