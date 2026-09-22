@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,28 +16,48 @@ import (
 	domevents "stairplatform/internal/domain/events"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
+// OriginChecker возвращает функцию проверки Origin для gorilla Upgrader.
+// Ориджины приходят из конфига (STAIR_WS_ORIGINS / STAIR_CORS_ORIGINS),
+// hardcoded-список localhost убран (S-112, WS-ORIGIN-HARDCODED-LOCALHOST).
+// Политика (безопасный дефолт):
+//   - отсутствие Origin разрешено — не-браузерные клиенты (серверные/CLI;
+//     браузеры всегда шлют Origin на WS-handshake);
+//   - пустой allowedOrigins — только same-origin (Origin host == Host запроса);
+//   - непустой список — exact-match, "*" или wildcard "*.domain"
+//     (симметрично CORS-политике isOriginAllowed).
+func OriginChecker(allowedOrigins []string) func(*http.Request) bool {
+	return func(r *http.Request) bool {
 		origin := r.Header.Get("Origin")
 		if origin == "" {
-			return true // Allow non-browser clients
+			return true // не-браузерный клиент
 		}
-		// В проде проверять against allowed origins из config
-		// Пока разрешаем localhost origins
-		allowedOrigins := []string{
-			"http://localhost:3000",
-			"http://localhost:5173",
-			"http://localhost:8080",
+		if len(allowedOrigins) == 0 {
+			return sameOrigin(r, origin)
 		}
-		for _, allowed := range allowedOrigins {
-			if origin == allowed {
-				return true
-			}
-		}
+		return originAllowed(origin, allowedOrigins)
+	}
+}
+
+// sameOrigin сравнивает host Origin с Host'ом запроса (same-origin дефолт).
+func sameOrigin(r *http.Request, origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
 		return false
-	},
+	}
+	return strings.EqualFold(u.Host, r.Host)
+}
+
+// originAllowed проверяет origin по списку (exact, "*", "*.suffix").
+func originAllowed(origin string, allowed []string) bool {
+	for _, a := range allowed {
+		if a == "*" || a == origin {
+			return true
+		}
+		if strings.HasPrefix(a, "*.") && strings.HasSuffix(origin, a[1:]) {
+			return true
+		}
+	}
+	return false
 }
 
 // MessageType — тип WebSocket сообщения.
@@ -257,7 +279,12 @@ func (h *Hub) LeaveRoom(client *Client, room string) {
 // userID должен быть установлен вызывающей стороной из верифицированного
 // токена (аутентифицированным обработчиком) — никогда не берётся из запроса,
 // иначе клиент сможет подписаться на комнаты/уведомления другого пользователя.
-func HandleWebSocket(hub *Hub, w http.ResponseWriter, r *http.Request, userID string) {
+func HandleWebSocket(hub *Hub, w http.ResponseWriter, r *http.Request, userID string, allowedOrigins []string) {
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin:     OriginChecker(allowedOrigins),
+	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WS: upgrade error: %v", err)

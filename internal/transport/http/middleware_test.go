@@ -66,3 +66,17 @@ func TestStatusWriterRecordsStatus(t *testing.T) {
 		t.Fatalf("expected status 404 through middleware, got %d", rec.Code)
 	}
 }
+
+// TestClientIPUsesRemoteAddrOnly — регресс S-112 (RATELIMIT-DEAD-XFF-CODE):
+// clientIP НЕ доверяет подделываемым X-Forwarded-For/X-Real-IP (EDR-0014 §3.2.1).
+func TestClientIPUsesRemoteAddrOnly(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "203.0.113.7:51234"
+	// Спуфинг-заголовки должны игнорироваться.
+	req.Header.Set("X-Forwarded-For", "203.0.113.195, 70.41.3.18")
+	req.Header.Set("X-Real-IP", "203.0.113.195")
+
+	if got := clientIP(req); got != "203.0.113.7" {
+		t.Fatalf("clientIP() = %q, want %q (RemoteAddr-only)", got, "203.0.113.7")
+	}
+}

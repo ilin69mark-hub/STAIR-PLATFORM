@@ -9,10 +9,6 @@ import (
 	"stairplatform/internal/infrastructure/metrics"
 )
 
-type userIDCtxKey string
-
-const ctxUserID userIDCtxKey = "user_id"
-
 var (
 	// RateLimitRegistry — глобальный реестр метрик rate limiter.
 	RateLimitRegistry = metrics.NewRegistry()
@@ -127,60 +123,10 @@ func (rl *RateLimiter) Stats() (total, blocked int64, activeKeys int) {
 	return rl.total.Load(), rl.blocked.Load(), len(rl.requests)
 }
 
-// ByIP возвращает ключ по IP адресу.
-func ByIP(r *http.Request) string {
-	// Проверяем X-Forwarded-For
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Берем первый IP
-		for i, c := range xff {
-			if c == ',' {
-				return xff[:i]
-			}
-		}
-		return xff
-	}
-
-	// Проверяем X-Real-IP
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-
-	// Используем RemoteAddr
-	addr := r.RemoteAddr
-	if idx := len(addr) - 1; idx > 0 {
-		for i := idx; i >= 0; i-- {
-			if addr[i] == ':' {
-				return addr[:i]
-			}
-		}
-	}
-	return addr
-}
-
-// ByEndpoint возвращает ключ по endpoint + IP.
-func ByEndpoint(r *http.Request) string {
-	return r.URL.Path + ":" + ByIP(r)
-}
-
-// ByUser возвращает ключ по user ID (если аутентифицирован) или IP.
-func ByUser(r *http.Request) string {
-	if uid := r.Context().Value(ctxUserID); uid != nil {
-		if id, ok := uid.(string); ok && id != "" {
-			return "user:" + id
-		}
-	}
-	return ByIP(r)
-}
-
-// ByUserEndpoint возвращает ключ по user ID + endpoint.
-func ByUserEndpoint(r *http.Request) string {
-	if uid := r.Context().Value(ctxUserID); uid != nil {
-		if id, ok := uid.(string); ok && id != "" {
-			return "user:" + id + ":" + r.URL.Path
-		}
-	}
-	return ByIP(r) + ":" + r.URL.Path
-}
+// Ключевые функции по IP удалены (S-112, RATELIMIT-DEAD-XFF-CODE): ByIP
+// доверял подделываемым X-Forwarded-For/X-Real-IP. Live-путь — RemoteAddr-only:
+// clientIP() в internal/transport/http/middleware_auth.go (EDR-0014 §3.2.1,
+// план trust-прокси из env-списка). Здесь остаётся generic-механика по ключу.
 
 // MultiRateLimiter позволяет задать разные лимиты для разных endpoints.
 type MultiRateLimiter struct {
