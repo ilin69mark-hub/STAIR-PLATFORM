@@ -82,9 +82,9 @@ Status: APPROVED
 
 # Operations
 
-* [ ] Incident procedure documented
-* [ ] Rollback/recovery procedure documented
-* [ ] On-call responsibility defined
+* [x] Incident procedure documented (S-129: 17_INFRASTRUCTURE/26_INCIDENT_RESPONSE.md)
+* [x] Rollback/recovery procedure documented (S-129: rollback runbook там же)
+* [x] On-call responsibility defined (S-129: роли + handoff; имена/контакты — человек при запуске)
 * [ ] Critical contacts available
 
 ---
