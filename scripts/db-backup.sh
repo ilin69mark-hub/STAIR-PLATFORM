@@ -16,6 +16,8 @@ STAIR_DATABASE_URL="${STAIR_DATABASE_URL:-postgres://stair:changeme@127.0.0.1:54
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
 PG_CONTAINER="${PG_CONTAINER:-stair-platform-postgres}"
 PG_DOCKER_MODE="${PG_DOCKER_MODE:-auto}"
+# S-128: сколько дней хранить дампы; 0 — не удалять старые.
+BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
 
 url_no_params="${STAIR_DATABASE_URL%%\?*}"
 DB_NAME="${url_no_params##*/}"
@@ -97,3 +99,25 @@ echo "db-backup: OK"
 echo "  dump:     $OUT"
 echo "  checksum: $OUT.sha256 ($SUM)"
 echo "  metadata: $OUT.meta"
+
+# S-128: retention — удаляем дампы старше BACKUP_RETENTION_DAYS (только
+# файлы вида <db>_*.dump + их .sha256/.meta; 0 — пропуск).
+if [ "$BACKUP_RETENTION_DAYS" != "0" ]; then
+	# Некорректное значение — предупреждаем и пропускаем (бэкап уже готов).
+	case "$BACKUP_RETENTION_DAYS" in
+	'' | *[!0-9]*)
+		echo "db-backup: WARNING: bad BACKUP_RETENTION_DAYS='$BACKUP_RETENTION_DAYS', skipping prune" >&2
+		;;
+	*)
+		PRUNED=0
+		while IFS= read -r old; do
+			[ -n "$old" ] || continue
+			rm -f "$old" "$old.sha256" "$old.meta"
+			PRUNED=$((PRUNED + 1))
+		done <<EOF
+$(find "$BACKUP_DIR" -maxdepth 1 -name "${DB_NAME}_*.dump" -mtime +"$BACKUP_RETENTION_DAYS" -print)
+EOF
+		echo "  retention: pruned $PRUNED dump(s) older than $BACKUP_RETENTION_DAYS day(s)"
+		;;
+	esac
+fi
