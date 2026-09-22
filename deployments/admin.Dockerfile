@@ -15,8 +15,8 @@ COPY frontend ./frontend
 WORKDIR /app/frontend
 RUN npm run build
 
-# Stage 2: nginx
-FROM nginx:1.27-alpine
+# Stage 2: nginx (S-123: 1.29-alpine, актуальный stable; был 1.27).
+FROM nginx:1.29-alpine
 COPY deployments/nginx/admin.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/frontend/dist /usr/share/nginx/html
 EXPOSE 80
