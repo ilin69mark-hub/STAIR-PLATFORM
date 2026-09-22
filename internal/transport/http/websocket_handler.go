@@ -70,8 +70,11 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 
 	// 2. Session cookie (store: «session», admin: «session_admin»);
 	//    браузер шлёт её на WS-handshake автоматически (same-origin).
+	//    Namespace определяется ПУТЁМ (/ws = store, /ws/admin = admin),
+	//    а не заголовком X-App-Origin: браузерный WebSocket API не умеет
+	//    ставить кастомные заголовки (S-116).
 	if userID == "" {
-		if token := sessionToken(r); token != "" {
+		if token := wsSessionToken(r); token != "" {
 			uid, err := h.validator.Authenticate(r.Context(), token)
 			if err != nil {
 				h.logger.Warn("websocket: invalid session cookie",
@@ -109,4 +112,26 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 // GetHub возвращает WebSocket hub.
 func (h *WebSocketHandler) GetHub() *ws.Hub {
 	return h.hub
+}
+
+// wsAppOrigin определяет namespace приложения по пути WS-handshake.
+// Браузерный WebSocket API не позволяет ставить кастомные заголовки
+// (X-App-Origin), поэтому admin-подключения идут на /ws/admin, а store —
+// на /ws (S-116, SHOULD ревью PR #50). Заголовок X-App-Origin на WS
+// намеренно НЕ используется: браузер его не пошлёт, а не-браузерные
+// клиенты аутентифицируются Bearer-токеном (заголовок им не нужен).
+func wsAppOrigin(r *http.Request) string {
+	if strings.HasPrefix(r.URL.Path, "/ws/admin") {
+		return appOriginAdmin
+	}
+	return appOriginStore
+}
+
+// wsSessionToken возвращает session-cookie для namespace приложения,
+// определённого по пути WS-handshake (см. wsAppOrigin).
+func wsSessionToken(r *http.Request) string {
+	if c, err := r.Cookie(sessionCookieFor(wsAppOrigin(r))); err == nil {
+		return c.Value
+	}
+	return ""
 }

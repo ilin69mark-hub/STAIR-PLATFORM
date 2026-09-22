@@ -12,6 +12,7 @@ import (
 var nonRESTRoutes = map[string]bool{
 	"/":                          true,
 	"/ws":                        true,
+	"/ws/admin":                  true,
 	"/swagger":                   true,
 	"/docs/openapi/swagger.yaml": true,
 	"/n/swagger.yaml":            true,

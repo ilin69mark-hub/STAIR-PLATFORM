@@ -226,9 +226,12 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		mux.Handle("GET /api/v1/admin/analytics/cost", authProtected(handleCostAnalytics(analytics)))
 	}
 
-	// WebSocket endpoint (EDR-0038)
+	// WebSocket endpoint (EDR-0038). /ws — store-namespace, /ws/admin —
+	// admin-namespace (S-116): браузерный WebSocket API не умеет ставить
+	// заголовок X-App-Origin, поэтому namespace определяется путём.
 	if cfg.WebSocketHandler != nil {
 		mux.HandleFunc("GET /ws", cfg.WebSocketHandler.HandleWebSocket)
+		mux.HandleFunc("GET /ws/admin", cfg.WebSocketHandler.HandleWebSocket)
 	}
 
 	// GraphQL НЕ регистрируется в production: schema обещает 15 операций,
