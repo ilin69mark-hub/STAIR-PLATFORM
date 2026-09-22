@@ -15,9 +15,9 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7 (S-123b)
         with:
           go-version: ${{ env.GO_VERSION }}
 
@@ -25,7 +25,7 @@ jobs:
         run: go vet ./...
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9 (S-123b)
         with:
           # S2-3: mutable «latest» pinned — воспроизводимый линт при сборке.
           version: v2.13.2
@@ -34,9 +34,9 @@ jobs:
     name: Architecture Fitness
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7 (S-123b)
         with:
           go-version: ${{ env.GO_VERSION }}
 
@@ -84,9 +84,9 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7 (S-123b)
         with:
           go-version: ${{ env.GO_VERSION }}
 
@@ -108,7 +108,7 @@ jobs:
           COVERAGE_PROFILE: coverage.out
 
       - name: Upload coverage
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7 (S-123b)
         with:
           name: coverage
           path: coverage.out
@@ -120,9 +120,9 @@ jobs:
       run:
         working-directory: frontend-store
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7 (S-123b)
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -148,9 +148,9 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7 (S-123b)
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -188,9 +188,9 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7 (S-123b)
         with:
           go-version: ${{ env.GO_VERSION }}
 
@@ -243,13 +243,13 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7 (S-123b)
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7 (S-123b)
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -292,7 +292,7 @@ jobs:
 
       - name: Upload blob report
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7 (S-123b)
         with:
           name: blob-report-${{ matrix.shard }}
           path: frontend-store/blob-report
@@ -325,13 +325,13 @@ jobs:
       # admin-panel.spec повышает роль через psql к postgres service
       STAIR_E2E_PSQL: PGPASSWORD=testpassword psql -h localhost -U stair -d stair_platform_test
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7 (S-123b)
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7 (S-123b)
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -358,7 +358,7 @@ jobs:
 
       - name: Upload Playwright report
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7 (S-123b)
         with:
           name: playwright-report-admin
           path: frontend/playwright-report
@@ -386,13 +386,13 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7 (S-123b)
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7 (S-123b)
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -438,7 +438,7 @@ jobs:
 
       - name: Upload Playwright report
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7 (S-123b)
         with:
           name: playwright-report-store
           path: frontend-store/playwright-report
@@ -449,7 +449,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
 
       - name: Start alertmanager + webhook sink
         run: docker compose -f deployments/observability/docker-compose.alerting-test.yml up -d
@@ -509,13 +509,13 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7 (S-123b)
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - uses: grafana/setup-k6-action@v1
+      - uses: grafana/setup-k6-action@43b9fc21641a76002687994433dd586f56e791b1 # v1 (S-123b)
         with:
           k6-version: "0.53.0"
 
@@ -559,14 +559,14 @@ jobs:
     runs-on: ubuntu-latest
     needs: [lint]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
 
       - name: Run Gitleaks (secret scan, полная история)
         run: |
           docker run --rm -v "$PWD:/src" -w /src zricethezav/gitleaks:v8.30.1 \
             detect --source=/src --config=/src/.gitleaks.toml --no-banner
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7 (S-123b)
         with:
           go-version: ${{ env.GO_VERSION }}
 
@@ -575,12 +575,12 @@ jobs:
       # trivy-action >= v0.30 пиннит setup-trivy по SHA (v0.29.0 пиннил
       # несуществующий тег setup-trivy@v0.2.2 → Security Scan падал на резолве).
       - name: Run gosec
-        uses: securego/gosec@v2.29.0
+        uses: securego/gosec@deb54465fea23d19a77f037e11e6589021f8501d # v2.29.0 (S-123b)
         with:
           args: ./...
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0 (S-123b)
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -595,13 +595,13 @@ jobs:
     needs: [lint, test-backend, test-frontend-store, test-frontend-admin]
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.4.1
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1 (S-123b)
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4.6.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0 (S-123b)
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -616,7 +616,7 @@ jobs:
         run: echo "time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Build and push API
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7 (S-123b)
         with:
           context: .
           file: deployments/Dockerfile
@@ -632,7 +632,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push Store
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7 (S-123b)
         with:
           context: .
           file: deployments/store.Dockerfile
@@ -644,7 +644,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push Admin
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7 (S-123b)
         with:
           context: .
           file: deployments/admin.Dockerfile
