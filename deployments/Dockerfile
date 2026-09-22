@@ -27,7 +27,8 @@ RUN CGO_ENABLED=0 go build -trimpath \
       -X stairplatform/internal/version.BuildTime=${BUILD_TIME}" \
     -o /bin/worker ./cmd/worker
 
-FROM alpine:3.20
+# S-123: alpine 3.22 (актуальный stable; был 3.20).
+FROM alpine:3.22
 RUN adduser -D -H -u 10001 appuser
 COPY --from=build /bin/api /bin/api
 COPY --from=build /bin/worker /bin/worker

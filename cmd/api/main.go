@@ -264,26 +264,34 @@ func main() {
 		}))
 	}
 
-	// Ориджины CORS и WebSocket (S-112, WS-ORIGIN-HARDCODED-LOCALHOST):
-	// WS использует отдельный STAIR_WS_ORIGINS; если не задан — список CORS.
-	// Пустой список на WS = только same-origin (безопасный дефолт).
+	// Ориджины CORS и WebSocket (S-112, WS-ORIGIN-HARDCODED-LOCALHOST; S-115):
+	//   - CORS: STAIR_CORS_ORIGINS; если не задан — dev-дефолт localhost:3000
+	//     (HTTP-поведение CORS не менялось и здесь не трогается).
+	//   - WS: отдельный STAIR_WS_ORIGINS; если не задан, но STAIR_CORS_ORIGINS
+	//     задан явно — fallback на CORS-список (S-112). Если оба пустые —
+	//     nil-список = только same-origin (OriginChecker), а НЕ хардкод-дефолт
+	//     localhost:3000: иначе same-host прод (nginx, фронт+API на одном
+	//     хосте) отклонял бы собственный легитимный WS (S-115, SHOULD PR #50).
 	corsOrigins := envStringSlice("STAIR_CORS_ORIGINS", []string{"http://localhost:3000"})
-	wsOrigins := envStringSlice("STAIR_WS_ORIGINS", corsOrigins)
+	wsOrigins := wsAllowedOrigins(corsOrigins)
 
 	cfg := transporthttp.Config{
-		CookieSecure:          envBool("STAIR_COOKIE_SECURE", false),
-		LoginRateLimit:        envInt("STAIR_LOGIN_RATE_LIMIT", 10),
-		LoginRateWindow:       time.Minute,
-		RegisterRateLimit:     envInt("STAIR_REGISTER_RATE_LIMIT", 5),
-		RegisterRateWindow:    time.Minute,
-		QuoteRateLimit:        envInt("STAIR_QUOTE_RATE_LIMIT", 30),
-		QuoteRateWindow:       time.Minute,
-		ValidateRateLimit:     envInt("STAIR_VALIDATE_RATE_LIMIT", 120),
-		ValidateRateWindow:    time.Minute,
-		AuthRateLimit:         envInt("STAIR_AUTH_RATE_LIMIT", 200),
-		AuthRateWindow:        time.Minute,
-		SsoRateLimit:          envInt("STAIR_SSO_RATE_LIMIT", 20),
-		SsoRateWindow:         time.Minute,
+		CookieSecure:       envBool("STAIR_COOKIE_SECURE", false),
+		LoginRateLimit:     envInt("STAIR_LOGIN_RATE_LIMIT", 10),
+		LoginRateWindow:    time.Minute,
+		RegisterRateLimit:  envInt("STAIR_REGISTER_RATE_LIMIT", 5),
+		RegisterRateWindow: time.Minute,
+		QuoteRateLimit:     envInt("STAIR_QUOTE_RATE_LIMIT", 30),
+		QuoteRateWindow:    time.Minute,
+		ValidateRateLimit:  envInt("STAIR_VALIDATE_RATE_LIMIT", 120),
+		ValidateRateWindow: time.Minute,
+		AuthRateLimit:      envInt("STAIR_AUTH_RATE_LIMIT", 200),
+		AuthRateWindow:     time.Minute,
+		SsoRateLimit:       envInt("STAIR_SSO_RATE_LIMIT", 20),
+		SsoRateWindow:      time.Minute,
+		// S-120: доверенные L7-прокси (CIDR/IP через запятую) — только от них
+		// per-IP rate-limiter принимает X-Forwarded-For; пусто — XFF игнор (S-112).
+		TrustedProxies:        os.Getenv("STAIR_TRUSTED_PROXIES"),
 		RedisAddr:             os.Getenv("STAIR_REDIS_ADDR"),
 		MaxBodyBytes:          1 << 20,
 		InstanceID:            instanceID,
@@ -549,15 +557,38 @@ func envStringSlice(key string, def []string) []string {
 	return parts
 }
 
+// wsAllowedOrigins определяет список ориджинов для WebSocket-хендшейка
+// (S-115, SHOULD ревью PR #50). В отличие от envStringSlice, «пусто» здесь
+// НЕ фолбэчится на dev-дефолт CORS:
+//   - STAIR_WS_ORIGINS задан явно → его список (exact/"*"/"*.domain");
+//   - иначе STAIR_CORS_ORIGINS задан явно → CORS-список (fallback, S-112);
+//   - иначе nil → OriginChecker трактует пустой список как «только
+//     same-origin» (безопасный дефолт: браузерный WS с того же хоста
+//     разрешён, кросс-ориджин отклоняется).
+//
+// Раньше оба незаданных env проваливались в хардкод-дефолт CORS
+// [http://localhost:3000] — в same-host проде Origin браузера
+// (https://api.example.com) не матчил localhost, и собственный WS
+// отклонялся.
+func wsAllowedOrigins(corsOrigins []string) []string {
+	if os.Getenv("STAIR_WS_ORIGINS") != "" {
+		return envStringSlice("STAIR_WS_ORIGINS", nil)
+	}
+	if os.Getenv("STAIR_CORS_ORIGINS") != "" {
+		return corsOrigins
+	}
+	return nil
+}
+
 // authTokenValidator adapts auth.Service to TokenValidator interface.
 type authTokenValidator struct {
 	svc *auth.Service
 }
 
-func (v *authTokenValidator) Authenticate(ctx context.Context, token string) (string, error) {
+func (v *authTokenValidator) Authenticate(ctx context.Context, token string) (string, string, error) {
 	user, _, err := v.svc.Authenticate(ctx, token)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return user.ID, nil
+	return user.ID, string(user.Role), nil
 }

@@ -61,12 +61,25 @@ service:
 ingress:
   enabled: false
   className: ""
+  # S-125: примеры для ingress-nginx + cert-manager (раскомментировать под прод):
+  # annotations:
+  #   cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  #   nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"  # idle WS-комнаты (S-121)
+  #   nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
   annotations: {}
   hosts:
     - host: api.stairplatform.com
       paths:
-        - path: /
+        # S-125: только публичная поверхность — /api/ и WS; /metrics,/swagger,
+        # /debug/pprof остаются ClusterIP-only (S-113, InternalOnlyMiddleware).
+        - path: /api/
           pathType: Prefix
+        - path: /ws
+          pathType: Prefix
+  # tls:
+  #   - secretName: api-stairplatform-tls
+  #     hosts:
+  #       - api.stairplatform.com
   tls: []
 
 resources:
@@ -137,6 +150,14 @@ monitoring:
   tracingEnabled: false
   tracingEndpoint: ""
   tracingSampleRate: 0.1
+  # S-126: скрейп метрик kube-prometheus-stack (ServiceMonitor CRD;
+  # оператор должен стоять в кластере). Выключено по умолчанию.
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    # labels:
+    #   release: kube-prometheus-stack
 
 # Debug (NEVER enable in production)
 debug:

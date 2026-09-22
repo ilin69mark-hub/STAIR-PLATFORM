@@ -37,6 +37,31 @@ import (
 // tracerName — имя OpenTelemetry-трейсера воркера (Jaeger service: stair-platform-worker).
 const tracerName = "stair-platform-worker"
 
+// isProductionEnv — нормализованный продакшен-детект (production|prod,
+// EqualFold). Неканоничное значение STAIR_ENVIRONMENT не должно отключать
+// SSRF-политику и требование STAIR_SECRETS_KEY (S-104, S-113).
+func isProductionEnv(environment string) bool {
+	return strings.EqualFold(environment, "production") ||
+		strings.EqualFold(environment, "prod")
+}
+
+// webhookPolicy строит SSRF-политику webhook-доставки (S1-1, S-104).
+// В проде (production|prod, EqualFold) loopback запрещён; внутренние хосты —
+// только через allowHostsCSV (STAIR_WEBHOOK_ALLOW_HOSTS). В dev loopback
+// разрешён (обратная совместимость, локальные интеграции).
+func webhookPolicy(environment, allowHostsCSV string) infintegrations.Policy {
+	policy := infintegrations.Policy{}
+	if !isProductionEnv(environment) {
+		policy.AllowLoopback = true
+	}
+	for _, h := range strings.Split(allowHostsCSV, ",") {
+		if h = strings.TrimSpace(h); h != "" {
+			policy.AllowHosts = append(policy.AllowHosts, h)
+		}
+	}
+	return policy
+}
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
@@ -83,22 +108,10 @@ func main() {
 		database.NewIntegrationRepository(pool), newJobsService(pool), retentionDays)
 	// S-104: нормализованный продакшен-детект (production|prod, EqualFold).
 	// Неканоничное значение STAIR_ENVIRONMENT не должно отключать SSRF-политику.
-	isProduction := strings.EqualFold(os.Getenv("STAIR_ENVIRONMENT"), "production") ||
-		strings.EqualFold(os.Getenv("STAIR_ENVIRONMENT"), "prod")
 	// S1-1: SSRF-политика webhook-доставки. В проде loopback запрещён,
 	// внутренние хосты — только через STAIR_WEBHOOK_ALLOW_HOSTS.
-	{
-		policy := infintegrations.Policy{}
-		if !isProduction {
-			policy.AllowLoopback = true
-		}
-		for _, h := range strings.Split(os.Getenv("STAIR_WEBHOOK_ALLOW_HOSTS"), ",") {
-			if h = strings.TrimSpace(h); h != "" {
-				policy.AllowHosts = append(policy.AllowHosts, h)
-			}
-		}
-		reg.withWebhookClient(infintegrations.NewPolicyClient(0, policy))
-	}
+	reg.withWebhookClient(infintegrations.NewPolicyClient(0,
+		webhookPolicy(os.Getenv("STAIR_ENVIRONMENT"), os.Getenv("STAIR_WEBHOOK_ALLOW_HOSTS"))))
 	// S1-2: шифрование webhook-секретов at rest. Без STAIR_SECRETS_KEY —
 	// legacy-plaintext (dev); в проде ключ обязателен (см. .env.production).
 	if keyHex := os.Getenv("STAIR_SECRETS_KEY"); keyHex != "" {
@@ -114,7 +127,7 @@ func main() {
 		}
 		reg.withSecretCrypter(box)
 		slog.Info("worker: webhook secrets encryption enabled")
-	} else if isProduction {
+	} else if isProductionEnv(os.Getenv("STAIR_ENVIRONMENT")) {
 		slog.Error("STAIR_SECRETS_KEY is not set (webhook secrets encryption mandatory in production)")
 		os.Exit(1)
 	}

@@ -16,13 +16,13 @@ jobs:
     name: k6 smoke
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (S-123b)
 
       - name: Skip if no staging
         if: ${{ vars.STAGING_URL == '' }}
         run: echo "::notice::STAGING_URL не задан — пропускаю"
 
-      - uses: grafana/setup-k6-action@v1
+      - uses: grafana/setup-k6-action@43b9fc21641a76002687994433dd586f56e791b1 # v1 (S-123b)
         if: ${{ vars.STAGING_URL != '' }}
         with:
           k6-version: "0.53.0"
@@ -36,7 +36,7 @@ jobs:
 
       - name: Comment on failure
         if: ${{ failure() && vars.STAGING_URL != '' }}
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9 (S-123b)
         with:
           script: |
             core.setFailed("k6: пороги нарушены — проверь console + staging-логи; см. docs/17_INFRASTRUCTURE/22_SLO_REPORTING.md")

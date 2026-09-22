@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -70,7 +71,36 @@ const (
 	MessageTypeNotification      MessageType = "notification"
 	MessageTypePing              MessageType = "ping"
 	MessageTypePong              MessageType = "pong"
+	// S-132a: client→server управление подписками на комнаты.
+	MessageTypeSubscribe    MessageType = "subscribe"
+	MessageTypeUnsubscribe  MessageType = "unsubscribe"
+	MessageTypeSubscribed   MessageType = "subscribed"
+	MessageTypeUnsubscribed MessageType = "unsubscribed"
 )
+
+// roomPayload — тело subscribe/unsubscribe (S-132a).
+type roomPayload struct {
+	Room string `json:"room"`
+}
+
+// pipelineRoomPrefix — единственный разрешённый префикс комнат:
+// клиенты подписываются только на pipeline-комнаты конфигов
+// ("pipeline:<uuid>"). Clip: знание UUID = capability (S-132a);
+// per-config authorization — follow-up S-132c.
+const pipelineRoomPrefix = "pipeline:"
+
+var uuidSuffix = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// validPipelineRoom проверяет комнату: префикс pipeline: + UUID-суффикс.
+// Остальное (в т.ч. произвольные имена) отклоняется — защита от room-spray
+// и подписки на чужие каналы перебором имён.
+func validPipelineRoom(room string) bool {
+	id, ok := strings.CutPrefix(room, pipelineRoomPrefix)
+	if !ok || id == "" {
+		return false
+	}
+	return uuidSuffix.MatchString(id)
+}
 
 // Message — структура WebSocket сообщения.
 type Message struct {
@@ -338,22 +368,60 @@ func (c *Client) readPump() {
 			continue
 		}
 
-		// Обработка ping/pong
-		switch msg.Type {
-		case MessageTypePing:
-			pong := Message{
-				Type:    MessageTypePong,
-				Payload: json.RawMessage(`{}`),
-				Time:    time.Now(),
-			}
-			data, _ := json.Marshal(pong)
-			c.send <- data
-		case MessageTypePipelineStatus, MessageTypeAnalysisProgress, MessageTypeDocumentGenerated,
-			MessageTypeNotification, MessageTypePong:
-			// Server-to-client события обрабатываются в EventBridge; клиентские
-			// сообщения этих типов игнорируем.
-		}
+		c.handleClientMessage(msg)
 	}
+}
+
+// handleClientMessage обрабатывает одно сообщение от клиента (S-132a:
+// выделено из readPump ради unit-тестируемости без живого conn).
+func (c *Client) handleClientMessage(msg Message) {
+	// Обработка ping/pong
+	switch msg.Type {
+	case MessageTypePing:
+		pong := Message{
+			Type:    MessageTypePong,
+			Payload: json.RawMessage(`{}`),
+			Time:    time.Now(),
+		}
+		data, _ := json.Marshal(pong)
+		c.send <- data
+	case MessageTypeSubscribe, MessageTypeUnsubscribe:
+		c.handleSubscription(msg)
+	case MessageTypePipelineStatus, MessageTypeAnalysisProgress, MessageTypeDocumentGenerated,
+		MessageTypeNotification, MessageTypePong,
+		MessageTypeSubscribed, MessageTypeUnsubscribed:
+		// Server-to-client события обрабатываются в EventBridge; клиентские
+		// сообщения этих типов игнорируем.
+	default:
+		log.Printf("WS: unknown message type %q from user %s", msg.Type, c.userID)
+	}
+}
+
+// handleSubscription — подписка/отписка клиента на pipeline-комнату (S-132a).
+// Невалидная комната игнорируется (без ack); успех подтверждается ack,
+// чтобы фронтенд-клиент знал момент готовности (S-132b).
+func (c *Client) handleSubscription(msg Message) {
+	var p roomPayload
+	if err := json.Unmarshal(msg.Payload, &p); err != nil || !validPipelineRoom(p.Room) {
+		log.Printf("WS: rejected subscription request type=%q from user %s", msg.Type, c.userID)
+		return
+	}
+	ack := Message{Time: time.Now(), Payload: mustRoomPayload(p.Room)}
+	if msg.Type == MessageTypeSubscribe {
+		c.hub.JoinRoom(c, p.Room)
+		ack.Type = MessageTypeSubscribed
+	} else {
+		c.hub.LeaveRoom(c, p.Room)
+		ack.Type = MessageTypeUnsubscribed
+	}
+	if data, err := json.Marshal(ack); err == nil {
+		c.send <- data
+	}
+}
+
+func mustRoomPayload(room string) json.RawMessage {
+	data, _ := json.Marshal(roomPayload{Room: room})
+	return data
 }
 
 // writePump отправляет сообщения клиенту.

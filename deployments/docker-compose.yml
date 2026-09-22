@@ -13,7 +13,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-stair_platform}
     ports:
-      - "5432:5432"
+      # S-122: bind только на localhost — dev-БД не должна светиться в LAN
+      # (аналогично S-113-fix для api).
+      - "127.0.0.1:5432:5432"
     volumes:
       - stair-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -26,7 +28,8 @@ services:
     image: redis:7
     container_name: stair-platform-redis
     ports:
-      - "6379:6379"
+      # S-122: bind только на localhost — dev-Redis не должен светиться в LAN.
+      - "127.0.0.1:6379:6379"
     volumes:
       - stair-redis-data:/data
     healthcheck:
@@ -55,8 +58,15 @@ services:
       STAIR_AUTH_RATE_LIMIT: "10000"
       STAIR_CORS_ORIGINS: "http://localhost:3000,http://localhost:5173,http://localhost:5174"
       STAIR_COOKIE_SECURE: "false"
+      # S-120/S-121: nginx дописывает X-Forwarded-For; per-IP rate-limiter
+      # доверяет XFF только от Docker-bridge (дефолтная compose-сеть).
+      STAIR_TRUSTED_PROXIES: "172.16.0.0/12"
     ports:
-      - "8080:8080"
+      # S-113: bind только на localhost — /metrics, /swagger, /debug/pprof
+      # (InternalOnlyMiddleware) не должны светиться в LAN через docker-proxy
+      # (RemoteAddr = bridge 172.17.x ∈ allowedCIDRs). Прод-доступ — через
+      # nginx/ingress (проксируется только /api/).
+      - "127.0.0.1:8080:8080"
     restart: unless-stopped
 
   worker:

@@ -206,8 +206,10 @@ func handleLogin(svc AuthService, secure bool) http.HandlerFunc {
 			switch {
 			case errors.Is(err, auth.ErrInvalidCreds):
 				writeError(w, http.StatusUnauthorized, "invalid_credentials", "Неверный email или пароль.")
-			case errors.Is(err, auth.ErrUserDisabled):
-				writeError(w, http.StatusForbidden, "user_disabled", "Аккаунт отключён.")
+			// S-113: Login НЕ возвращает ErrUserDisabled — состояние аккаунта
+			// не раскрывается на login-эндпоинте (защита от энумерации).
+			// «Аккаунт отключён» сообщается только аутентифицированным
+			// пользователям (Authenticate → middleware).
 			default:
 				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			}
