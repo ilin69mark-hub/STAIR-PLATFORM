@@ -23,6 +23,14 @@ export default defineConfig({
         target: process.env.STAIR_API_PROXY_URL ?? 'http://localhost:8080',
         changeOrigin: false,
       },
+      // S-132b: dev-прокси WebSocket realtime (upgrade) — зеркалит nginx
+      // location /ws из прод-конфига (S-121). changeOrigin=false — тот же
+      // Host для same-origin проверки (S-115).
+      '/ws': {
+        target: process.env.STAIR_API_PROXY_URL ?? 'http://localhost:8080',
+        changeOrigin: false,
+        ws: true,
+      },
     },
   },
 })

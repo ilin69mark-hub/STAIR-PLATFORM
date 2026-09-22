@@ -32,6 +32,8 @@ import {
   type RatesForm,
 } from '@shared/config'
 import { ResultPanel } from './ResultPanel'
+import { PipelineLiveLine } from './PipelineLiveLine'
+import { usePipelineRoom } from '../lib/usePipelineRoom'
 import type { Variation } from '@shared/types'
 import { generateProposalPdf } from '../lib/proposal'
 import { MembersPanel } from './MembersPanel'
@@ -88,6 +90,12 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
     setLiveFieldErrors(withIssues ? v.fieldErrors : {})
   }
   const [optimizeTarget, setOptimizeTarget] = useState<OptimizeTarget>('price')
+  // S-132b: live-уведомления конвейера (pipeline:<configuration_id>,
+  // протокол S-132a). Хук сам подписывается/отписывается; без WebSocket
+  // в окружении — тихо (realtimeClient no-op).
+  const { notices: pipelineNotices, live: pipelineLive } = usePipelineRoom(
+    calculation?.configuration_id ?? null,
+  )
   const [optimizeMsg, setOptimizeMsg] = useState<string | null>(null)
   // Превью вариации (A/B/C) без сохранения: перебор альтернатив перед
   // тем, как пользователь выберет одну и зафиксирует её расчётом.
@@ -460,12 +468,15 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
           <section id="result" className="section">
             <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Результат последнего расчёта. Вариации A/B/C — превью без сохранения, «Применить» создаёт версию.</p>
             {calculation && (
+<>
+<PipelineLiveLine live={pipelineLive} notices={pipelineNotices} />
 <ResultPanel
                   snapshot={calculation.result}
                   onApplyVariation={applyVariation}
                   activeVariantId={activeVariantId}
                   heightMM={Number(config.heightMM) || undefined}
                 />
+</>
             )}
             {previewCalculation && (
               <section className="panel">
