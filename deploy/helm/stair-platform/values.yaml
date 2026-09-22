@@ -150,6 +150,14 @@ monitoring:
   tracingEnabled: false
   tracingEndpoint: ""
   tracingSampleRate: 0.1
+  # S-126: скрейп метрик kube-prometheus-stack (ServiceMonitor CRD;
+  # оператор должен стоять в кластере). Выключено по умолчанию.
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    # labels:
+    #   release: kube-prometheus-stack
 
 # Debug (NEVER enable in production)
 debug:

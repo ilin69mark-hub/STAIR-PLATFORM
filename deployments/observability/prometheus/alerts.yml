@@ -47,6 +47,23 @@ groups:
 
   - name: stair.latency
     rules:
+      # S-126: login — самый чувствительный auth-путь (bcrypt ~50мс);
+      # SLO: p95 < 300ms (тайминг-атаки S-113 уже закрыты dummy-bcrypt,
+      # здесь ловим регресс производительности).
+      - alert: StairLoginSlow
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket{path="/api/v1/auth/login"}[10m])) by (le)) > 0.3
+        for: 10m
+        labels:
+          severity: warning
+          service: stair-api
+        annotations:
+          summary: "Login p95 > 300ms"
+          description: "95-й перцентиль /api/v1/auth/login выше 300ms (10м) — нарушение latency SLO."
+          impact: "Медленный вход пользователей."
+          runbook: "docs/17_INFRASTRUCTURE/22_SLO_SLA.md"
+
       - alert: StairApiHighLatencyP95
         expr: |
           histogram_quantile(0.95,
