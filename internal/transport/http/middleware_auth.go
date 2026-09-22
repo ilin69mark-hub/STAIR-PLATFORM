@@ -51,6 +51,12 @@ type Config struct {
 	SsoRateWindow time.Duration
 	// RedisAddr — адрес Redis для распределённого лимитера; пусто — memory.
 	RedisAddr string
+	// TrustedProxies — доверенные прокси (STAIR_TRUSTED_PROXIES, CSV из CIDR
+	// или одиночных IP, напр. "10.0.0.0/8, 1.2.3.4"). Только если прямой пир
+	// (RemoteAddr) входит в этот список, rate-limiter берёт IP клиента из
+	// X-Forwarded-For (S-120). Пусто — XFF игнорируется везде (дефолт S-112:
+	// защита от спуфинга при прямом доступе).
+	TrustedProxies string
 	// MaxBodyBytes — предельный размер тела запроса (защита от DoS).
 	MaxBodyBytes int64
 	// InstanceID — идентификатор реплики (STAIR_INSTANCE_ID, EDR-0018 §3.5);
@@ -312,9 +318,9 @@ func (l *rateLimiter) Allow(ip string) bool { return l.allow(ip) }
 
 // limitRate ограничивает число запросов с одного IP (анти-брутфорс
 // login/register, SEC-0003; EDR-0014 §3.2).
-func limitRate(l RateLimiter, next http.Handler) http.Handler {
+func limitRate(l RateLimiter, trusted []*net.IPNet, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !l.Allow(clientIP(r)) {
+		if !l.Allow(rateLimitIP(r, trusted)) {
 			// Добавляем Retry-After header (стандарт для 429)
 			w.Header().Set("Retry-After", "60")
 			writeError(w, http.StatusTooManyRequests, "rate_limited", "Слишком много запросов, попробуйте позже")
@@ -334,4 +340,54 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// parseTrustedProxies разбирает CSV из CIDR ("10.0.0.0/8") или одиночных IP
+// ("1.2.3.4" → /32, IPv6 → /128) в список сетей (S-120). Невалидные записи
+// пропускаются; пустая строка — nil (XFF не доверяется никому).
+func parseTrustedProxies(csv string) []*net.IPNet {
+	var out []*net.IPNet
+	for _, s := range strings.Split(csv, ",") {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if strings.Contains(s, "/") {
+			if _, n, err := net.ParseCIDR(s); err == nil {
+				out = append(out, n)
+			}
+			continue
+		}
+		if ip := net.ParseIP(s); ip != nil {
+			bits := 32
+			if ip.To4() == nil {
+				bits = 128
+			}
+			out = append(out, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+		}
+	}
+	return out
+}
+
+// rateLimitIP — ключ per-IP лимитера (S-120). Если прямой пир (RemoteAddr)
+// входит в trusted-прокси и запрос несёт X-Forwarded-For — берём самый левый
+// (исходный клиент; прокси дописывают себя справа). Иначе — RemoteAddr
+// (поведение S-112). Непарсящийся XFF — fallback на RemoteAddr.
+func rateLimitIP(r *http.Request, trusted []*net.IPNet) string {
+	if len(trusted) > 0 {
+		if peer := net.ParseIP(clientIP(r)); peer != nil {
+			for _, n := range trusted {
+				if n.Contains(peer) {
+					if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+						first := strings.TrimSpace(strings.Split(xff, ",")[0])
+						if net.ParseIP(first) != nil {
+							return first
+						}
+					}
+					break
+				}
+			}
+		}
+	}
+	return clientIP(r)
 }

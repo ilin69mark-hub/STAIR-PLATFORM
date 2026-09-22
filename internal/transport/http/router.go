@@ -68,6 +68,8 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	// SSO rate limiter: публичные begin/callback/config (S-109).
 	ssoLimiter := newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.SsoRateLimit, cfg.SsoRateWindow)
 	secure := cfg.CookieSecure
+	// S-120: доверенные прокси для per-IP rate-limit (XFF только от них).
+	trusted := parseTrustedProxies(cfg.TrustedProxies)
 
 	var auditsvc AuditService
 	if len(auditSvc) > 0 {
@@ -91,18 +93,18 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	// Swagger UI (internal only)
 	mux.Handle("GET /swagger", InternalOnlyMiddleware(http.HandlerFunc(handleSwaggerUI)))
 	mux.Handle("GET /docs/openapi/swagger.yaml", InternalOnlyMiddleware(http.HandlerFunc(handleSwaggerSpec)))
-	mux.Handle("POST /api/v1/auth/register", limitRate(registerLimiter, handleRegister(authSvc, secure)))
-	mux.Handle("POST /api/v1/auth/login", limitRate(loginLimiter, handleLogin(authSvc, secure)))
+	mux.Handle("POST /api/v1/auth/register", limitRate(registerLimiter, trusted, handleRegister(authSvc, secure)))
+	mux.Handle("POST /api/v1/auth/login", limitRate(loginLimiter, trusted, handleLogin(authSvc, secure)))
 
 	// Публичный расчёт предварительной цены для клиентского сайта (store).
 	// Без аутентификации; rate-limiter защищает от злоупотреблений.
-	mux.Handle("POST /api/v1/public/stairs:quote", limitRate(quoteLimiter, handlePublicQuote(svc)))
+	mux.Handle("POST /api/v1/public/stairs:quote", limitRate(quoteLimiter, trusted, handlePublicQuote(svc)))
 	// Живая валидация при вводе для клиентского сайта (S-P5): тот же блок
 	// validation, что и в расчёте, но без геометрии/производства/цены.
-	mux.Handle("POST /api/v1/public/stairs:validate", limitRate(validateLimiter, handleValidate(svc)))
+	mux.Handle("POST /api/v1/public/stairs:validate", limitRate(validateLimiter, trusted, handleValidate(svc)))
 	// Публичная консультация (store): анонимный запрос обратной связи.
 	// Создаёт заказ-лид kind=consultation без пользователя и цены.
-	mux.Handle("POST /api/v1/public/orders", limitRate(quoteLimiter, handleCreateConsultation(ordersSvc, authSvc)))
+	mux.Handle("POST /api/v1/public/orders", limitRate(quoteLimiter, trusted, handleCreateConsultation(ordersSvc, authSvc)))
 
 	authProtected := func(next http.Handler) http.Handler {
 		return requireAuth(authSvc, authRateLimiter, secure)(next)
@@ -116,9 +118,9 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 
 	// SSO (EDR-0017 §6): публичные маршруты (начала и колбэк). Rate-limited
 	// по IP (S-109), чтобы исключить спам и неограниченный рост sso_states.
-	mux.Handle("GET /api/v1/auth/sso", limitRate(ssoLimiter, handleSsoBegin(authSvc)))
-	mux.Handle("GET /api/v1/auth/sso/callback", limitRate(ssoLimiter, handleSsoCallback(authSvc, secure)))
-	mux.Handle("GET /api/v1/auth/sso/config", limitRate(ssoLimiter, handleSsoConfig(authSvc)))
+	mux.Handle("GET /api/v1/auth/sso", limitRate(ssoLimiter, trusted, handleSsoBegin(authSvc)))
+	mux.Handle("GET /api/v1/auth/sso/callback", limitRate(ssoLimiter, trusted, handleSsoCallback(authSvc, secure)))
+	mux.Handle("GET /api/v1/auth/sso/config", limitRate(ssoLimiter, trusted, handleSsoConfig(authSvc)))
 
 	mux.Handle("GET /api/v1/admin/users", authProtected(handleListUsers(authSvc)))
 	mux.Handle("PATCH /api/v1/admin/users/{id}", authMutating(handleUpdateUser(authSvc)))
