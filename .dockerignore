@@ -11,7 +11,6 @@ frontend/shared/*
 # контекст сборки только необходимые файлы. node_modules/dist остаются
 # исключёнными (не re-include), тяжёлые артефакты в образ не попадают.
 !frontend/package.json
-!frontend/package-lock.json
 !frontend/index.html
 !frontend/vite.config.ts
 !frontend/tsconfig.json
@@ -23,3 +22,7 @@ configs
 coverage.out
 coverage.html
 *.md
+# Локальные артефакты никогда не едут в контекст сборки (S-117): свежие
+# зависимости ставит `npm ci` внутри образа, dist собирается там же.
+**/node_modules
+**/dist
