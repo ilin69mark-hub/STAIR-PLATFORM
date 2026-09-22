@@ -229,12 +229,17 @@ func (s *Service) Login(ctx context.Context, email, password string) (*User, str
 		}
 		return nil, "", err
 	}
-	if u.Status != StatusActive {
-		s.record(ctx, u.ID, u.TenantID, audit.ActionAuthLoginDenied, audit.ResultDenied, "user disabled")
-		return nil, "", ErrUserDisabled
-	}
+	// S-113: bcrypt-сравнение выполняется ДО проверки статуса — тайминг
+	// ответа не зависит от состояния аккаунта, а код ошибки не раскрывает
+	// его: disabled-аккаунт неотличим от неверного пароля/неизвестного email
+	// (всегда ErrInvalidCreds). Состояние «отключён» сообщается только в
+	// аутентифицированном пути (Authenticate) и в аудит-журнале.
 	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) != nil {
 		s.record(ctx, u.ID, u.TenantID, audit.ActionAuthLoginDenied, audit.ResultDenied, "invalid password")
+		return nil, "", ErrInvalidCreds
+	}
+	if u.Status != StatusActive {
+		s.record(ctx, u.ID, u.TenantID, audit.ActionAuthLoginDenied, audit.ResultDenied, "user disabled")
 		return nil, "", ErrInvalidCreds
 	}
 	token, err := newToken()

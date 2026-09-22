@@ -417,8 +417,31 @@ func TestDisabledUserCannotLogin(t *testing.T) {
 	u, _, _ := svc.Register(context.Background(), "off@example.com", "A", "password123")
 	u.Status = StatusDisabled
 
-	if _, _, err := svc.Login(context.Background(), "off@example.com", "password123"); err != ErrUserDisabled {
-		t.Fatalf("expected ErrUserDisabled, got %v", err)
+	// S-113: disabled-аккаунт неотличим от неверного пароля — ErrInvalidCreds,
+	// а не ErrUserDisabled (состояние не раскрывается на login-эндпоинте).
+	// И с верным, и с неверным паролем — одинаковый ответ.
+	if _, _, err := svc.Login(context.Background(), "off@example.com", "password123"); err != ErrInvalidCreds {
+		t.Fatalf("expected ErrInvalidCreds for disabled user (correct password), got %v", err)
+	}
+	if _, _, err := svc.Login(context.Background(), "off@example.com", "wrong-password"); err != ErrInvalidCreds {
+		t.Fatalf("expected ErrInvalidCreds for disabled user (wrong password), got %v", err)
+	}
+}
+
+// TestAuthenticateDisabledUser — аутентифицированный путь (валидная сессия +
+// disabled-аккаунт) ВОЗВРАЩАЕТ ErrUserDisabled: пользователь уже доказал
+// владение сессией, состояние можно сообщить (S-113).
+func TestAuthenticateDisabledUser(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, time.Hour)
+	u, token, err := svc.Register(context.Background(), "off@example.com", "A", "password123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.Status = StatusDisabled
+
+	if _, _, err := svc.Authenticate(context.Background(), token); err != ErrUserDisabled {
+		t.Fatalf("expected ErrUserDisabled from Authenticate, got %v", err)
 	}
 }
 
