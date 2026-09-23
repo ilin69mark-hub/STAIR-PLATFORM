@@ -84,7 +84,7 @@ func TestMockProviderNameAndNilCtx(t *testing.T) {
 	if p.Name() != "mock" {
 		t.Fatalf("Name = %q", p.Name())
 	}
-	if _, _, err := p.CreateCheckout(nil, 100, "USD"); err == nil {
+	if _, _, err := p.CreateCheckout(nil, 100, "USD"); err == nil { //nolint:staticcheck // регресс-тест nil-guard провайдера (SA1012 намеренно)
 		t.Fatal("nil ctx: want error")
 	}
 	if _, _, err := p.CreateCheckout(context.Background(), 0, "USD"); err == nil {

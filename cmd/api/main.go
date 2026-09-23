@@ -191,6 +191,62 @@ func main() {
 		assistantSvc = assistantSvc.WithPrimaryBackend(oai)
 	}
 
+	// RAG-корпус и conversation-memory (S-135, AI-0007/AI-0006). Ретривер:
+	//   - FTS (tsvector/GIN) — всегда: таблица ai_corpus_chunks есть после
+	//     миграций, эмбеддер не нужен (fallback-путь решения S-135);
+	//   - векторный (pgvector + /embeddings) — только при
+	//     STAIR_AI_EMBED_BASE_URL (+ STAIR_AI_EMBED_MODEL): embedder
+	//     default-off (AI-0007), при сбое эмбеддера/поиска vectorRetriever
+	//     сам деградирует в FTS (не проваливает ответ).
+	// Память: TTL-очистка STAIR_AI_MEMORY_TTL (default 30 суток) фоновой
+	// горутиной; в контекст ответа попадают последние history_limit сообщений
+	// проекта (D1–D4, скоуп проверяется хранилищем по FK tenant+project).
+	aiRepo := database.NewAIRepository(pool)
+	var ragRetriever appast.Retriever
+	if embedBase := os.Getenv("STAIR_AI_EMBED_BASE_URL"); embedBase != "" {
+		emb, err := appast.NewOpenAIEmbedder(appast.EmbedderConfig{
+			BaseURL: embedBase,
+			APIKey:  os.Getenv("STAIR_AI_EMBED_API_KEY"),
+			Model:   os.Getenv("STAIR_AI_EMBED_MODEL"),
+		})
+		if err != nil {
+			slog.Error("assistant embedder init failed", "error", err)
+			os.Exit(1)
+		}
+		ragRetriever = appast.NewVectorRetriever(aiRepo, emb)
+		slog.Info("assistant: RAG vector path enabled (pgvector + /embeddings)")
+	} else {
+		ragRetriever = appast.NewFTSRetriever(aiRepo)
+		slog.Info("assistant: RAG via FTS (tsvector/GIN); vector path requires STAIR_AI_EMBED_BASE_URL")
+	}
+	assistantSvc = assistantSvc.
+		WithRAG(ragRetriever, envInt("STAIR_AI_RAG_TOP_K", 5)).
+		WithMemory(aiRepo)
+
+	// Фоновая TTL-очистка conversation-memory (S-135): запускаем при старте
+	// и далее раз в memoryTTL. Best-effort: сбой prune не валит процесс.
+	memoryTTL := envDuration("STAIR_AI_MEMORY_TTL", 30*24*time.Hour)
+	go func() {
+		prune := func() {
+			pctx, pcancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer pcancel()
+			n, perr := aiRepo.PruneMessages(pctx, time.Now().UTC().Add(-memoryTTL))
+			if perr != nil {
+				slog.Warn("assistant: memory prune failed", "error", perr)
+				return
+			}
+			if n > 0 {
+				slog.Info("assistant: memory pruned", "deleted", n)
+			}
+		}
+		prune() // разово при старте (убирает хвосты после даунтайма)
+		ticker := time.NewTicker(memoryTTL)
+		defer ticker.Stop()
+		for range ticker.C {
+			prune()
+		}
+	}()
+
 	// Storage (EDR-0026 §3.5): объектное хранилище из окружения. Бэкенд
 	// задаётся STAIR_STORAGE_BACKEND (filesystem|s3); сбой конфигурации —
 	// фатален (сервис доступен только при валидном хранилище).

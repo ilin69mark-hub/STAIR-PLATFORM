@@ -92,6 +92,14 @@ func TestExecuteCancelled(t *testing.T) {
 
 // TestExecuteCancelledMidway: отмена во время работы останавливает
 // невыполненные задачи и возвращает ошибку отмены.
+//
+// Детерминизм (фикс S-135): блокируем первые 4 задачи (== размеру пула) —
+// semaphore заполнен, остальные 46 задач ждут на select с ctx.Done, поэтому
+// cancel() гарантированно выигрывает гонку у «мгновенных» задач. Сигнал
+// started шлёт ЛЮБАЯ из блокирующихся задач (буфер 1): при -race -p 1
+// горутина cancel могла задерживаться, пока 47 быстрых задач уже
+// завершились → флейк "got <nil>"; привязка только к i==0 — дедлок
+// (задачи 1..3 могли занять sem раньше).
 func TestExecuteCancelledMidway(t *testing.T) {
 	s := New(4)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -99,15 +107,19 @@ func TestExecuteCancelledMidway(t *testing.T) {
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
 	var executed atomic.Int32
-	// Синхронизация: первая задача блокируется, затем отменяем контекст.
+	// Синхронизация: первая запустившаяся задача блокируется, затем
+	// отменяем контекст.
 	go func() {
 		<-started
 		cancel()
 		close(release)
 	}()
 	err := s.Execute(ctx, 50, func(i int) error {
-		if i == 0 {
-			started <- struct{}{}
+		if i < 4 {
+			select {
+			case started <- struct{}{}:
+			default:
+			}
 			<-release
 		}
 		executed.Add(1)

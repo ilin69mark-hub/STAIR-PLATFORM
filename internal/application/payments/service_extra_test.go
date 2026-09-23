@@ -53,16 +53,16 @@ func (f *failProvider) CreateCheckout(_ context.Context, _ int64, _ string) (str
 	return "chk-123", "https://pay.example.com/pay/chk-123", nil
 }
 
-func seedIntent(t *testing.T, repo *failRepo, tenant, project, provider, checkout string, amount int64, currency string) *PaymentIntent {
+func seedIntent(t *testing.T, repo *failRepo, tenant, project, checkout string, amount int64) *PaymentIntent {
 	t.Helper()
 	p := &PaymentIntent{
 		TenantID:           tenant,
 		ProjectID:          project,
 		UserID:             "u-1",
 		AmountMinor:        amount,
-		Currency:           currency,
+		Currency:           "USD",
 		Status:             StatusPending,
-		Provider:           provider,
+		Provider:           "mock",
 		ProviderCheckoutID: checkout,
 	}
 	if err := repo.CreateIntent(context.Background(), p); err != nil {
@@ -75,10 +75,10 @@ func TestListByProject(t *testing.T) {
 	repo := &failRepo{}
 	svc := NewService(repo, &fakeProvider{name: "mock"}, &fakeVerifier{}, 0)
 	ctx := context.Background()
-	seedIntent(t, repo, "t-1", "p-1", "mock", "chk-1", 1000, "USD")
-	seedIntent(t, repo, "t-1", "p-1", "mock", "chk-2", 2000, "USD")
-	seedIntent(t, repo, "t-1", "p-2", "mock", "chk-3", 3000, "USD")
-	seedIntent(t, repo, "t-9", "p-1", "mock", "chk-4", 4000, "USD")
+	seedIntent(t, repo, "t-1", "p-1", "chk-1", 1000)
+	seedIntent(t, repo, "t-1", "p-1", "chk-2", 2000)
+	seedIntent(t, repo, "t-1", "p-2", "chk-3", 3000)
+	seedIntent(t, repo, "t-9", "p-1", "chk-4", 4000)
 
 	got, err := svc.ListByProject(ctx, "t-1", "p-1")
 	if err != nil {
@@ -98,7 +98,7 @@ func TestGet(t *testing.T) {
 	repo := &failRepo{}
 	svc := NewService(repo, &fakeProvider{name: "mock"}, &fakeVerifier{}, 0)
 	ctx := context.Background()
-	seed := seedIntent(t, repo, "t-1", "p-1", "mock", "chk-1", 1000, "USD")
+	seed := seedIntent(t, repo, "t-1", "p-1", "chk-1", 1000)
 
 	got, err := svc.Get(ctx, "t-1", seed.ID)
 	if err != nil {
@@ -119,8 +119,8 @@ func TestApplyVerifiedEventPaidAndFailed(t *testing.T) {
 	repo := &failRepo{}
 	svc := NewService(repo, &fakeProvider{name: "mock"}, &fakeVerifier{}, 0)
 	ctx := context.Background()
-	seedIntent(t, repo, "t-1", "p-1", "mock", "chk-paid", 5000, "USD")
-	seedIntent(t, repo, "t-1", "p-1", "mock", "chk-fail", 5000, "USD")
+	seedIntent(t, repo, "t-1", "p-1", "chk-paid", 5000)
+	seedIntent(t, repo, "t-1", "p-1", "chk-fail", 5000)
 
 	if err := svc.ApplyVerifiedEvent(ctx, "mock", "chk-paid", "paid", 5000, "usd", []byte(`{}`)); err != nil {
 		t.Fatalf("paid: %v", err)
@@ -146,7 +146,7 @@ func TestApplyVerifiedEventErrors(t *testing.T) {
 	repo := &failRepo{}
 	svc := NewService(repo, &fakeProvider{name: "mock"}, &fakeVerifier{}, 0)
 	ctx := context.Background()
-	seedIntent(t, repo, "t-1", "p-1", "mock", "chk-1", 5000, "USD")
+	seedIntent(t, repo, "t-1", "p-1", "chk-1", 5000)
 
 	for name, args := range map[string][6]string{
 		"empty provider":   {"", "chk-1", "paid", "5000", "USD", ""},

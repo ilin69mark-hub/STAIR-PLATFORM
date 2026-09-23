@@ -729,6 +729,37 @@ paths:
           application/json:
             schema:
               type: object
+              properties:
+                width_mm:
+                  type: number
+                  description: "Ширина марша, мм"
+                height_mm:
+                  type: number
+                  description: "Высота подъёма, мм"
+                flight:
+                  type: string
+                  description: "Тип марша: straight | l_shape | u_shape | spiral"
+                outer_radius_mm:
+                  type: number
+                  description: "Наружный радиус (спираль), мм"
+                material:
+                  type: string
+                  description: "Материал: STEEL-S235 | ALUM-5083 | WOOD-OAK"
+                comfort_step_mm:
+                  type: number
+                  description: "Целевой шаг комфорта 2h+b, мм"
+                priority:
+                  type: string
+                  enum: [price, cost, material, comfort]
+                  description: "Приоритет рекомендации (design); прочие kind игнорируют"
+                project_id:
+                  type: string
+                  description: "Скоуп conversation-memory (S-135): пустой — память не используется"
+                history_limit:
+                  type: integer
+                  minimum: -1
+                  maximum: 50
+                  description: "Глубина истории диалога в контекст: 0 → default 10, cap 50, <0 → без истории"
       responses:
         201:
           description: OK
