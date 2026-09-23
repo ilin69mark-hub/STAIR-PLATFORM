@@ -306,7 +306,6 @@ func main() {
 		Assistant:             assistantSvc,
 		Orders:                ordersSvc,
 		Testimonials:          testimonialSvc,
-		WebSocketHandler:      transporthttp.NewWebSocketHandler(hub, logger, &authTokenValidator{authSvc}, wsOrigins),
 		SecurityConfig: &transporthttp.SecurityConfig{
 			AllowedOrigins: corsOrigins,
 			EnableHSTS:     envBool("STAIR_HSTS_ENABLED", false),
@@ -319,6 +318,12 @@ func main() {
 		DB:    pool,
 		Redis: redisClient,
 	}
+
+	// S-132c: права на WS-подписки pipeline: — admin пропускается,
+	// остальные проверяются по членству в проекте конфигурации.
+	wh := transporthttp.NewWebSocketHandler(hub, logger, &authTokenValidator{authSvc}, wsOrigins)
+	wh.SetSubscriberAuthorizer(&pipelineSubscriberAuthorizer{svc: projectSvc})
+	cfg.WebSocketHandler = wh
 
 	router := transporthttp.NewRouter(stairSvc, projectSvc, authSvc, cfg, auditSvc)
 
@@ -591,4 +596,29 @@ func (v *authTokenValidator) Authenticate(ctx context.Context, token string) (st
 		return "", "", err
 	}
 	return user.ID, string(user.Role), nil
+}
+
+// configAccessor — минимальный интерфейс project.Service.HasConfigAccess
+// (S-132c): позволяет unit-тесту не поднимать БД/репозиторий.
+type configAccessor interface {
+	HasConfigAccess(ctx context.Context, userID, configurationID string) (bool, error)
+}
+
+// pipelineSubscriberAuthorizer проверяет право подписки на pipeline-комнаты
+// (S-132c): admin пропускается без surplus-проверки; остальные — через
+// членство в проекте конфигурации (HasConfigAccess).
+type pipelineSubscriberAuthorizer struct {
+	svc configAccessor
+}
+
+func (a *pipelineSubscriberAuthorizer) CanSubscribe(userID, role, room string) bool {
+	if role == string(auth.RoleAdmin) {
+		return true
+	}
+	configID, ok := strings.CutPrefix(room, "pipeline:")
+	if !ok || configID == "" {
+		return false
+	}
+	ok, err := a.svc.HasConfigAccess(context.Background(), userID, configID)
+	return err == nil && ok
 }

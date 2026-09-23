@@ -396,6 +396,16 @@ func (s *Service) GetConfiguration(ctx context.Context, tenantID, userID, projec
 	return s.repo.GetConfigurationByID(ctx, tenantID, projectID, configurationID)
 }
 
+// HasConfigAccess возвращает true, если пользователь является членом
+// проекта, которому принадлежит конфигурация (S-132c). Используется
+// WS-авторизацией: подписка на pipeline:<configID> без членства отклоняется.
+func (s *Service) HasConfigAccess(ctx context.Context, userID, configurationID string) (bool, error) {
+	if userID == "" || configurationID == "" {
+		return false, nil
+	}
+	return s.repo.HasConfigAccess(ctx, userID, configurationID)
+}
+
 // RestoreConfiguration делает ревизию конфигурации текущей (EDR-0012,
 // DB-0006 Recovery): прежняя версия снова становится рабочей. Требуется
 // роль с правом project.edit; не-член — ErrNotFound.

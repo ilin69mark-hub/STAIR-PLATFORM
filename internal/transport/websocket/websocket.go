@@ -111,12 +111,38 @@ type Message struct {
 
 // Client — WebSocket клиент.
 type Client struct {
-	conn   *websocket.Conn
-	send   chan []byte
-	hub    *Hub
-	userID string
-	rooms  map[string]bool
-	mu     sync.RWMutex
+	conn       *websocket.Conn
+	send       chan []byte
+	hub        *Hub
+	userID     string
+	role       string
+	authorizer SubscriberAuthorizer
+	rooms      map[string]bool
+	mu         sync.RWMutex
+}
+
+// SubscriberAuthorizer проверяет право клиента подписаться на комнату
+// (S-132c). Реализация живёт в transport/http (где есть доступ к сервисам);
+// здесь — только порт. Nil-авторизатор трактуется как «нет проверки» —
+// ранее подключённые клиенты не ломаются, а прод wiring задаёт проверку.
+type SubscriberAuthorizer interface {
+	// CanSubscribe возвращает true, если userID (роль role) может
+	// подписаться на комнату room.
+	CanSubscribe(userID, role, room string) bool
+}
+
+// ConnectOption настраивает Client при подключении.
+type ConnectOption func(*Client)
+
+// WithRole задаёт роль пользователя (нужна S-132c: admin пропускается
+// без surplus проверки в реализациях авторизатора).
+func WithRole(role string) ConnectOption {
+	return func(c *Client) { c.role = role }
+}
+
+// WithSubscriberAuthorizer подключает проверку прав на подписки (S-132c).
+func WithSubscriberAuthorizer(a SubscriberAuthorizer) ConnectOption {
+	return func(c *Client) { c.authorizer = a }
 }
 
 // Hub — центральный хаб для управления клиентами.
@@ -309,7 +335,9 @@ func (h *Hub) LeaveRoom(client *Client, room string) {
 // userID должен быть установлен вызывающей стороной из верифицированного
 // токена (аутентифицированным обработчиком) — никогда не берётся из запроса,
 // иначе клиент сможет подписаться на комнаты/уведомления другого пользователя.
-func HandleWebSocket(hub *Hub, w http.ResponseWriter, r *http.Request, userID string, allowedOrigins []string) {
+// opts (WithRole / WithSubscriberAuthorizer, S-132c) — опциональны: без них
+// подключение работает, но подписки на комнаты не проверяются.
+func HandleWebSocket(hub *Hub, w http.ResponseWriter, r *http.Request, userID string, allowedOrigins []string, opts ...ConnectOption) {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
@@ -331,6 +359,9 @@ func HandleWebSocket(hub *Hub, w http.ResponseWriter, r *http.Request, userID st
 		hub:    hub,
 		userID: userID,
 		rooms:  make(map[string]bool),
+	}
+	for _, o := range opts {
+		o(client)
 	}
 
 	hub.register <- client
@@ -400,10 +431,16 @@ func (c *Client) handleClientMessage(msg Message) {
 // handleSubscription — подписка/отписка клиента на pipeline-комнату (S-132a).
 // Невалидная комната игнорируется (без ack); успех подтверждается ack,
 // чтобы фронтенд-клиент знал момент готовности (S-132b).
+// Подписка проходит проверку авторзации (S-132c): если авторизатор задан,
+// доступ без права → отказ без ack (клиент остаётся вне комнаты).
 func (c *Client) handleSubscription(msg Message) {
 	var p roomPayload
 	if err := json.Unmarshal(msg.Payload, &p); err != nil || !validPipelineRoom(p.Room) {
 		log.Printf("WS: rejected subscription request type=%q from user %s", msg.Type, c.userID)
+		return
+	}
+	if msg.Type == MessageTypeSubscribe && c.authorizer != nil && !c.authorizer.CanSubscribe(c.userID, c.role, p.Room) {
+		log.Printf("WS: denied subscribe to %q for user %s (role %s)", p.Room, c.userID, c.role)
 		return
 	}
 	ack := Message{Time: time.Now(), Payload: mustRoomPayload(p.Room)}

@@ -253,6 +253,79 @@ func TestProjectRepositoryMembers(t *testing.T) {
 	}
 }
 
+// TestProjectRepositoryHasConfigAccess (S-132c): член проекта имеет доступ
+// к его конфигурации; не-член — нет.
+func TestProjectRepositoryHasConfigAccess(t *testing.T) {
+	if os.Getenv("STAIR_TEST_DATABASE_URL") == "" {
+		t.Skip("STAIR_TEST_DATABASE_URL not set; skipping database integration test")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	repo := integrationRepo(t)
+	ar := NewAuthRepository(repo.pool)
+	tenant := testTenantID(t, repo)
+	owner := testOwnerID(t, repo, tenant)
+
+	u2 := &auth.User{Name: "Member", Email: fmt.Sprintf("mem-%d@test.dev", time.Now().UnixNano()),
+		TenantID: tenant, Role: auth.RoleUser, Status: auth.StatusActive}
+	if err := ar.CreateUser(ctx, u2); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	p := &project.Project{Name: "S-132c доступ", Status: project.StatusDraft}
+	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	cfg := &project.StairConfiguration{
+		ProjectID: p.ID, WidthMM: 900, HeightMM: 2700, Flight: "straight",
+		StepHeightMM: 180, StringerThicknessMM: 50, StepThicknessMM: 40,
+		ClearanceMM: 80, RailingHeightMM: 900, ComfortStepMM: 620,
+	}
+	if _, err := repo.SaveCalculationWithConfig(ctx, tenant, cfg, sampleSnapshot(p.ID)); err != nil {
+		t.Fatalf("SaveCalculationWithConfig: %v", err)
+	}
+
+	// Владелец — автоматический член проекта.
+	ok, err := repo.HasConfigAccess(ctx, owner, cfg.ID)
+	if err != nil {
+		t.Fatalf("HasConfigAccess(owner): %v", err)
+	}
+	if !ok {
+		t.Fatal("owner should have config access")
+	}
+
+	// Не-член — нет.
+	ok, err = repo.HasConfigAccess(ctx, u2.ID, cfg.ID)
+	if err != nil {
+		t.Fatalf("HasConfigAccess(outsider): %v", err)
+	}
+	if ok {
+		t.Fatal("non-member must not have config access")
+	}
+
+	// После добавления в проект — доступ есть.
+	if err := repo.AddMember(ctx, tenant, p.ID, &project.ProjectMember{ProjectID: p.ID, UserID: u2.ID, Role: project.RoleEditor}); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	ok, err = repo.HasConfigAccess(ctx, u2.ID, cfg.ID)
+	if err != nil {
+		t.Fatalf("HasConfigAccess(member): %v", err)
+	}
+	if !ok {
+		t.Fatal("member should have config access")
+	}
+
+	// Несуществующая конфигурация — false без ошибки.
+	ok, err = repo.HasConfigAccess(ctx, owner, "00000000-0000-0000-0000-000000000000")
+	if err != nil {
+		t.Fatalf("HasConfigAccess(missing): %v", err)
+	}
+	if ok {
+		t.Fatal("missing config must not grant access")
+	}
+}
+
 // TestProjectRepositoryCannotTouchOwner — защита владельца от изменения/удаления.
 func TestProjectRepositoryCannotTouchOwner(t *testing.T) {
 	if os.Getenv("STAIR_TEST_DATABASE_URL") == "" {
