@@ -1,9 +1,9 @@
 terraform {
-  required_version = ">= 1.0"
+  required_version = ">= 1.3"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = ">= 5.34, < 6.0"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"
@@ -86,12 +86,25 @@ module "postgres" {
 }
 
 # Kubernetes (EKS)
+# S-138: пересоздание кластера сразу на поддерживаемой версии вместо
+# цепочки минорных апгрейдов 1.28 -> 1.29 -> ... (EKS API запрещает пропуск
+# минорных версий при in-place update, поэтому только recreate).
+# Модуль v19 -> v20: v20 — последний мажор с интерфейсом v19 (cluster_name /
+# cluster_version / eks_managed_node_groups без переименований). v21 требует
+# AWS-провайдер v6 и переименовывает переменные (name, kubernetes_version) —
+# не берём, чтобы не ломать VPC 5.0.0 и свои модули postgres/kubernetes.
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "19.0.0"
+  version = "~> 20.0"
 
   cluster_name    = "stair-platform-${var.environment}"
-  cluster_version = "1.28"
+  cluster_version = "1.35"
+
+  # Выдаёт IAM-принципалу, выполняющему apply, права админа кластера через
+  # access entry (в v20 bootstrap через aws-auth ConfigMap убран, дефолт
+  # authentication_mode = API_AND_CONFIG_MAP). Нужно человеку для
+  # update-kubeconfig + kubectl после пересоздания.
+  enable_cluster_creator_admin_permissions = true
 
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
