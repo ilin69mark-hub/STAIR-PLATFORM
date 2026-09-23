@@ -15,12 +15,14 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@sentry/react": "^10.75.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "three": "^0.185.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
+    "@sentry/vite-plugin": "^5.4.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@types/node": "^26.6.1",
