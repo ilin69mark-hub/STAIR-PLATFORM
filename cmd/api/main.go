@@ -37,6 +37,7 @@ import (
 	"stairplatform/internal/infrastructure/queue"
 	"stairplatform/internal/infrastructure/redisconf"
 	"stairplatform/internal/infrastructure/secrets"
+	"stairplatform/internal/infrastructure/sentry"
 	infstorage "stairplatform/internal/infrastructure/storage"
 	"stairplatform/internal/infrastructure/tracing"
 	transporthttp "stairplatform/internal/transport/http"
@@ -61,6 +62,24 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = tracingShutdown(context.Background()) }()
+
+	// S-140: Sentry error tracking. DSN задаётся ТОЛЬКО через STAIR_SENTRY_DSN
+	// (пусто = SDK не инициализируется, ноль поведения). Release — версия
+	// бинарника (version.Version через ldflags, см. internal/version).
+	// Трассировка выключена по умолчанию (TracesSampleRate 0): шлём только
+	// ошибки/паники, tracing-контур — OpenTelemetry (см. выше).
+	sentryShutdown, err := sentry.Init(sentry.Config{
+		DSN:              os.Getenv("STAIR_SENTRY_DSN"),
+		Environment:      envOr("STAIR_ENVIRONMENT", "development"),
+		ServiceName:      "stair-platform",
+		Release:          version.Version,
+		TracesSampleRate: envFloat64("STAIR_SENTRY_TRACES_SAMPLE_RATE", 0),
+	})
+	if err != nil {
+		slog.Error("failed to init sentry", "error", err)
+		os.Exit(1)
+	}
+	defer sentryShutdown()
 
 	instanceID := os.Getenv("STAIR_INSTANCE_ID")
 	shutdownTimeout := envDuration("STAIR_SHUTDOWN_TIMEOUT", 10*time.Second)

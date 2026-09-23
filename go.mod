@@ -5,6 +5,7 @@ go 1.26.2
 toolchain go1.26.6
 
 require (
+	github.com/getsentry/sentry-go v0.49.0
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/gorilla/websocket v1.5.3
