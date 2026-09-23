@@ -105,4 +105,10 @@ type Repository interface {
 	SaveCalculationWithConfig(ctx context.Context, tenantID string, cfg *StairConfiguration, snap Snapshot) (*Calculation, error)
 	// GetLatestCalculation возвращает последний расчёт проекта внутри tenant.
 	GetLatestCalculation(ctx context.Context, tenantID, projectID string) (*Calculation, error)
+
+	// HasConfigAccess возвращает true, если пользователь является членом
+	// проекта, которому принадлежит конфигурация (S-132c). Проверка по
+	// конфигурации без projectID: комнаты pipeline: подсчитываются как
+	// capability только при явном членстве.
+	HasConfigAccess(ctx context.Context, userID, configurationID string) (bool, error)
 }

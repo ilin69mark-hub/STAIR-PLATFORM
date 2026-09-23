@@ -61,6 +61,13 @@ type DesignPreferences struct {
 type DesignRequest struct {
 	Config      stair.Config
 	Preferences DesignPreferences
+	// ProjectID — скоуп conversation-memory (S-135, AI-0006); пустая —
+	// память для запроса не используется. Проект должен принадлежать tenant
+	// (проверяется на уровне хранилища).
+	ProjectID string
+	// HistoryLimit — число последних сообщений диалога в контекст
+	// (0 → DefaultHistoryLimit=10, cap MaxHistoryLimit=50; <0 → без истории).
+	HistoryLimit int
 }
 
 // designExpert — эксперт D1 (EDR-0036): детерминированный перебор типов

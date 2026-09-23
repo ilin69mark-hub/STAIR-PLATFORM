@@ -19,9 +19,14 @@ type AssistantService interface {
 // assistantRequest — запрос к ассистенту. Поля конфигурации совпадают с
 // calculateRequest; kind — из пути маршрута; priority — предпочтение
 // (актуально для design; прочие kind игнорируют его на D1).
+// project_id/history_limit — скоуп и глубина conversation-memory (S-135):
+// project_id пустой — память для запроса не используется; history_limit
+// 0 → default 10, cap 50, <0 → без истории.
 type assistantRequest struct {
 	calculateRequest
-	Priority string `json:"priority,omitempty"`
+	Priority     string `json:"priority,omitempty"`
+	ProjectID    string `json:"project_id,omitempty"`
+	HistoryLimit *int   `json:"history_limit,omitempty"`
 }
 
 // handleAssistantAsk — POST /api/v1/assistant/{kind} (Phase D, EDR-0036).
@@ -49,6 +54,10 @@ func handleAssistantAsk(svc AssistantService) http.HandlerFunc {
 
 		// Все четыре kind прикладного слоя реализованы (добавляются маршруты
 		// при регистрации Config.Assistant).
+		historyLimit := 0
+		if req.HistoryLimit != nil {
+			historyLimit = *req.HistoryLimit
+		}
 		var areq appast.Request
 		switch kind {
 		case appast.KindDesign:
@@ -57,6 +66,8 @@ func handleAssistantAsk(svc AssistantService) http.HandlerFunc {
 				Preferences: appast.DesignPreferences{
 					Priority: appast.DesignPriority(req.Priority),
 				},
+				ProjectID:    req.ProjectID,
+				HistoryLimit: historyLimit,
 			}
 		case appast.KindEngineering, appast.KindManufacturing, appast.KindPricing:
 			opts, oerr := toOptions(req.calculateRequest)
@@ -65,8 +76,10 @@ func handleAssistantAsk(svc AssistantService) http.HandlerFunc {
 				return
 			}
 			areq = appast.AnalysisRequest{
-				Config:  cfg,
-				Options: opts,
+				Config:       cfg,
+				Options:      opts,
+				ProjectID:    req.ProjectID,
+				HistoryLimit: historyLimit,
 			}
 		}
 

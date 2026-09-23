@@ -139,21 +139,3 @@ func TestDebugLoggingMiddleware_ProductionEmpty(t *testing.T) {
 		t.Errorf("production without debug flag: expected passthrough, got wrapper")
 	}
 }
-
-func TestRedactSensitive(t *testing.T) {
-	cases := map[string]string{ //nolint:gosec // тестовые фикстуры redactSensitive, не реальные секреты
-		`{"password":"hunter2","email":"a@b.c"}`: `{"password":"***","email":"a@b.c"}`,
-		`{"secret":  "abc", "token":"xyz"}`:      `{"secret":  "***", "token":"***"}`,
-		`Authorization: Bearer abcdef`:           `Authorization: Bearer abcdef`,
-		`password=Hunter2&login=admin`:           `password=***&login=admin`,
-		`{"api_key":"k123","payload":[1,2]}`:     `{"api_key":"***","payload":[1,2]}`,
-		`{"client_secret":"s"}`:                  `{"client_secret":"***"}`,
-		`{"safe":"keep-me"}`:                     `{"safe":"keep-me"}`,
-		`{"username":"name","passwd":"p"}`:       `{"username":"name","passwd":"***"}`,
-	}
-	for in, want := range cases {
-		if got := redactSensitive(in); got != want {
-			t.Errorf("redactSensitive(%q) = %q, want %q", in, got, want)
-		}
-	}
-}

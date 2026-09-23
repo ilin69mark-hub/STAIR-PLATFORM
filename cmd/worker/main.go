@@ -30,6 +30,7 @@ import (
 	"stairplatform/internal/infrastructure/queue"
 	"stairplatform/internal/infrastructure/redisconf"
 	"stairplatform/internal/infrastructure/secrets"
+	"stairplatform/internal/infrastructure/sentry"
 	"stairplatform/internal/infrastructure/tracing"
 	"stairplatform/internal/version"
 )
@@ -80,6 +81,21 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = tracingShutdown(context.Background()) }()
+
+	// S-140: Sentry error tracking (см. cmd/api/main.go — та же политика:
+	// DSN только через env, пусто = выключено, трассировка 0 по умолчанию).
+	sentryShutdown, err := sentry.Init(sentry.Config{
+		DSN:              os.Getenv("STAIR_SENTRY_DSN"),
+		Environment:      os.Getenv("STAIR_ENVIRONMENT"),
+		ServiceName:      "stair-platform-worker",
+		Release:          version.Version,
+		TracesSampleRate: envFloat64("STAIR_SENTRY_TRACES_SAMPLE_RATE", 0),
+	})
+	if err != nil {
+		slog.Error("worker: failed to init sentry", "error", err)
+		os.Exit(1)
+	}
+	defer sentryShutdown()
 
 	dbURL := os.Getenv("STAIR_DATABASE_URL")
 	if dbURL == "" {

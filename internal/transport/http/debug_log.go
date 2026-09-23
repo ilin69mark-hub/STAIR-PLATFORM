@@ -6,9 +6,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 	"time"
+
+	"stairplatform/internal/infrastructure/redaction"
 )
 
 // DebugLoggingMiddleware логирует тела запросов и ответов для отладки.
@@ -61,7 +62,7 @@ func DebugLoggingMiddleware(next http.Handler) http.Handler {
 				truncated = b[:max]
 				marker = "...(truncated)"
 			}
-			return redactSensitive(string(truncated)) + marker
+			return redaction.Sensitive(string(truncated)) + marker
 		}
 
 		slog.Debug("http debug",
@@ -74,18 +75,6 @@ func DebugLoggingMiddleware(next http.Handler) http.Handler {
 			"content_type", w.Header().Get("Content-Type"),
 		)
 	})
-}
-
-// redactSensitive маскирует значения чувствительных полей в телах
-// запросов/ответов (JSON и form-encoded) перед логированием.
-func redactSensitive(s string) string {
-	if re, err := regexp.Compile(`(?i)("(?:password|passwd|secret|token|authorization|cookie|api[-_]?key|client[-_]?secret)"\s*:\s*")([^"]*)(")`); err == nil {
-		s = re.ReplaceAllString(s, `${1}***${3}`)
-	}
-	if re, err := regexp.Compile(`(?i)((?:password|passwd|secret|token|authorization|cookie|api[-_]?key|client[-_]?secret)=)([^&\s"]*)`); err == nil {
-		s = re.ReplaceAllString(s, `${1}***`)
-	}
-	return s
 }
 
 // bodyCaptureWriter захватывает тело ответа для логирования.

@@ -112,3 +112,7 @@ func (m *MockProjectRepository) SaveCalculationWithConfig(ctx context.Context, t
 func (m *MockProjectRepository) GetLatestCalculation(ctx context.Context, tenantID, projectID string) (*project.Calculation, error) {
 	return nil, project.ErrNotFound
 }
+
+func (m *MockProjectRepository) HasConfigAccess(ctx context.Context, userID, configurationID string) (bool, error) {
+	return false, nil
+}

@@ -16,6 +16,13 @@ type TokenValidator interface {
 	Authenticate(ctx context.Context, token string) (userID, role string, err error)
 }
 
+// SubscriberAuthorizer — порт для проверки права подписки на pipeline-комнату
+// (S-132c). Подключённый администратором сервис (project-доступ) реализует
+// ws.SubscriberAuthorizer.
+type SubscriberAuthorizer interface {
+	ws.SubscriberAuthorizer
+}
+
 // WebSocketHandler обрабатывает WebSocket подключения.
 type WebSocketHandler struct {
 	hub       *ws.Hub
@@ -24,6 +31,9 @@ type WebSocketHandler struct {
 	// allowedOrigins — разрешённые Origin для WS-handshake (STAIR_WS_ORIGINS /
 	// STAIR_CORS_ORIGINS); nil/пусто — безопасный дефолт same-origin (S-112).
 	allowedOrigins []string
+	// subscriberAuthorizer — проверка права подписки на pipeline:comнаты (S-132c);
+	// nil — подписки не проверяются (legacy, до подключения авторизатора).
+	subscriberAuthorizer SubscriberAuthorizer
 }
 
 // NewWebSocketHandler создаёт новый handler.
@@ -34,6 +44,14 @@ func NewWebSocketHandler(hub *ws.Hub, logger *slog.Logger, validator TokenValida
 		validator:      validator,
 		allowedOrigins: allowedOrigins,
 	}
+}
+
+// SetSubscriberAuthorizer подключает проверку права подписки на комнаты
+// (S-132c): до вызова подписки на pipeline:<configID> принимаются без
+// проверки; после — только при доступе к конфигу.
+func (h *WebSocketHandler) SetSubscriberAuthorizer(a SubscriberAuthorizer) {
+	h.subscriberAuthorizer = a
+	// Безопасный дефолт: авторизатор применяется ко всем клиентам хаба.
 }
 
 // HandleWebSocket обрабатывает WebSocket upgrade.
@@ -125,7 +143,10 @@ func (h *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		"remote_addr", r.RemoteAddr,
 	)
 
-	ws.HandleWebSocket(h.hub, w, r, userID, h.allowedOrigins)
+	ws.HandleWebSocket(h.hub, w, r, userID, h.allowedOrigins,
+		ws.WithRole(userRole),
+		ws.WithSubscriberAuthorizer(h.subscriberAuthorizer),
+	)
 }
 
 // GetHub возвращает WebSocket hub.

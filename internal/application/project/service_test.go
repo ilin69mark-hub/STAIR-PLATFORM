@@ -117,6 +117,23 @@ func (f *fakeRepo) GetMember(ctx context.Context, tenantID, projectID, userID st
 	return m, nil
 }
 
+// HasConfigAccess — доступ по конфигурации: ищем проект конфигурации и
+// проверяем членство (S-132c).
+func (f *fakeRepo) HasConfigAccess(ctx context.Context, userID, configurationID string) (bool, error) {
+	for pid, cfgs := range f.configs {
+		for _, c := range cfgs {
+			if c.ID != configurationID {
+				continue
+			}
+			if m, ok := f.members[pid]; ok {
+				_, ok := m[userID]
+				return ok, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 func (f *fakeRepo) ListMembers(ctx context.Context, tenantID, projectID string) ([]*ProjectMember, error) {
 	if _, ok := f.projects[key(tenantID, projectID)]; !ok {
 		return nil, ErrNotFound
@@ -1382,5 +1399,37 @@ func TestProjectRoleCanEditManageCompatibility(t *testing.T) {
 	}
 	if RoleViewer.CanEdit() || RoleViewer.CanManage() {
 		t.Error("viewer must not edit or manage")
+	}
+}
+
+// TestHasConfigAccess (S-132c): член проекта имеет доступ к конфигурации;
+// не-член (даже в другом проекте владельца) — нет; пустые ID — false.
+func TestHasConfigAccess(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+	projectID, cfgID, _ := calculateTwoConfigs(t, svc)
+
+	// владелец — доступ к своей конфигурации
+	if ok, err := svc.HasConfigAccess(context.Background(), testOwner, cfgID); err != nil || !ok {
+		t.Fatalf("owner access: ok=%v err=%v, want true", ok, err)
+	}
+	// не-член — нет доступа
+	if ok, err := svc.HasConfigAccess(context.Background(), "u-stranger", cfgID); err != nil || ok {
+		t.Fatalf("stranger access: ok=%v err=%v, want false", ok, err)
+	}
+	// пустые аргументы — false без доменной проверки
+	if ok, err := svc.HasConfigAccess(context.Background(), "", cfgID); err != nil || ok {
+		t.Fatalf("empty user: ok=%v err=%v, want false", ok, err)
+	}
+	if ok, err := svc.HasConfigAccess(context.Background(), testOwner, ""); err != nil || ok {
+		t.Fatalf("empty config: ok=%v err=%v, want false", ok, err)
+	}
+
+	// после добавления в проект — доступ появляется
+	if err := svc.AddMember(context.Background(), testTenant, testOwner, projectID, "u-editor2", RoleEditor); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	if ok, err := svc.HasConfigAccess(context.Background(), "u-editor2", cfgID); err != nil || !ok {
+		t.Fatalf("editor access: ok=%v err=%v, want true", ok, err)
 	}
 }

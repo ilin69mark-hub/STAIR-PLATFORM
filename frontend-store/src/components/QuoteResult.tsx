@@ -5,7 +5,7 @@ import { materialLabel } from '@shared/config'
 import { VariationPicker } from '@shared/components/VariationPicker'
 import { elementLabel, severityLabel } from '@shared/validationText'
 import { solverOf } from './quoteView'
-import { ErrorBoundary } from '../ErrorBoundary'
+import { ErrorBoundary } from '@shared/sentry/ErrorBoundary'
 
 // Результат публичного расчёта: марш, геометрия и предварительная цена.
 // Покупателю показываем интерактивную 3D-модель (меш уже приходит в публичном

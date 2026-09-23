@@ -37,6 +37,7 @@ import (
 	"stairplatform/internal/infrastructure/queue"
 	"stairplatform/internal/infrastructure/redisconf"
 	"stairplatform/internal/infrastructure/secrets"
+	"stairplatform/internal/infrastructure/sentry"
 	infstorage "stairplatform/internal/infrastructure/storage"
 	"stairplatform/internal/infrastructure/tracing"
 	transporthttp "stairplatform/internal/transport/http"
@@ -61,6 +62,24 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = tracingShutdown(context.Background()) }()
+
+	// S-140: Sentry error tracking. DSN задаётся ТОЛЬКО через STAIR_SENTRY_DSN
+	// (пусто = SDK не инициализируется, ноль поведения). Release — версия
+	// бинарника (version.Version через ldflags, см. internal/version).
+	// Трассировка выключена по умолчанию (TracesSampleRate 0): шлём только
+	// ошибки/паники, tracing-контур — OpenTelemetry (см. выше).
+	sentryShutdown, err := sentry.Init(sentry.Config{
+		DSN:              os.Getenv("STAIR_SENTRY_DSN"),
+		Environment:      envOr("STAIR_ENVIRONMENT", "development"),
+		ServiceName:      "stair-platform",
+		Release:          version.Version,
+		TracesSampleRate: envFloat64("STAIR_SENTRY_TRACES_SAMPLE_RATE", 0),
+	})
+	if err != nil {
+		slog.Error("failed to init sentry", "error", err)
+		os.Exit(1)
+	}
+	defer sentryShutdown()
 
 	instanceID := os.Getenv("STAIR_INSTANCE_ID")
 	shutdownTimeout := envDuration("STAIR_SHUTDOWN_TIMEOUT", 10*time.Second)
@@ -171,6 +190,62 @@ func main() {
 		}
 		assistantSvc = assistantSvc.WithPrimaryBackend(oai)
 	}
+
+	// RAG-корпус и conversation-memory (S-135, AI-0007/AI-0006). Ретривер:
+	//   - FTS (tsvector/GIN) — всегда: таблица ai_corpus_chunks есть после
+	//     миграций, эмбеддер не нужен (fallback-путь решения S-135);
+	//   - векторный (pgvector + /embeddings) — только при
+	//     STAIR_AI_EMBED_BASE_URL (+ STAIR_AI_EMBED_MODEL): embedder
+	//     default-off (AI-0007), при сбое эмбеддера/поиска vectorRetriever
+	//     сам деградирует в FTS (не проваливает ответ).
+	// Память: TTL-очистка STAIR_AI_MEMORY_TTL (default 30 суток) фоновой
+	// горутиной; в контекст ответа попадают последние history_limit сообщений
+	// проекта (D1–D4, скоуп проверяется хранилищем по FK tenant+project).
+	aiRepo := database.NewAIRepository(pool)
+	var ragRetriever appast.Retriever
+	if embedBase := os.Getenv("STAIR_AI_EMBED_BASE_URL"); embedBase != "" {
+		emb, err := appast.NewOpenAIEmbedder(appast.EmbedderConfig{
+			BaseURL: embedBase,
+			APIKey:  os.Getenv("STAIR_AI_EMBED_API_KEY"),
+			Model:   os.Getenv("STAIR_AI_EMBED_MODEL"),
+		})
+		if err != nil {
+			slog.Error("assistant embedder init failed", "error", err)
+			os.Exit(1)
+		}
+		ragRetriever = appast.NewVectorRetriever(aiRepo, emb)
+		slog.Info("assistant: RAG vector path enabled (pgvector + /embeddings)")
+	} else {
+		ragRetriever = appast.NewFTSRetriever(aiRepo)
+		slog.Info("assistant: RAG via FTS (tsvector/GIN); vector path requires STAIR_AI_EMBED_BASE_URL")
+	}
+	assistantSvc = assistantSvc.
+		WithRAG(ragRetriever, envInt("STAIR_AI_RAG_TOP_K", 5)).
+		WithMemory(aiRepo)
+
+	// Фоновая TTL-очистка conversation-memory (S-135): запускаем при старте
+	// и далее раз в memoryTTL. Best-effort: сбой prune не валит процесс.
+	memoryTTL := envDuration("STAIR_AI_MEMORY_TTL", 30*24*time.Hour)
+	go func() {
+		prune := func() {
+			pctx, pcancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer pcancel()
+			n, perr := aiRepo.PruneMessages(pctx, time.Now().UTC().Add(-memoryTTL))
+			if perr != nil {
+				slog.Warn("assistant: memory prune failed", "error", perr)
+				return
+			}
+			if n > 0 {
+				slog.Info("assistant: memory pruned", "deleted", n)
+			}
+		}
+		prune() // разово при старте (убирает хвосты после даунтайма)
+		ticker := time.NewTicker(memoryTTL)
+		defer ticker.Stop()
+		for range ticker.C {
+			prune()
+		}
+	}()
 
 	// Storage (EDR-0026 §3.5): объектное хранилище из окружения. Бэкенд
 	// задаётся STAIR_STORAGE_BACKEND (filesystem|s3); сбой конфигурации —
@@ -306,7 +381,6 @@ func main() {
 		Assistant:             assistantSvc,
 		Orders:                ordersSvc,
 		Testimonials:          testimonialSvc,
-		WebSocketHandler:      transporthttp.NewWebSocketHandler(hub, logger, &authTokenValidator{authSvc}, wsOrigins),
 		SecurityConfig: &transporthttp.SecurityConfig{
 			AllowedOrigins: corsOrigins,
 			EnableHSTS:     envBool("STAIR_HSTS_ENABLED", false),
@@ -319,6 +393,12 @@ func main() {
 		DB:    pool,
 		Redis: redisClient,
 	}
+
+	// S-132c: права на WS-подписки pipeline: — admin пропускается,
+	// остальные проверяются по членству в проекте конфигурации.
+	wh := transporthttp.NewWebSocketHandler(hub, logger, &authTokenValidator{authSvc}, wsOrigins)
+	wh.SetSubscriberAuthorizer(&pipelineSubscriberAuthorizer{svc: projectSvc})
+	cfg.WebSocketHandler = wh
 
 	router := transporthttp.NewRouter(stairSvc, projectSvc, authSvc, cfg, auditSvc)
 
@@ -591,4 +671,29 @@ func (v *authTokenValidator) Authenticate(ctx context.Context, token string) (st
 		return "", "", err
 	}
 	return user.ID, string(user.Role), nil
+}
+
+// configAccessor — минимальный интерфейс project.Service.HasConfigAccess
+// (S-132c): позволяет unit-тесту не поднимать БД/репозиторий.
+type configAccessor interface {
+	HasConfigAccess(ctx context.Context, userID, configurationID string) (bool, error)
+}
+
+// pipelineSubscriberAuthorizer проверяет право подписки на pipeline-комнаты
+// (S-132c): admin пропускается без surplus-проверки; остальные — через
+// членство в проекте конфигурации (HasConfigAccess).
+type pipelineSubscriberAuthorizer struct {
+	svc configAccessor
+}
+
+func (a *pipelineSubscriberAuthorizer) CanSubscribe(userID, role, room string) bool {
+	if role == string(auth.RoleAdmin) {
+		return true
+	}
+	configID, ok := strings.CutPrefix(room, "pipeline:")
+	if !ok || configID == "" {
+		return false
+	}
+	ok, err := a.svc.HasConfigAccess(context.Background(), userID, configID)
+	return err == nil && ok
 }

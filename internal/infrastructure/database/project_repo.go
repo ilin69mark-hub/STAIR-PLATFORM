@@ -351,6 +351,23 @@ func (r *ProjectRepository) GetConfigurationByID(ctx context.Context, tenantID, 
 	return c, nil
 }
 
+// HasConfigAccess проверяет членство пользователя в проекте, которому
+// принадлежит конфигурация (S-132c). Член owner/editor/viewer имеет доступ;
+// несуществующая конфигурация или отсутствие членства → false, без ошибки.
+func (r *ProjectRepository) HasConfigAccess(ctx context.Context, userID, configurationID string) (bool, error) {
+	var ok bool
+	if err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS (
+			SELECT 1 FROM stair_configurations sc
+			JOIN project_members pm ON pm.project_id = sc.project_id
+			WHERE sc.id = $1 AND pm.user_id = $2
+		 )`,
+		configurationID, userID).Scan(&ok); err != nil {
+		return false, fmt.Errorf("project: has config access: %w", err)
+	}
+	return ok, nil
+}
+
 // RestoreConfiguration делает ревизию конфигурации текущей (EDR-0012).
 func (r *ProjectRepository) RestoreConfiguration(ctx context.Context, tenantID, projectID, configurationID string) error {
 	// Проверяем, что ревизия принадлежит проекту внутри tenant.

@@ -15,8 +15,12 @@ package assistant
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strconv"
+	"strings"
 	"time"
 
 	"stairplatform/internal/application/audit"
@@ -105,17 +109,34 @@ type Request interface{}
 type AnalysisRequest struct {
 	Config  stair.Config
 	Options stair.Options
+	// ProjectID — скоуп conversation-memory (S-135, AI-0006); пустая —
+	// память для запроса не используется. Проект должен принадлежать tenant
+	// (проверяется на уровне хранилища).
+	ProjectID string
+	// HistoryLimit — число последних сообщений диалога в контекст
+	// (0 → DefaultHistoryLimit=10, cap MaxHistoryLimit=50; <0 → без истории).
+	HistoryLimit int
 }
 
 // Service — прикладной сервис AI-ассистентов. Инверсия зависимостей:
 // получает stairCalculator (обычно *stair.Service) и опционально
 // *audit.Service; аудит — best-effort (EDR-0013 §4.1), сбой журнала не
-// проваливает ответ.
+// проваливает ответ. RAG (AI-0007) и память (AI-0006) — опциональные
+// порты: без них сервис работает в локальном режиме (S-135: RAG off по
+// умолчанию без env).
 type Service struct {
 	tools  *Tools
 	router ModelRouter
 	audit  *audit.Service
 	now    func() time.Time
+
+	// RAG (S-135, AI-0007): nil — ретривер выключен, деградация в локальный
+	// детерминированный режим.
+	retriever Retriever
+	// topK — число чанков на запрос (default 5, диапазон 1..50).
+	topK int
+	// Память диалога (S-135, AI-0006): nil — память выключена.
+	memory MemoryStore
 }
 
 // NewService создаёт сервис ассистентов с локальным (детерминированным)
@@ -140,9 +161,108 @@ func (s *Service) WithPrimaryBackend(b Backend) *Service {
 	return s
 }
 
+// WithRAG подключает ретривер корпуса (S-135, AI-0007): найденные чанки
+// попадают в контекст модели, цитаты источников — в Response.Notes,
+// chunk ids — в detail аудита. Конфигурации пользователей в индекс не
+// складываются; tenant-фильтр обязателен в каждом запросе (SEC-0005).
+// topK — число чанков (default 5, clamp 1..50).
+func (s *Service) WithRAG(r Retriever, topK int) *Service {
+	s.retriever = r
+	if topK < 1 {
+		topK = 5
+	}
+	if topK > 50 {
+		topK = 50
+	}
+	s.topK = topK
+	return s
+}
+
+// WithMemory подключает conversation-memory (S-135, AI-0006): последние
+// historyLimit сообщений проекта добавляются в контекст, после ответа
+// диалог дописывается в хранилище (скоуп tenant+project). TTL-очистку
+// выполняет хранилище/фоновый prune (STAIR_AI_MEMORY_TTL).
+func (s *Service) WithMemory(m MemoryStore) *Service {
+	s.memory = m
+	return s
+}
+
+// historyLimitOf извлекает history_limit из типизированного запроса.
+func historyLimitOf(req Request) int {
+	switch r := req.(type) {
+	case DesignRequest:
+		return clampHistoryLimit(r.HistoryLimit)
+	case AnalysisRequest:
+		return clampHistoryLimit(r.HistoryLimit)
+	default:
+		return 0 // не типизированный запрос — памяти нет
+	}
+}
+
+// projectIDOf извлекает скоуп проекта из типизированного запроса.
+func projectIDOf(req Request) string {
+	switch r := req.(type) {
+	case DesignRequest:
+		return r.ProjectID
+	case AnalysisRequest:
+		return r.ProjectID
+	default:
+		return ""
+	}
+}
+
+// summaryOf — детерминированное текстовое резюме запроса: используется как
+// (а) контекстный запрос RAG, (б) user-сообщение conversation-memory.
+// Персональных данных в конфигурации нет (S-127).
+func summaryOf(kind Kind, req Request) string {
+	s := "kind=" + string(kind)
+	cfg := stair.Config{}
+	switch r := req.(type) {
+	case DesignRequest:
+		cfg = r.Config
+		if r.Preferences.Priority != "" {
+			s += " priority=" + string(r.Preferences.Priority)
+		}
+	case AnalysisRequest:
+		cfg = r.Config
+	default:
+		return s
+	}
+	if cfg.Width.Millimeters() > 0 {
+		s += " width_mm=" + fmtFloat(cfg.Width.Millimeters())
+	}
+	if cfg.Height.Millimeters() > 0 {
+		s += " height_mm=" + fmtFloat(cfg.Height.Millimeters())
+	}
+	if cfg.Flight != "" {
+		s += " flight=" + string(cfg.Flight)
+	}
+	if cfg.OuterRadius.Millimeters() > 0 {
+		s += " outer_radius_mm=" + fmtFloat(cfg.OuterRadius.Millimeters())
+	}
+	return s
+}
+
+func fmtFloat(v float64) string {
+	b := make([]byte, 0, 24)
+	b = strconv.AppendFloat(b, v, 'f', -1, 64)
+	return string(b)
+}
+
+// jsonMarshal — компактный JSON без HTML-экранирования (для памяти/контекста).
+func jsonMarshal(v interface{}) (string, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
 // Ask обрабатывает запрос ассистента kind: планирование → tool calls →
-// сборка ответа → комментарий модели; аудит и метрика. Ошибка — только
-// при невозможности выполнить анализ (невалидный вход, сбой тула, отмена).
+// сборка ответа → RAG-контекст/память → комментарий модели; аудит и
+// метрика. Ошибка — только при невозможности выполнить анализ
+// (невалидный вход, сбой тула, отмена). Сбой RAG/памяти — best-effort:
+// ответ не проваливается (AI-0003 деградация).
 func (s *Service) Ask(ctx context.Context, tenantID, userID string, kind Kind, req Request) (*Result, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -155,12 +275,44 @@ func (s *Service) Ask(ctx context.Context, tenantID, userID string, kind Kind, r
 		return nil, err
 	}
 
+	projectID := projectIDOf(req)
+	historyLimit := historyLimitOf(req)
+	var history []MemoryMessage
+	if s.memory != nil && projectID != "" {
+		if h, herr := s.memory.RecentMessages(ctx, tenantID, projectID, historyLimit); herr == nil {
+			history = h
+		} else {
+			// Память — best-effort: падение хранилища не валит ответ.
+			slog.WarnContext(ctx, "assistant: memory load failed", "err", herr)
+		}
+	}
+
 	start := s.now()
 	resp, intent, aerr := exp.analyze(ctx, s.tools, req)
 	if aerr != nil {
 		s.auditResult(ctx, tenantID, userID, kind, audit.ResultFailed, aerr.Error())
 		assistantDuration.With(string(kind), "false").Observe(s.now().Sub(start).Seconds())
 		return nil, aerr
+	}
+
+	// RAG-контекст (S-135): чанки → контекст модели + цитаты в Notes.
+	var ragChunks []Chunk
+	if s.retriever != nil {
+		if chunks, rerr := s.retriever.Retrieve(ctx, tenantID, summaryOf(kind, req), s.topK); rerr == nil {
+			ragChunks = chunks
+			if ctxBlock, cites := ChunkContext(chunks); ctxBlock != "" {
+				intent.Context += "\n\nРелевантные фрагменты документации (RAG):\n" + ctxBlock
+				resp.Notes = append(append([]string(nil), resp.Notes...), cites...)
+			}
+		} else {
+			// RAG — best-effort (AI-0003): сбой ретривера не проваливает ответ.
+			slog.WarnContext(ctx, "assistant: RAG retrieve failed", "tenant", tenantID, "err", rerr)
+		}
+	}
+
+	// Память в контекст модели (только последние N; PII-правило S-127).
+	if len(history) > 0 {
+		intent.Context = HistoryBlock(history) + "\n" + intent.Context
 	}
 
 	ans, rerr := s.router.Infer(ctx, intent, resp)
@@ -170,9 +322,44 @@ func (s *Service) Ask(ctx context.Context, tenantID, userID string, kind Kind, r
 		return nil, rerr
 	}
 
-	s.auditResult(ctx, tenantID, userID, kind, audit.ResultOK, intent.Context)
+	// Сохранение диалога (скоуп project; старые сообщения вычищает TTL).
+	if s.memory != nil && projectID != "" {
+		if merr := s.remember(ctx, tenantID, projectID, kind, req, ans, resp); merr != nil {
+			slog.WarnContext(ctx, "assistant: memory save failed", "err", merr)
+		}
+	}
+
+	// Аудит: detail — контекст выполнения + использованные чанки RAG.
+	detail := intent.Context
+	if len(ragChunks) > 0 {
+		ids := make([]string, 0, len(ragChunks))
+		for _, c := range ragChunks {
+			ids = append(ids, c.Citation())
+		}
+		detail += "\nrag_sources=" + strings.Join(ids, ",")
+	}
+	s.auditResult(ctx, tenantID, userID, kind, audit.ResultOK, detail)
 	assistantDuration.With(string(kind), "true").Observe(s.now().Sub(start).Seconds())
 	return &Result{Kind: kind, Response: *resp, Commentary: ans.Text}, nil
+}
+
+// remember дописывает user+assistant сообщения диалога в хранилище
+// (детерминированное резюме запроса и итоговый ответ).
+func (s *Service) remember(ctx context.Context, tenantID, projectID string, kind Kind, req Request, ans *Answer, resp *Response) error {
+	if resp == nil || ans == nil {
+		return nil
+	}
+	now := s.now().UTC()
+	msgs := []MemoryMessage{
+		{TenantID: tenantID, ProjectID: projectID, Role: "user", Content: summaryOf(kind, req), CreatedAt: now},
+	}
+	if b, err := jsonMarshal(Result{Kind: kind, Response: *resp, Commentary: ans.Text}); err == nil {
+		msgs = append(msgs, MemoryMessage{
+			TenantID: tenantID, ProjectID: projectID, Role: "assistant",
+			Content: truncateRunes(b, 4000), CreatedAt: now.Add(time.Millisecond),
+		})
+	}
+	return s.memory.AppendMessages(ctx, msgs)
 }
 
 // auditResult записывает событие аудита best-effort. ActorID/TenantID —
