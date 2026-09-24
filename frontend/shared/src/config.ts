@@ -240,8 +240,12 @@ export const flightFields: Record<Flight, Array<keyof ConfigForm>> = {
 
 export interface RatesForm {
   steel: string
+  corten: string
   alum: string
   wood: string
+  walnut: string
+  ash: string
+  soft: string
   machinePerHour: string
   laborPerHour: string
   overheadPct: string
@@ -252,8 +256,12 @@ export interface RatesForm {
 
 export const defaultRates: RatesForm = {
   steel: '',
+  corten: '',
   alum: '',
   wood: '',
+  walnut: '',
+  ash: '',
+  soft: '',
   machinePerHour: '',
   laborPerHour: '',
   overheadPct: '',
@@ -267,8 +275,12 @@ export function toRatesRequest(f: RatesForm): Rates | undefined {
   const out: Rates = {}
   const mats: Record<string, number | undefined> = {
     'STEEL-S235': num(f.steel),
+    'STEEL-CORTEN': num(f.corten),
     'ALUM-5083': num(f.alum),
     'WOOD-OAK': num(f.wood),
+    'WOOD-WALNUT': num(f.walnut),
+    'WOOD-ASH': num(f.ash),
+    'WOOD-SOFT': num(f.soft),
   }
   const matObj = Object.fromEntries(
     Object.entries(mats).filter(([, v]) => v !== undefined),

@@ -759,8 +759,12 @@ interface RatesFormProps {
 
 const rateFields: Array<{ key: keyof RatesForm; label: string; placeholder: string }> = [
   { key: 'steel', label: 'Сталь STEEL-S235, ₽/кг', placeholder: 'дефолт' },
+  { key: 'corten', label: 'Кортэн STEEL-CORTEN, ₽/кг', placeholder: 'дефолт' },
   { key: 'alum', label: 'Алюминий ALUM-5083, ₽/кг', placeholder: 'дефолт' },
   { key: 'wood', label: 'Дуб WOOD-OAK, ₽/кг', placeholder: 'дефолт' },
+  { key: 'walnut', label: 'Орех WOOD-WALNUT, ₽/кг', placeholder: 'дефолт' },
+  { key: 'ash', label: 'Ясень WOOD-ASH, ₽/кг', placeholder: 'дефолт' },
+  { key: 'soft', label: 'Сосна WOOD-SOFT, ₽/кг', placeholder: 'дефолт' },
   { key: 'machinePerHour', label: 'Станок, ₽/час', placeholder: 'дефолт' },
   { key: 'laborPerHour', label: 'Труд, ₽/час', placeholder: 'дефолт' },
   { key: 'overheadPct', label: 'Накладные, %', placeholder: 'дефолт' },
