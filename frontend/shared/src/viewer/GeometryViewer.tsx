@@ -1,7 +1,7 @@
 // 3D-вьювер геометрии (FE-0017, ENG-GEO-0008): отображение preview mesh
 // из снапшота. Вращение — ЛКМ, панорама — ПКМ/средняя, зум — колесо.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
@@ -12,6 +12,7 @@ import { computePlacement } from '../placement'
 import { approachZoneCenterX, EXIT_BLOCK_H, exitSlabBox, exitWallSide, stairTopLineX, wallBox, wallBoundsOf, type Box3Like, type BoxSpec, type WallSide } from './layout'
 import { ANNOTATE, edgeColor, WALLS } from '../scheme-annot'
 import { createRailingMaterial, createStairMaterial } from './materials'
+import { groupsFromRanges, isEditablePart, pickPart, type PartGroup } from './picking'
 
 interface Props {
   mesh: ApiMesh
@@ -56,6 +57,14 @@ interface Props {
   finishId?: string
   // railingMetal — ограждение металлом вместо стекла.
   railingMetal?: boolean
+  // Этап 2 «конструктор»: выбор детали марша в 3D. interactive включает
+  // raycast, onSelectPart сообщает React о выбранной детали (или null).
+  interactive?: boolean
+  // overlay — панель поверх 3D (HUD конструктора: действия над выбранной
+  // деталью). Рендерится внутри .viewer, сцена при этом не пересобирается.
+  overlay?: ReactNode
+  selectedPart?: { solid: number; role: string } | null
+  onSelectPart?: (part: { solid: number; role: string } | null) => void
   // castShadow — принимают ли лестница/перила/пол тень (этап 1, студийный вид).
   castShadow?: boolean
 }
@@ -186,6 +195,10 @@ export function GeometryViewer({
   materialCode = 'STEEL-S235',
   finishId,
   railingMetal = false,
+  interactive = false,
+  selectedPart = null,
+  onSelectPart,
+  overlay,
   castShadow = true,
   roomLength,
   approachSpace,
@@ -222,6 +235,17 @@ export function GeometryViewer({
   // начальную видимость читаем из зеркальных рефов.
   const wallsStateRef = useRef(walls)
   const showExitStateRef = useRef(showExit)
+  // Этап 2: выбранная деталь хранится в рефе — сцена не пересобирается при
+  // выборе, а applySelectionRef переключает подсветку материала.
+  const selectedPartRef = useRef(selectedPart)
+  const applySelectionRef = useRef<(part: { solid: number; role: string } | null) => void>(
+    () => {},
+  )
+
+  useEffect(() => {
+    selectedPartRef.current = selectedPart
+    applySelectionRef.current(selectedPart)
+  }, [selectedPart])
 
   useEffect(() => {
     wallsStateRef.current = walls
@@ -376,6 +400,8 @@ export function GeometryViewer({
       scene.remove(stair.mesh)
       for (const group of roleGroups) scene.add(group)
     }
+    // Этап 2: те же диапазоны — карта «треугольник → деталь» для выбора в 3D.
+    const partGroups: PartGroup[] = groupsFromRanges(mesh.PartRanges)
 
     // ADR: 2D-план рисует первый шаг на +X, а 3D-меш генерирует первый шаг на
     // −X (зеркально). Чтобы 2D и 3D совпадали (один угол ВЛ, одна сторона
@@ -722,6 +748,125 @@ export function GeometryViewer({
       needsRender = true
     }
     controls.addEventListener('change', onChange)
+
+    // ---- Этап 2 «конструктор»: выбор детали в 3D ----
+    // Подсветка делается на материале группы (у каждой детали свой материал),
+    // поэтому достаточно поменять emissive. Клик отличаем от вращения камеры
+    // по смещению указателя: иначе каждый поворот сцены «выбирал» бы деталь.
+    const pickTargets: THREE.Object3D[] = [...roleGroups]
+    if (railing) pickTargets.push(railing.mesh)
+    const raycaster = new THREE.Raycaster()
+    const pointerNDC = new THREE.Vector2()
+    let hoveredGroup = -1
+    let selectedGroup = -1
+    const baseEmissive = new Map<number, THREE.Color>()
+
+    const setEmissive = (groupIndex: number, on: boolean) => {
+      const mats = roleGroups[0]?.material
+      if (!mats) return
+      const mat = (Array.isArray(mats) ? mats : [mats])[groupIndex] as
+        | THREE.MeshStandardMaterial
+        | undefined
+      if (!mat || !('emissive' in mat)) return
+      if (!baseEmissive.has(groupIndex)) baseEmissive.set(groupIndex, mat.emissive.clone())
+      const base = baseEmissive.get(groupIndex)!
+      mat.emissive = on ? new THREE.Color(0x2f6fd0) : base
+      needsRender = true
+    }
+
+    const refreshSelection = () => {
+      for (const idx of [hoveredGroup, selectedGroup]) {
+        if (idx >= 0) setEmissive(idx, true)
+      }
+    }
+
+    const cast = (event: PointerEvent) => {
+      const rect = renderer.domElement.getBoundingClientRect()
+      if (!rect.width || !rect.height) return null
+      pointerNDC.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      pointerNDC.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+      raycaster.setFromCamera(pointerNDC, camera)
+      const hits = raycaster.intersectObjects(pickTargets, false)
+      for (const hit of hits) {
+        if (hit.faceIndex == null) continue
+        // Ограждение приходит отдельным мешем с собственными PartRanges —
+        // кликаем по нему так же, но без редактирования.
+        const groups =
+          hit.object === roleGroups[0] ? partGroups : groupsFromRanges(railingMesh?.PartRanges)
+        if (!groups.length) continue
+        const picked = pickPart(groups, hit.faceIndex)
+        if (picked) return { picked, groupIndex: picked.groupIndex, object: hit.object }
+      }
+      return null
+    }
+
+    let downX = 0
+    let downY = 0
+    const onPointerDown = (e: PointerEvent) => {
+      downX = e.clientX
+      downY = e.clientY
+    }
+    const onPointerMove = (e: PointerEvent) => {
+      if (!interactive) return
+      const hit = cast(e)
+      const nextGroup = hit ? hit.groupIndex : -1
+      if (nextGroup !== hoveredGroup) {
+        if (hoveredGroup >= 0 && hoveredGroup !== selectedGroup) setEmissive(hoveredGroup, false)
+        hoveredGroup = nextGroup
+        if (hoveredGroup >= 0 && hoveredGroup !== selectedGroup) {
+          setEmissive(hoveredGroup, true)
+        }
+      }
+      refreshSelection()
+      renderer.domElement.style.cursor = hit ? 'pointer' : 'grab'
+    }
+    const onPointerUp = (e: PointerEvent) => {
+      if (!interactive || !onSelectPart) return
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 4) return
+      const hit = cast(e)
+      if (!hit || !isEditablePart(hit.picked.role)) {
+        if (selectedGroup >= 0) setEmissive(selectedGroup, false)
+        selectedGroup = -1
+        onSelectPart(null)
+        return
+      }
+      if (hit.groupIndex === selectedGroup) {
+        onSelectPart(null)
+        if (selectedGroup >= 0) setEmissive(selectedGroup, false)
+        selectedGroup = -1
+        return
+      }
+      if (selectedGroup >= 0) setEmissive(selectedGroup, false)
+      selectedGroup = hit.groupIndex
+      setEmissive(selectedGroup, true)
+      onSelectPart({ solid: hit.picked.solid, role: hit.picked.role })
+    }
+
+    if (interactive) {
+      renderer.domElement.addEventListener('pointermove', onPointerMove)
+      renderer.domElement.addEventListener('pointerdown', onPointerDown)
+      renderer.domElement.addEventListener('pointerup', onPointerUp)
+    }
+    const detachPicking = () => {
+      renderer.domElement.removeEventListener('pointermove', onPointerMove)
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown)
+      renderer.domElement.removeEventListener('pointerup', onPointerUp)
+      applySelectionRef.current = () => {}
+    }
+
+    // Внешняя подсветка: React меняет selectedPart, сцена при этом не
+    // пересобирается — только материал выбранной группы.
+    const highlightSelection = (part: { solid: number; role: string } | null) => {
+      const idx = part
+        ? partGroups.findIndex((g) => g.solid === part.solid && g.role === part.role)
+        : -1
+      if (idx === selectedGroup) return
+      if (selectedGroup >= 0) setEmissive(selectedGroup, false)
+      selectedGroup = idx
+      if (idx >= 0) setEmissive(idx, true)
+    }
+    applySelectionRef.current = highlightSelection
+    highlightSelection(selectedPartRef.current)
     renderer.setAnimationLoop(() => {
       controls.update()
       if (!needsRender) return
@@ -747,6 +892,7 @@ export function GeometryViewer({
 
     return () => {
       renderer.setAnimationLoop(null)
+      detachPicking()
       ro.disconnect()
       controls.removeEventListener('change', onChange)
       controls.dispose()
@@ -822,6 +968,7 @@ export function GeometryViewer({
   return (
     <div className="viewer">
       <div className="viewer__stage" ref={containerRef} />
+      {overlay && <div className="viewer__overlay">{overlay}</div>}
       <div className="viewer__controls">
         <div className="viewer__walls" role="group" aria-label="Стены">
           {SIDES.map((s) => (

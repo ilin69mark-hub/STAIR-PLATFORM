@@ -1,9 +1,10 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import type { QuoteResult as QuoteResultType, QuoteSuggestion, Variation } from '@shared/types'
 import { fmt } from '@shared/format'
 import { materialLabel } from '@shared/config'
 import { VariationPicker } from '@shared/components/VariationPicker'
 import { elementLabel, severityLabel } from '@shared/validationText'
+import { partLabel } from '@shared/viewer/picking'
 import { solverOf } from './quoteView'
 import { ErrorBoundary } from '@shared/sentry/ErrorBoundary'
 
@@ -27,6 +28,10 @@ interface Props {
   finishId?: string
   // Ограждение металлом вместо стекла (дефолт конструктора — стекло).
   railingMetal?: boolean
+  // Этап 2 «конструктор»: сервер авторитетен — HUD не меняет геометрию сам,
+  // а просит Конструктор пересчитать с новой высотой ступени / направлением.
+  onAdjustStepHeight?: (stepHeightMM: number) => void
+  onFlipDirection?: () => void
   // Свободное пространство перед первой ступенью (мм), введено в калькуляторе
   // (дефолт 1000). Передаём в solverOf, чтобы не зависеть от сдвига модели.
   approachSpaceMM?: string
@@ -46,6 +51,8 @@ export function QuoteResult({
   onApplySuggestion,
   onApplyVariation,
   material,
+  onAdjustStepHeight,
+  onFlipDirection,
   environmentHDRI = '/static-assets/hdri/studio_small_08_1k.hdr',
   finishId,
   railingMetal = true,
@@ -62,6 +69,16 @@ export function QuoteResult({
   // Вариации (A/B/C, напр. невписываемость в помещение) могут относиться к
   // нескольким issue с одинаковым набором — показываем только для первого,
   // если Конструктор не передал персистентный список.
+  // Этап 2: выбранная в 3D деталь и действия над ней.
+  const [selectedPart, setSelectedPart] = useState<{ solid: number; role: string } | null>(null)
+  const stepCount = solver.flight?.StepCount ?? 0
+  const canAdjust = stepCount > 0 && !!heightMM
+  const nudgeStepCount = (delta: number) => {
+    if (!canAdjust || !onAdjustStepHeight) return
+    const target = stepCount + delta
+    if (target < 2 || target > 60) return
+    onAdjustStepHeight(Math.round(((heightMM as number) / target) * 10) / 10)
+  }
   const firstVar = issues.find((i) => i.variations && i.variations.length > 0)
   // Фиолетовая линия верха марша на 3D: суммарный подъём марша.
   const stairTop =
@@ -161,6 +178,48 @@ export function QuoteResult({
                 environmentHDRI={environmentHDRI}
                 finishId={finishId}
                 railingMetal={railingMetal}
+                interactive={!!onAdjustStepHeight}
+                selectedPart={selectedPart}
+                onSelectPart={setSelectedPart}
+                overlay={
+                  selectedPart ? (
+                    <div className="viewer-hud">
+                      <span className="viewer-hud__title">
+                        {partLabel(selectedPart.solid, selectedPart.role)}
+                      </span>
+                      <span className="viewer-hud__meta">
+                        Ступеней: {stepCount} · высота ступени{' '}
+                        {solver.flight ? Math.round(solver.flight.StepHeight) : 0} мм
+                      </span>
+                      <div className="viewer-hud__actions">
+                        <button
+                          type="button"
+                          className="sp-btn"
+                          onClick={() => nudgeStepCount(-1)}
+                          disabled={!canAdjust || stepCount <= 2}
+                        >
+                          − ступень
+                        </button>
+                        <button
+                          type="button"
+                          className="sp-btn"
+                          onClick={() => nudgeStepCount(1)}
+                          disabled={!canAdjust || stepCount >= 60}
+                        >
+                          + ступень
+                        </button>
+                        {onFlipDirection && (
+                          <button type="button" className="sp-btn" onClick={onFlipDirection}>
+                            Развернуть
+                          </button>
+                        )}
+                        <button type="button" className="sp-btn" onClick={() => setSelectedPart(null)}>
+                          Закрыть
+                        </button>
+                      </div>
+                    </div>
+                  ) : null
+                }
               />
               </Suspense>
             </ErrorBoundary>

@@ -525,6 +525,31 @@ export function Constructor() {
     applyVariation(v)
   }
 
+  // Этап 2 «конструктор»: правка из 3D — меняем целевую высоту ступени и
+  // сразу пересчитываем (меш + цена), иначе 3D остался бы старым.
+  const adjustStepHeight = (stepHeightMM: number) => {
+    const next = { ...config, stepHeightMM: String(stepHeightMM) }
+    setConfig(next)
+    setErrors(validateForm(next))
+    setTouched(true)
+    logAction({ action: 'stair.step_height_adjusted', resource_type: 'stair', detail: String(stepHeightMM) })
+    void calculate(next)
+  }
+
+  const flipDirection = () => {
+    const flip = <T extends string>(v: T) => (v === 'left' ? 'right' : 'left') as T
+    const next = {
+      ...config,
+      direction: flip(config.direction),
+      spiralDirection: flip(config.spiralDirection),
+    }
+    setConfig(next)
+    setErrors(validateForm(next))
+    setTouched(true)
+    logAction({ action: 'stair.direction_flipped', resource_type: 'stair', detail: next.direction })
+    void calculate(next)
+  }
+
   const applyPreset = (pr: StylePreset) => {
     const next = { ...emptyConfig, ...pr.values }
     setConfig(next)
@@ -807,6 +832,8 @@ export function Constructor() {
             material={config.material}
             approachSpaceMM={config.approachSpaceMM}
             heightMM={Number(config.heightMM) || undefined}
+            onAdjustStepHeight={adjustStepHeight}
+            onFlipDirection={flipDirection}
           />
           {!quote.validation.blocking && quote.pricing && request && (
             <OrderForm

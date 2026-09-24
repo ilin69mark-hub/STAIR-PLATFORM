@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { QuoteResult } from './QuoteResult'
 import type { QuoteResult as QuoteResultType } from '@shared/types'
@@ -10,7 +11,13 @@ const viewerProps = vi.hoisted(() => ({ current: {} as Record<string, unknown> }
 vi.mock('@shared/viewer/GeometryViewer', () => ({
   GeometryViewer: (p: Record<string, unknown>) => {
     viewerProps.current = p
-    return 'mock-3d-viewer'
+    // overlay (HUD конструктора) рендерим — иначе до него не дотянуться.
+    return (
+      <div data-testid="mock-3d-viewer">
+        mock-3d-viewer
+        {p.overlay as ReactNode}
+      </div>
+    )
   },
 }))
 
@@ -122,6 +129,46 @@ describe('QuoteResult', () => {
     render(<QuoteResult quote={withMesh} />)
     expect(screen.getByText('3D-модель')).toBeInTheDocument()
     expect(await screen.findByText('mock-3d-viewer')).toBeInTheDocument()
+  })
+
+  it('HUD: выбор ступени в 3D открывает панель действий и пересчитывает', async () => {
+    const onAdjustStepHeight = vi.fn()
+    const onFlipDirection = vi.fn()
+    render(
+      <QuoteResult
+        quote={{ ...okQuote, mesh: mesh() }}
+        heightMM={2700}
+        onAdjustStepHeight={onAdjustStepHeight}
+        onFlipDirection={onFlipDirection}
+      />,
+    )
+    await screen.findByText('mock-3d-viewer')
+    expect(screen.queryByText('Ступень 3')).not.toBeInTheDocument()
+
+    // Клик по ступени в 3D сообщает деталь через onSelectPart.
+    act(() => {
+      ;(viewerProps.current.onSelectPart as (p: unknown) => void)({ solid: 2, role: 'tread' })
+    })
+    expect(screen.getByText('Ступень 3')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '+ ступень' }))
+    // 15 ступеней на 2700 мм → +1 = 16 ступеней по 168,8 мм.
+    expect(onAdjustStepHeight).toHaveBeenCalledWith(168.8)
+
+    fireEvent.click(screen.getByRole('button', { name: '− ступень' }))
+    expect(onAdjustStepHeight).toHaveBeenLastCalledWith(192.9)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Развернуть' }))
+    expect(onFlipDirection).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }))
+    expect(screen.queryByText('Ступень 3')).not.toBeInTheDocument()
+  })
+
+  it('HUD: интерактив выключен, если конструктор не передал обработчики', async () => {
+    render(<QuoteResult quote={{ ...okQuote, mesh: mesh() }} heightMM={2700} />)
+    await screen.findByText('mock-3d-viewer')
+    expect(viewerProps.current.interactive).toBe(false)
   })
 
   it('пробрасывает во вьювер heightMM и габариты помещения прямого марша', async () => {
