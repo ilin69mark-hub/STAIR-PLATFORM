@@ -21,19 +21,26 @@ type fakePaymentService struct {
 	events      []*payments.PaymentEvent
 	webhookErr  error
 	checkoutErr error
+	lastTier    string
 }
 
 func newFakePaymentService() *fakePaymentService {
 	return &fakePaymentService{}
 }
 
-func (f *fakePaymentService) CreateCheckout(ctx context.Context, tenantID, projectID, userID string, amountMinor int64, currency string) (*payments.PaymentIntent, error) {
+func (f *fakePaymentService) CreateCheckout(ctx context.Context, tenantID, projectID, userID, tierID string) (*payments.PaymentIntent, error) {
 	if f.checkoutErr != nil {
 		return nil, f.checkoutErr
 	}
+	// Фейк повторяет серверный каталог (S-150): цена не приходит из тела.
+	tier, err := payments.DefaultCatalog().Resolve(tierID)
+	if err != nil {
+		return nil, err
+	}
+	f.lastTier = tierID
 	p := &payments.PaymentIntent{
 		ID: "pay-1", TenantID: tenantID, ProjectID: projectID, UserID: userID,
-		AmountMinor: amountMinor, Currency: strings.ToUpper(currency),
+		AmountMinor: tier.AmountMinor, Currency: tier.Currency,
 		Status: payments.StatusPending, Provider: "mock", ProviderCheckoutID: "chk-1",
 		CheckoutURL: "https://pay.example.com/pay/chk-1",
 	}
@@ -100,7 +107,7 @@ func signedWebhookRequest(p *paymentsinfra.MockProvider, ev paymentsinfra.Webhoo
 func TestCheckout(t *testing.T) {
 	s, projects := paymentsTestSetup()
 	router := testRouterWithPayments(projects, s)
-	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/checkout", `{"amount_minor": 5000, "currency": "USD"}`)
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/checkout", `{"tier_id": "basic"}`)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
@@ -111,11 +118,42 @@ func TestCheckout(t *testing.T) {
 	}
 }
 
+// TestCheckoutPriceNotClientControlled (S-150) — red-team «платное бесплатно»:
+// клиент больше не может диктовать сумму (amount_minor игнорируется), а
+// неизвестный tier_id отвергается 422.
+func TestCheckoutPriceNotClientControlled(t *testing.T) {
+	s, projects := paymentsTestSetup()
+	router := testRouterWithPayments(projects, s)
+
+	// Попытка «заплатить 1 копейку»: amount_minor в теле не влияет.
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/checkout",
+		`{"tier_id":"basic","amount_minor":1,"currency":"RUB"}`)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"amount_minor":90000`) {
+		t.Fatalf("price must come from server catalog, got %s", rec.Body.String())
+	}
+	if s.lastTier != "basic" {
+		t.Fatalf("service got tier %q", s.lastTier)
+	}
+
+	// Старый клиент без tier_id → 422 (цену больше нельзя прислать).
+	req2 := authedRequest(http.MethodPost, "/api/v1/projects/p-1/checkout", `{"amount_minor":1}`)
+	rec2 := httptest.NewRecorder()
+	router.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("missing tier_id must be 422, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+}
+
 func TestCheckoutNotFound(t *testing.T) {
 	s, projects := paymentsTestSetup()
 	delete(projects.projects, "p-1")
 	router := testRouterWithPayments(projects, s)
-	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/checkout", `{"amount_minor": 5000, "currency": "USD"}`)
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/checkout", `{"tier_id": "basic"}`)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
@@ -138,7 +176,7 @@ func TestCheckoutUnprocessable(t *testing.T) {
 	s, projects := paymentsTestSetup()
 	s.checkoutErr = payments.ErrInvalid
 	router := testRouterWithPayments(projects, s)
-	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/checkout", `{"amount_minor": 0}`)
+	req := authedRequest(http.MethodPost, "/api/v1/projects/p-1/checkout", `{"tier_id": "nope"}`)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnprocessableEntity {
@@ -149,7 +187,7 @@ func TestCheckoutUnprocessable(t *testing.T) {
 func TestCheckoutRequiresAuth(t *testing.T) {
 	s, projects := paymentsTestSetup()
 	router := testRouterWithPayments(projects, s)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/p-1/checkout", strings.NewReader(`{"amount_minor": 1}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/p-1/checkout", strings.NewReader(`{"tier_id": "basic"}`))
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {

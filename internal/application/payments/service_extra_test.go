@@ -181,12 +181,12 @@ func TestHandleWebhookVerifierNilAndBadBody(t *testing.T) {
 func TestCreateCheckoutProviderAndRepoErrors(t *testing.T) {
 	ctx := context.Background()
 	badProv := NewService(&failRepo{}, &failProvider{err: errBoom}, &fakeVerifier{}, 0)
-	if _, err := badProv.CreateCheckout(ctx, "t-1", "p-1", "u-1", 100, "USD"); !errors.Is(err, errBoom) {
+	if _, err := badProv.CreateCheckout(ctx, "t-1", "p-1", "u-1", TierBasic); !errors.Is(err, errBoom) {
 		t.Fatalf("provider err: got %v", err)
 	}
 
 	badRepo := NewService(&failRepo{failCreate: errBoom}, &fakeProvider{name: "mock"}, &fakeVerifier{}, 0)
-	if _, err := badRepo.CreateCheckout(ctx, "t-1", "p-1", "u-1", 100, "USD"); !errors.Is(err, errBoom) {
+	if _, err := badRepo.CreateCheckout(ctx, "t-1", "p-1", "u-1", TierBasic); !errors.Is(err, errBoom) {
 		t.Fatalf("repo err: got %v", err)
 	}
 }

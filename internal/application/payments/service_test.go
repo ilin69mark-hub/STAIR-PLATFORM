@@ -84,10 +84,18 @@ func itoa(n int) string {
 	return string(b)
 }
 
-type fakeProvider struct{ name string }
+type fakeProvider struct {
+	name string
+	// lastAmount/lastCurrency — что сервис реально отдал провайдеру (S-150:
+	// сумма обязана прийти из каталога, а не из аргументов вызова).
+	lastAmount   int64
+	lastCurrency string
+}
 
 func (f *fakeProvider) Name() string { return f.name }
-func (f *fakeProvider) CreateCheckout(_ context.Context, _ int64, _ string) (string, string, error) {
+func (f *fakeProvider) CreateCheckout(_ context.Context, amount int64, currency string) (string, string, error) {
+	f.lastAmount = amount
+	f.lastCurrency = currency
 	return "chk-123", "https://pay.example.com/pay/chk-123", nil
 }
 
@@ -99,12 +107,14 @@ func (f *fakeVerifier) Verify(_ string, _, _ string, _ []byte, _ time.Duration) 
 
 func newTestService(verifier WebhookVerifier) (*Service, *fakeRepo) {
 	repo := &fakeRepo{}
-	return NewService(repo, &fakeProvider{name: "mock"}, verifier, 0), repo
+	svc := NewService(repo, &fakeProvider{name: "mock"}, verifier, 0)
+	svc.WithCatalog(NewCatalog(Tier{ID: "test", AmountMinor: 5000, Currency: "USD"}))
+	return svc, repo
 }
 
 func TestCreateCheckoutHappyPath(t *testing.T) {
 	svc, repo := newTestService(&fakeVerifier{})
-	p, err := svc.CreateCheckout(context.Background(), "t-1", "p-1", "u-1", 5000, "USD")
+	p, err := svc.CreateCheckout(context.Background(), "t-1", "p-1", "u-1", "test")
 	if err != nil {
 		t.Fatalf("CreateCheckout: %v", err)
 	}
@@ -125,24 +135,52 @@ func TestCreateCheckoutHappyPath(t *testing.T) {
 	}
 }
 
+// TestCreateCheckoutPriceFromCatalog (S-150) — red-team «платное бесплатно»:
+// цена берётся из серверного каталога; провайдеру уходит именно она, а не
+// то, что прислал клиент (в API такой параметр вообще не принимается).
+func TestCreateCheckoutPriceFromCatalog(t *testing.T) {
+	prov := &fakeProvider{name: "mock"}
+	svc := NewService(&fakeRepo{}, prov, &fakeVerifier{}, 0).
+		WithCatalog(NewCatalog(Tier{ID: TierBasic, AmountMinor: 90_000, Currency: "RUB"}))
+	p, err := svc.CreateCheckout(context.Background(), "t-1", "p-1", "u-1", TierBasic)
+	if err != nil {
+		t.Fatalf("CreateCheckout: %v", err)
+	}
+	if p.AmountMinor != 90_000 || p.Currency != "RUB" {
+		t.Fatalf("intent price must come from catalog: %+v", p)
+	}
+	if prov.lastAmount != 90_000 || prov.lastCurrency != "RUB" {
+		t.Fatalf("provider got %d/%s, want catalog price 90000/RUB", prov.lastAmount, prov.lastCurrency)
+	}
+}
+
+// TestCreateCheckoutUnknownTierRejected (S-150) — неизвестный/пустой tier
+// отвергается; «подсунуть свою сумму» больше нечем.
+func TestCreateCheckoutUnknownTierRejected(t *testing.T) {
+	svc, _ := newTestService(&fakeVerifier{})
+	for _, tier := range []string{"", "free", "basic", "../../etc/passwd"} {
+		if _, err := svc.CreateCheckout(context.Background(), "t-1", "p-1", "u-1", tier); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("tier %q: err = %v, want ErrInvalid", tier, err)
+		}
+	}
+}
+
 func TestCreateCheckoutInvalid(t *testing.T) {
 	svc, _ := newTestService(&fakeVerifier{})
 	cases := []struct {
 		name    string
 		tenant  string
 		project string
-		amount  int64
-		cur     string
+		tier    string
 	}{
-		{"empty tenant", "", "p-1", 100, "USD"},
-		{"empty project", "t-1", "", 100, "USD"},
-		{"zero amount", "t-1", "p-1", 0, "USD"},
-		{"negative amount", "t-1", "p-1", -1, "USD"},
-		{"empty currency", "t-1", "p-1", 100, "  "},
+		{"empty tenant", "", "p-1", "test"},
+		{"empty project", "t-1", "", "test"},
+		{"empty tier", "t-1", "p-1", ""},
+		{"unknown tier", "t-1", "p-1", "free"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := svc.CreateCheckout(context.Background(), c.tenant, c.project, "u-1", c.amount, c.cur)
+			_, err := svc.CreateCheckout(context.Background(), c.tenant, c.project, "u-1", c.tier)
 			if !errors.Is(err, ErrInvalid) {
 				t.Fatalf("err = %v, want ErrInvalid", err)
 			}
@@ -150,20 +188,21 @@ func TestCreateCheckoutInvalid(t *testing.T) {
 	}
 }
 
-func TestCreateCheckoutUppercasesCurrency(t *testing.T) {
-	svc, _ := newTestService(&fakeVerifier{})
-	p, err := svc.CreateCheckout(context.Background(), "t-1", "p-1", "u-1", 100, "usd")
+func TestCreateCheckoutNormalizesCatalogCurrency(t *testing.T) {
+	svc := NewService(&fakeRepo{}, &fakeProvider{name: "mock"}, &fakeVerifier{}, 0).
+		WithCatalog(NewCatalog(Tier{ID: "t", AmountMinor: 100, Currency: " usd "}))
+	p, err := svc.CreateCheckout(context.Background(), "t-1", "p-1", "u-1", "t")
 	if err != nil {
 		t.Fatalf("CreateCheckout: %v", err)
 	}
 	if p.Currency != "USD" {
-		t.Fatalf("expected uppercase USD, got %q", p.Currency)
+		t.Fatalf("expected normalized catalog currency USD, got %q", p.Currency)
 	}
 }
 
 func TestHandleWebhookHappyPath(t *testing.T) {
 	svc, repo := newTestService(&fakeVerifier{})
-	if _, err := svc.CreateCheckout(context.Background(), "t-1", "p-1", "u-1", 5000, "USD"); err != nil {
+	if _, err := svc.CreateCheckout(context.Background(), "t-1", "p-1", "u-1", "test"); err != nil {
 		t.Fatalf("CreateCheckout: %v", err)
 	}
 
@@ -189,13 +228,13 @@ func TestHandleWebhookHappyPath(t *testing.T) {
 
 func TestHandleWebhookStatusSucceededAlias(t *testing.T) {
 	svc, repo := newTestService(&fakeVerifier{})
-	if _, err := svc.CreateCheckout(context.Background(), "t-1", "p-1", "u-1", 100, "USD"); err != nil {
+	if _, err := svc.CreateCheckout(context.Background(), "t-1", "p-1", "u-1", "test"); err != nil {
 		t.Fatalf("CreateCheckout: %v", err)
 	}
 	_, err := svc.HandleWebhook(context.Background(), "secret", "1", "v1:abc", []byte(`{
 		"event_type": "payment.failed", "provider": "mock",
 		"checkout_id": "chk-123", "status": "declined",
-		"amount_minor": 100, "currency": "USD"
+		"amount_minor": 5000, "currency": "USD"
 	}`))
 	if err != nil {
 		t.Fatalf("HandleWebhook: %v", err)
@@ -227,7 +266,7 @@ func TestHandleWebhookNotFound(t *testing.T) {
 
 func TestHandleWebhookAmountMismatch(t *testing.T) {
 	svc, _ := newTestService(&fakeVerifier{})
-	if _, err := svc.CreateCheckout(context.Background(), "t-1", "p-1", "u-1", 5000, "USD"); err != nil {
+	if _, err := svc.CreateCheckout(context.Background(), "t-1", "p-1", "u-1", "test"); err != nil {
 		t.Fatalf("CreateCheckout: %v", err)
 	}
 	_, err := svc.HandleWebhook(context.Background(), "secret", "1", "v1:abc", []byte(`{
@@ -242,13 +281,13 @@ func TestHandleWebhookAmountMismatch(t *testing.T) {
 
 func TestHandleWebhookBadStatus(t *testing.T) {
 	svc, _ := newTestService(&fakeVerifier{})
-	if _, err := svc.CreateCheckout(context.Background(), "t-1", "p-1", "u-1", 100, "USD"); err != nil {
+	if _, err := svc.CreateCheckout(context.Background(), "t-1", "p-1", "u-1", "test"); err != nil {
 		t.Fatalf("CreateCheckout: %v", err)
 	}
 	_, err := svc.HandleWebhook(context.Background(), "secret", "1", "v1:abc", []byte(`{
 		"event_type": "payment.unknown", "provider": "mock",
 		"checkout_id": "chk-123", "status": "weird",
-		"amount_minor": 100, "currency": "USD"
+		"amount_minor": 5000, "currency": "USD"
 	}`))
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("err = %v, want ErrInvalid", err)
@@ -265,7 +304,7 @@ func TestHandleWebhookMissingFields(t *testing.T) {
 
 func TestWebhookPayloadRawPreserved(t *testing.T) {
 	svc, repo := newTestService(&fakeVerifier{})
-	if _, err := svc.CreateCheckout(context.Background(), "t-1", "p-1", "u-1", 5000, "USD"); err != nil {
+	if _, err := svc.CreateCheckout(context.Background(), "t-1", "p-1", "u-1", "test"); err != nil {
 		t.Fatalf("CreateCheckout: %v", err)
 	}
 	raw := `{"event_type":"payment.succeeded","provider":"mock","checkout_id":"chk-123","status":"paid","amount_minor":5000,"currency":"USD"}`

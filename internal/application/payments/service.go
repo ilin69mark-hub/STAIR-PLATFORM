@@ -17,6 +17,9 @@ type Service struct {
 	verifier      WebhookVerifier
 	maxWebhookAge time.Duration
 	now           func() time.Time
+	// catalog — серверный прайс-каталог (S-150): единственный источник
+	// суммы для checkout; nil = NewService подставляет DefaultCatalog.
+	catalog *Catalog
 }
 
 // NewService создаёт сервис платежей. maxAge <= 0 — WebhookVerifier решает
@@ -27,23 +30,34 @@ func NewService(repo Repository, provider Provider, verifier WebhookVerifier, ma
 		provider:      provider,
 		verifier:      verifier,
 		maxWebhookAge: maxAge,
+		catalog:       DefaultCatalog(),
 		now:           time.Now,
 	}
 }
 
+// WithCatalog задаёт серверный прайс-каталог (S-150): значения из тела
+// запроса не принимаются, цена — только из каталога.
+func (s *Service) WithCatalog(c *Catalog) *Service {
+	if c != nil {
+		s.catalog = c
+	}
+	return s
+}
+
 // CreateCheckout создаёт pending-интент через Provider и возвращает
-// checkout URL (EDR-0027 §3.4). Валидирует сумму и валюту.
-func (s *Service) CreateCheckout(ctx context.Context, tenantID, projectID, userID string, amountMinor int64, currency string) (*PaymentIntent, error) {
+// checkout URL (EDR-0027 §3.4). Сумма и валюта берутся ТОЛЬКО из
+// серверного каталога по tierID (S-150: клиент больше не присылает цену —
+// red-team «платное бесплатно» закрыт). tierID обязателен и должен быть
+// известен каталогу, иначе ErrInvalid (422).
+func (s *Service) CreateCheckout(ctx context.Context, tenantID, projectID, userID, tierID string) (*PaymentIntent, error) {
 	if tenantID == "" || projectID == "" {
 		return nil, fmt.Errorf("%w: project required", ErrInvalid)
 	}
-	if amountMinor <= 0 {
-		return nil, fmt.Errorf("%w: amount_minor must be positive", ErrInvalid)
+	tier, err := s.catalog.Resolve(tierID)
+	if err != nil {
+		return nil, err
 	}
-	currency = strings.ToUpper(strings.TrimSpace(currency))
-	if currency == "" {
-		return nil, fmt.Errorf("%w: currency required", ErrInvalid)
-	}
+	amountMinor, currency := tier.AmountMinor, tier.Currency
 
 	checkoutID, checkoutURL, err := s.provider.CreateCheckout(ctx, amountMinor, currency)
 	if err != nil {
