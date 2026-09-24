@@ -147,6 +147,9 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		// S-144 (S-141 №7): мутирующие POST (LLM-бюджет, запись conversation-memory)
 		// — CSRF (double-submit), как у остальных mutating-роутов.
 		mux.Handle("POST /api/v1/assistant/{kind}", authMutating(handleAssistantAsk(assistantSvc)))
+		// Право на забвение conversation-memory (S-141 №13): purge памяти
+		// проекта, членство проверяет прикладной слой (S-142 → 403).
+		mux.Handle("DELETE /api/v1/assistant/memory", authMutating(handleAssistantForget(assistantSvc)))
 	}
 	if ordersSvc != nil {
 		// Розничные заказы (клиентский сайт, Store). Клиентский кабинет и

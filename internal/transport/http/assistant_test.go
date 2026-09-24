@@ -16,9 +16,11 @@ import (
 // fakeAssistant — управляемая реализация AssistantService для транспортных
 // тестов.
 type fakeAssistant struct {
-	res  *appast.Result
-	err  error
-	kind appast.Kind
+	res       *appast.Result
+	err       error
+	kind      appast.Kind
+	forgetN   int64
+	forgetErr error
 }
 
 func (f *fakeAssistant) Ask(_ context.Context, tenantID, _ string, kind appast.Kind, _ appast.Request) (*appast.Result, error) {
@@ -27,6 +29,13 @@ func (f *fakeAssistant) Ask(_ context.Context, tenantID, _ string, kind appast.K
 		return nil, f.err
 	}
 	return f.res, nil
+}
+
+func (f *fakeAssistant) Forget(_ context.Context, _, _, _ string) (int64, error) {
+	if f.forgetErr != nil {
+		return 0, f.forgetErr
+	}
+	return f.forgetN, nil
 }
 
 func assistantTestRouter(a AuthService, ast AssistantService) http.Handler {
@@ -293,5 +302,55 @@ func TestAssistantInvalidJSON(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 on bad json, got %d", rec.Code)
+	}
+}
+
+// assistantForgetRequest — DELETE /api/v1/assistant/memory с session+csrf
+// (маршрут за authMutating, S-144).
+func assistantForgetRequest(projectID string) *http.Request {
+	r := httptest.NewRequest(http.MethodDelete, "/api/v1/assistant/memory?project_id="+projectID, nil)
+	r.AddCookie(testCookie(sessionCookieName, "token-1"))
+	r.AddCookie(testCookie(csrfCookieName, "csrf-1"))
+	r.Header.Set(csrfHeader, "csrf-1")
+	return r
+}
+
+func TestAssistantForgetOK(t *testing.T) {
+	// S-148 (S-141 №13): член проекта стирает память → 200 {deleted: n}.
+	ast := &fakeAssistant{forgetN: 7}
+	router := assistantTestRouter(newFakeAuth(), ast)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, assistantForgetRequest("p1"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"deleted":7`) {
+		t.Fatalf("body should carry deleted count, got %s", rec.Body.String())
+	}
+}
+
+func TestAssistantForgetForbidden(t *testing.T) {
+	// Не-член проекта → 403, а не purge чужой памяти.
+	ast := &fakeAssistant{forgetErr: fmt.Errorf("%w: not a member of project", appast.ErrForbidden)}
+	router := assistantTestRouter(newFakeAuth(), ast)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, assistantForgetRequest("p-other"))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAssistantForgetNoProjectID(t *testing.T) {
+	// Без project_id — 400, прикладной слой не вызывается.
+	ast := &fakeAssistant{forgetN: 7}
+	router := assistantTestRouter(newFakeAuth(), ast)
+	r := httptest.NewRequest(http.MethodDelete, "/api/v1/assistant/memory", nil)
+	r.AddCookie(testCookie(sessionCookieName, "token-1"))
+	r.AddCookie(testCookie(csrfCookieName, "csrf-1"))
+	r.Header.Set(csrfHeader, "csrf-1")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, r)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

@@ -68,6 +68,22 @@ func (f *fakeMemory) RecentMessages(_ context.Context, _, _ string, limit int) (
 
 func (f *fakeMemory) PruneMessages(context.Context, time.Time) (int64, error) { return 0, nil }
 
+func (f *fakeMemory) DeleteMessages(_ context.Context, tenantID, projectID string) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	kept := f.msgs[:0]
+	var n int64
+	for _, m := range f.msgs {
+		if m.TenantID == tenantID && m.ProjectID == projectID {
+			n++
+			continue
+		}
+		kept = append(kept, m)
+	}
+	f.msgs = kept
+	return n, nil
+}
+
 // fakeAuthz — управляемый ProjectAuthorizer (S-142): members — карта
 // "tenant/user/project" → членство; err — сбой проверки.
 type fakeAuthz struct {

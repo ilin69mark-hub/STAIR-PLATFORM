@@ -395,6 +395,63 @@ func (s *Service) authorizeProject(ctx context.Context, tenantID, userID, projec
 	return nil
 }
 
+// Forget стирает conversation-memory проекта (право на забвение, S-141
+// №13, GDPR Art.17/152-ФЗ): self-service purge через
+// DELETE /api/v1/assistant/memory. Требуется членство в проекте (та же
+// семантика, что в Ask, S-142): не-член — ErrForbidden (отказ аудируется).
+// Возвращает число удалённых сообщений. Purge kind-agnostic: строки памяти
+// не атрибутированы ни kind, ни user_id — стирание выполняется через purge
+// проектов пользователя; каскад при удалении tenant/project — на уровне БД
+// (ON DELETE CASCADE, миграция 000026).
+func (s *Service) Forget(ctx context.Context, tenantID, userID, projectID string) (int64, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if tenantID == "" || projectID == "" {
+		return 0, fmt.Errorf("%w: tenant and project required", ErrInvalid)
+	}
+	if s.memory == nil {
+		return 0, fmt.Errorf("assistant: memory not configured")
+	}
+	// Членство — fail-closed, как в authorizeProject, но с собственным
+	// аудитом (purge не привязан к kind — dedicate action ниже).
+	if s.projectAuthz == nil {
+		return 0, fmt.Errorf("assistant: project authorization not configured (memory requires WithProjectAuthz, S-142)")
+	}
+	ok, err := s.projectAuthz.IsMember(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return 0, fmt.Errorf("assistant: project membership check: %w", err)
+	}
+	if !ok {
+		s.auditMemory(ctx, tenantID, userID, audit.ResultDenied, "conversation-memory purge denied: not a member")
+		return 0, fmt.Errorf("%w: not a member of project", ErrForbidden)
+	}
+	n, err := s.memory.DeleteMessages(ctx, tenantID, projectID)
+	if err != nil {
+		return 0, err
+	}
+	s.auditMemory(ctx, tenantID, userID, audit.ResultOK, "conversation-memory purged")
+	return n, nil
+}
+
+// auditMemory пишет событие purge памяти с dedicated action (purge
+// kind-agnostic — kind-coupled auditResult здесь неприменим).
+func (s *Service) auditMemory(ctx context.Context, tenantID, userID string, result audit.Result, detail string) {
+	if s.audit == nil {
+		return
+	}
+	e := &audit.Event{
+		ActorID:      userID,
+		TenantID:     tenantID,
+		Action:       "ai.assist.memory.purged",
+		ResourceType: "assistant.memory",
+		Result:       result,
+		Detail:       detail,
+		CreatedAt:    s.now().UTC(),
+	}
+	_ = s.audit.Record(ctx, e)
+}
+
 // remember дописывает user+assistant сообщения диалога в хранилище
 // (детерминированное резюме запроса и итоговый ответ).
 func (s *Service) remember(ctx context.Context, tenantID, projectID string, kind Kind, req Request, ans *Answer, resp *Response) error {

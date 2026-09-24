@@ -794,7 +794,46 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /audit:
+  /assistant/memory:
+    delete:
+      tags: ["assistant"]
+      summary: "Стереть conversation-memory проекта (право на забвение, GDPR Art.17)"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: "Проект, чья память стирается; вызывающий должен быть членом проекта (иначе 403)"
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: "Forbidden: вызывающий не член проекта (S-142)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
     get:
       tags: ["audit"]
       summary: "Журнал аудита"

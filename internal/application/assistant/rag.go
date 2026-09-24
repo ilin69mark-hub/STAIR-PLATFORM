@@ -135,6 +135,10 @@ type MemoryStore interface {
 	RecentMessages(ctx context.Context, tenantID, projectID string, limit int) ([]MemoryMessage, error)
 	// PruneMessages удаляет сообщения старше cutoff; возвращает число удалённых.
 	PruneMessages(ctx context.Context, cutoff time.Time) (int64, error)
+	// DeleteMessages удаляет ВСЕ сообщения проекта в tenant (право на
+	// забвение, S-141 №13, GDPR Art.17/152-ФЗ): self-service purge через
+	// DELETE /api/v1/assistant/memory. Возвращает число удалённых.
+	DeleteMessages(ctx context.Context, tenantID, projectID string) (int64, error)
 }
 
 // Лимиты истории диалога (S-135): default 10 последних сообщений, cap 50.
