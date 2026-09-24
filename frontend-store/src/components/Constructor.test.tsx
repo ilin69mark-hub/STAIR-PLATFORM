@@ -459,6 +459,30 @@ describe('Constructor', () => {
     expect(screen.getByLabelText('Радиус (мм)')).toHaveValue('1773')
   })
 
+  it('«Спасти расчёт» одним кликом применяет ближайший вариант и пересчитывает', async () => {
+    const spy = vi
+      .spyOn(quoteApi, 'calculate')
+      .mockResolvedValueOnce(
+        blockedVariations({ flight: 'straight', heightMM: '3000', widthMM: '1000', stepHeightMM: '166.67' }),
+      )
+      .mockResolvedValue(okQuote)
+    await renderWithAuth(<Constructor />, null)
+    fillValid()
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await screen.findByText(/Расчёт остановлен/)
+
+    const rescue = screen.getByRole('button', { name: 'Спасти расчёт' })
+    fireEvent.click(rescue)
+
+    await waitFor(() =>
+      expect(spy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ step_height_mm: 166.67, flight: 'straight' }),
+      ),
+    )
+    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Спасти расчёт' })).not.toBeInTheDocument()
+  })
+
   it('вариация (straight) подставляет высоту ступени и пересчитывает', async () => {
     const spy = vi
       .spyOn(quoteApi, 'calculate')

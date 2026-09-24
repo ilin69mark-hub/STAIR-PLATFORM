@@ -458,6 +458,18 @@ body {
   color: var(--sp-warn);
 }
 
+.rescue {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-gap);
+  flex-wrap: wrap;
+}
+
+.rescue__text {
+  max-width: 60ch;
+}
+
 .alert--ok {
   background: #e9f7f0;
   border: 1px solid #c3e8d5;

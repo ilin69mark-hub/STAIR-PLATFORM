@@ -543,6 +543,18 @@ export function Constructor() {
 
   // Галерея: снапшоты пользователя + свежие альтернативы бэкенда без дублей
   // по содержимому (совпавшая с уже выбранным конфигом альтернатива скрыта).
+  // Спасение расчёта: первый вариант БЭКЕНДА, отличный от текущего
+  // (заблокированного) конфига. galleryVariations[0] не годится — там первым
+  // стоит снапшот самого заблокированного конфига (pushVersion).
+  const rescueVariation = (variations ?? []).find(
+    (alt) =>
+      !versions.some(
+        (ver) =>
+          versionContentKey(alt.config) ===
+          versionContentKey(ver.config as unknown as Record<string, unknown>),
+      ),
+  )
+
   const galleryVariations: Variation[] = [
     ...versions.map(toVariation),
     ...(variations ?? []).filter(
@@ -714,6 +726,21 @@ export function Constructor() {
 
       {quote && (
         <>
+          {quote.validation.blocking && rescueVariation && (
+            <div className="alert alert--warn rescue" role="alert">
+              <div className="rescue__text">
+                <strong>Такой расчёт невозможен.</strong> Ближайший рабочий вариант
+                подходит под ваши габариты и открывает 3D с ценой.
+              </div>
+              <button
+                type="button"
+                className="sp-btn sp-btn--primary"
+                onClick={() => applyGalleryVariation(rescueVariation)}
+              >
+                Спасти расчёт
+              </button>
+            </div>
+          )}
           <QuoteResultView
             quote={quote}
             onApplySuggestion={applySuggestion}
