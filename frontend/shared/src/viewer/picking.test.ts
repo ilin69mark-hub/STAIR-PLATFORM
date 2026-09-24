@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   dragAxisIsHorizontal,
+  dragLandingMM,
   dragComfortStep,
   dragHeight,
   groupIndexForFace,
@@ -136,5 +137,14 @@ describe('dragAxisIsHorizontal', () => {
     expect(dragAxisIsHorizontal(30, 5)).toBe(true)
     expect(dragAxisIsHorizontal(5, 30)).toBe(false)
     expect(dragAxisIsHorizontal(10, 10)).toBe(false)
+  })
+})
+
+describe('dragLandingMM', () => {
+  it('меняет габарит площадки с шагом 10 мм в допуске', () => {
+    expect(dragLandingMM(1000, 47, { min: 600, max: 3000 })).toBe(1050)
+    expect(dragLandingMM(1000, -23, { min: 600, max: 5000 })).toBe(980)
+    expect(dragLandingMM(1000, 9000, { min: 600, max: 3000 })).toBe(3000)
+    expect(dragLandingMM(1000, -9000, { min: 600, max: 5000 })).toBe(600)
   })
 })

@@ -35,6 +35,10 @@ interface Props {
   onAdjustHeight?: (heightMM: number) => void
   onAdjustComfortStep?: (comfortStepMM: number) => void
   comfortStepMM?: number
+  onAdjustLandingWidth?: (widthMM: number) => void
+  onAdjustLandingDepth?: (depthMM: number) => void
+  landingWidthMM?: number
+  landingDepthMM?: number
   // Свободное пространство перед первой ступенью (мм), введено в калькуляторе
   // (дефолт 1000). Передаём в solverOf, чтобы не зависеть от сдвига модели.
   approachSpaceMM?: string
@@ -59,6 +63,10 @@ export function QuoteResult({
   onAdjustHeight,
   onAdjustComfortStep,
   comfortStepMM,
+  onAdjustLandingWidth,
+  onAdjustLandingDepth,
+  landingWidthMM,
+  landingDepthMM,
   environmentHDRI = '/static-assets/hdri/studio_small_08_1k.hdr',
   finishId,
   railingMetal = true,
@@ -82,6 +90,8 @@ export function QuoteResult({
   const [dragValue, setDragValue] = useState<{
     heightMM: number
     comfortStepMM: number
+    landingWidthMM?: number
+    landingDepthMM?: number
   } | null>(null)
   const stepCount = solver.flight?.StepCount ?? 0
   // Поворот марша есть только у L/П/спирали: у прямого марша API не принимает
@@ -198,6 +208,10 @@ export function QuoteResult({
                 onDragHeight={onAdjustHeight}
                 onDragComfortStep={onAdjustComfortStep}
                 comfortStepMM={comfortStepMM}
+                onDragLandingWidth={onAdjustLandingWidth}
+                onDragLandingDepth={onAdjustLandingDepth}
+                landingWidthMM={landingWidthMM}
+                landingDepthMM={landingDepthMM}
                 selectedPart={selectedPart}
                 onSelectPart={setSelectedPart}
                 overlay={
@@ -210,13 +224,32 @@ export function QuoteResult({
                       </span>
                       <span className="viewer-hud__meta">
                         {dragValue ? (
-                          dragValue.heightMM !== heightMM ? (
-                            <>Высота марша: {dragValue.heightMM} мм — отпустите, чтобы применить</>
-                          ) : (
-                            <>
-                              Шаг комфорта: {dragValue.comfortStepMM} мм — отпустите, чтобы применить
-                            </>
-                          )
+                          <>
+                            {dragValue.landingWidthMM != null && (
+                              <>
+                                Ширина площадки: {dragValue.landingWidthMM} мм — отпустите, чтобы
+                                применить
+                              </>
+                            )}
+                            {dragValue.landingDepthMM != null && (
+                              <>
+                                Глубина площадки: {dragValue.landingDepthMM} мм — отпустите, чтобы
+                                применить
+                              </>
+                            )}
+                            {dragValue.landingWidthMM == null &&
+                              dragValue.landingDepthMM == null &&
+                              (dragValue.heightMM !== heightMM ? (
+                                <>
+                                  Высота марша: {dragValue.heightMM} мм — отпустите, чтобы применить
+                                </>
+                              ) : (
+                                <>
+                                  Шаг комфорта: {dragValue.comfortStepMM} мм — отпустите, чтобы
+                                  применить
+                                </>
+                              ))}
+                          </>
                         ) : (
                           <>
                             Ступеней: {stepCount} · высота ступени{' '}

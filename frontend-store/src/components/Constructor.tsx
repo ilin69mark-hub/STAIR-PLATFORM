@@ -561,6 +561,17 @@ export function Constructor() {
     void calculate(next)
   }
 
+  // Перетаскивание площадки у L/П-маршей: ширина (вдоль поворота) или
+  // глубина (вдоль марша).
+  const adjustLanding = (key: 'landingWidthMM' | 'landingDepthMM', mm: number) => {
+    const next = { ...config, [key]: String(mm) }
+    setConfig(next)
+    setErrors(validateForm(next))
+    setTouched(true)
+    logAction({ action: 'stair.landing_adjusted', resource_type: 'stair', detail: `${key}=${mm}` })
+    void calculate(next)
+  }
+
   const flipDirection = () => {
     const flip = <T extends string>(v: T) => (v === 'left' ? 'right' : 'left') as T
     const next = {
@@ -862,6 +873,10 @@ export function Constructor() {
             onAdjustHeight={adjustHeight}
             onAdjustComfortStep={adjustComfortStep}
             comfortStepMM={Number(config.comfortStepMM) || undefined}
+            onAdjustLandingWidth={(mm) => adjustLanding('landingWidthMM', mm)}
+            onAdjustLandingDepth={(mm) => adjustLanding('landingDepthMM', mm)}
+            landingWidthMM={Number(config.landingWidthMM) || undefined}
+            landingDepthMM={Number(config.landingDepthMM) || undefined}
           />
           {!quote.validation.blocking && quote.pricing && request && (
             <OrderForm

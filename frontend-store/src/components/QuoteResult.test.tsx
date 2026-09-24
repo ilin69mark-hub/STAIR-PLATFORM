@@ -242,6 +242,39 @@ describe('QuoteResult', () => {
     expect(onAdjustHeight).not.toHaveBeenCalled()
   })
 
+  it('перетаскивание площадки: preview и фиксация ширины/глубины', async () => {
+    const onAdjustLandingWidth = vi.fn()
+    const onAdjustLandingDepth = vi.fn()
+    render(
+      <QuoteResult
+        quote={{ ...okQuote, mesh: mesh() }}
+        heightMM={2700}
+        landingWidthMM={1000}
+        landingDepthMM={1200}
+        onAdjustLandingWidth={onAdjustLandingWidth}
+        onAdjustLandingDepth={onAdjustLandingDepth}
+      />,
+    )
+    await screen.findByText('mock-3d-viewer')
+    act(() => {
+      ;(viewerProps.current.onSelectPart as (p: unknown) => void)({ solid: 0, role: 'landing' })
+    })
+    expect(screen.getByText('Площадка')).toBeInTheDocument()
+
+    act(() => {
+      ;(viewerProps.current.onDragPreview as (v: unknown) => void)({
+        heightMM: 2700,
+        comfortStepMM: 630,
+        landingDepthMM: 1400,
+      })
+    })
+    expect(screen.getByText(/Глубина площадки: 1400 мм/)).toBeInTheDocument()
+    act(() => {
+      ;(viewerProps.current.onDragLandingWidth as (v: number) => void)(1100)
+    })
+    expect(onAdjustLandingWidth).toHaveBeenCalledWith(1100)
+  })
+
   it('перетаскивание ступени: preview показывает новую высоту, отпускание фиксирует', async () => {
     const onAdjustHeight = vi.fn()
     render(

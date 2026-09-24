@@ -16,6 +16,7 @@ import {
   dragAxisIsHorizontal,
   dragComfortStep,
   dragHeight,
+  dragLandingMM,
   groupsFromRanges,
   isDragDistance,
   isEditablePart,
@@ -80,10 +81,19 @@ interface Props {
   // зафиксированный результат (сервер авторитетен, пересчёт за Конструктором).
   // Горизонтальный drag правит шаг комфорта (2h + b) — им сервер управляет
   // проступью и забегом; вертикальный — высоту марша.
-  onDragPreview?: (value: { heightMM: number; comfortStepMM: number } | null) => void
+  onDragPreview?: (value: {
+    heightMM: number
+    comfortStepMM: number
+    landingWidthMM?: number
+    landingDepthMM?: number
+  } | null) => void
   onDragHeight?: (heightMM: number) => void
   onDragComfortStep?: (comfortStepMM: number) => void
   comfortStepMM?: number
+  onDragLandingWidth?: (widthMM: number) => void
+  onDragLandingDepth?: (depthMM: number) => void
+  landingWidthMM?: number
+  landingDepthMM?: number
   // castShadow — принимают ли лестница/перила/пол тень (этап 1, студийный вид).
   castShadow?: boolean
 }
@@ -221,6 +231,10 @@ export function GeometryViewer({
   onDragHeight,
   onDragComfortStep,
   comfortStepMM,
+  onDragLandingWidth,
+  onDragLandingDepth,
+  landingWidthMM,
+  landingDepthMM,
   overlay,
   castShadow = true,
   roomLength,
@@ -265,9 +279,17 @@ export function GeometryViewer({
     () => {},
   )
   // Колбэки перетаскивания — в рефе: пересчёт меняет данные, сцена стабильна.
-  const dragCallbacksRef = useRef({ onDragPreview, onDragHeight, onDragComfortStep })
+  const dragCallbacksRef = useRef({
+    onDragPreview,
+    onDragHeight,
+    onDragComfortStep,
+    onDragLandingWidth,
+    onDragLandingDepth,
+  })
   const heightRef = useRef(heightMM)
   const comfortRef = useRef(comfortStepMM)
+  const landingWidthRef = useRef(landingWidthMM)
+  const landingDepthRef = useRef(landingDepthMM)
   const materialRef = useRef(materialCode)
 
   useEffect(() => {
@@ -276,8 +298,14 @@ export function GeometryViewer({
   }, [selectedPart])
 
   useEffect(() => {
-    dragCallbacksRef.current = { onDragPreview, onDragHeight, onDragComfortStep }
-  }, [onDragPreview, onDragHeight, onDragComfortStep])
+    dragCallbacksRef.current = {
+      onDragPreview,
+      onDragHeight,
+      onDragComfortStep,
+      onDragLandingWidth,
+      onDragLandingDepth,
+    }
+  }, [onDragPreview, onDragHeight, onDragComfortStep, onDragLandingWidth, onDragLandingDepth])
 
   useEffect(() => {
     heightRef.current = heightMM
@@ -287,6 +315,11 @@ export function GeometryViewer({
   useEffect(() => {
     comfortRef.current = comfortStepMM
   }, [comfortStepMM])
+
+  useEffect(() => {
+    landingWidthRef.current = landingWidthMM
+    landingDepthRef.current = landingDepthMM
+  }, [landingWidthMM, landingDepthMM])
 
   useEffect(() => {
     wallsStateRef.current = walls
@@ -847,7 +880,10 @@ export function GeometryViewer({
     let downY = 0
     // Активное перетаскивание: плоскость через точку захвата, перпендикулярная
     // взгляду камеры, и стартовая высота марша.
+    // mode: flight — вертикаль правит высоту, горизонталь шаг комфорта;
+    // landing — плоскость пола, X правит глубину, Z ширину площадки.
     let drag: {
+      mode: 'flight' | 'landing'
       plane: THREE.Plane
       start: THREE.Vector3
       startHeight: number
@@ -862,6 +898,16 @@ export function GeometryViewer({
       const rule = fieldRules.comfortStepMM
       return { min: rule.min ?? 600, max: rule.max ?? 640 }
     }
+    const landingBounds = () => ({
+      width: {
+        min: fieldRules.landingWidthMM.min ?? 600,
+        max: fieldRules.landingWidthMM.max ?? 3000,
+      },
+      depth: {
+        min: fieldRules.landingDepthMM.min ?? 600,
+        max: fieldRules.landingDepthMM.max ?? 5000,
+      },
+    })
     const onPointerDown = (e: PointerEvent) => {
       downX = e.clientX
       downY = e.clientY
@@ -873,10 +919,13 @@ export function GeometryViewer({
         return
       }
       // Захват на детали марша: отключаем вращение камеры и готовим drag.
-      const normal = new THREE.Vector3()
-      camera.getWorldDirection(normal)
+      // Площадку тянем по полу (нормаль Y) — иначе её габарит не выразить.
+      const landing = hit.picked.role === 'landing'
+      const normal = landing ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3()
+      if (!landing) camera.getWorldDirection(normal)
       const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, hit.point)
       drag = {
+        mode: landing ? 'landing' : 'flight',
         plane,
         start: hit.point.clone(),
         startHeight,
@@ -897,7 +946,23 @@ export function GeometryViewer({
         if (raycaster.ray.intersectPlane(drag.plane, p)) {
           const dx = p.x - drag.start.x
           const dy = p.y - drag.start.y
-          if (isDragDistance(dx) || isDragDistance(dy)) drag.moved = true
+          const dz = p.z - drag.start.z
+          if (isDragDistance(dx) || isDragDistance(dy) || isDragDistance(dz)) drag.moved = true
+          if (drag.moved && drag.mode === 'landing') {
+            const b = landingBounds()
+            const byZ = Math.abs(dz) > Math.abs(dx)
+            dragCallbacksRef.current.onDragPreview?.({
+              heightMM: drag.startHeight,
+              comfortStepMM: drag.startComfort,
+              landingWidthMM: byZ
+                ? dragLandingMM(landingWidthRef.current ?? b.width.min, dz, b.width)
+                : undefined,
+              landingDepthMM: byZ
+                ? undefined
+                : dragLandingMM(landingDepthRef.current ?? b.depth.min, dx, b.depth),
+            })
+            return
+          }
           if (drag.moved) {
             // Доминирующая ось решает, что правим: вверх-вниз — высоту,
             // вбок — шаг комфорта (проступь/забег).
@@ -948,8 +1013,29 @@ export function GeometryViewer({
           if (raycaster.ray.intersectPlane(wasDrag.plane, p)) {
             const dx = p.x - wasDrag.start.x
             const dy = p.y - wasDrag.start.y
-            const { onDragHeight, onDragComfortStep, onDragPreview } = dragCallbacksRef.current
+            const dz = p.z - wasDrag.start.z
+            const {
+              onDragHeight,
+              onDragComfortStep,
+              onDragPreview,
+              onDragLandingWidth,
+              onDragLandingDepth,
+            } = dragCallbacksRef.current
             onDragPreview?.(null)
+            if (wasDrag.mode === 'landing') {
+              const b = landingBounds()
+              const byZ = Math.abs(dz) > Math.abs(dx)
+              if (byZ) {
+                onDragLandingWidth?.(
+                  dragLandingMM(landingWidthRef.current ?? b.width.min, dz, b.width),
+                )
+              } else {
+                onDragLandingDepth?.(
+                  dragLandingMM(landingDepthRef.current ?? b.depth.min, dx, b.depth),
+                )
+              }
+              return
+            }
             if (dragAxisIsHorizontal(dx, dy) && onDragComfortStep) {
               onDragComfortStep(dragComfortStep(wasDrag.startComfort, dx, comfortBounds()))
             } else if (onDragHeight) {

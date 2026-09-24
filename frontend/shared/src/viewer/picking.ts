@@ -123,6 +123,16 @@ export function dragComfortStep(
   return Math.min(bounds.max, Math.max(bounds.min, snapped))
 }
 
+/**
+ * Габарит площадки при перетаскивании: плоскость пола даёт смещения по X
+ * (глубина площадки — вдоль марша) и Z (ширина — вдоль поворота). Снап 10 мм,
+ * зажим в допустимый диапазон.
+ */
+export function dragLandingMM(startMM: number, delta: number, bounds: HeightBounds): number {
+  const snapped = Math.round((startMM + delta) / 10) * 10
+  return Math.min(bounds.max, Math.max(bounds.min, snapped))
+}
+
 /** Горизонталь преобладает — правим проступь, иначе высоту. */
 export function dragAxisIsHorizontal(deltaX: number, deltaY: number): boolean {
   return Math.abs(deltaX) > Math.abs(deltaY)
