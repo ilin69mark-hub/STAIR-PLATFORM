@@ -49,9 +49,13 @@ type calculateRequest struct {
 // единице); пустые поля наследуются от DefaultRates.
 type ratesDTO struct {
 	MaterialPerKg struct {
-		STEEL_S235 float64 `json:"STEEL-S235"`
-		ALUM_5083  float64 `json:"ALUM-5083"`
-		WOOD_OAK   float64 `json:"WOOD-OAK"`
+		STEEL_S235   float64 `json:"STEEL-S235"`
+		ALUM_5083    float64 `json:"ALUM-5083"`
+		WOOD_OAK     float64 `json:"WOOD-OAK"`
+		WOOD_WALNUT  float64 `json:"WOOD-WALNUT"`
+		WOOD_ASH     float64 `json:"WOOD-ASH"`
+		WOOD_SOFT    float64 `json:"WOOD-SOFT"`
+		STEEL_CORTEN float64 `json:"STEEL-CORTEN"`
 	} `json:"material_per_kg_rub"`
 	MachinePerHour  float64 `json:"machine_per_hour_rub,omitempty"`
 	LaborPerHour    float64 `json:"labor_per_hour_rub,omitempty"`
@@ -654,9 +658,13 @@ func toOptions(req calculateRequest) (stair.Options, error) {
 	r := req.Rates
 	rates := engprc.DefaultRates()
 	for code, price := range map[dommfg.MaterialCode]float64{
-		"STEEL-S235": r.MaterialPerKg.STEEL_S235,
-		"ALUM-5083":  r.MaterialPerKg.ALUM_5083,
-		"WOOD-OAK":   r.MaterialPerKg.WOOD_OAK,
+		"STEEL-S235":   r.MaterialPerKg.STEEL_S235,
+		"ALUM-5083":    r.MaterialPerKg.ALUM_5083,
+		"WOOD-OAK":     r.MaterialPerKg.WOOD_OAK,
+		"WOOD-WALNUT":  r.MaterialPerKg.WOOD_WALNUT,
+		"WOOD-ASH":     r.MaterialPerKg.WOOD_ASH,
+		"WOOD-SOFT":    r.MaterialPerKg.WOOD_SOFT,
+		"STEEL-CORTEN": r.MaterialPerKg.STEEL_CORTEN,
 	} {
 		if price > 0 {
 			m, err := domprc.CurrencyRUB.FromMajor(price)

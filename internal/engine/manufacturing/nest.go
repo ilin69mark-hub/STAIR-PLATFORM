@@ -15,59 +15,73 @@ import (
 // DefaultKerf — ширина реза по умолчанию (MFG-0006): 3 мм между деталями.
 const DefaultKerf = 3.0
 
-// defaultStockSheetsMM — инвариантные размеры листов каталога (мм).
-var defaultStockSheetsMM = [][2]float64{
-	{6000, 3000}, {2500, 1250},
-	// Крупные листы (энвелоп H ≤ 6000 мм, MFG-0012): худший косоур
-	// прямого марша = прогон ≈1.732·H × высота H−StepThickness
-	// (низ на полу, седла на уровне низа проступей). Для H=6000 это
-	// ≈10200×6000 → покрывается листом 10400×6200; средний 8000×4600
-	// дешевле для H до ~4550 (pickSheet берёт наименьший по площади).
-	{8000, 4600}, {10400, 6200},
-	{3000, 1500},
-	// Крупные алюминиевые листы (выбор материала конструктора, MFG-0012):
-	// 6000×3000 — типовые марши (H ≤ ~2950 мм), 9000×4600 — до H ≈ 4550 мм.
-	{6000, 3000}, {9000, 4600},
-	// Дуб (выбор материала конструктора, MFG-0012): стандартный лист
-	// 2500×600 — для проступей/подступенков; крупные плиты 6000×3000
-	// покрывают типовые марши (H ≤ ~2950 мм), 9000×4600 — до H ≈ 4550 мм
-	// (ширина листа ≥ H+heel). pickSheet берёт наименьший по площади.
-	{2500, 600}, {2500, 1250}, {6000, 3000}, {9000, 4600},
+// defaultStockSheetGroups — листы каталога по материалам (MFG-0012). Один и
+// тот же размер может принадлежать нескольким материалам: древесина (дуб, орех,
+// ясень, сосна) и сталь (S235, кортен) раскраиваются одинаково. Этап 1 добавил
+// в каталог орех/ясень/сосна/кортен — без листов для них любой расчёт был
+// blocked как «изготовление невозможно».
+var defaultStockSheetGroups = []struct {
+	Material dommfg.MaterialCode
+	Sizes    [][2]float64
+}{
+	// Сталь S235 и кортен: одинаковый прокат.
+	{dommfg.MaterialCode("STEEL-S235"), [][2]float64{
+		{6000, 3000}, {2500, 1250},
+		// Крупные листы (энвелоп H ≤ 6000 мм, MFG-0012): худший косоур
+		// прямого марша = прогон ≈1.732·H × высота H−StepThickness (низ на
+		// полу, седла на уровне низа проступей). Для H=6000 это ≈10200×6000 →
+		// покрывается листом 10400×6200; средний 8000×4600 дешевле для
+		// H до ~4550 (pickSheet берёт наименьший по площади).
+		{8000, 4600}, {10400, 6200},
+	}},
+	{dommfg.MaterialCode("STEEL-CORTEN"), [][2]float64{
+		{6000, 3000}, {2500, 1250}, {8000, 4600}, {10400, 6200},
+	}},
+	{dommfg.MaterialCode("ALUM-5083"), [][2]float64{
+		{3000, 1500},
+		// Крупные алюминиевые листы: 6000×3000 — типовые марши
+		// (H ≤ ~2950 мм), 9000×4600 — до H ≈ 4550 мм.
+		{6000, 3000}, {9000, 4600},
+	}},
+	// Древесина: стандартный лист 2500×600 — для проступей/подступенков;
+	// крупные плиты 6000×3000 покрывают типовые марши (H ≤ ~2950 мм),
+	// 9000×4600 — до H ≈ 4550 мм (ширина листа ≥ H+heel).
+	{dommfg.MaterialCode("WOOD-OAK"), [][2]float64{
+		{2500, 600}, {2500, 1250}, {6000, 3000}, {9000, 4600},
+	}},
+	{dommfg.MaterialCode("WOOD-WALNUT"), [][2]float64{
+		{2500, 600}, {2500, 1250}, {6000, 3000}, {9000, 4600},
+	}},
+	{dommfg.MaterialCode("WOOD-ASH"), [][2]float64{
+		{2500, 600}, {2500, 1250}, {6000, 3000}, {9000, 4600},
+	}},
+	{dommfg.MaterialCode("WOOD-SOFT"), [][2]float64{
+		{2500, 600}, {2500, 1250}, {6000, 3000}, {9000, 4600},
+	}},
 }
 
 // buildDefaultStockSheets материализует листы каталога из мм-констант как
 // error-результат (P2-12): ни одного panic на всём пути сборки реестров.
 func buildDefaultStockSheets() ([]*dommfg.StockSheet, error) {
-	sheets := make([]*dommfg.StockSheet, 0, len(defaultStockSheetsMM))
-	for i, dim := range defaultStockSheetsMM {
-		l, errL := engineering.NewLength(dim[0])
-		if errL != nil {
-			return nil, fmt.Errorf("manufacturing: stock sheet %d length %v: %w", i, dim[0], errL)
+	sheets := make([]*dommfg.StockSheet, 0, 32)
+	for _, group := range defaultStockSheetGroups {
+		for i, dim := range group.Sizes {
+			l, errL := engineering.NewLength(dim[0])
+			if errL != nil {
+				return nil, fmt.Errorf("manufacturing: stock sheet %s#%d length %v: %w", group.Material, i, dim[0], errL)
+			}
+			w, errW := engineering.NewLength(dim[1])
+			if errW != nil {
+				return nil, fmt.Errorf("manufacturing: stock sheet %s#%d width %v: %w", group.Material, i, dim[1], errW)
+			}
+			sheets = append(sheets, &dommfg.StockSheet{
+				MaterialCode: group.Material,
+				Length:       l,
+				Width:        w,
+			})
 		}
-		w, errW := engineering.NewLength(dim[1])
-		if errW != nil {
-			return nil, fmt.Errorf("manufacturing: stock sheet %d width %v: %w", i, dim[1], errW)
-		}
-		sheets = append(sheets, &dommfg.StockSheet{
-			MaterialCode: materialsByIndex(i),
-			Length:       l,
-			Width:        w,
-		})
 	}
 	return sheets, nil
-}
-
-// materialsByIndex сопоставляет позицию в каталоге материалов (см.
-// defaultMaterialRegistry в material.go) и список листов по порядку.
-func materialsByIndex(i int) dommfg.MaterialCode {
-	switch {
-	case i <= 3:
-		return "STEEL-S235"
-	case i <= 6:
-		return "ALUM-5083"
-	default:
-		return "WOOD-OAK"
-	}
 }
 
 // defaultStockSheetRegistry — общий неизменяемый каталог листов, созданный
@@ -139,19 +153,20 @@ func SheetFeasible(registry *dommfg.StockSheetRegistry, material dommfg.Material
 // LargestStockSheet возвращает габариты самого крупного листа каталога
 // для материала (максимумы по длине и ширине в отдельности). Используется
 // для человекочитаемых сообщений советника.
+// Возвращает НАИБОЛЬШИЙ по площади реальный лист материала. Раньше длина и
+// ширина выбирались независимо, и для набора {8000×4600, 10400×6200} функция
+// отдавала несуществующий 10400×6200 в одном куске — в сообщении пользователю
+// показывался «макс. лист», которого в каталоге нет.
 func LargestStockSheet(registry *dommfg.StockSheetRegistry, material dommfg.MaterialCode) (length, width float64, ok bool) {
 	if registry == nil {
 		return 0, 0, false
 	}
+	best := 0.0
 	for _, s := range registry.SheetsFor(material) {
 		l, w := s.Length.Millimeters(), s.Width.Millimeters()
-		if l > length {
-			length = l
+		if a := l * w; !ok || a > best {
+			length, width, best, ok = l, w, a, true
 		}
-		if w > width {
-			width = w
-		}
-		ok = true
 	}
 	return length, width, ok
 }
