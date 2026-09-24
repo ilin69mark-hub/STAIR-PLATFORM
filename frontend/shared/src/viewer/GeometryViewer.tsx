@@ -12,8 +12,17 @@ import { computePlacement } from '../placement'
 import { approachZoneCenterX, EXIT_BLOCK_H, exitSlabBox, exitWallSide, stairTopLineX, wallBox, wallBoundsOf, type Box3Like, type BoxSpec, type WallSide } from './layout'
 import { ANNOTATE, edgeColor, WALLS } from '../scheme-annot'
 import { createRailingMaterial, createStairMaterial } from './materials'
-import { dragHeight, groupsFromRanges, isDragDistance, isEditablePart, pickPart, type PartGroup } from './picking'
-import { rulesFor } from '../config'
+import {
+  dragAxisIsHorizontal,
+  dragComfortStep,
+  dragHeight,
+  groupsFromRanges,
+  isDragDistance,
+  isEditablePart,
+  pickPart,
+  type PartGroup,
+} from './picking'
+import { fieldRules, rulesFor } from '../config'
 
 interface Props {
   mesh: ApiMesh
@@ -69,8 +78,12 @@ interface Props {
   // Этап 2: перетаскивание ступени по вертикали меняет высоту марша.
   // onDragPreview — живое значение во время перетаскивания, onDragHeight —
   // зафиксированный результат (сервер авторитетен, пересчёт за Конструктором).
-  onDragPreview?: (heightMM: number | null) => void
+  // Горизонтальный drag правит шаг комфорта (2h + b) — им сервер управляет
+  // проступью и забегом; вертикальный — высоту марша.
+  onDragPreview?: (value: { heightMM: number; comfortStepMM: number } | null) => void
   onDragHeight?: (heightMM: number) => void
+  onDragComfortStep?: (comfortStepMM: number) => void
+  comfortStepMM?: number
   // castShadow — принимают ли лестница/перила/пол тень (этап 1, студийный вид).
   castShadow?: boolean
 }
@@ -206,6 +219,8 @@ export function GeometryViewer({
   onSelectPart,
   onDragPreview,
   onDragHeight,
+  onDragComfortStep,
+  comfortStepMM,
   overlay,
   castShadow = true,
   roomLength,
@@ -250,8 +265,9 @@ export function GeometryViewer({
     () => {},
   )
   // Колбэки перетаскивания — в рефе: пересчёт меняет данные, сцена стабильна.
-  const dragCallbacksRef = useRef({ onDragPreview, onDragHeight })
+  const dragCallbacksRef = useRef({ onDragPreview, onDragHeight, onDragComfortStep })
   const heightRef = useRef(heightMM)
+  const comfortRef = useRef(comfortStepMM)
   const materialRef = useRef(materialCode)
 
   useEffect(() => {
@@ -260,13 +276,17 @@ export function GeometryViewer({
   }, [selectedPart])
 
   useEffect(() => {
-    dragCallbacksRef.current = { onDragPreview, onDragHeight }
-  }, [onDragPreview, onDragHeight])
+    dragCallbacksRef.current = { onDragPreview, onDragHeight, onDragComfortStep }
+  }, [onDragPreview, onDragHeight, onDragComfortStep])
 
   useEffect(() => {
     heightRef.current = heightMM
     materialRef.current = materialCode
   }, [heightMM, materialCode])
+
+  useEffect(() => {
+    comfortRef.current = comfortStepMM
+  }, [comfortStepMM])
 
   useEffect(() => {
     wallsStateRef.current = walls
@@ -829,13 +849,18 @@ export function GeometryViewer({
     // взгляду камеры, и стартовая высота марша.
     let drag: {
       plane: THREE.Plane
-      startY: number
+      start: THREE.Vector3
       startHeight: number
+      startComfort: number
       moved: boolean
     } | null = null
     const heightBounds = () => {
       const rule = rulesFor('heightMM', materialRef.current as never)
       return { min: rule.min ?? 1200, max: rule.max ?? 6000 }
+    }
+    const comfortBounds = () => {
+      const rule = fieldRules.comfortStepMM
+      return { min: rule.min ?? 600, max: rule.max ?? 640 }
     }
     const onPointerDown = (e: PointerEvent) => {
       downX = e.clientX
@@ -851,7 +876,13 @@ export function GeometryViewer({
       const normal = new THREE.Vector3()
       camera.getWorldDirection(normal)
       const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, hit.point)
-      drag = { plane, startY: hit.point.y, startHeight, moved: false }
+      drag = {
+        plane,
+        start: hit.point.clone(),
+        startHeight,
+        startComfort: comfortRef.current ?? 0,
+        moved: false,
+      }
       controls.enabled = false
     }
     const onPointerMove = (e: PointerEvent) => {
@@ -864,11 +895,23 @@ export function GeometryViewer({
         raycaster.setFromCamera(pointerNDC, camera)
         const p = new THREE.Vector3()
         if (raycaster.ray.intersectPlane(drag.plane, p)) {
-          const delta = p.y - drag.startY
-          if (isDragDistance(delta)) drag.moved = true
+          const dx = p.x - drag.start.x
+          const dy = p.y - drag.start.y
+          if (isDragDistance(dx) || isDragDistance(dy)) drag.moved = true
           if (drag.moved) {
-            const h = dragHeight(drag.startHeight, delta, heightBounds())
-            dragCallbacksRef.current.onDragPreview?.(h)
+            // Доминирующая ось решает, что правим: вверх-вниз — высоту,
+            // вбок — шаг комфорта (проступь/забег).
+            const horizontal = dragAxisIsHorizontal(dx, dy)
+            const value = horizontal
+              ? {
+                  heightMM: drag.startHeight,
+                  comfortStepMM: dragComfortStep(drag.startComfort, dx, comfortBounds()),
+                }
+              : {
+                  heightMM: dragHeight(drag.startHeight, dy, heightBounds()),
+                  comfortStepMM: drag.startComfort,
+                }
+            dragCallbacksRef.current.onDragPreview?.(value)
             needsRender = true
           }
         }
@@ -903,9 +946,15 @@ export function GeometryViewer({
           raycaster.setFromCamera(pointerNDC, camera)
           const p = new THREE.Vector3()
           if (raycaster.ray.intersectPlane(wasDrag.plane, p)) {
-            const h = dragHeight(wasDrag.startHeight, p.y - wasDrag.startY, heightBounds())
-            dragCallbacksRef.current.onDragPreview?.(null)
-            dragCallbacksRef.current.onDragHeight?.(h)
+            const dx = p.x - wasDrag.start.x
+            const dy = p.y - wasDrag.start.y
+            const { onDragHeight, onDragComfortStep, onDragPreview } = dragCallbacksRef.current
+            onDragPreview?.(null)
+            if (dragAxisIsHorizontal(dx, dy) && onDragComfortStep) {
+              onDragComfortStep(dragComfortStep(wasDrag.startComfort, dx, comfortBounds()))
+            } else if (onDragHeight) {
+              onDragHeight(dragHeight(wasDrag.startHeight, dy, heightBounds()))
+            }
             return
           }
         }

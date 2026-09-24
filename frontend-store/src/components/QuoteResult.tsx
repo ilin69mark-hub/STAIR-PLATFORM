@@ -33,6 +33,8 @@ interface Props {
   onAdjustStepHeight?: (stepHeightMM: number) => void
   onFlipDirection?: () => void
   onAdjustHeight?: (heightMM: number) => void
+  onAdjustComfortStep?: (comfortStepMM: number) => void
+  comfortStepMM?: number
   // Свободное пространство перед первой ступенью (мм), введено в калькуляторе
   // (дефолт 1000). Передаём в solverOf, чтобы не зависеть от сдвига модели.
   approachSpaceMM?: string
@@ -55,6 +57,8 @@ export function QuoteResult({
   onAdjustStepHeight,
   onFlipDirection,
   onAdjustHeight,
+  onAdjustComfortStep,
+  comfortStepMM,
   environmentHDRI = '/static-assets/hdri/studio_small_08_1k.hdr',
   finishId,
   railingMetal = true,
@@ -73,8 +77,12 @@ export function QuoteResult({
   // если Конструктор не передал персистентный список.
   // Этап 2: выбранная в 3D деталь и действия над ней.
   const [selectedPart, setSelectedPart] = useState<{ solid: number; role: string } | null>(null)
-  // Живая высота при перетаскивании ступени в 3D (null — перетаскивания нет).
-  const [dragHeight, setDragHeight] = useState<number | null>(null)
+  // Живые значения при перетаскивании ступени (null — перетаскивания нет):
+  // по вертикали меняется высота марша, по горизонтали — шаг комфорта.
+  const [dragValue, setDragValue] = useState<{
+    heightMM: number
+    comfortStepMM: number
+  } | null>(null)
   const stepCount = solver.flight?.StepCount ?? 0
   // Поворот марша есть только у L/П/спирали: у прямого марша API не принимает
   // направление (вид зеркалит 3D), поэтому кнопку там не показываем.
@@ -185,32 +193,44 @@ export function QuoteResult({
                 environmentHDRI={environmentHDRI}
                 finishId={finishId}
                 railingMetal={railingMetal}
-                interactive={!!onAdjustStepHeight || !!onAdjustHeight}
-                onDragPreview={setDragHeight}
+                interactive={!!onAdjustStepHeight || !!onAdjustHeight || !!onAdjustComfortStep}
+                onDragPreview={setDragValue}
                 onDragHeight={onAdjustHeight}
+                onDragComfortStep={onAdjustComfortStep}
+                comfortStepMM={comfortStepMM}
                 selectedPart={selectedPart}
                 onSelectPart={setSelectedPart}
                 overlay={
-                  selectedPart || dragHeight != null ? (
+                  selectedPart || dragValue != null ? (
                     <div className="viewer-hud">
                       <span className="viewer-hud__title">
                         {selectedPart
                           ? partLabel(selectedPart.solid, selectedPart.role)
-                          : 'Высота марша'}
+                          : 'Правка марша'}
                       </span>
                       <span className="viewer-hud__meta">
-                        {dragHeight != null
-                          ? `Новая высота: ${dragHeight} мм — отпустите, чтобы применить`
-                          : `Ступеней: ${stepCount} · высота ступени ${
-                              solver.flight ? Math.round(solver.flight.StepHeight) : 0
-                            } мм · тяните ступень вверх/вниз`}
+                        {dragValue ? (
+                          dragValue.heightMM !== heightMM ? (
+                            <>Высота марша: {dragValue.heightMM} мм — отпустите, чтобы применить</>
+                          ) : (
+                            <>
+                              Шаг комфорта: {dragValue.comfortStepMM} мм — отпустите, чтобы применить
+                            </>
+                          )
+                        ) : (
+                          <>
+                            Ступеней: {stepCount} · высота ступени{' '}
+                            {solver.flight ? Math.round(solver.flight.StepHeight) : 0} мм · тяните
+                            ступень вверх/вниз (высота) или вбок (проступь)
+                          </>
+                        )}
                       </span>
                       <div className="viewer-hud__actions">
                         <button
                           type="button"
                           className="sp-btn"
                           onClick={() => nudgeStepCount(-1)}
-                          disabled={!canAdjust || stepCount <= 2 || dragHeight != null}
+                          disabled={!canAdjust || stepCount <= 2 || dragValue != null}
                         >
                           − ступень
                         </button>
@@ -218,7 +238,7 @@ export function QuoteResult({
                           type="button"
                           className="sp-btn"
                           onClick={() => nudgeStepCount(1)}
-                          disabled={!canAdjust || stepCount >= 60 || dragHeight != null}
+                          disabled={!canAdjust || stepCount >= 60 || dragValue != null}
                         >
                           + ступень
                         </button>
@@ -232,7 +252,7 @@ export function QuoteResult({
                           className="sp-btn"
                           onClick={() => {
                             setSelectedPart(null)
-                            setDragHeight(null)
+                            setDragValue(null)
                           }}
                         >
                           Закрыть

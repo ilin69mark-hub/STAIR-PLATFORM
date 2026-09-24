@@ -107,6 +107,27 @@ export function dragHeight(startHeightMM: number, deltaY: number, bounds: Height
   return Math.min(bounds.max, Math.max(bounds.min, snapped))
 }
 
+/**
+ * Шаг комфорта при горизонтальном перетаскивании ступени. Сервер управляет
+ * проступью/забегом только через comfort_step_mm (формула Блонделя 2h + b),
+ * поэтому «тянуть ступень по горизонтали» = двигать шаг комфорта в его
+ * допустимом окне. Снап 5 мм, зажим в границы.
+ */
+export function dragComfortStep(
+  startComfortMM: number,
+  deltaX: number,
+  bounds: HeightBounds,
+): number {
+  const raw = startComfortMM + deltaX
+  const snapped = Math.round(raw / 5) * 5
+  return Math.min(bounds.max, Math.max(bounds.min, snapped))
+}
+
+/** Горизонталь преобладает — правим проступь, иначе высоту. */
+export function dragAxisIsHorizontal(deltaX: number, deltaY: number): boolean {
+  return Math.abs(deltaX) > Math.abs(deltaY)
+}
+
 /** Смещение считается drag'ом, а не кликом, когда указатель ушёл дальше порога. */
 export function isDragDistance(deltaY: number, threshold = 4): boolean {
   return Math.abs(deltaY) > threshold

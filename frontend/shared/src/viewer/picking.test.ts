@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  dragAxisIsHorizontal,
+  dragComfortStep,
   dragHeight,
   groupIndexForFace,
   groupsFromRanges,
@@ -113,5 +115,26 @@ describe('isDragDistance', () => {
     expect(isDragDistance(3)).toBe(false)
     expect(isDragDistance(5)).toBe(true)
     expect(isDragDistance(-5)).toBe(true)
+  })
+})
+
+describe('dragComfortStep', () => {
+  it('двигает шаг комфорта с шагом 5 мм', () => {
+    expect(dragComfortStep(630, 23, { min: 600, max: 640 })).toBe(655 - 15)
+    expect(dragComfortStep(630, -12, { min: 600, max: 640 })).toBe(620)
+    expect(dragComfortStep(630, 7, { min: 600, max: 640 })).toBe(635)
+  })
+
+  it('зажимает в окно комфорта', () => {
+    expect(dragComfortStep(630, 500, { min: 600, max: 640 })).toBe(640)
+    expect(dragComfortStep(630, -500, { min: 600, max: 640 })).toBe(600)
+  })
+})
+
+describe('dragAxisIsHorizontal', () => {
+  it('по горизонтали правим проступь, по вертикали — высоту', () => {
+    expect(dragAxisIsHorizontal(30, 5)).toBe(true)
+    expect(dragAxisIsHorizontal(5, 30)).toBe(false)
+    expect(dragAxisIsHorizontal(10, 10)).toBe(false)
   })
 })

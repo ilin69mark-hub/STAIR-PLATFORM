@@ -546,6 +546,21 @@ export function Constructor() {
     void calculate(next)
   }
 
+  // Горизонтальный drag ступени: шаг комфорта (2h + b) — им сервер считает
+  // проступь и забег. Спираль шаг комфорта считает сама, поэтому не шлём.
+  const adjustComfortStep = (comfortStepMM: number) => {
+    const next = { ...config, comfortStepMM: String(comfortStepMM) }
+    setConfig(next)
+    setErrors(validateForm(next))
+    setTouched(true)
+    logAction({
+      action: 'stair.comfort_step_adjusted',
+      resource_type: 'stair',
+      detail: String(comfortStepMM),
+    })
+    void calculate(next)
+  }
+
   const flipDirection = () => {
     const flip = <T extends string>(v: T) => (v === 'left' ? 'right' : 'left') as T
     const next = {
@@ -845,6 +860,8 @@ export function Constructor() {
             onAdjustStepHeight={adjustStepHeight}
             onFlipDirection={flipDirection}
             onAdjustHeight={adjustHeight}
+            onAdjustComfortStep={adjustComfortStep}
+            comfortStepMM={Number(config.comfortStepMM) || undefined}
           />
           {!quote.validation.blocking && quote.pricing && request && (
             <OrderForm

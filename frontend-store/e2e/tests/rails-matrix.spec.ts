@@ -103,7 +103,10 @@ for (const c of cases) {
 
     if (await price.isVisible()) {
       // 3D не должен падать: GeometryViewer canvas виден, без TypeError
-      await expect(page.locator('.geometry-viewer, .viewer__stage')).toBeVisible({ timeout: 5_000 })
+      // 3D — ленивый чанк (three.js + PBR + HDRI): на холодном dev-сервере
+      // Vite трансформирует его дольше 5 с, поэтому ждём 20 с (в прод-сборке
+      // чанк один и открывается мгновенно).
+      await expect(page.locator('.geometry-viewer, .viewer__stage')).toBeVisible({ timeout: 20_000 })
       // 2D схема — проверяем сторону перил: none=0, both/right/left>0 или spiral 0 линий
       const railingCount = await page.locator('.scheme__railing, .scheme-3d__title').count()
       // не строгая проверка, главное — нет вылета

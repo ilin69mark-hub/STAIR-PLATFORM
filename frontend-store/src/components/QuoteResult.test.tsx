@@ -214,6 +214,34 @@ describe('QuoteResult', () => {
     expect(onFlipDirection).toHaveBeenCalledTimes(1)
   })
 
+  it('перетаскивание вбок меняет шаг комфорта, а не высоту', async () => {
+    const onAdjustComfortStep = vi.fn()
+    const onAdjustHeight = vi.fn()
+    render(
+      <QuoteResult
+        quote={{ ...okQuote, mesh: mesh() }}
+        heightMM={2700}
+        comfortStepMM={630}
+        onAdjustHeight={onAdjustHeight}
+        onAdjustComfortStep={onAdjustComfortStep}
+      />,
+    )
+    await screen.findByText('mock-3d-viewer')
+    act(() => {
+      ;(viewerProps.current.onDragPreview as (v: unknown) => void)({
+        heightMM: 2700,
+        comfortStepMM: 640,
+      })
+    })
+    // Высота не изменилась — HUD показывает правку проступи.
+    expect(screen.getByText(/Шаг комфорта: 640 мм/)).toBeInTheDocument()
+    act(() => {
+      ;(viewerProps.current.onDragComfortStep as (v: number) => void)(640)
+    })
+    expect(onAdjustComfortStep).toHaveBeenCalledWith(640)
+    expect(onAdjustHeight).not.toHaveBeenCalled()
+  })
+
   it('перетаскивание ступени: preview показывает новую высоту, отпускание фиксирует', async () => {
     const onAdjustHeight = vi.fn()
     render(
@@ -223,18 +251,21 @@ describe('QuoteResult', () => {
     expect(screen.queryByText(/Новая высота/)).not.toBeInTheDocument()
 
     act(() => {
-      ;(viewerProps.current.onDragPreview as (h: number | null) => void)(2960)
+      ;(viewerProps.current.onDragPreview as (v: unknown) => void)({
+        heightMM: 2960,
+        comfortStepMM: 630,
+      })
     })
-    expect(screen.getByText(/Новая высота: 2960 мм/)).toBeInTheDocument()
+    expect(screen.getByText(/Высота марша: 2960 мм/)).toBeInTheDocument()
     // Пока тянут — точечные правки ступеней заблокированы.
     expect(screen.getByRole('button', { name: '+ ступень' })).toBeDisabled()
 
     act(() => {
       ;(viewerProps.current.onDragHeight as (h: number) => void)(2960)
-      ;(viewerProps.current.onDragPreview as (h: number | null) => void)(null)
+      ;(viewerProps.current.onDragPreview as (v: unknown) => void)(null)
     })
     expect(onAdjustHeight).toHaveBeenCalledWith(2960)
-    expect(screen.queryByText(/Новая высота/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Высота марша: 2960/)).not.toBeInTheDocument()
   })
 
   it('HUD: интерактив выключен, если конструктор не передал обработчики', async () => {

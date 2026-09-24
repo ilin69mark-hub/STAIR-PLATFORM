@@ -197,6 +197,22 @@ describe('Constructor', () => {
     expect(screen.getByLabelText('Высота (мм)')).toHaveValue('3100')
   })
 
+  it('3D: горизонтальный drag меняет шаг комфорта и пересчитывает', async () => {
+    const okQuote3D: QuoteResult = { ...okQuote, mesh: mesh3d }
+    const spy = vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote3D)
+    await renderWithAuth(<Constructor />, null)
+    fillValid()
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await waitFor(() => expect(screen.getByTestId('mock-3d-viewer')).toBeInTheDocument())
+
+    act(() => {
+      ;(viewerProps.current.onDragComfortStep as (v: number) => void)(640)
+    })
+    await waitFor(() =>
+      expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ comfort_step_mm: 640 })),
+    )
+  })
+
   it('3D: у прямого марша кнопки «Развернуть» нет (у API нет направления)', async () => {
     const okQuote3D: QuoteResult = { ...okQuote, mesh: mesh3d }
     vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote3D)
