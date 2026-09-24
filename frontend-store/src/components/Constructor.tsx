@@ -681,6 +681,7 @@ export function Constructor() {
                                 type="button"
                                 key={o.value}
                                 role="radio"
+                                data-material-code={o.value}
                                 aria-checked={config.material === o.value}
                                 className={`material-picker__item${config.material === o.value ? ' is-active' : ''}`}
                                 onClick={() => update('material', o.value)}
