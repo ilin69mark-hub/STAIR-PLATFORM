@@ -50,5 +50,5 @@ Allowlist (`STAIR_WEBHOOK_ALLOW_HOSTS`) полностью обходил кла
 ## Гейты
 
 - `gofmt` чист; пакеты payments/integrations/envguard/transport/http — ok.
-- Полный `go test -race -p 1 ./...` — в фоне, результат дописать координатору.
+- Полный `go test -race -p 1 ./...` — **61/61, 0 FAIL** (новый пакет envguard).
 - `python3 hack/check_audit_exceptions.py` — 11/11 парных (реестр не тронут).
