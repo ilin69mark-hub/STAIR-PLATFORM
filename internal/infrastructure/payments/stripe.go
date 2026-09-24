@@ -157,15 +157,23 @@ func (p *StripeProvider) GetSession(ctx context.Context, sessionID string) (*Che
 // VerifyWebhookSignature проверяет подпись Stripe webhook: HMAC-SHA256
 // payload вместе с timestamp (Stripe-формат Signature t=ts,v1=sig) И окно
 // времени (P1-1): подпись старше webhookTolerance отклоняется — это защита
-// от replay перехваченного запроса.
+// от replay перехваченного запроса. Заголовок может содержать НЕСКОЛЬКО
+// v1= (ротация ключей Stripe: подписи старым и новым секретом, CWE-754) —
+// принимаем, если ЛЮБАЯ v1 совпадает с настроенным webhookSecret (S-141 №9);
+// timestamp берём из первого t=. Пустой/битый заголовок, отсутствие t или
+// v1, несовпадение всех v1 и просрочка tolerance по-прежнему отклоняются
+// (поведение не ослабляется).
 func (p *StripeProvider) VerifyWebhookSignature(payload []byte, signature string) error {
-	// Stripe использует формат: t=timestamp,v1=signature
+	// Stripe использует формат: t=timestamp,v1=signature. Пар может быть
+	// несколько (ротация ключей): t=<ts>,v1=<подпись-старым>,v1=<подпись-новым>.
 	parts := strings.Split(signature, ",")
-	if len(parts) != 2 {
+	if len(parts) < 2 {
 		return fmt.Errorf("stripe: invalid signature format")
 	}
 
-	var timestamp, sig string
+	var timestamp string
+	sigs := make([]string, 0, len(parts))
+	tSeen := false
 	for _, part := range parts {
 		kv := strings.SplitN(part, "=", 2)
 		if len(kv) != 2 {
@@ -173,13 +181,17 @@ func (p *StripeProvider) VerifyWebhookSignature(payload []byte, signature string
 		}
 		switch kv[0] {
 		case "t":
-			timestamp = kv[1]
+			// Timestamp — первый t в заголовке.
+			if !tSeen {
+				timestamp = kv[1]
+				tSeen = true
+			}
 		case "v1":
-			sig = kv[1]
+			sigs = append(sigs, kv[1])
 		}
 	}
 
-	if timestamp == "" || sig == "" {
+	if timestamp == "" || len(sigs) == 0 {
 		return fmt.Errorf("stripe: missing timestamp or signature")
 	}
 
@@ -191,7 +203,16 @@ func (p *StripeProvider) VerifyWebhookSignature(payload []byte, signature string
 	mac.Write([]byte(signedPayload))
 	expectedSig := hex.EncodeToString(mac.Sum(nil))
 
-	if !hmac.Equal([]byte(sig), []byte(expectedSig)) {
+	// При ротации ключей Stripe присылает подписи старым и новым секретом —
+	// достаточно совпадения ЛЮБОЙ v1 с настроенным webhookSecret.
+	matched := false
+	for _, sig := range sigs {
+		if hmac.Equal([]byte(sig), []byte(expectedSig)) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
 		return fmt.Errorf("stripe: invalid signature")
 	}
 
