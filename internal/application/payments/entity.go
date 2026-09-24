@@ -21,6 +21,30 @@ const (
 	StatusRefunded Status = "refunded"
 )
 
+// terminalStatusList — терминальные статусы интента (EDR-0027 §3.3):
+// событие PSP не может перевести интент из терминального статуса в другой
+// статус — разрешён только повтор того же статуса (идемпотентная повторная
+// доставка одного и того же события). Защита от регрессии: поздний
+// checkout.session.expired после completed перетирал paid в failed, и учёт
+// расходился с деньгами (S-141 №4, CWE-20).
+var terminalStatusList = []Status{StatusPaid, StatusFailed, StatusRefunded}
+
+// TerminalStatuses возвращает терминальные статусы интента. Используется
+// инфраструктурой (SQL-guard перехода) и тестами.
+func TerminalStatuses() []Status {
+	return terminalStatusList
+}
+
+// isTerminalStatus сообщает, является ли статус интента терминальным.
+func isTerminalStatus(s Status) bool {
+	for _, t := range terminalStatusList {
+		if s == t {
+			return true
+		}
+	}
+	return false
+}
+
 // EventType — типы входящих событий webhook (EDR-0027 §3.4).
 const (
 	EventTypePaymentSucceeded = "payment.succeeded"

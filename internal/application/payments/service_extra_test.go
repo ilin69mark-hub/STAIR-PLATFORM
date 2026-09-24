@@ -214,3 +214,115 @@ func TestApplyVerifiedEventRepoErrors(t *testing.T) {
 		t.Fatalf("append err: got %v", err)
 	}
 }
+
+// guardRepo — fakeRepo с семантикой терминального guard (S-141 №4) как у
+// PG-репозитория: терминальный статус не перезаписывается другим статусом;
+// отклонённый переход — НЕ ошибка (0 строк), а no-op с фиксацией в rejected.
+// Чтения возвращают копию интента, как реальный scanIntent (PG-репозиторий
+// не разделяет объекты с прикладным сервисом).
+type guardRepo struct {
+	fakeRepo
+	rejected map[string]bool
+}
+
+func (f *guardRepo) UpdateStatus(_ context.Context, tenantID, id string, s Status, paidAt *time.Time) error {
+	for _, p := range f.intents {
+		if p.ID == id && p.TenantID == tenantID {
+			if isTerminalStatus(p.Status) && p.Status != s {
+				if f.rejected == nil {
+					f.rejected = map[string]bool{}
+				}
+				f.rejected[id] = true
+				return nil
+			}
+			p.Status = s
+			p.PaidAt = paidAt
+			p.UpdatedAt = time.Now().UTC()
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func copyIntent(p *PaymentIntent) *PaymentIntent {
+	cp := *p
+	if p.PaidAt != nil {
+		t := *p.PaidAt
+		cp.PaidAt = &t
+	}
+	return &cp
+}
+
+func (f *guardRepo) GetIntent(_ context.Context, tenantID, id string) (*PaymentIntent, error) {
+	for _, p := range f.intents {
+		if p.ID == id && p.TenantID == tenantID {
+			return copyIntent(p), nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (f *guardRepo) GetIntentByProviderCheckout(_ context.Context, provider, checkoutID string) (*PaymentIntent, error) {
+	for _, p := range f.intents {
+		if p.Provider == provider && p.ProviderCheckoutID == checkoutID {
+			return copyIntent(p), nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+// TestApplyVerifiedEventRespectsTerminalGuard — application-уровень (№4):
+// поздний checkout.session.expired после completed не должен перевернуть
+// оплаченный интент в failed: переход отклоняется guard'ом без ошибки, статус
+// и paid_at не меняются, оба события всё равно попадают в журнал (аудит).
+func TestApplyVerifiedEventRespectsTerminalGuard(t *testing.T) {
+	repo := &guardRepo{}
+	svc := NewService(repo, &fakeProvider{name: "mock"}, &fakeVerifier{}, 0)
+	ctx := context.Background()
+
+	p := &PaymentIntent{
+		TenantID: "t-1", ProjectID: "p-1", UserID: "u-1",
+		AmountMinor: 5000, Currency: "USD", Status: StatusPending,
+		Provider: "mock", ProviderCheckoutID: "chk-guard-1",
+	}
+	if err := repo.CreateIntent(ctx, p); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// completed: pending → paid, paid_at проставлен сервисом.
+	if err := svc.ApplyVerifiedEvent(ctx, "mock", "chk-guard-1", "succeeded", 5000, "USD", []byte(`{}`)); err != nil {
+		t.Fatalf("apply succeeded: %v", err)
+	}
+	got, err := svc.Get(ctx, "t-1", p.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Status != StatusPaid || got.PaidAt == nil {
+		t.Fatalf("intent not paid: %+v", got)
+	}
+	paidBefore := *got.PaidAt
+
+	// поздний expired → failed: guard отклоняет переход, но не ошибка —
+	// журнал получает событие (аудит), статус/paid_at не меняются.
+	if err := svc.ApplyVerifiedEvent(ctx, "mock", "chk-guard-1", "failed", 5000, "USD", []byte(`{}`)); err != nil {
+		t.Fatalf("rejected transition must not be an error: %v", err)
+	}
+	got, _ = svc.Get(ctx, "t-1", p.ID)
+	if got.Status != StatusPaid {
+		t.Fatalf("paid intent flipped to %q by late failed event: %+v", got.Status, got)
+	}
+	if !got.PaidAt.Equal(paidBefore) {
+		t.Fatalf("paid_at must not move on rejected transition: %v -> %v", paidBefore, got.PaidAt)
+	}
+	if !repo.rejected[p.ID] {
+		t.Fatal("guard must record the rejected transition")
+	}
+	if len(repo.events) != 2 {
+		t.Fatalf("both events must be journaled (audit), got %d", len(repo.events))
+	}
+
+	// повтор того же события (paid → paid) разрешён — без ошибки.
+	if err := svc.ApplyVerifiedEvent(ctx, "mock", "chk-guard-1", "succeeded", 5000, "USD", []byte(`{}`)); err != nil {
+		t.Fatalf("paid→paid repeat must be allowed: %v", err)
+	}
+}

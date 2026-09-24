@@ -79,6 +79,14 @@ func (s *Service) Get(ctx context.Context, tenantID, id string) (*PaymentIntent,
 	return s.repo.GetIntent(ctx, tenantID, id)
 }
 
+// GetIntentByProviderCheckout возвращает интент по (provider, checkout_id).
+// Публичный доступ к чтению нужен для сверки состояния интента с событием
+// при дубликате webhook (S-141 №3, crash-window reconcile): StripeWebhookService
+// через опциональный интерфейс IntentReader type-assert'ит Service.
+func (s *Service) GetIntentByProviderCheckout(ctx context.Context, provider, checkoutID string) (*PaymentIntent, error) {
+	return s.repo.GetIntentByProviderCheckout(ctx, provider, checkoutID)
+}
+
 // webhookPayload — тело входящего события PSP (EDR-0027 §3.4).
 type webhookPayload struct {
 	EventType   string `json:"event_type"`

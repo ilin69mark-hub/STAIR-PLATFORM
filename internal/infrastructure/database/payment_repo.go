@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -114,16 +116,58 @@ func (r *PaymentRepository) ListByProject(ctx context.Context, tenantID, project
 	return out, nil
 }
 
-// UpdateStatus обновляет статус и paid_at (nil — не менять).
+// terminalStatusGuardSQL — SQL-литерал терминальных статусов интента (см.
+// payments.TerminalStatuses): событие PSP не может перевести интент из
+// терминального статуса в другой статус — разрешён только повтор того же
+// статуса (идемпотентная доставка, «succeeded→succeeded»). Защита от
+// регрессии: поздний checkout.session.expired перетирал paid в failed
+// (S-141 №4, CWE-20). Список собран из констант application-уровня, чтобы
+// строки не дублировались.
+var terminalStatusGuardSQL = func() string {
+	statuses := payments.TerminalStatuses()
+	q := make([]string, len(statuses))
+	for i, s := range statuses {
+		q[i] = "'" + string(s) + "'"
+	}
+	return strings.Join(q, ", ")
+}()
+
+// UpdateStatus обновляет статус и paid_at (nil — не менять). Терминальный
+// статус нельзя перезаписать другим статусом: при отклонённом переходе
+// (RowsAffected == 0) статус и paid_at не трогаются — только warn-лог
+// (intent_id, from → to); метрик для этого случая нет (не выдумываем).
 func (r *PaymentRepository) UpdateStatus(ctx context.Context, tenantID, id string, s payments.Status, paidAt *time.Time) error {
-	_, err := r.pool.Exec(ctx,
+	tag, err := r.pool.Exec(ctx,
 		`UPDATE payment_intents SET status = $1, paid_at = COALESCE($2, paid_at), updated_at = now()
-		 WHERE tenant_id = $3 AND id = $4`,
+		 WHERE tenant_id = $3 AND id = $4
+		   AND NOT (status IN (`+terminalStatusGuardSQL+`) AND status <> $1)`,
 		string(s), paidAt, tenantID, id)
 	if err != nil {
 		return fmt.Errorf("payments: update intent status: %w", err)
 	}
+	if tag.RowsAffected() == 0 {
+		warnRejectedStatusUpdate(ctx, r.pool, tenantID, id, s)
+	}
 	return nil
+}
+
+// warnRejectedStatusUpdate логирует отклонённый переход статуса: интент не
+// найден либо терминальный статус не может быть перезаписан другим статусом.
+func warnRejectedStatusUpdate(ctx context.Context, pool *pgxpool.Pool, tenantID, id string, to payments.Status) {
+	var from string
+	err := pool.QueryRow(ctx,
+		`SELECT status FROM payment_intents WHERE tenant_id = $1 AND id = $2`, tenantID, id).Scan(&from)
+	switch {
+	case err == nil:
+		slog.Warn("payments: intent status transition rejected (terminal status)",
+			"intent_id", id, "from", from, "to", string(to))
+	case errors.Is(err, pgx.ErrNoRows):
+		slog.Warn("payments: intent not found for status update",
+			"intent_id", id, "to", string(to))
+	default:
+		slog.Warn("payments: failed to read intent status for rejected transition",
+			"intent_id", id, "to", string(to), "error", err)
+	}
 }
 
 // AppendEvent пишет событие в журнал payment_events.

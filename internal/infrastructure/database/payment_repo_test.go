@@ -147,7 +147,10 @@ func TestPaymentListByProject(t *testing.T) {
 	}
 }
 
-// TestPaymentUpdateStatus: переход pending → paid с paid_at.
+// TestPaymentUpdateStatus: переход pending → paid с paid_at; терминальный
+// статус (paid) не перезаписывается другим статусом (S-141 №4): поздний
+// checkout.session.expired (failed) не переворачивает оплаченный интент,
+// paid_at не едет при отклонённом переходе.
 func TestPaymentUpdateStatus(t *testing.T) {
 	prRepo, projectRepo := newPaymentRepo(t)
 	ctx := context.Background()
@@ -176,14 +179,77 @@ func TestPaymentUpdateStatus(t *testing.T) {
 	if got.Status != payments.StatusPaid || got.PaidAt == nil {
 		t.Fatalf("intent not paid: %+v", got)
 	}
+	paidBefore := *got.PaidAt
 
-	// paid_at не затирается при последующем failed (COALESCE).
+	// Поздний expired → failed: переход отклонён guard'ом (терминальный paid
+	// не перезаписывается), статус и paid_at не трогаются.
 	if err := prRepo.UpdateStatus(ctx, tenant, p.ID, payments.StatusFailed, nil); err != nil {
 		t.Fatalf("UpdateStatus failed: %v", err)
 	}
 	got, _ = prRepo.GetIntent(ctx, tenant, p.ID)
-	if got.PaidAt == nil {
-		t.Fatal("paid_at must survive status update")
+	if got.Status != payments.StatusPaid {
+		t.Fatalf("paid intent flipped to %q by late failed event: %+v", got.Status, got)
+	}
+	if got.PaidAt == nil || !got.PaidAt.Equal(paidBefore) {
+		t.Fatalf("paid_at must not move on rejected transition: %v vs %v", got.PaidAt, paidBefore)
+	}
+}
+
+// TestPaymentUpdateStatusTerminalGuard: повтор paid → paid разрешён
+// (идемпотентная доставка «succeeded→succeeded»); pending → failed разрешён;
+// failed → paid отклонён (терминальный статус нельзя перезаписать другим).
+func TestPaymentUpdateStatusTerminalGuard(t *testing.T) {
+	prRepo, projectRepo := newPaymentRepo(t)
+	ctx := context.Background()
+	tenant := testTenantID(t, projectRepo)
+	owner := testOwnerID(t, projectRepo, tenant)
+	projID := testProject(t, ctx, projectRepo, tenant, "guard")
+
+	paid := &payments.PaymentIntent{
+		TenantID: tenant, ProjectID: projID, UserID: owner,
+		AmountMinor: 100, Currency: "USD", Status: payments.StatusPaid,
+		Provider: "mock", ProviderCheckoutID: "chk-g-guard-" + itoaUD(),
+	}
+	if err := prRepo.CreateIntent(ctx, paid); err != nil {
+		t.Fatalf("CreateIntent paid: %v", err)
+	}
+
+	// paid → paid (повтор того же события) разрешён: не ошибка, статус paid.
+	paidAt := time.Now().UTC()
+	if err := prRepo.UpdateStatus(ctx, tenant, paid.ID, payments.StatusPaid, &paidAt); err != nil {
+		t.Fatalf("paid→paid repeat must be allowed: %v", err)
+	}
+	got, err := prRepo.GetIntent(ctx, tenant, paid.ID)
+	if err != nil {
+		t.Fatalf("GetIntent: %v", err)
+	}
+	if got.Status != payments.StatusPaid {
+		t.Fatalf("repeat paid→paid: status = %q", got.Status)
+	}
+
+	// failed-интент из pending: pending → failed разрешён (обычный отказ),
+	// затем failed → paid отклонён (терминальный failed не перезаписывается).
+	failed := &payments.PaymentIntent{
+		TenantID: tenant, ProjectID: projID, UserID: owner,
+		AmountMinor: 100, Currency: "USD", Status: payments.StatusPending,
+		Provider: "mock", ProviderCheckoutID: "chk-f-guard-" + itoaUD(),
+	}
+	if err := prRepo.CreateIntent(ctx, failed); err != nil {
+		t.Fatalf("CreateIntent failed: %v", err)
+	}
+	if err := prRepo.UpdateStatus(ctx, tenant, failed.ID, payments.StatusFailed, nil); err != nil {
+		t.Fatalf("pending→failed must be allowed: %v", err)
+	}
+	// failed → paid отклонён.
+	if err := prRepo.UpdateStatus(ctx, tenant, failed.ID, payments.StatusPaid, &paidAt); err != nil {
+		t.Fatalf("UpdateStatus failed→paid: %v", err)
+	}
+	gotF, err := prRepo.GetIntent(ctx, tenant, failed.ID)
+	if err != nil {
+		t.Fatalf("GetIntent: %v", err)
+	}
+	if gotF.Status != payments.StatusFailed {
+		t.Fatalf("failed intent flipped to %q by paid event: %+v", gotF.Status, gotF)
 	}
 }
 
