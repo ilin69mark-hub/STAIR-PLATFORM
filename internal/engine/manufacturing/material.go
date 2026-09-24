@@ -46,6 +46,29 @@ func DefaultMaterialRegistry() (*dommfg.MaterialRegistry, error) {
 				// косоур до H≈4550, проступи до W=3000 (плита 6000×3000).
 				MaxWidthMm: 3000, MaxHeightMm: 4550,
 			},
+			// Фаза 1 «студийный 3D» (витрина, вариант Б): породы и металлы с
+			// разной ценой и плотностью. Плотность влияет на массу/стоимость
+			// (cost.go), диапазон толщин — на допустимость детали (MFG-0012).
+			&dommfg.Material{
+				Code: "WOOD-WALNUT", Name: "American Walnut", Category: "Wood",
+				Density: 640, MinThickness: 20, MaxThickness: 60,
+				MaxWidthMm: 3000, MaxHeightMm: 4550,
+			},
+			&dommfg.Material{
+				Code: "WOOD-ASH", Name: "Ash Wood", Category: "Wood",
+				Density: 690, MinThickness: 20, MaxThickness: 60,
+				MaxWidthMm: 3000, MaxHeightMm: 4550,
+			},
+			&dommfg.Material{
+				Code: "WOOD-SOFT", Name: "Softwood (pine)", Category: "Wood",
+				Density: 520, MinThickness: 20, MaxThickness: 60,
+				MaxWidthMm: 3000, MaxHeightMm: 4550,
+			},
+			&dommfg.Material{
+				Code: "STEEL-CORTEN", Name: "Weathering Steel (Corten)", Category: "Steel",
+				Density: 7850, MinThickness: 2, MaxThickness: 60,
+				MaxWidthMm: 3000, MaxHeightMm: 6000,
+			},
 		)
 		if err != nil {
 			defaultMaterialRegistry.err = err

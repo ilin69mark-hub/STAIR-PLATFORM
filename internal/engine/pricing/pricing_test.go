@@ -10,6 +10,7 @@ import (
 	domprc "stairplatform/internal/domain/pricing"
 	enggeo "stairplatform/internal/engine/geometry"
 	engmfg "stairplatform/internal/engine/manufacturing"
+	manu "stairplatform/internal/engine/manufacturing"
 )
 
 // testDataset собирает полный конвейер геометрия→производство для теста цены.
@@ -61,6 +62,34 @@ func TestDefaultRates(t *testing.T) {
 	}
 	if r.Currency != domprc.CurrencyRUB {
 		t.Fatalf("default currency = %+v, want RUB", r.Currency)
+	}
+}
+
+// TestEveryCatalogMaterialHasPrice (этап 1, вариант Б) — инвариант:
+// каждый материал встроенного каталога обязан иметь цену в DefaultRates.
+// Без этого новый материал проходит каталог, а расчёт падает в рантайме
+// (nil/0 ₽ за кг) — цена становится фиктивной.
+func TestEveryCatalogMaterialHasPrice(t *testing.T) {
+	reg, err := manu.DefaultMaterialRegistry()
+	if err != nil {
+		t.Fatalf("material registry: %v", err)
+	}
+	rates := DefaultRates()
+	for _, m := range reg.Materials() {
+		price, ok := rates.Material[m.Code]
+		if !ok {
+			t.Errorf("material %q has no price in DefaultRates", m.Code)
+			continue
+		}
+		if price.Minor() <= 0 {
+			t.Errorf("material %q has non-positive price %v", m.Code, price)
+		}
+	}
+	// Все цены строго положительны и в разумном диапазоне (₽/кг).
+	for code, price := range rates.Material {
+		if perKg := price.Minor(); perKg < 1000 || perKg > 200000 {
+			t.Errorf("material %q price %d minor units looks implausible", code, perKg)
+		}
 	}
 }
 
