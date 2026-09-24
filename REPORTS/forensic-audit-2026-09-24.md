@@ -136,11 +136,11 @@ step_2700mm                           → 200 valid:false blocking (GEO-TREAD-PO
 ---
 
 ### INF-001 — Мусор в репозитории и пустые пакеты-заготовки
-**Severity:** LOW · **Status:** CONFIRMED · **Layer:** Repo hygiene
-**Location:** `scripts/debug_spiral.go`, `scripts/debug_spiral2.go` (в корне scripts/, без main-пакетных тестов), `api/.gitkeep`, `pkg/.gitkeep`, `bin/stair-api` (26 МБ бинарник, не в git, но в рабочем дереве)
+**Severity:** INFO (уточнено 2026-09-24 после проверки) · **Status:** CONFIRMED · **Layer:** Repo hygiene
+**Location:** `scripts/debug_spiral.go`, `scripts/debug_spiral2.go`, `api/.gitkeep`, `pkg/.gitkeep`, `bin/stair-api`
 
-**Problem:** debug-скрипты продакшн-репозитория; `api/` и `pkg/` пустые (Go-модуль без кода в них — ловушка для «куда положить»).
-**Fix:** удалить debug-скрипты; удалить `api/`, `pkg/`; `bin/` в `.gitignore` (уже частично).
+**Problem:** отладочные скрипты помечены `//go:build ignore` (то есть это явные dev-утилиты, а не случайный мусор — вина снижена с LOW до INFO); `api/` и `pkg/` пустые; в рабочем дереве лежит 26 МБ бинарник `bin/stair-api` (в git не отслеживается).
+**Fix:** перенести debug-скрипты в `hack/` или удалить; удалить пустые `api/`, `pkg/`; `bin/` в `.gitignore`.
 
 ---
 
@@ -230,7 +230,7 @@ step_2700mm                           → 200 valid:false blocking (GEO-TREAD-PO
 | B-1 | MEDIUM | OPEN | Ops | Config | LLM-бюджет default-off | main.go | ферма акков | $ расход |
 | B-2 | MEDIUM | OPEN | Auth | Abuse | нет верификации email | auth.go | ферма акков | обход лимитов |
 
-## 11. Final Status
+## 11. Final Status (на момент аудита — до исправлений; см. раздел 12)
 
 **VERIFIED (силами прогонов):** сборка/vet/gofmt/race-сьют 61/61; фронт 432+2100; math-инварианты solver (h, b, шаг, R>W) держатся на границах; tenant-изоляция projects/RAG/memory; CSRF/SSRF/IDOR/цены закрыты (S-141…S-151); graceful shutdown есть.
 
@@ -242,6 +242,23 @@ step_2700mm                           → 200 valid:false blocking (GEO-TREAD-PO
 
 **NOT AUDITED:** Terraform-apply к AWS, реальный EKS, staging-топология, S3/файловое хранилище в проде, нагрузочное тестирование (k6 не запускался — нужен стенд), аудит фронт-бандла на утечки, pen-test внешнего периметра.
 
-## 12. Final Conclusion
+## 12. Исправления (проход «бери в работу», 2026-09-24)
+
+| ID | Статус | Коммит |
+|---|---|---|
+| DB-001 | ✅ FIXED — `SELECT ... FOR UPDATE` по строке проекта в той же транзакции + конкурентный тест (8 вставок, 3 прогона) | `d5a9242` |
+| **DB-003 (новый, найден при фиксе DB-001)** | ✅ FIXED — up-010: колонка `revision` добавляется без default и заполняется `row_number()` по проекту. Прежний `ADD COLUMN ... NOT NULL DEFAULT 1` проставлял 1 всем строкам → проекты с ≥2 конфигурациями ломали `CREATE UNIQUE INDEX` (тот самый «dirty 10» из S-137) и делали rollback невозможным | `fc35b45` |
+| API-001 | ✅ FIXED — `configInputError` получил generic-fallback (любая доменная ошибка → blocking-валидация, а не 500); guard толщины перед геометрией (толщина 0 больше не роняет конвейер) | `0d5b9ab` |
+| DOM-001 | ✅ FIXED — `FlightType.Valid()` + проверка в `Validate()`; `default:` в `checkedSolve` больше не трактует мусор как прямой марш; union-тип `FlightType` во фронтовом контракте | `5da3054` |
+| DB-002 | ✅ FIXED — `payments.EventApplier` + `ApplyVerifiedEventTx` в одной транзакции; тест доказывает откат статуса при падении вставки в журнал | `b7a0df1` |
+| DOC-001 | ✅ FIXED — `04_AUTHENTICATION.md` переписан по факту (opaque-сессии + OIDC + API-ключи); OAuth/JWT/refresh/mTLS помечены как нереализованные | `d2e1f0c` |
+| TEST-001 | ✅ FIXED — coverage-гейт падает без `STAIR_TEST_DATABASE_URL`, скип только через явный `ALLOW_DB_SKIP=1` | `c9a4e77` |
+| DOC-002 | ⏳ PARTIAL — спек по-прежнему генерируется скриптом-сканером; схемы запросов и enum требуют расширения генератора (отдельная задача, иначе ручные правки затираются) | — |
+| INF-001 | ℹ️ уточнён до INFO: debug-скрипты помечены `//go:build ignore` (явные dev-утилиты, не мусор) | — |
+| **DOM-002 (новый, найден при фиксе API-001)** | 🔴 OPEN — `buildConfiguration` (`internal/application/stair/service.go:538`) оставляет `StepCount: 1`, поэтому условие `StepCount > 1` в `StairConfiguration.Validate()` (`internal/domain/engineering/stair.go:233`) никогда не выполняется: **валидация L/U-маршей (ширина площадки, lower_step_count, поворотные ступени) недостижима из API**. Пробный фикс (`n = round(H/h)`) меняет приоритет валидации и ломает 3 теста с «богатыми» числовыми сообщениями — нужен отдельный проход: сначала выровнять тексты доменных ошибок с constraint-слоем, потом включать инвариант | — |
+
+---
+
+## 13. Final Conclusion
 
 Система существенно крепче среднего: 61 пакет под race, 2532 фронт-теста, нормативный движок с реальными инвариантами, закрытые IDOR/SSRF/CSRF/ценовые/replay-атаки. Но аудит нашёл **четыре функциональных дефекта с воспроизведением** (гонка ревизий конфигурации — HIGH; 500 на невалидном вводе, непроверяемый enum `flight`, нет транзакции в платёжном apply — MEDIUM) и **две документационные лжи** (auth-механизмы, которые не существуют; OpenAPI как карта маршрутов). Все четыре дефекта находятся на границах слоёв — ровно там, где «фронт проверил, API нет, домен молчит, БД падает».
