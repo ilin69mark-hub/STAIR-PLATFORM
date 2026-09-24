@@ -717,49 +717,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /assistant/{kind}:
-    post:
+  /assistant/memory:
+    delete:
       tags: ["assistant"]
-      summary: "Создать {kind}"
+      summary: "Удалить memory"
       security:
         - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                width_mm:
-                  type: number
-                  description: "Ширина марша, мм"
-                height_mm:
-                  type: number
-                  description: "Высота подъёма, мм"
-                flight:
-                  type: string
-                  description: "Тип марша: straight | l_shape | u_shape | spiral"
-                outer_radius_mm:
-                  type: number
-                  description: "Наружный радиус (спираль), мм"
-                material:
-                  type: string
-                  description: "Материал: STEEL-S235 | ALUM-5083 | WOOD-OAK"
-                comfort_step_mm:
-                  type: number
-                  description: "Целевой шаг комфорта 2h+b, мм"
-                priority:
-                  type: string
-                  enum: [price, cost, material, comfort]
-                  description: "Приоритет рекомендации (design); прочие kind игнорируют"
-                project_id:
-                  type: string
-                  description: "Скоуп conversation-memory (S-135): пустой — память не используется"
-                history_limit:
-                  type: integer
-                  minimum: -1
-                  maximum: 50
-                  description: "Глубина истории диалога в контекст: 0 → default 10, cap 50, <0 → без истории"
       responses:
         200:
           description: OK
@@ -769,14 +732,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
         403:
-          description: "Forbidden: project_id из тела, но вызывающий не член проекта (S-142)"
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -794,21 +751,20 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /assistant/memory:
-    delete:
+  /assistant/{kind}:
+    post:
       tags: ["assistant"]
-      summary: "Стереть conversation-memory проекта (право на забвение, GDPR Art.17)"
+      summary: "Создать {kind}"
       security:
         - bearerAuth: []
-      parameters:
-        - name: project_id
-          in: query
-          required: true
-          schema:
-            type: string
-          description: "Проект, чья память стирается; вызывающий должен быть членом проекта (иначе 403)"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
       responses:
-        200:
+        201:
           description: OK
         400:
           description: Invalid request
@@ -822,8 +778,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: "Forbidden: вызывающий не член проекта (S-142)"
+        422:
+          description: Validation error
           content:
             application/json:
               schema:
@@ -834,6 +790,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+
+  /audit:
     get:
       tags: ["audit"]
       summary: "Журнал аудита"
