@@ -261,8 +261,27 @@ func scanConfig(row pgx.Row) (*project.StairConfiguration, error) {
 	return &c, nil
 }
 
+// SaveConfiguration сохраняет конфигурацию проекта (новая ревизия).
+// DB-001 (forensic 2026-09-24): вставка идёт в транзакции с
+// `SELECT ... FOR UPDATE` по строке проекта — иначе конкурентные вызовы
+// вычисляют одинаковую ревизию (MAX+1) и второй падает на
+// UNIQUE(project_id, revision). Блокировка живёт ровно до COMMIT.
 func (r *ProjectRepository) SaveConfiguration(ctx context.Context, c *project.StairConfiguration) error {
-	if err := r.pool.QueryRow(ctx,
+	return WithTx(ctx, r.pool, func(tx pgx.Tx) error {
+		var exists string
+		if err := tx.QueryRow(ctx, `SELECT id FROM projects WHERE id = $1 FOR UPDATE`, c.ProjectID).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
+			return project.ErrNotFound
+		} else if err != nil {
+			return fmt.Errorf("project: lock project: %w", err)
+		}
+		return insertConfiguration(ctx, tx, c)
+	})
+}
+
+// insertConfiguration вставляет конфигурацию с вычислением ревизии внутри
+// уже открытой транзакции (блокировка проекта должна быть взята вызывающим).
+func insertConfiguration(ctx context.Context, tx pgx.Tx, c *project.StairConfiguration) error {
+	if err := tx.QueryRow(ctx,
 		`INSERT INTO stair_configurations (project_id, width_mm, height_mm, flight,
 			step_height_mm, stringer_thickness_mm, step_thickness_mm, riser, clearance_mm,
 			railing_height_mm, comfort_step_mm, landing_width_mm, landing_depth_mm,
@@ -407,13 +426,6 @@ func (r *ProjectRepository) SaveCalculation(ctx context.Context, c *project.Calc
 // encoding/json разрешён в infrastructure (ADR-0006). Проверяется, что
 // проект принадлежит tenant'у (SEC-0005).
 func (r *ProjectRepository) SaveCalculationWithConfig(ctx context.Context, tenantID string, cfg *project.StairConfiguration, snap project.Snapshot) (*project.Calculation, error) {
-	var exists string
-	if err := r.pool.QueryRow(ctx,
-		`SELECT id FROM projects WHERE id = $1 AND tenant_id = $2`, cfg.ProjectID, tenantID).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
-		return nil, project.ErrNotFound
-	} else if err != nil {
-		return nil, fmt.Errorf("project: check: %w", err)
-	}
 	payload, err := json.Marshal(snap)
 	if err != nil {
 		return nil, fmt.Errorf("project: marshal snapshot: %w", err)
@@ -431,20 +443,20 @@ func (r *ProjectRepository) SaveCalculationWithConfig(ctx context.Context, tenan
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Проверка принадлежности tenant'у + блокировка строки проекта в одной
+	// транзакции (SEC-0005 + DB-001): FOR UPDATE сериализует конкурентные
+	// сохранения, поэтому MAX(revision)+1 не может совпасть.
+	var exists string
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO stair_configurations (project_id, width_mm, height_mm, flight,
-			step_height_mm, stringer_thickness_mm, step_thickness_mm, riser, clearance_mm,
-			railing_height_mm, comfort_step_mm, landing_width_mm, landing_depth_mm,
-			room_width_mm, room_length_mm, approach_space_mm, lower_step_count, outer_radius_mm, revision)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
-		   (SELECT COALESCE(MAX(s.revision),0)+1 FROM stair_configurations s WHERE s.project_id = $1))
-		 RETURNING id, created_at, updated_at, revision`,
-		cfg.ProjectID, cfg.WidthMM, cfg.HeightMM, cfg.Flight, cfg.StepHeightMM,
-		cfg.StringerThicknessMM, cfg.StepThicknessMM, cfg.Riser, cfg.ClearanceMM, cfg.RailingHeightMM,
-		cfg.ComfortStepMM, cfg.LandingWidthMM, cfg.LandingDepthMM, cfg.RoomWidthMM, cfg.RoomLengthMM,
-		cfg.ApproachSpaceMM, cfg.LowerStepCount, cfg.OuterRadiusMM,
-	).Scan(&cfg.ID, &cfg.CreatedAt, &cfg.UpdatedAt, &cfg.Revision); err != nil {
-		return nil, fmt.Errorf("project: save config: %w", err)
+		`SELECT id FROM projects WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
+		cfg.ProjectID, tenantID).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
+		return nil, project.ErrNotFound
+	} else if err != nil {
+		return nil, fmt.Errorf("project: check: %w", err)
+	}
+
+	if err := insertConfiguration(ctx, tx, cfg); err != nil {
+		return nil, err
 	}
 
 	// Новая конфигурация становится текущей ревизией проекта (EDR-0012).
