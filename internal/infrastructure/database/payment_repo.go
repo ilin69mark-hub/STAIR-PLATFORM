@@ -151,6 +151,41 @@ func (r *PaymentRepository) UpdateStatus(ctx context.Context, tenantID, id strin
 	return nil
 }
 
+// ApplyVerifiedEventTx атомарно меняет статус интента и пишет событие в
+// журнал payment_events (DB-002, forensic 2026-09-24). Одна транзакция:
+// падение на AppendEvent откатывает и статус — «оплачено, но без следа» в
+// финансовом аудите больше невозможно. SQL-guard терминальных статусов тот
+// же, что в UpdateStatus.
+func (r *PaymentRepository) ApplyVerifiedEventTx(ctx context.Context, tenantID, intentID string, s payments.Status, paidAt *time.Time, e *payments.PaymentEvent) error {
+	return WithTx(ctx, r.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx,
+			`UPDATE payment_intents SET status = $1, paid_at = COALESCE($2, paid_at), updated_at = now()
+			 WHERE tenant_id = $3 AND id = $4
+			   AND NOT (status IN (`+terminalStatusGuardSQL+`) AND status <> $1)`,
+			string(s), paidAt, tenantID, intentID)
+		if err != nil {
+			return fmt.Errorf("payments: update intent status: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			warnRejectedStatusUpdate(ctx, r.pool, tenantID, intentID, s)
+		}
+		return appendEventTx(ctx, tx, e)
+	})
+}
+
+// appendEventTx пишет событие в журнал в рамках уже открытой транзакции.
+func appendEventTx(ctx context.Context, tx pgx.Tx, e *payments.PaymentEvent) error {
+	if err := tx.QueryRow(ctx,
+		`INSERT INTO payment_events (tenant_id, intent_id, event_type, payload)
+		 VALUES ($1, $2, $3, $4)
+		 RETURNING id, created_at`,
+		e.TenantID, e.IntentID, e.EventType, e.Payload,
+	).Scan(&e.ID, &e.CreatedAt); err != nil {
+		return fmt.Errorf("payments: append event: %w", err)
+	}
+	return nil
+}
+
 // warnRejectedStatusUpdate логирует отклонённый переход статуса: интент не
 // найден либо терминальный статус не может быть перезаписан другим статусом.
 func warnRejectedStatusUpdate(ctx context.Context, pool *pgxpool.Pool, tenantID, id string, to payments.Status) {

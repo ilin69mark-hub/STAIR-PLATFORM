@@ -127,3 +127,14 @@ type Repository interface {
 	// AppendEvent пишет событие в журнал payment_events.
 	AppendEvent(ctx context.Context, e *PaymentEvent) error
 }
+
+// EventApplier — опциональная транзакционная операция «применить событие»
+// (DB-002, forensic 2026-09-24): смена статуса интента и запись в журнал
+// payment_events должны быть атомарны. Без неё два вызова UpdateStatus +
+// AppendEvent оставляли оплаченный интент без записи в финансовом аудите,
+// а повтор webhook (reconcile) уже не журналировал событие.
+// Реализует инфраструктурный PaymentRepository; сервис использует её при
+// наличии и деградирует к прежней последовательности для прочих реализаций.
+type EventApplier interface {
+	ApplyVerifiedEventTx(ctx context.Context, tenantID, intentID string, s Status, paidAt *time.Time, e *PaymentEvent) error
+}

@@ -170,12 +170,6 @@ func (s *Service) applyVerifiedEvent(ctx context.Context, provider, checkoutID, 
 	if newStatus == StatusPaid {
 		paidAt = &now
 	}
-	if err := s.repo.UpdateStatus(ctx, intent.TenantID, intent.ID, newStatus, paidAt); err != nil {
-		return nil, err
-	}
-	intent.Status = newStatus
-	intent.PaidAt = paidAt
-
 	event := &PaymentEvent{
 		TenantID:  intent.TenantID,
 		IntentID:  intent.ID,
@@ -183,6 +177,25 @@ func (s *Service) applyVerifiedEvent(ctx context.Context, provider, checkoutID, 
 		Payload:   append(json.RawMessage(nil), body...),
 		CreatedAt: now,
 	}
+
+	// DB-002 (forensic 2026-09-24): статус + журнал события — в одной
+	// транзакции, если репозиторий её умеет (инфраструктура). Иначе —
+	// прежняя последовательность (совместимость с прочими реализациями).
+	if applier, ok := s.repo.(EventApplier); ok {
+		if err := applier.ApplyVerifiedEventTx(ctx, intent.TenantID, intent.ID, newStatus, paidAt, event); err != nil {
+			return nil, err
+		}
+		intent.Status = newStatus
+		intent.PaidAt = paidAt
+		return event, nil
+	}
+
+	if err := s.repo.UpdateStatus(ctx, intent.TenantID, intent.ID, newStatus, paidAt); err != nil {
+		return nil, err
+	}
+	intent.Status = newStatus
+	intent.PaidAt = paidAt
+
 	if err := s.repo.AppendEvent(ctx, event); err != nil {
 		return nil, err
 	}
