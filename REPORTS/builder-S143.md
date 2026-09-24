@@ -29,7 +29,7 @@
 - `go build ./...` + `go build ./cmd/...` — 0
 - `go test ./internal/infrastructure/redaction/... ./internal/infrastructure/sentry/...` — ok
 - `golangci-lint run` (3 пакета, все изменённые файлы в них) — 0 issues
-- Полный `STAIR_TEST_DATABASE_URL='postgres://stair:stair@localhost:5432/stair_test?sslmode=disable' go test -race -p 1 -count=1 -timeout 25m ./...` — **60/60 ok** (до финальных правок тестов; финальный прогон после обеих задач — в S-144)
+- Полный `STAIR_TEST_DATABASE_URL='postgres://stair:stair@localhost:5432/stair_test?sslmode=disable' go test -race -p 1 -count=1 -timeout 25m ./...` — **60/60 ok** (оба финальных прогона — на дереве с обеими задачами S-143+S-144, дважды подряд, см. builder-S144.md)
 
 ## Решения
 

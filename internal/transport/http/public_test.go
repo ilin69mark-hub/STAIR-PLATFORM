@@ -11,11 +11,19 @@ import (
 	"stairplatform/internal/engine/constraint"
 )
 
+// publicQuoteRequest — POST /api/v1/public/stairs:quote с JSON-телом и
+// Content-Type application/json (S-144: decodeJSON требует его для
+// непустых тел).
+func publicQuoteRequest(body string) *http.Request {
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	return r
+}
+
 // TestPublicQuoteSuccess — публичный расчёт работает БЕЗ аутентификации
 // и возвращает цену/геометрию, но НЕ производственный пакет.
 func TestPublicQuoteSuccess(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote",
-		strings.NewReader(referenceJSON))
+	req := publicQuoteRequest(referenceJSON)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -69,8 +77,7 @@ func TestPublicQuoteSuccess(t *testing.T) {
 
 // TestPublicQuoteNoAuthRequired — маршрут публичный: без cookie/токена — 200.
 func TestPublicQuoteNoAuthRequired(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote",
-		strings.NewReader(referenceJSON))
+	req := publicQuoteRequest(referenceJSON)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -92,8 +99,7 @@ func TestCalculateRequiresAuth(t *testing.T) {
 }
 
 func TestPublicQuoteInvalidJSON(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote",
-		strings.NewReader("{not json"))
+	req := publicQuoteRequest("{not json")
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -109,7 +115,7 @@ func TestPublicQuoteInvalidInput(t *testing.T) {
 		"flight": "straight",
 		"step_height_mm": 180
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(b))
+	req := publicQuoteRequest(b)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -145,7 +151,7 @@ func TestPublicQuoteBlocking(t *testing.T) {
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(b))
+	req := publicQuoteRequest(b)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -175,7 +181,7 @@ func TestPublicQuoteBlockingCarriesAdvice(t *testing.T) {
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(b))
+	req := publicQuoteRequest(b)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -235,7 +241,7 @@ func TestPublicQuoteAngleCarriesVariations(t *testing.T) {
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(b))
+	req := publicQuoteRequest(b)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -284,7 +290,7 @@ func TestPublicQuoteLShapeLandingNarrowAdvisory(t *testing.T) {
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(b))
+	req := publicQuoteRequest(b)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -330,7 +336,7 @@ func TestPublicQuoteTallFlightSucceeds(t *testing.T) {
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(b))
+	req := publicQuoteRequest(b)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -364,7 +370,7 @@ func TestPublicQuoteSpiralBlockingCarriesRadiusSuggestion(t *testing.T) {
 		"clearance_mm": 2300,
 		"railing_height_mm": 1100
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(b))
+	req := publicQuoteRequest(b)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -424,8 +430,7 @@ func TestPublicQuoteMaterialChoice(t *testing.T) {
 		{"STEEL-S235", &steelPrice},
 		{"WOOD-OAK", &woodPrice},
 	} {
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote",
-			strings.NewReader(woodJSON(tc.material)))
+		req := publicQuoteRequest(woodJSON(tc.material))
 		rec := httptest.NewRecorder()
 		testRouter().ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
@@ -462,7 +467,7 @@ func TestPublicQuoteMaterialThicknessBlocked(t *testing.T) {
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(b))
+	req := publicQuoteRequest(b)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -600,7 +605,7 @@ func TestPublicQuoteAngle_UserScenario(t *testing.T) {
 // postQuote шлёт тело расчёта на публичный эндпоинт и возвращает DTO.
 func postQuote(t *testing.T, body string) publicQuoteDTO {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(body))
+	req := publicQuoteRequest(body)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

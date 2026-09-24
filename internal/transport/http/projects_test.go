@@ -432,12 +432,14 @@ func testRouterWithProjects(p ProjectService) http.Handler {
 	return NewRouter(stair.NewService(), p, testAuth{}, DefaultConfig())
 }
 
-// authedRequest строит запрос с session+csrf cookie и заголовком CSRF.
+// authedRequest строит запрос с session+csrf cookie и заголовком CSRF
+// (S-144: Content-Type application/json — decodeJSON требует его для тел).
 func authedRequest(method, path, body string) *http.Request {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	r.AddCookie(testCookie(sessionCookieName, "token-1"))
 	r.AddCookie(testCookie(csrfCookieName, "csrf-1"))
 	r.Header.Set(csrfHeader, "csrf-1")
+	r.Header.Set("Content-Type", "application/json")
 	return r
 }
 

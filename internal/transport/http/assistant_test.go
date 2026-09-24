@@ -35,6 +35,18 @@ func assistantTestRouter(a AuthService, ast AssistantService) http.Handler {
 	return NewRouter(stair.NewService(), nil, a, cfg)
 }
 
+// assistantAuthedRequest — POST на assistant-роут с session+csrf cookie и
+// заголовком CSRF (S-144: маршрут переведён на authMutating); Content-Type
+// application/json (S-144: decodeJSON требует его для тел).
+func assistantAuthedRequest(path, body string) *http.Request {
+	r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	r.AddCookie(testCookie(sessionCookieName, "token-1"))
+	r.AddCookie(testCookie(csrfCookieName, "csrf-1"))
+	r.Header.Set(csrfHeader, "csrf-1")
+	r.Header.Set("Content-Type", "application/json")
+	return r
+}
+
 func TestAssistantDesignHandler(t *testing.T) {
 	ast := &fakeAssistant{res: &appast.Result{
 		Kind: appast.KindDesign,
@@ -47,8 +59,7 @@ func TestAssistantDesignHandler(t *testing.T) {
 	router := assistantTestRouter(newFakeAuth(), ast)
 
 	body := `{"width_mm":900,"height_mm":2700,"flight":"straight","priority":"price"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/design", strings.NewReader(body))
-	req.AddCookie(testCookie(sessionCookieName, "token-1"))
+	req := assistantAuthedRequest("/api/v1/assistant/design", body)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -79,8 +90,7 @@ func TestAssistantEngineeringHandler(t *testing.T) {
 	router := assistantTestRouter(newFakeAuth(), ast)
 
 	body := `{"width_mm":900,"height_mm":2700,"flight":"straight"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/engineering", strings.NewReader(body))
-	req.AddCookie(testCookie(sessionCookieName, "token-1"))
+	req := assistantAuthedRequest("/api/v1/assistant/engineering", body)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -107,8 +117,7 @@ func TestAssistantManufacturingHandler(t *testing.T) {
 	router := assistantTestRouter(newFakeAuth(), ast)
 
 	body := `{"width_mm":900,"height_mm":2700,"flight":"straight"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/manufacturing", strings.NewReader(body))
-	req.AddCookie(testCookie(sessionCookieName, "token-1"))
+	req := assistantAuthedRequest("/api/v1/assistant/manufacturing", body)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -132,8 +141,7 @@ func TestAssistantPricingHandler(t *testing.T) {
 	router := assistantTestRouter(newFakeAuth(), ast)
 
 	body := `{"width_mm":900,"height_mm":2700,"flight":"straight"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/pricing", strings.NewReader(body))
-	req.AddCookie(testCookie(sessionCookieName, "token-1"))
+	req := assistantAuthedRequest("/api/v1/assistant/pricing", body)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -158,9 +166,7 @@ func TestAssistantUnauthorized(t *testing.T) {
 
 func TestAssistantUnknownKind(t *testing.T) {
 	router := assistantTestRouter(newFakeAuth(), &fakeAssistant{res: &appast.Result{}})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/teleport",
-		strings.NewReader(`{"width_mm":900,"height_mm":2700}`))
-	req.AddCookie(testCookie(sessionCookieName, "token-1"))
+	req := assistantAuthedRequest("/api/v1/assistant/teleport", `{"width_mm":900,"height_mm":2700}`)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
@@ -171,9 +177,7 @@ func TestAssistantUnknownKind(t *testing.T) {
 func TestAssistantServiceError(t *testing.T) {
 	ast := &fakeAssistant{err: fmt.Errorf("%w: no feasible config", appast.ErrNoFeasible)}
 	router := assistantTestRouter(newFakeAuth(), ast)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/design",
-		strings.NewReader(`{"width_mm":900,"height_mm":2700}`))
-	req.AddCookie(testCookie(sessionCookieName, "token-1"))
+	req := assistantAuthedRequest("/api/v1/assistant/design", `{"width_mm":900,"height_mm":2700}`)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnprocessableEntity {
@@ -186,9 +190,8 @@ func TestAssistantForbiddenProject(t *testing.T) {
 	// член проекта → 403, а не данные чужой conversation-memory.
 	ast := &fakeAssistant{err: fmt.Errorf("%w: not a member of project", appast.ErrForbidden)}
 	router := assistantTestRouter(newFakeAuth(), ast)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/design",
-		strings.NewReader(`{"width_mm":900,"height_mm":2700,"project_id":"p-other"}`))
-	req.AddCookie(testCookie(sessionCookieName, "token-1"))
+	req := assistantAuthedRequest("/api/v1/assistant/design",
+		`{"width_mm":900,"height_mm":2700,"project_id":"p-other"}`)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
@@ -202,9 +205,7 @@ func TestAssistantForbiddenProject(t *testing.T) {
 func TestAssistantInternalError(t *testing.T) {
 	ast := &fakeAssistant{err: errors.New("model backend down")}
 	router := assistantTestRouter(newFakeAuth(), ast)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/design",
-		strings.NewReader(`{"width_mm":900,"height_mm":2700}`))
-	req.AddCookie(testCookie(sessionCookieName, "token-1"))
+	req := assistantAuthedRequest("/api/v1/assistant/design", `{"width_mm":900,"height_mm":2700}`)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusInternalServerError {
@@ -212,11 +213,82 @@ func TestAssistantInternalError(t *testing.T) {
 	}
 }
 
+// TestAssistantInternalErrorGenericBody — S-144 (S-141 №8): сбой модели не
+// должен отдавать клиенту внутреннюю цепочку (CWE-209): ни "assistant:",
+// ни URL провайдера в теле; 500 с фиксированным текстом.
+func TestAssistantInternalErrorGenericBody(t *testing.T) {
+	ast := &fakeAssistant{err: errors.New("model backend down: dial openrouter.ai:443 timeouts")}
+	router := assistantTestRouter(newFakeAuth(), ast)
+	req := assistantAuthedRequest("/api/v1/assistant/design", `{"width_mm":900,"height_mm":2700}`)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on model failure, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, leak := range []string{"assistant:", "openrouter", "dial"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("internal error details leaked to client (%q): %s", leak, body)
+		}
+	}
+	if !strings.Contains(body, "Внутренняя ошибка. Попробуйте позже.") {
+		t.Errorf("body should carry generic message, got %s", body)
+	}
+}
+
+// TestAssistantTextPlainNoCSRF — вектор атаки S-141 №7: браузерная форма
+// text/plain без preflight не несёт X-CSRF-Token (атакующая страница не
+// может прочитать csrf-cookie жертвы) → requireCSRF отклоняет 403 до
+// decodeJSON. Атака закрыта на уровне CSRF.
+func TestAssistantTextPlainNoCSRF(t *testing.T) {
+	ast := &fakeAssistant{res: &appast.Result{}}
+	router := assistantTestRouter(newFakeAuth(), ast)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/design",
+		strings.NewReader(`{"width_mm":900,"height_mm":2700}`))
+	req.AddCookie(testCookie(sessionCookieName, "token-1"))
+	req.Header.Set("Content-Type", "text/plain") // форма без preflight
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	// Фактический код: 403 (требуется CSRF-токен) — CSRF-мидлвара срабатывает
+	// раньше decodeJSON.
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 (CSRF) for text/plain without CSRF token, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"csrf"`) {
+		t.Fatalf("body should carry csrf code, got %s", rec.Body.String())
+	}
+}
+
+// TestAssistantTextPlainValidCSRF — сценарий с валидными session+csrf
+// (double-submit пройден) и Content-Type text/plain: фактический код — 400
+// (invalid_json от decodeJSON) — задокументировано (S-144); сам запрос
+// выполнен не будет.
+func TestAssistantTextPlainValidCSRF(t *testing.T) {
+	ast := &fakeAssistant{res: &appast.Result{}}
+	router := assistantTestRouter(newFakeAuth(), ast)
+
+	req := assistantAuthedRequest("/api/v1/assistant/design", `{"width_mm":900,"height_mm":2700}`)
+	req.Header.Set("Content-Type", "text/plain")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	// Фактический код: 400 invalid_json (Content-Type text/plain отклонён
+	// decodeJSON). Зафиксировано тестом, чтобы поведение не изменилось
+	// незаметно.
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 (invalid_json) for text/plain with valid CSRF, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if ast.kind != "" {
+		t.Fatalf("assistant must not be called for text/plain body, got kind %q", ast.kind)
+	}
+}
+
 func TestAssistantInvalidJSON(t *testing.T) {
 	router := assistantTestRouter(newFakeAuth(), &fakeAssistant{res: &appast.Result{}})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/design",
-		strings.NewReader(`{broken`))
-	req.AddCookie(testCookie(sessionCookieName, "token-1"))
+	req := assistantAuthedRequest("/api/v1/assistant/design", `{broken`)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {

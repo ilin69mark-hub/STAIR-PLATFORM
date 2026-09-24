@@ -3,7 +3,6 @@ package http
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -101,9 +100,11 @@ func handleAssistantAsk(svc AssistantService) http.HandlerFunc {
 			if errors.Is(err, appast.ErrInvalid) || errors.Is(err, appast.ErrNoFeasible) {
 				writeInputError(w, "invalid_input", err)
 			} else {
-				wrapped := fmt.Sprintf("assistant: %v", err)
+				// S-144 (S-141 №8): клиенту — фиксированный текст без
+				// внутренней цепочки (URL провайдера, имена сервисов — CWE-209);
+				// детали — только в slog.
 				slog.Error("assistant request failed", "kind", kind, "error", err)
-				writeError(w, http.StatusInternalServerError, "internal", wrapped)
+				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка. Попробуйте позже.")
 			}
 			return
 		}

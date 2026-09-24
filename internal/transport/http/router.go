@@ -139,12 +139,14 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		mux.Handle("POST /api/v1/audit", authMutating(handleRecordAudit(auditsvc)))
 	}
 
-	mux.Handle("POST /api/v1/stairs:calculate", authProtected(handleCalculate(svc, auditsvc)))
-	mux.Handle("POST /api/v1/stairs:validate", authProtected(handleValidate(svc)))
-	mux.Handle("POST /api/v1/stairs:optimize", authProtected(handleOptimize(svc)))
+	mux.Handle("POST /api/v1/stairs:calculate", authMutating(handleCalculate(svc, auditsvc)))
+	mux.Handle("POST /api/v1/stairs:validate", authMutating(handleValidate(svc)))
+	mux.Handle("POST /api/v1/stairs:optimize", authMutating(handleOptimize(svc)))
 	if assistantSvc != nil {
 		// AI-ассистенты (Phase D, D1–D4): design/engineering/manufacturing/pricing.
-		mux.Handle("POST /api/v1/assistant/{kind}", authProtected(handleAssistantAsk(assistantSvc)))
+		// S-144 (S-141 №7): мутирующие POST (LLM-бюджет, запись conversation-memory)
+		// — CSRF (double-submit), как у остальных mutating-роутов.
+		mux.Handle("POST /api/v1/assistant/{kind}", authMutating(handleAssistantAsk(assistantSvc)))
 	}
 	if ordersSvc != nil {
 		// Розничные заказы (клиентский сайт, Store). Клиентский кабинет и

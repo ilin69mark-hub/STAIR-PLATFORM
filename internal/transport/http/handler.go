@@ -20,9 +20,30 @@ const maxBodyBytes int64 = 1 << 20 // 1 MiB
 
 // decodeJSON декодирует тело запроса в dst с ограничением размера
 // (MaxBodyBytes). Возвращает ошибку при невалидном JSON.
+// S-144 (S-141 №7): для непустых тел требуется Content-Type:
+// application/json (префикс-match — пропускаем параметры вроде charset).
+// Браузерная форма text/plain (без CORS-preflight) больше не выполнит
+// JSON-тело — CSRF-вектор из аудита закрыт; пустые тела/GET не
+// затрагиваются. Callers маппят ошибку в 400 invalid_json.
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	if hasBody(r) && !contentTypeIsJSON(r.Header.Get("Content-Type")) {
+		return errors.New("decodeJSON: Content-Type must be application/json")
+	}
 	return json.NewDecoder(r.Body).Decode(dst)
+}
+
+// hasBody — есть ли у запроса тело (Content-Length > 0; chunked считаем
+// непустым). Пустые тела ведут себя как раньше (Decode вернёт EOF → 400).
+func hasBody(r *http.Request) bool {
+	return r.ContentLength > 0 || len(r.TransferEncoding) > 0
+}
+
+// contentTypeIsJSON — media type без параметров (после ";") равен
+// application/json (регистронезависимо).
+func contentTypeIsJSON(ct string) bool {
+	media, _, _ := strings.Cut(ct, ";")
+	return strings.EqualFold(strings.TrimSpace(media), "application/json")
 }
 
 // StairService — прикладной интерфейс расчёта лестницы, ожидаемый
