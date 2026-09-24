@@ -29,6 +29,11 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
+      # Реестр исключений (docs/SECURITY_EXCEPTIONS.yml): каждый маркер
+      # AUDIT-EXCEPTION в коде обязан иметь парный ID в реестре, иначе fail.
+      - name: Check audit-exception registry sync
+        run: python3 hack/check_audit_exceptions.py
+
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9 (S-123b)
         with:

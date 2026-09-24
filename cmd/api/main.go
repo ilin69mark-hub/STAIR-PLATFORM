@@ -153,6 +153,7 @@ func main() {
 	isProduction := strings.EqualFold(env, "production") || strings.EqualFold(env, "prod")
 	// S1-2: шифрование webhook-секретов at rest (STAIR_SECRETS_KEY, hex 64).
 	// S-104: в проде ключ обязателен — без него webhook-секреты лежат plaintext.
+	// AUDIT-EXCEPTION(E01): мастер-ключ задаёт человек, см. docs/SECURITY_EXCEPTIONS.yml
 	if keyHex := os.Getenv("STAIR_SECRETS_KEY"); keyHex != "" {
 		key, err := secrets.KeyFromHex(keyHex)
 		if err != nil {

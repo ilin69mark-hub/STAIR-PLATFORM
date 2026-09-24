@@ -130,6 +130,7 @@ func main() {
 		webhookPolicy(os.Getenv("STAIR_ENVIRONMENT"), os.Getenv("STAIR_WEBHOOK_ALLOW_HOSTS"))))
 	// S1-2: шифрование webhook-секретов at rest. Без STAIR_SECRETS_KEY —
 	// legacy-plaintext (dev); в проде ключ обязателен (см. .env.production).
+	// AUDIT-EXCEPTION(E01): мастер-ключ задаёт человек, см. docs/SECURITY_EXCEPTIONS.yml
 	if keyHex := os.Getenv("STAIR_SECRETS_KEY"); keyHex != "" {
 		key, err := secrets.KeyFromHex(keyHex)
 		if err != nil {
