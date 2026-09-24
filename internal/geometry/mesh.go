@@ -8,6 +8,21 @@ import "fmt"
 type Mesh struct {
 	Vertices  []Point3 `json:"Vertices"`
 	Triangles [][3]int `json:"Triangles"`
+	// PartRanges — диапазоны треугольников по телам с их ролями
+	// (этап 1 «студийный 3D»). Позволяет 3D-вьюверу красить ступени,
+	// косоуры, площадку и перила разными материалами, не раздувая payload
+	// (роль известна в Solid.Role(), терялась при сборке плоской сетки).
+	// Аддитивно: старые потребители читают только Vertices/Triangles.
+	PartRanges []PartRange `json:"PartRanges,omitempty"`
+}
+
+// PartRange — диапазон [Start,End) треугольников одного тела с ролью
+// (например "tread", "stringer", "landing", "railing_post").
+type PartRange struct {
+	Solid int    `json:"Solid"`
+	Role  string `json:"Role"`
+	Start int    `json:"Start"`
+	End   int    `json:"End"`
 }
 
 // AddTriangle добавляет треугольник из индексов вершин; индекс вне

@@ -146,11 +146,20 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 	base := 0
 	for i := range outs {
 		result.Mesh.Vertices = append(result.Mesh.Vertices, outs[i].verts...)
+		start := len(result.Mesh.Triangles)
 		for _, tr := range outs[i].tris {
 			if err := result.Mesh.AddTriangle(base+tr[0], base+tr[1], base+tr[2]); err != nil {
 				return nil, err
 			}
 		}
+		// Роль тела (этап 1): 3D-вьювер красит ступени/косоуры/площадку
+		// разными материалами по диапазону треугольников.
+		result.Mesh.PartRanges = append(result.Mesh.PartRanges, kerngeo.PartRange{
+			Solid: i,
+			Role:  solids[i].Role(),
+			Start: start,
+			End:   len(result.Mesh.Triangles),
+		})
 		base += len(outs[i].verts)
 	}
 
@@ -260,11 +269,18 @@ func appendRailingMesh(result *GenerationResult, cfg *engineering.StairConfigura
 			return fmt.Errorf("geometry: railing mesh: %w", err)
 		}
 		result.RailingMesh.Vertices = append(result.RailingMesh.Vertices, verts...)
+		start := len(result.RailingMesh.Triangles)
 		for _, tr := range tris {
 			if err := result.RailingMesh.AddTriangle(base+tr[0], base+tr[1], base+tr[2]); err != nil {
 				return fmt.Errorf("geometry: railing mesh triangle: %w", err)
 			}
 		}
+		// Роль декора (поручень/балясина) — для материала ограждения (этап 1).
+		result.RailingMesh.PartRanges = append(result.RailingMesh.PartRanges, kerngeo.PartRange{
+			Role:  solid.Role(),
+			Start: start,
+			End:   len(result.RailingMesh.Triangles),
+		})
 		base += len(verts)
 	}
 	return nil
