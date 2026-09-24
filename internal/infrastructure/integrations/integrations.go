@@ -123,23 +123,21 @@ func defaultResolver(ctx context.Context, host string) ([]net.IP, error) {
 }
 
 // resolveDialIP возвращает IP, на который физически идёт соединение:
-//   - loopback-хост при AllowLoopback или allowlist-хост → nil (соединение
-//     как есть; хост доверенный);
-//   - иначе резолвит, пропускает заблокированные адреса и пиннит первый
-//     разрешённый IP.
+// резолвит хост, пропускает заблокированные адреса и пиннит первый
+// разрешённый IP (защита от DNS-rebinding).
+//
+// S-151 (red-team «SSRF в EKS»): allowlist хостов (STAIR_WEBHOOK_ALLOW_HOSTS)
+// открывает loopback/private для внутренних сервисов, но НИКОГДА не
+// link-local — 169.254.169.254 (метаданные облака) не имеет легитимного
+// бизнес-использования для webhook-доставки.
 func (c *Client) resolveDialIP(ctx context.Context, host string) (net.IP, error) {
-	if isLoopbackHost(host) && (c.policy.AllowLoopback || c.policy.allows(host)) {
-		return nil, nil
-	}
-	if c.policy.allows(host) {
-		return nil, nil
-	}
+	allowPrivate := c.policy.AllowLoopback || c.policy.allows(host)
 	ips, err := c.resolve(ctx, host)
 	if err != nil {
 		return nil, fmt.Errorf("integrations: resolve %s: %w", host, err)
 	}
 	for _, ip := range ips {
-		if classifyIP(ip, c.policy.AllowLoopback) {
+		if classifyIP(ip, allowPrivate) {
 			continue
 		}
 		return ip, nil
@@ -157,18 +155,22 @@ func isLoopbackHost(host string) bool {
 
 // classifyIP сообщает, блокируется ли адрес SSRF-политикой (S1-1).
 // link-local покрывает метаданные облака 169.254.169.254.
-func classifyIP(ip net.IP, allowLoopback bool) bool {
+// S-151: link-local блокируется ВСЕГДА — даже для allowlist-хоста
+// (STAIR_WEBHOOK_ALLOW_HOSTS открывает loopback/private для внутренних
+// сервисов, но не IMDS-эндпоинт облака). allowPrivate включает loopback и
+// RFC1918 (allowlist-хостам внутренних сервисов они нужны).
+func classifyIP(ip net.IP, allowPrivate bool) bool {
 	if ip == nil {
 		return false
-	}
-	if ip.IsLoopback() {
-		return !allowLoopback
 	}
 	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
 		return true
 	}
+	if ip.IsLoopback() {
+		return !allowPrivate
+	}
 	if ip.IsPrivate() {
-		return true
+		return !allowPrivate
 	}
 	if ip.IsUnspecified() || ip.IsMulticast() {
 		return true
@@ -226,25 +228,21 @@ func (c *Client) Send(ctx context.Context, target, secret string, payload []byte
 }
 
 // validateTarget — SSRF-префляйт (S1-1): проверяет хост до отправки.
-// Финальная защита — пиннинг валидированного IP в DialContext.
+// Финальная защита — пиннинг валидированного IP в DialContext. S-151:
+// allowlist открывает loopback/private, но не link-local (метаданные облака).
 func (c *Client) validateTarget(ctx context.Context, target string) error {
 	u, err := url.Parse(target)
 	if err != nil || u.Host == "" {
 		return fmt.Errorf("integrations: invalid webhook url %q", target)
 	}
 	host := u.Hostname()
-	if isLoopbackHost(host) && (c.policy.AllowLoopback || c.policy.allows(host)) {
-		return nil
-	}
-	if c.policy.allows(host) {
-		return nil
-	}
+	allowPrivate := c.policy.AllowLoopback || c.policy.allows(host)
 	ips, err := c.resolve(ctx, host)
 	if err != nil {
 		return fmt.Errorf("integrations: resolve %s: %w", host, err)
 	}
 	for _, ip := range ips {
-		if !classifyIP(ip, c.policy.AllowLoopback) {
+		if !classifyIP(ip, allowPrivate) {
 			return nil
 		}
 	}

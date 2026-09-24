@@ -26,6 +26,7 @@ import (
 	testimonialapp "stairplatform/internal/application/testimonial"
 	domevents "stairplatform/internal/domain/events"
 	"stairplatform/internal/infrastructure/circuitbreaker"
+	"stairplatform/internal/infrastructure/envguard"
 
 	"stairplatform/internal/application/stair"
 	appstorage "stairplatform/internal/application/storage"
@@ -149,8 +150,14 @@ func main() {
 	intSvc := integrations.NewService(database.NewIntegrationRepository(pool), queueBackend.Queue())
 	// S-104: нормализованный продакшен-детект (используется S1-2-гардом
 	// и Stripe-guard'ом ниже).
-	env := os.Getenv("STAIR_ENVIRONMENT")
-	isProduction := strings.EqualFold(env, "production") || strings.EqualFold(env, "prod")
+	// S-151: пустое/неизвестное STAIR_ENVIRONMENT — fail-fast: опечатка
+	// молча отключала прод-гарды (шифрование секретов, Stripe, SSRF).
+	env, envErr := envguard.Validate(os.Getenv("STAIR_ENVIRONMENT"))
+	if envErr != nil {
+		slog.Error("invalid STAIR_ENVIRONMENT", "error", envErr)
+		os.Exit(1)
+	}
+	isProduction := envguard.IsProduction(env)
 	// S1-2: шифрование webhook-секретов at rest (STAIR_SECRETS_KEY, hex 64).
 	// S-104: в проде ключ обязателен — без него webhook-секреты лежат plaintext.
 	// AUDIT-EXCEPTION(E01): мастер-ключ задаёт человек, см. docs/SECURITY_EXCEPTIONS.yml

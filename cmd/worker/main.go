@@ -26,6 +26,7 @@ import (
 	"stairplatform/internal/application/jobs"
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/infrastructure/database"
+	"stairplatform/internal/infrastructure/envguard"
 	infintegrations "stairplatform/internal/infrastructure/integrations"
 	"stairplatform/internal/infrastructure/queue"
 	"stairplatform/internal/infrastructure/redisconf"
@@ -41,9 +42,10 @@ const tracerName = "stair-platform-worker"
 // isProductionEnv — нормализованный продакшен-детект (production|prod,
 // EqualFold). Неканоничное значение STAIR_ENVIRONMENT не должно отключать
 // SSRF-политику и требование STAIR_SECRETS_KEY (S-104, S-113).
+// Реализация вынесена в internal/infrastructure/envguard (S-151: единый
+// fail-closed детект для api и worker).
 func isProductionEnv(environment string) bool {
-	return strings.EqualFold(environment, "production") ||
-		strings.EqualFold(environment, "prod")
+	return envguard.IsProduction(environment)
 }
 
 // webhookPolicy строит SSRF-политику webhook-доставки (S1-1, S-104).
@@ -67,6 +69,13 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 	slog.Info(version.String())
+
+	// S-151: fail-closed на STAIR_ENVIRONMENT — пустое/неизвестное значение
+	// молча отключало SSRF-политику и требование STAIR_SECRETS_KEY.
+	if _, err := envguard.Validate(os.Getenv("STAIR_ENVIRONMENT")); err != nil {
+		logger.Error("invalid STAIR_ENVIRONMENT", "error", err)
+		os.Exit(1)
+	}
 
 	// Трассировка (OTLP → Jaeger/Tempo; STAIR_TRACING_ENABLED="true").
 	tracingShutdown, err := tracing.InitTracer(context.Background(), tracing.Config{
