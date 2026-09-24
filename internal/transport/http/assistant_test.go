@@ -181,6 +181,24 @@ func TestAssistantServiceError(t *testing.T) {
 	}
 }
 
+func TestAssistantForbiddenProject(t *testing.T) {
+	// S-142 (IDOR-фикс S-141 №1): project_id из тела, но вызывающий не
+	// член проекта → 403, а не данные чужой conversation-memory.
+	ast := &fakeAssistant{err: fmt.Errorf("%w: not a member of project", appast.ErrForbidden)}
+	router := assistantTestRouter(newFakeAuth(), ast)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/assistant/design",
+		strings.NewReader(`{"width_mm":900,"height_mm":2700,"project_id":"p-other"}`))
+	req.AddCookie(testCookie(sessionCookieName, "token-1"))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 on non-member project, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"forbidden"`) {
+		t.Fatalf("body should carry forbidden code, got %s", rec.Body.String())
+	}
+}
+
 func TestAssistantInternalError(t *testing.T) {
 	ast := &fakeAssistant{err: errors.New("model backend down")}
 	router := assistantTestRouter(newFakeAuth(), ast)

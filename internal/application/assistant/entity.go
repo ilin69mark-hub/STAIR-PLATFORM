@@ -33,6 +33,12 @@ var ErrInvalid = errors.New("assistant: invalid input")
 // ErrNoFeasible — для входных данных нет допустимой конфигурации.
 var ErrNoFeasible = errors.New("assistant: no feasible configuration for the input")
 
+// ErrForbidden — доступ запрещён (S-142, IDOR-фикс S-141 №1): запрос
+// ссылается на проект (project_id из тела), членом которого вызывающий
+// не является; conversation-memory такому запросу не отдаётся и не
+// дописывается. Маппится в 403 на транспортном слое.
+var ErrForbidden = errors.New("assistant: forbidden")
+
 // Kind — тип ассистента (одно из направлений Phase D).
 type Kind string
 
@@ -110,8 +116,9 @@ type AnalysisRequest struct {
 	Config  stair.Config
 	Options stair.Options
 	// ProjectID — скоуп conversation-memory (S-135, AI-0006); пустая —
-	// память для запроса не используется. Проект должен принадлежать tenant
-	// (проверяется на уровне хранилища).
+	// память для запроса не используется. Перед чтением/записью памяти
+	// сервис проверяет членство вызывающего в проекте (S-142, EDR-0008):
+	// не-член получает ErrForbidden.
 	ProjectID string
 	// HistoryLimit — число последних сообщений диалога в контекст
 	// (0 → DefaultHistoryLimit=10, cap MaxHistoryLimit=50; <0 → без истории).
@@ -137,6 +144,10 @@ type Service struct {
 	topK int
 	// Память диалога (S-135, AI-0006): nil — память выключена.
 	memory MemoryStore
+	// projectAuthz — проверка членства в проекте (S-142, IDOR-фикс S-141
+	// №1): обязателен при включённой памяти, иначе доступ к памяти
+	// fail-closed (без авторизатора conversation-memory не работает).
+	projectAuthz ProjectAuthorizer
 }
 
 // NewService создаёт сервис ассистентов с локальным (детерминированным)
@@ -184,6 +195,16 @@ func (s *Service) WithRAG(r Retriever, topK int) *Service {
 // выполняет хранилище/фоновый prune (STAIR_AI_MEMORY_TTL).
 func (s *Service) WithMemory(m MemoryStore) *Service {
 	s.memory = m
+	return s
+}
+
+// WithProjectAuthz подключает проверку членства в проекте (S-142,
+// IDOR-фикс S-141 №1): project_id приходит из тела запроса, поэтому перед
+// чтением/записью conversation-memory сервис обязан убедиться, что
+// вызывающий — член проекта (реализует project.Service). Без авторизатора
+// память не работает (fail-closed).
+func (s *Service) WithProjectAuthz(a ProjectAuthorizer) *Service {
+	s.projectAuthz = a
 	return s
 }
 
@@ -260,9 +281,10 @@ func jsonMarshal(v interface{}) (string, error) {
 
 // Ask обрабатывает запрос ассистента kind: планирование → tool calls →
 // сборка ответа → RAG-контекст/память → комментарий модели; аудит и
-// метрика. Ошибка — только при невозможности выполнить анализ
-// (невалидный вход, сбой тула, отмена). Сбой RAG/памяти — best-effort:
-// ответ не проваливается (AI-0003 деградация).
+// метрика. Ошибка — при невозможности выполнить анализ (невалидный вход,
+// сбой тула, отмена) либо ErrForbidden, когда запрос ссылается на проект,
+// членом которого вызывающий не является (S-142). Сбой RAG/памяти —
+// best-effort: ответ не проваливается (AI-0003 деградация).
 func (s *Service) Ask(ctx context.Context, tenantID, userID string, kind Kind, req Request) (*Result, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -277,6 +299,17 @@ func (s *Service) Ask(ctx context.Context, tenantID, userID string, kind Kind, r
 
 	projectID := projectIDOf(req)
 	historyLimit := historyLimitOf(req)
+
+	// S-142 (IDOR-фикс S-141 №1): project_id приходит из тела запроса.
+	// Проверка членства выполняется ДО чтения (RecentMessages) и записи
+	// (remember): не-член получает ErrForbidden, память не читается и не
+	// дописывается (единая проверка на весь запрос).
+	if s.memory != nil && projectID != "" {
+		if err := s.authorizeProject(ctx, tenantID, userID, projectID, kind); err != nil {
+			return nil, err
+		}
+	}
+
 	var history []MemoryMessage
 	if s.memory != nil && projectID != "" {
 		if h, herr := s.memory.RecentMessages(ctx, tenantID, projectID, historyLimit); herr == nil {
@@ -341,6 +374,25 @@ func (s *Service) Ask(ctx context.Context, tenantID, userID string, kind Kind, r
 	s.auditResult(ctx, tenantID, userID, kind, audit.ResultOK, detail)
 	assistantDuration.With(string(kind), "true").Observe(s.now().Sub(start).Seconds())
 	return &Result{Kind: kind, Response: *resp, Commentary: ans.Text}, nil
+}
+
+// authorizeProject проверяет членство вызывающего в проекте перед
+// чтением/записью conversation-memory (S-142, IDOR-фикс S-141 №1).
+// Не-член — ErrForbidden (отказ аудируется); сбой проверки/отсутствие
+// авторизатора — ошибка (fail-closed: память без авторизации недоступна).
+func (s *Service) authorizeProject(ctx context.Context, tenantID, userID, projectID string, kind Kind) error {
+	if s.projectAuthz == nil {
+		return fmt.Errorf("assistant: project authorization not configured (memory requires WithProjectAuthz, S-142)")
+	}
+	ok, err := s.projectAuthz.IsMember(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return fmt.Errorf("assistant: project membership check: %w", err)
+	}
+	if !ok {
+		s.auditResult(ctx, tenantID, userID, kind, audit.ResultDenied, "conversation-memory: project membership denied")
+		return fmt.Errorf("%w: not a member of project", ErrForbidden)
+	}
+	return nil
 }
 
 // remember дописывает user+assistant сообщения диалога в хранилище

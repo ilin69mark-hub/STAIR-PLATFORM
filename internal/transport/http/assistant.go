@@ -33,6 +33,7 @@ type assistantRequest struct {
 // kind ∈ design|engineering|manufacturing|pricing.
 // 200 — рекомендация ассистента (структурный ответ + комментарий);
 // 400 — некорректный JSON;
+// 403 — project_id из тела, но вызывающий не член проекта (S-142);
 // 404 — неизвестный kind;
 // 422 — невалидный вход / недоступный ассистент / нет допустимой конфигурации;
 // 499 — отмена контекста; 500 — внутренняя ошибка.
@@ -90,8 +91,13 @@ func handleAssistantAsk(svc AssistantService) http.HandlerFunc {
 				return
 			}
 			// ErrInvalid / ErrNoFeasible — ошибка входных данных (клиент):
-			// 422. Прочие (сбой модели, инфраструктуры, неожиданное) —
+			// 422. ErrForbidden — проект вне членства вызывающего (S-142):
+			// 403. Прочие (сбой модели, инфраструктуры, неожиданное) —
 			// 500, чтобы не маскировать внутренние проблемы под ошибку ввода.
+			if errors.Is(err, appast.ErrForbidden) {
+				writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
+				return
+			}
 			if errors.Is(err, appast.ErrInvalid) || errors.Is(err, appast.ErrNoFeasible) {
 				writeInputError(w, "invalid_input", err)
 			} else {

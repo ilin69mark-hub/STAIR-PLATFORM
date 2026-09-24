@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -67,6 +68,31 @@ func (f *fakeMemory) RecentMessages(_ context.Context, _, _ string, limit int) (
 
 func (f *fakeMemory) PruneMessages(context.Context, time.Time) (int64, error) { return 0, nil }
 
+// fakeAuthz — управляемый ProjectAuthorizer (S-142): members — карта
+// "tenant/user/project" → членство; err — сбой проверки.
+type fakeAuthz struct {
+	mu      sync.Mutex
+	members map[string]bool
+	err     error
+	calls   int
+}
+
+func (f *fakeAuthz) IsMember(_ context.Context, tenantID, userID, projectID string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.err != nil {
+		return false, f.err
+	}
+	return f.members[tenantID+"/"+userID+"/"+projectID], nil
+}
+
+func (f *fakeAuthz) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
 // auditSpy — in-memory audit.Repository.
 type auditSpy struct {
 	mu     sync.Mutex
@@ -105,7 +131,8 @@ func TestAskWithRAG(t *testing.T) {
 	spy := &auditSpy{}
 	svc := NewService(calc, audit.NewService(spy)).
 		WithRAG(retr, 5).
-		WithMemory(mem)
+		WithMemory(mem).
+		WithProjectAuthz(&fakeAuthz{members: map[string]bool{"t1/u1/p1": true}})
 
 	res, err := svc.Ask(context.Background(), "t1", "u1", KindDesign, DesignRequest{
 		Config:    stair.Config{Width: 900, Height: 2700, Flight: engineering.FlightStraight},
@@ -168,7 +195,8 @@ func TestAskMemoryHistoryInContext(t *testing.T) {
 		{TenantID: "t1", ProjectID: "p1", Role: "user", Content: "Какой марш дешевле?", CreatedAt: time.Now()},
 	}}
 	retr := &fakeRetriever{}
-	svc := NewService(calc, nil).WithRAG(retr, 3).WithMemory(mem)
+	svc := NewService(calc, nil).WithRAG(retr, 3).WithMemory(mem).
+		WithProjectAuthz(&fakeAuthz{members: map[string]bool{"t1/u1/p1": true}})
 
 	// Первичный бэкенд — spy, чтобы увидеть Prompt.Context.
 	backend := &captureBackend{}
@@ -224,7 +252,8 @@ func TestAskMemoryFailureIsBestEffort(t *testing.T) {
 		engineering.FlightStraight: optResult(engineering.FlightStraight, 100, 630),
 	}}
 	mem := &fakeMemory{recentErr: errBoom}
-	svc := NewService(calc, nil).WithMemory(mem)
+	svc := NewService(calc, nil).WithMemory(mem).
+		WithProjectAuthz(&fakeAuthz{members: map[string]bool{"t1/u1/p1": true}})
 	if _, err := svc.Ask(context.Background(), "t1", "u1", KindDesign, DesignRequest{
 		Config:    stair.Config{Width: 900, Height: 2700, Flight: engineering.FlightStraight},
 		ProjectID: "p1",
@@ -261,7 +290,8 @@ func TestAskHistoryLimitClamped(t *testing.T) {
 		mem.msgs = append(mem.msgs, MemoryMessage{Role: "user", Content: "m", CreatedAt: time.Now()})
 	}
 	backend := &captureBackend{}
-	svc := NewService(calc, nil).WithMemory(mem).WithPrimaryBackend(backend)
+	svc := NewService(calc, nil).WithMemory(mem).WithPrimaryBackend(backend).
+		WithProjectAuthz(&fakeAuthz{members: map[string]bool{"t1/u1/p1": true}})
 	if _, err := svc.Ask(context.Background(), "t1", "u1", KindDesign, DesignRequest{
 		Config:       stair.Config{Width: 900, Height: 2700, Flight: engineering.FlightStraight},
 		ProjectID:    "p1",
@@ -271,5 +301,83 @@ func TestAskHistoryLimitClamped(t *testing.T) {
 	}
 	if !strings.Contains(backend.got.Context, "последние 50") {
 		t.Fatalf("history not capped to 50: %q", backend.got.Context)
+	}
+}
+
+// Тесты ниже — S-142 (IDOR-фикс S-141 №1): conversation-memory гейтится
+// членством в проекте (ErrForbidden для не-члена).
+
+func TestAskMemoryForbiddenForNonMember(t *testing.T) {
+	calc := &fakeCalc{optByFlight: map[engineering.FlightType]*stair.OptimizeResult{
+		engineering.FlightStraight: optResult(engineering.FlightStraight, 100, 630),
+	}}
+	mem := &fakeMemory{msgs: []MemoryMessage{
+		{TenantID: "t1", ProjectID: "p-other", Role: "user", Content: "секретный диалог чужого проекта", CreatedAt: time.Now()},
+	}}
+	authz := &fakeAuthz{members: map[string]bool{}} // u1 — не член ни одного проекта
+	svc := NewService(calc, nil).WithMemory(mem).WithProjectAuthz(authz)
+
+	_, err := svc.Ask(context.Background(), "t1", "u1", KindDesign, DesignRequest{
+		Config:    stair.Config{Width: 900, Height: 2700, Flight: engineering.FlightStraight},
+		ProjectID: "p-other",
+	})
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected ErrForbidden for non-member, got %v", err)
+	}
+	// Проверка членства сработала ровно один раз (гейт чтения + записи).
+	if n := authz.callCount(); n != 1 {
+		t.Fatalf("membership checks = %d, want 1", n)
+	}
+	// Память не дописывалась (запись не выполняется без членства).
+	mem.mu.Lock()
+	defer mem.mu.Unlock()
+	if len(mem.msgs) != 1 {
+		t.Fatalf("memory must not be appended for non-member, msgs = %d", len(mem.msgs))
+	}
+}
+
+func TestAskMemoryMemberAccessOK(t *testing.T) {
+	calc := &fakeCalc{optByFlight: map[engineering.FlightType]*stair.OptimizeResult{
+		engineering.FlightStraight: optResult(engineering.FlightStraight, 100, 630),
+	}}
+	mem := &fakeMemory{}
+	authz := &fakeAuthz{members: map[string]bool{"t1/u1/p1": true}}
+	svc := NewService(calc, nil).WithMemory(mem).WithProjectAuthz(authz)
+
+	if _, err := svc.Ask(context.Background(), "t1", "u1", KindDesign, DesignRequest{
+		Config:    stair.Config{Width: 900, Height: 2700, Flight: engineering.FlightStraight},
+		ProjectID: "p1",
+	}); err != nil {
+		t.Fatalf("Ask for member: %v", err)
+	}
+	if n := authz.callCount(); n != 1 {
+		t.Fatalf("membership checks = %d, want 1", n)
+	}
+	mem.mu.Lock()
+	defer mem.mu.Unlock()
+	if len(mem.msgs) != 2 {
+		t.Fatalf("memory messages = %d, want 2 (user+assistant)", len(mem.msgs))
+	}
+}
+
+func TestAskMemoryRequiresAuthorizer(t *testing.T) {
+	// Fail-closed (S-142): память подключена, авторизатор — нет → доступ
+	// к памяти запрещён, а не молча разрешён (иначе IDOR возвращается).
+	calc := &fakeCalc{optByFlight: map[engineering.FlightType]*stair.OptimizeResult{
+		engineering.FlightStraight: optResult(engineering.FlightStraight, 100, 630),
+	}}
+	mem := &fakeMemory{}
+	svc := NewService(calc, nil).WithMemory(mem) // без WithProjectAuthz
+
+	if _, err := svc.Ask(context.Background(), "t1", "u1", KindDesign, DesignRequest{
+		Config:    stair.Config{Width: 900, Height: 2700, Flight: engineering.FlightStraight},
+		ProjectID: "p1",
+	}); err == nil {
+		t.Fatal("expected error when memory is enabled without project authorizer")
+	}
+	mem.mu.Lock()
+	defer mem.mu.Unlock()
+	if len(mem.msgs) != 0 {
+		t.Fatal("memory must not be touched without authorizer")
 	}
 }

@@ -200,7 +200,9 @@ func main() {
 	//     сам деградирует в FTS (не проваливает ответ).
 	// Память: TTL-очистка STAIR_AI_MEMORY_TTL (default 30 суток) фоновой
 	// горутиной; в контекст ответа попадают последние history_limit сообщений
-	// проекта (D1–D4, скоуп проверяется хранилищем по FK tenant+project).
+	// проекта (D1–D4). Доступ гейтится членством вызывающего в проекте
+	// (S-142, WithProjectAuthz ниже); хранилище дополнительно скоупит по
+	// tenant+project (FK).
 	aiRepo := database.NewAIRepository(pool)
 	var ragRetriever appast.Retriever
 	if embedBase := os.Getenv("STAIR_AI_EMBED_BASE_URL"); embedBase != "" {
@@ -221,7 +223,10 @@ func main() {
 	}
 	assistantSvc = assistantSvc.
 		WithRAG(ragRetriever, envInt("STAIR_AI_RAG_TOP_K", 5)).
-		WithMemory(aiRepo)
+		WithMemory(aiRepo).
+		// S-142 (IDOR-фикс S-141 №1): conversation-memory скоупится по
+		// project_id из тела запроса — гейтим членством в проекте.
+		WithProjectAuthz(projectSvc)
 
 	// Фоновая TTL-очистка conversation-memory (S-135): запускаем при старте
 	// и далее раз в memoryTTL. Best-effort: сбой prune не валит процесс.

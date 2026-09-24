@@ -761,7 +761,7 @@ paths:
                   maximum: 50
                   description: "Глубина истории диалога в контекст: 0 → default 10, cap 50, <0 → без истории"
       responses:
-        201:
+        200:
           description: OK
         400:
           description: Invalid request
@@ -771,6 +771,12 @@ paths:
                 $ref: "#/components/schemas/Error"
         401:
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: "Forbidden: project_id из тела, но вызывающий не член проекта (S-142)"
           content:
             application/json:
               schema:

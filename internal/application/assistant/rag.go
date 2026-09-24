@@ -143,6 +143,17 @@ const (
 	MaxHistoryLimit     = 50
 )
 
+// ProjectAuthorizer — порт проверки членства в проекте (S-142, IDOR-фикс
+// S-141 №1). Conversation-memory скоупится по projectID, который приходит
+// из тела запроса, поэтому перед чтением (RecentMessages) и записью
+// (AppendMessages) сервис обязан убедиться, что вызывающий — член проекта
+// (EDR-0008); иначе — ErrForbidden. Реализует application/project.Service
+// (инверсия зависимостей: assistant не импортирует project).
+// Чужой/несуществующий проект — (false, nil); сбой проверки — (false, err).
+type ProjectAuthorizer interface {
+	IsMember(ctx context.Context, tenantID, userID, projectID string) (bool, error)
+}
+
 // clampHistoryLimit нормализует запрошенный history_limit:
 // 0 → DefaultHistoryLimit; > Max → Max; отрицательные → 0 (без истории).
 func clampHistoryLimit(n int) int {
