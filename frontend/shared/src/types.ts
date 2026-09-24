@@ -456,6 +456,17 @@ export interface MeshVertex {
 export interface Mesh {
   Vertices: MeshVertex[]
   Triangles: Array<[number, number, number]>
+  // PartRanges — диапазоны треугольников по телам с ролями (этап 1:
+  // tread/stringer/landing/railing_*). Позволяет назначить деталям разные
+  // PBR-материалы в 3D. Необязателен (старый API мог не слать).
+  PartRanges?: MeshPartRange[]
+}
+
+export interface MeshPartRange {
+  Solid: number
+  Role: string
+  Start: number
+  End: number
 }
 
 export interface Part {

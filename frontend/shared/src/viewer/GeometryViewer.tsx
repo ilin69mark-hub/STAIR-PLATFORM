@@ -11,6 +11,7 @@ import { toThreePositions } from './projection'
 import { computePlacement } from '../placement'
 import { approachZoneCenterX, EXIT_BLOCK_H, exitSlabBox, exitWallSide, stairTopLineX, wallBox, wallBoundsOf, type Box3Like, type BoxSpec, type WallSide } from './layout'
 import { ANNOTATE, edgeColor, WALLS } from '../scheme-annot'
+import { createRailingMaterial, createStairMaterial } from './materials'
 
 interface Props {
   mesh: ApiMesh
@@ -47,6 +48,14 @@ interface Props {
   // environmentHDRI — URL студийного HDRI (Poly Haven, CC0) для отражений.
   // Необязателен: при ошибке загрузки остаётся процедурный RoomEnvironment.
   environmentHDRI?: string
+  // materialCode — код материала деталей (WOOD-OAK, STEEL-CORTEN, …) из
+  // пользовательского ввода: определяет PBR-набор в 3D (этап 1).
+  materialCode?: string
+  // finishId — финиш поверх материала (масло/лак/краска): меняет вид,
+  // но не код материала и не цену.
+  finishId?: string
+  // railingMetal — ограждение металлом вместо стекла.
+  railingMetal?: boolean
   // castShadow — принимают ли лестница/перила/пол тень (этап 1, студийный вид).
   castShadow?: boolean
 }
@@ -111,6 +120,51 @@ function mirrorX(geo: THREE.BufferGeometry) {
 // Превью WebGL-контекста: не каждый браузер/устройство поддерживает трёхмерный
 // рендер (P0-6). Проверяем доступность контекста заранее, чтобы не создавать
 // THREE.WebGLRenderer без поддержки.
+// buildRoleGroups (этап 1) — разрезает геометрию марша на группы по ролям
+// деталей (tread/stringer/landing/…) и надевает на каждую свой PBR-материал.
+// Треугольники делятся между материалами (geometry.addGroup) — вершины и
+// нормали остаются общими, память не дублируется. Пустой массив → вызывающий
+// оставляет монолитный меш (старый API без PartRanges).
+function buildRoleGroups(
+  geo: THREE.BufferGeometry,
+  api: ApiMesh,
+  opts: { materialCode: string; finishId?: string; castShadow: boolean },
+): THREE.Mesh[] {
+  const ranges = api.PartRanges
+  if (!ranges?.length) return []
+  const total = api.Triangles.length
+  const groups: { start: number; count: number; role: string }[] = []
+  for (const r of ranges) {
+    const start = Math.max(0, Math.min(r.Start, total))
+    const end = Math.max(start, Math.min(r.End, total))
+    if (end <= start) continue
+    groups.push({ start, count: end - start, role: r.Role || 'stair' })
+  }
+  if (!groups.length) return []
+
+  const box = geo.boundingBox
+  const sizeMM = box
+    ? Math.max(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z)
+    : 1000
+
+  const materials: THREE.Material[] = []
+  for (const g of groups) {
+    geo.addGroup(g.start, g.count, materials.length)
+    materials.push(
+      createStairMaterial({
+        code: opts.materialCode,
+        finishId: opts.finishId,
+        role: g.role,
+        sizeMM,
+      }),
+    )
+  }
+  const m = new THREE.Mesh(geo, materials)
+  m.castShadow = opts.castShadow
+  m.receiveShadow = opts.castShadow
+  return [m]
+}
+
 function webglSupported(): boolean {
   try {
     const canvas = document.createElement('canvas')
@@ -129,6 +183,9 @@ export function GeometryViewer({
   direction,
   roomWidth,
   environmentHDRI,
+  materialCode = 'STEEL-S235',
+  finishId,
+  railingMetal = false,
   castShadow = true,
   roomLength,
   approachSpace,
@@ -295,17 +352,29 @@ export function GeometryViewer({
       return { mesh: m, geo: g }
     }
 
-    const stairMat = new THREE.MeshStandardMaterial({
+    // Этап 1: материалы по ролям деталей. Бэкенд отдаёт PartRanges
+    // (Solid, Role, Start, End) — ступени/косоуры/площадка получают свои
+    // PBR-пресеты. Если PartRanges нет (старый API) — один материал на весь
+    // марш, как раньше.
+    const stair = makeMesh(mesh, new THREE.MeshStandardMaterial({
       color: 0x4f8df7,
       roughness: 0.55,
       metalness: 0.12,
       side: THREE.DoubleSide,
-    })
-    stairMat.envMapIntensity = 1.0
-    const stair = makeMesh(mesh, stairMat)
+    }))
     if (castShadow) {
       stair.mesh.castShadow = true
       stair.mesh.receiveShadow = true
+    }
+    const roleGroups = buildRoleGroups(stair.geo, mesh, {
+      materialCode,
+      finishId,
+      castShadow,
+    })
+    if (roleGroups.length > 0) {
+      // Заменяем монолит на группы по ролям: геометрия та же, материалы — PBR.
+      scene.remove(stair.mesh)
+      for (const group of roleGroups) scene.add(group)
     }
 
     // ADR: 2D-план рисует первый шаг на +X, а 3D-меш генерирует первый шаг на
@@ -340,12 +409,8 @@ export function GeometryViewer({
     // зеркалим так же, как stair.geo.
     let railing: { mesh: THREE.Mesh; geo: THREE.BufferGeometry } | null = null
     if (railingMesh?.Vertices?.length && railingMesh?.Triangles) {
-      const railMat = new THREE.MeshStandardMaterial({
-        color: 0x9aa7b8,
-        roughness: 0.5,
-        metalness: 0.2,
-        side: THREE.DoubleSide,
-      })
+      // Стекло по умолчанию (с отражениями), металл — по флагу railingMetal.
+      const railMat = createRailingMaterial(railingMetal)
       const positions = new Float32Array(toThreePositions(railingMesh.Vertices))
       const indices = new Uint32Array(railingMesh.Triangles.length * 3)
       railingMesh.Triangles.forEach((t, i) => {
@@ -685,7 +750,9 @@ export function GeometryViewer({
       ro.disconnect()
       controls.removeEventListener('change', onChange)
       controls.dispose()
-      stairMat.dispose()
+      for (const mat of Array.isArray(stair.mesh.material) ? stair.mesh.material : [stair.mesh.material]) {
+        mat.dispose()
+      }
       stair.geo.dispose()
       if (room) {
         ;(room.mesh.material as THREE.Material).dispose()
@@ -694,6 +761,13 @@ export function GeometryViewer({
       if (railing) {
         ;(railing.mesh.material as THREE.Material).dispose()
         railing.geo.dispose()
+      }
+      if (roleGroups.length > 0) {
+        for (const group of roleGroups) {
+          for (const mat of Array.isArray(group.material) ? group.material : [group.material]) {
+            mat.dispose()
+          }
+        }
       }
       renderer.dispose()
       if (topLine) {

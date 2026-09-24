@@ -130,15 +130,17 @@ def fetch_material(code: str) -> bool:
                 raw = zf.read(name)
             except KeyError:
                 continue
-            stem = Path(name).stem
-            if "_color" in stem:
-                target, normal = out_dir / "color.jpg", False
-            elif "_normal" in stem:
-                target, normal = out_dir / "normal.jpg", True
+            stem = Path(name).stem.lower()
+            if "_normalgl" in stem or "_normaldx" in stem or "_normal" in stem:
+                target, normal = out_dir / "normal.jpg", "_normalgl" in stem
             elif "_roughness" in stem:
                 target, normal = out_dir / "roughness.jpg", False
-            else:
+            elif "_color" in stem or "_albedo" in stem or "_diffuse" in stem:
+                target, normal = out_dir / "color.jpg", False
+            elif "_ao" in stem or "_ambientocclusion" in stem:
                 target, normal = out_dir / "ao.jpg", False
+            else:
+                continue
             save_map(raw, target, normal)
             saved += 1
     if saved == 0:
