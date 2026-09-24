@@ -68,3 +68,14 @@
 - Точечные: Forget ×3, DeleteMessages (PG), Forget-транспорт ×3, Budget ×5,
   safety 12/12 — зелёные.
 - Полный `go test -race -p 1 ./...` — в фоне, результат дописать координатору.
+
+## Gotcha: двойной swagger + дрейф генератора (закрыто тут же)
+
+- `TestSwaggerSpecMatchesRoutes` упал: я правил `docs/openapi/swagger.yaml`
+  вручную, а тест читает embedded-копию
+  `internal/transport/http/swagger/swagger.yaml`. Правило: только
+  `python3 hack/gen_swagger.py --write` (пишет оба файла из роутера).
+- Второй дрейф: генератор добавил в spec `/ws/admin`, а тест его исключает
+  (`nonRESTRoutes`) — скрипт не обновили после S-116 (admin-namespace).
+  Фикс-корень: `/ws/admin` в `NON_REST` генератора (коммит `0ce0cbe`).
+  Урок: чей-то hand-sync spec — всегда через генератор + этот тест.
