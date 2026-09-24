@@ -32,6 +32,7 @@ interface Props {
   // а просит Конструктор пересчитать с новой высотой ступени / направлением.
   onAdjustStepHeight?: (stepHeightMM: number) => void
   onFlipDirection?: () => void
+  onAdjustHeight?: (heightMM: number) => void
   // Свободное пространство перед первой ступенью (мм), введено в калькуляторе
   // (дефолт 1000). Передаём в solverOf, чтобы не зависеть от сдвига модели.
   approachSpaceMM?: string
@@ -53,6 +54,7 @@ export function QuoteResult({
   material,
   onAdjustStepHeight,
   onFlipDirection,
+  onAdjustHeight,
   environmentHDRI = '/static-assets/hdri/studio_small_08_1k.hdr',
   finishId,
   railingMetal = true,
@@ -71,7 +73,12 @@ export function QuoteResult({
   // если Конструктор не передал персистентный список.
   // Этап 2: выбранная в 3D деталь и действия над ней.
   const [selectedPart, setSelectedPart] = useState<{ solid: number; role: string } | null>(null)
+  // Живая высота при перетаскивании ступени в 3D (null — перетаскивания нет).
+  const [dragHeight, setDragHeight] = useState<number | null>(null)
   const stepCount = solver.flight?.StepCount ?? 0
+  // Поворот марша есть только у L/П/спирали: у прямого марша API не принимает
+  // направление (вид зеркалит 3D), поэтому кнопку там не показываем.
+  const hasDirection = solver.kind === 'l_shape' || solver.kind === 'u_shape' || solver.kind === 'spiral'
   const canAdjust = stepCount > 0 && !!heightMM
   const nudgeStepCount = (delta: number) => {
     if (!canAdjust || !onAdjustStepHeight) return
@@ -178,25 +185,32 @@ export function QuoteResult({
                 environmentHDRI={environmentHDRI}
                 finishId={finishId}
                 railingMetal={railingMetal}
-                interactive={!!onAdjustStepHeight}
+                interactive={!!onAdjustStepHeight || !!onAdjustHeight}
+                onDragPreview={setDragHeight}
+                onDragHeight={onAdjustHeight}
                 selectedPart={selectedPart}
                 onSelectPart={setSelectedPart}
                 overlay={
-                  selectedPart ? (
+                  selectedPart || dragHeight != null ? (
                     <div className="viewer-hud">
                       <span className="viewer-hud__title">
-                        {partLabel(selectedPart.solid, selectedPart.role)}
+                        {selectedPart
+                          ? partLabel(selectedPart.solid, selectedPart.role)
+                          : 'Высота марша'}
                       </span>
                       <span className="viewer-hud__meta">
-                        Ступеней: {stepCount} · высота ступени{' '}
-                        {solver.flight ? Math.round(solver.flight.StepHeight) : 0} мм
+                        {dragHeight != null
+                          ? `Новая высота: ${dragHeight} мм — отпустите, чтобы применить`
+                          : `Ступеней: ${stepCount} · высота ступени ${
+                              solver.flight ? Math.round(solver.flight.StepHeight) : 0
+                            } мм · тяните ступень вверх/вниз`}
                       </span>
                       <div className="viewer-hud__actions">
                         <button
                           type="button"
                           className="sp-btn"
                           onClick={() => nudgeStepCount(-1)}
-                          disabled={!canAdjust || stepCount <= 2}
+                          disabled={!canAdjust || stepCount <= 2 || dragHeight != null}
                         >
                           − ступень
                         </button>
@@ -204,16 +218,23 @@ export function QuoteResult({
                           type="button"
                           className="sp-btn"
                           onClick={() => nudgeStepCount(1)}
-                          disabled={!canAdjust || stepCount >= 60}
+                          disabled={!canAdjust || stepCount >= 60 || dragHeight != null}
                         >
                           + ступень
                         </button>
-                        {onFlipDirection && (
+                        {onFlipDirection && hasDirection && (
                           <button type="button" className="sp-btn" onClick={onFlipDirection}>
                             Развернуть
                           </button>
                         )}
-                        <button type="button" className="sp-btn" onClick={() => setSelectedPart(null)}>
+                        <button
+                          type="button"
+                          className="sp-btn"
+                          onClick={() => {
+                            setSelectedPart(null)
+                            setDragHeight(null)
+                          }}
+                        >
                           Закрыть
                         </button>
                       </div>

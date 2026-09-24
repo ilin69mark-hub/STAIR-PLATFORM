@@ -536,6 +536,16 @@ export function Constructor() {
     void calculate(next)
   }
 
+  // Перетаскивание ступени в 3D меняет общую высоту марша.
+  const adjustHeight = (heightMM: number) => {
+    const next = { ...config, heightMM: String(heightMM) }
+    setConfig(next)
+    setErrors(validateForm(next))
+    setTouched(true)
+    logAction({ action: 'stair.height_adjusted', resource_type: 'stair', detail: String(heightMM) })
+    void calculate(next)
+  }
+
   const flipDirection = () => {
     const flip = <T extends string>(v: T) => (v === 'left' ? 'right' : 'left') as T
     const next = {
@@ -834,6 +844,7 @@ export function Constructor() {
             heightMM={Number(config.heightMM) || undefined}
             onAdjustStepHeight={adjustStepHeight}
             onFlipDirection={flipDirection}
+            onAdjustHeight={adjustHeight}
           />
           {!quote.validation.blocking && quote.pricing && request && (
             <OrderForm

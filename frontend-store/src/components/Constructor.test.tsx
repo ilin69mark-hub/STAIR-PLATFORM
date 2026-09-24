@@ -1,4 +1,5 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Constructor } from './Constructor'
 import { quoteApi } from '../api/store'
@@ -12,7 +13,7 @@ const viewerProps = vi.hoisted(() => ({ current: {} as Record<string, unknown> }
 vi.mock('@shared/viewer/GeometryViewer', () => ({
   GeometryViewer: (p: Record<string, unknown>) => {
     viewerProps.current = p
-    return null
+    return <div data-testid="mock-3d-viewer">{p.overlay as ReactNode}</div>
   },
 }))
 
@@ -177,6 +178,37 @@ describe('Constructor', () => {
 
     pickMaterial('ALUM-5083')
     expect(screen.getByText('Мин 2 / макс 60 мм')).toBeInTheDocument()
+  })
+
+  it('3D: перетаскивание ступени меняет высоту и сразу пересчитывает', async () => {
+    const okQuote3D: QuoteResult = { ...okQuote, mesh: mesh3d }
+    const spy = vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote3D)
+    await renderWithAuth(<Constructor />, null)
+    fillValid()
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await waitFor(() => expect(screen.getByTestId('mock-3d-viewer')).toBeInTheDocument())
+
+    act(() => {
+      ;(viewerProps.current.onDragHeight as (h: number) => void)(3100)
+    })
+    await waitFor(() =>
+      expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ height_mm: 3100 })),
+    )
+    expect(screen.getByLabelText('Высота (мм)')).toHaveValue('3100')
+  })
+
+  it('3D: у прямого марша кнопки «Развернуть» нет (у API нет направления)', async () => {
+    const okQuote3D: QuoteResult = { ...okQuote, mesh: mesh3d }
+    vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote3D)
+    await renderWithAuth(<Constructor />, null)
+    fillValid()
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await waitFor(() => expect(screen.getByTestId('mock-3d-viewer')).toBeInTheDocument())
+    act(() => {
+      ;(viewerProps.current.onSelectPart as (p: unknown) => void)({ solid: 2, role: 'tread' })
+    })
+    expect(screen.getByText('Ступень 3')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Развернуть' })).not.toBeInTheDocument()
   })
 
   it('пресет «Скандинавский дуб» подставляет материал, толщину и перила', async () => {

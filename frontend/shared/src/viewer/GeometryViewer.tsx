@@ -12,7 +12,8 @@ import { computePlacement } from '../placement'
 import { approachZoneCenterX, EXIT_BLOCK_H, exitSlabBox, exitWallSide, stairTopLineX, wallBox, wallBoundsOf, type Box3Like, type BoxSpec, type WallSide } from './layout'
 import { ANNOTATE, edgeColor, WALLS } from '../scheme-annot'
 import { createRailingMaterial, createStairMaterial } from './materials'
-import { groupsFromRanges, isEditablePart, pickPart, type PartGroup } from './picking'
+import { dragHeight, groupsFromRanges, isDragDistance, isEditablePart, pickPart, type PartGroup } from './picking'
+import { rulesFor } from '../config'
 
 interface Props {
   mesh: ApiMesh
@@ -65,6 +66,11 @@ interface Props {
   overlay?: ReactNode
   selectedPart?: { solid: number; role: string } | null
   onSelectPart?: (part: { solid: number; role: string } | null) => void
+  // Этап 2: перетаскивание ступени по вертикали меняет высоту марша.
+  // onDragPreview — живое значение во время перетаскивания, onDragHeight —
+  // зафиксированный результат (сервер авторитетен, пересчёт за Конструктором).
+  onDragPreview?: (heightMM: number | null) => void
+  onDragHeight?: (heightMM: number) => void
   // castShadow — принимают ли лестница/перила/пол тень (этап 1, студийный вид).
   castShadow?: boolean
 }
@@ -198,6 +204,8 @@ export function GeometryViewer({
   interactive = false,
   selectedPart = null,
   onSelectPart,
+  onDragPreview,
+  onDragHeight,
   overlay,
   castShadow = true,
   roomLength,
@@ -241,11 +249,24 @@ export function GeometryViewer({
   const applySelectionRef = useRef<(part: { solid: number; role: string } | null) => void>(
     () => {},
   )
+  // Колбэки перетаскивания — в рефе: пересчёт меняет данные, сцена стабильна.
+  const dragCallbacksRef = useRef({ onDragPreview, onDragHeight })
+  const heightRef = useRef(heightMM)
+  const materialRef = useRef(materialCode)
 
   useEffect(() => {
     selectedPartRef.current = selectedPart
     applySelectionRef.current(selectedPart)
   }, [selectedPart])
+
+  useEffect(() => {
+    dragCallbacksRef.current = { onDragPreview, onDragHeight }
+  }, [onDragPreview, onDragHeight])
+
+  useEffect(() => {
+    heightRef.current = heightMM
+    materialRef.current = materialCode
+  }, [heightMM, materialCode])
 
   useEffect(() => {
     wallsStateRef.current = walls
@@ -795,19 +816,64 @@ export function GeometryViewer({
           hit.object === roleGroups[0] ? partGroups : groupsFromRanges(railingMesh?.PartRanges)
         if (!groups.length) continue
         const picked = pickPart(groups, hit.faceIndex)
-        if (picked) return { picked, groupIndex: picked.groupIndex, object: hit.object }
+        if (picked) {
+          return { picked, groupIndex: picked.groupIndex, object: hit.object, point: hit.point }
+        }
       }
       return null
     }
 
     let downX = 0
     let downY = 0
+    // Активное перетаскивание: плоскость через точку захвата, перпендикулярная
+    // взгляду камеры, и стартовая высота марша.
+    let drag: {
+      plane: THREE.Plane
+      startY: number
+      startHeight: number
+      moved: boolean
+    } | null = null
+    const heightBounds = () => {
+      const rule = rulesFor('heightMM', materialRef.current as never)
+      return { min: rule.min ?? 1200, max: rule.max ?? 6000 }
+    }
     const onPointerDown = (e: PointerEvent) => {
       downX = e.clientX
       downY = e.clientY
+      if (!interactive) return
+      const hit = cast(e)
+      const startHeight = heightRef.current
+      if (!hit || !isEditablePart(hit.picked.role) || !startHeight) {
+        drag = null
+        return
+      }
+      // Захват на детали марша: отключаем вращение камеры и готовим drag.
+      const normal = new THREE.Vector3()
+      camera.getWorldDirection(normal)
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, hit.point)
+      drag = { plane, startY: hit.point.y, startHeight, moved: false }
+      controls.enabled = false
     }
     const onPointerMove = (e: PointerEvent) => {
       if (!interactive) return
+      if (drag) {
+        const rect = renderer.domElement.getBoundingClientRect()
+        if (!rect.width || !rect.height) return
+        pointerNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+        pointerNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+        raycaster.setFromCamera(pointerNDC, camera)
+        const p = new THREE.Vector3()
+        if (raycaster.ray.intersectPlane(drag.plane, p)) {
+          const delta = p.y - drag.startY
+          if (isDragDistance(delta)) drag.moved = true
+          if (drag.moved) {
+            const h = dragHeight(drag.startHeight, delta, heightBounds())
+            dragCallbacksRef.current.onDragPreview?.(h)
+            needsRender = true
+          }
+        }
+        return
+      }
       const hit = cast(e)
       const nextGroup = hit ? hit.groupIndex : -1
       if (nextGroup !== hoveredGroup) {
@@ -818,10 +884,35 @@ export function GeometryViewer({
         }
       }
       refreshSelection()
-      renderer.domElement.style.cursor = hit ? 'pointer' : 'grab'
+      renderer.domElement.style.cursor = hit
+        ? isEditablePart(hit.picked.role)
+          ? 'ns-resize'
+          : 'pointer'
+        : 'grab'
     }
     const onPointerUp = (e: PointerEvent) => {
-      if (!interactive || !onSelectPart) return
+      if (!interactive) return
+      const wasDrag = drag
+      drag = null
+      controls.enabled = true
+      if (wasDrag?.moved) {
+        const rect = renderer.domElement.getBoundingClientRect()
+        if (rect.width && rect.height) {
+          pointerNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+          pointerNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+          raycaster.setFromCamera(pointerNDC, camera)
+          const p = new THREE.Vector3()
+          if (raycaster.ray.intersectPlane(wasDrag.plane, p)) {
+            const h = dragHeight(wasDrag.startHeight, p.y - wasDrag.startY, heightBounds())
+            dragCallbacksRef.current.onDragPreview?.(null)
+            dragCallbacksRef.current.onDragHeight?.(h)
+            return
+          }
+        }
+        dragCallbacksRef.current.onDragPreview?.(null)
+        return
+      }
+      if (!onSelectPart) return
       if (Math.hypot(e.clientX - downX, e.clientY - downY) > 4) return
       const hit = cast(e)
       if (!hit || !isEditablePart(hit.picked.role)) {

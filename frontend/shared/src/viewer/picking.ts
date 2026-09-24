@@ -91,6 +91,27 @@ export function pickPart(groups: PartGroup[], faceIndex: number): PickedPart | n
   return { solid: g.solid, role: g.role, groupIndex }
 }
 
+export interface HeightBounds {
+  min: number
+  max: number
+}
+
+/**
+ * Высота марша при перетаскивании ступени: смещение указателя по вертикали
+ * (в мм, сцена three.js в миллиметрах) плюс шаг круглых 10 мм, с зажимом в
+ * допустимый диапазон. Чистая функция — тестируется без WebGL.
+ */
+export function dragHeight(startHeightMM: number, deltaY: number, bounds: HeightBounds): number {
+  const raw = startHeightMM + deltaY
+  const snapped = Math.round(raw / 10) * 10
+  return Math.min(bounds.max, Math.max(bounds.min, snapped))
+}
+
+/** Смещение считается drag'ом, а не кликом, когда указатель ушёл дальше порога. */
+export function isDragDistance(deltaY: number, threshold = 4): boolean {
+  return Math.abs(deltaY) > threshold
+}
+
 /** Можно ли редактировать выбранную деталь (редактируются ступени марша). */
 export function isEditablePart(role: string): boolean {
   return role === 'tread' || role === 'stringer' || role === 'landing'

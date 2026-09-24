@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  dragHeight,
   groupIndexForFace,
   groupsFromRanges,
+  isDragDistance,
   isEditablePart,
   partLabel,
   pickPart,
@@ -90,5 +92,26 @@ describe('isEditablePart', () => {
 
   it('ограждение не редактируется', () => {
     expect(isEditablePart('railing_post')).toBe(false)
+  })
+})
+
+describe('dragHeight', () => {
+  it('прибавляет смещение и округляет до 10 мм', () => {
+    expect(dragHeight(2700, 123.4, { min: 1200, max: 6000 })).toBe(2820)
+    expect(dragHeight(2700, -37, { min: 1200, max: 6000 })).toBe(2660)
+    expect(dragHeight(2700, 0, { min: 1200, max: 6000 })).toBe(2700)
+  })
+
+  it('зажимает в допустимый диапазон материала', () => {
+    expect(dragHeight(2700, 9999, { min: 1200, max: 6000 })).toBe(6000)
+    expect(dragHeight(2700, -9999, { min: 1200, max: 4550 })).toBe(1200)
+  })
+})
+
+describe('isDragDistance', () => {
+  it('мелкое движение — это клик, большое — перетаскивание', () => {
+    expect(isDragDistance(3)).toBe(false)
+    expect(isDragDistance(5)).toBe(true)
+    expect(isDragDistance(-5)).toBe(true)
   })
 })
