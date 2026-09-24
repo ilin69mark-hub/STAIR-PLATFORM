@@ -386,14 +386,17 @@ func main() {
 		SsoRateWindow:      time.Minute,
 		// S-120: доверенные L7-прокси (CIDR/IP через запятую) — только от них
 		// per-IP rate-limiter принимает X-Forwarded-For; пусто — XFF игнор (S-112).
-		TrustedProxies:        os.Getenv("STAIR_TRUSTED_PROXIES"),
-		RedisAddr:             os.Getenv("STAIR_REDIS_ADDR"),
-		MaxBodyBytes:          1 << 20,
-		InstanceID:            instanceID,
-		ShutdownTimeout:       shutdownTimeout,
-		Region:                region,
-		Integrations:          intSvc,
-		Storage:               storageSvc,
+		TrustedProxies:  os.Getenv("STAIR_TRUSTED_PROXIES"),
+		RedisAddr:       os.Getenv("STAIR_REDIS_ADDR"),
+		MaxBodyBytes:    1 << 20,
+		InstanceID:      instanceID,
+		ShutdownTimeout: shutdownTimeout,
+		Region:          region,
+		Integrations:    intSvc,
+		Storage:         storageSvc,
+		// Этап 1 «студийный 3D»: раздача PBR-текстур и HDRI по
+		// /static-assets/ (иммутабельный кэш, только GET/HEAD).
+		StaticAssetsDir:       envOr("STAIR_STATIC_ASSETS_DIR", "assets"),
 		Payments:              paymentSvc,
 		PaymentsWebhookSecret: paymentWebhookSecret,
 		Analytics:             analyticsSvc,

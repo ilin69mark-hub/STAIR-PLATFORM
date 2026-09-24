@@ -90,6 +90,12 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	if readiness != nil {
 		mux.HandleFunc("GET /ready", handleReady(readiness))
 	}
+	// Версионированные статические ассеты (PBR-текстуры, HDRI — этап 1).
+	// Публичные и иммутабельные: файлы версионируются по содержимому.
+	if cfg.StaticAssetsDir != "" {
+		mux.Handle("GET /static-assets/", StaticAssetsHandler(cfg.StaticAssetsDir))
+	}
+
 	// Swagger UI (internal only)
 	mux.Handle("GET /swagger", InternalOnlyMiddleware(http.HandlerFunc(handleSwaggerUI)))
 	mux.Handle("GET /docs/openapi/swagger.yaml", InternalOnlyMiddleware(http.HandlerFunc(handleSwaggerSpec)))

@@ -71,6 +71,10 @@ type Config struct {
 	// Region — идентификатор региона инстанса (STAIR_REGION, EDR-0019 §3.1);
 	// отражается в /health. Пусто — регион не задан.
 	Region string
+	// StaticAssetsDir — каталог публичных версионированных ассетов
+	// (STAIR_STATIC_ASSETS_DIR, этап 1 «студийный 3D»): PBR-текстуры и HDRI
+	// раздаются по /static-assets/. Пусто — маршрут не регистрируется.
+	StaticAssetsDir string
 	// Integrations — сервис интеграций (EDR-0023 §3.4); nil — маршруты
 	// integrations/quote-send не регистрируются.
 	Integrations IntegrationService

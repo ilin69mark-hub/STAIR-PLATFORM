@@ -4,6 +4,8 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js'
 import type { Mesh as ApiMesh } from '../types'
 import { toThreePositions } from './projection'
 import { computePlacement } from '../placement'
@@ -42,6 +44,11 @@ interface Props {
   // Высота марша из ввода пользователя (поле «Высота», мм). Задаёт верхнюю
   // кромку стен; при отстуствии берётся геометрический верх меша (sb.max.y).
   heightMM?: number
+  // environmentHDRI — URL студийного HDRI (Poly Haven, CC0) для отражений.
+  // Необязателен: при ошибке загрузки остаётся процедурный RoomEnvironment.
+  environmentHDRI?: string
+  // castShadow — принимают ли лестница/перила/пол тень (этап 1, студийный вид).
+  castShadow?: boolean
 }
 
 // Временная метка-буква для 3D-разметки (debug, см. scheme-annot.ts): рисуем
@@ -121,6 +128,8 @@ export function GeometryViewer({
   flight,
   direction,
   roomWidth,
+  environmentHDRI,
+  castShadow = true,
   roomLength,
   approachSpace,
   stepThickness = 40,
@@ -188,7 +197,13 @@ export function GeometryViewer({
     const camera = new THREE.PerspectiveCamera(45, width / height, 1, 100000)
     let renderer: THREE.WebGLRenderer
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        preserveDrawingBuffer: true,
+        // Этап 1 «студийный 3D»: явный high-performance — влияет на выбор
+        // GPU и на мобильных (Android/iOS переключают браузер на старый GL).
+        powerPreference: 'high-performance',
+      })
     } catch (err) {
       console.error('WebGL renderer init failed:', err)
       setWebglError(true)
@@ -196,6 +211,14 @@ export function GeometryViewer({
     }
     renderer.setSize(width, height)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+    // Студийная цветокоррекция: ACES сжимает яркие блики металла/дерева без
+    // выгорания, SRGB — правильная гамма для вывода на экран (до этого
+    // сцена рендерилась в линейном пространстве и выглядела «бледно»).
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.05
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
     container.appendChild(renderer.domElement)
 
     const controls = new OrbitControls(camera, renderer.domElement)
@@ -210,13 +233,49 @@ export function GeometryViewer({
       } catch {}
     }
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0xbfc8d8, 1))
-    const dir = new THREE.DirectionalLight(0xffffff, 1.4)
+    // Студийный свет (этап 1): IBL даёт мягкие отражения и заполняющие
+    // полутона, Directional — чёткую тень. HDRI грузится асинхронно; пока он
+    // не готов (или не загрузился вовсе), работает процедурный RoomEnvironment
+    // из three — сцена никогда не остаётся «чёрной».
+    const pmrem = new THREE.PMREMGenerator(renderer)
+    const roomEnv = new RoomEnvironment()
+    const roomTarget = pmrem.fromScene(roomEnv, 0.04)
+    scene.environment = roomTarget.texture
+    scene.environmentIntensity = 0.85
+    const hemi = new THREE.HemisphereLight(0xffffff, 0xbfc8d8, 0.45)
+    scene.add(hemi)
+    const dir = new THREE.DirectionalLight(0xffffff, 1.6)
     dir.position.set(2000, 4000, 3000)
+    dir.castShadow = true
+    dir.shadow.mapSize.set(1024, 1024)
+    // Тени у лестницы: ортокамера по габаритам сцены (выставляется ниже,
+    // когда известен bounding box марша).
+    dir.shadow.camera.near = 100
+    dir.shadow.camera.far = 20000
+    dir.shadow.bias = -0.0012
     scene.add(dir)
-    const dir2 = new THREE.DirectionalLight(0xffffff, 0.5)
+    const dir2 = new THREE.DirectionalLight(0xffffff, 0.35)
     dir2.position.set(-2000, -1000, -3000)
     scene.add(dir2)
+
+    // Студийный HDRI (Poly Haven, CC0) — необязательный: при ошибке сети
+    // остаётся RoomEnvironment, разница только в характере бликов.
+    const hdrUrl = environmentHDRI
+    if (hdrUrl) {
+      new RGBELoader().load(
+        hdrUrl,
+        (hdr: THREE.Texture) => {
+          const target = pmrem.fromEquirectangular(hdr)
+          scene.environment = target.texture
+          scene.environmentIntensity = 1.0
+          hdr.dispose()
+        },
+        undefined,
+        () => {
+          console.warn('3D: HDRI не загружен, используется процедурное окружение')
+        },
+      )
+    }
 
     const makeMesh = (api: ApiMesh, material: THREE.Material) => {
       if (!api?.Vertices || !api?.Triangles) return null as unknown as { mesh: THREE.Mesh; geo: THREE.BufferGeometry }
@@ -242,7 +301,12 @@ export function GeometryViewer({
       metalness: 0.12,
       side: THREE.DoubleSide,
     })
+    stairMat.envMapIntensity = 1.0
     const stair = makeMesh(mesh, stairMat)
+    if (castShadow) {
+      stair.mesh.castShadow = true
+      stair.mesh.receiveShadow = true
+    }
 
     // ADR: 2D-план рисует первый шаг на +X, а 3D-меш генерирует первый шаг на
     // −X (зеркально). Чтобы 2D и 3D совпадали (один угол ВЛ, одна сторона
@@ -318,6 +382,22 @@ export function GeometryViewer({
         roomLength,
         heightMM,
       })
+    }
+    if (sb) {
+      // Ортокамера теней по габаритам сцены (этап 1): иначе тень либо не
+      // попадает в кадр, либо «мылится» на большой лестнице.
+      const span = Math.max(
+        sb.max.x - sb.min.x,
+        sb.max.y - sb.min.y,
+        sb.max.z - sb.min.z,
+        1000,
+      )
+      const cam = dir.shadow.camera
+      cam.left = -span * 1.2
+      cam.right = span * 1.2
+      cam.top = span * 1.2
+      cam.bottom = -span * 1.2
+      cam.updateProjectionMatrix()
     }
     if (sb) {
       let rw = roomWidth ?? 0
