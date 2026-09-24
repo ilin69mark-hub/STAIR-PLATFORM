@@ -15,9 +15,13 @@ export type Flight = (typeof flightOptions)[number]['value']
 // Доступные материалы конструктора (коды каталога MFG-0005). Совпадают
 // с материалами DefaultMaterialRegistry и ставками RatesForm.
 export const materialOptions = [
-  { value: 'STEEL-S235', label: 'Сталь S235' },
-  { value: 'ALUM-5083', label: 'Алюминий 5083' },
-  { value: 'WOOD-OAK', label: 'Дуб' },
+  { value: 'STEEL-S235', label: 'Сталь S235', minThicknessMM: 2, maxThicknessMM: 60, density: 7850 },
+  { value: 'STEEL-CORTEN', label: 'Кортэн', minThicknessMM: 2, maxThicknessMM: 60, density: 7850 },
+  { value: 'ALUM-5083', label: 'Алюминий 5083', minThicknessMM: 2, maxThicknessMM: 60, density: 2700 },
+  { value: 'WOOD-OAK', label: 'Дуб', minThicknessMM: 20, maxThicknessMM: 60, density: 700 },
+  { value: 'WOOD-WALNUT', label: 'Орех', minThicknessMM: 20, maxThicknessMM: 60, density: 640 },
+  { value: 'WOOD-ASH', label: 'Ясень', minThicknessMM: 20, maxThicknessMM: 60, density: 690 },
+  { value: 'WOOD-SOFT', label: 'Сосна', minThicknessMM: 20, maxThicknessMM: 60, density: 520 },
 ] as const
 
 export type MaterialCode = (typeof materialOptions)[number]['value']
@@ -25,6 +29,85 @@ export type MaterialCode = (typeof materialOptions)[number]['value']
 export function materialLabel(code: string): string {
   return materialOptions.find((m) => m.value === code)?.label ?? code
 }
+
+/** URL PBR-превью материала (реальная текстура вместо цветного квадратика). */
+export function materialSwatch(code: string): string {
+  return `/static-assets/pbr/${code}/color.jpg`
+}
+
+/** Толщина ступени по умолчанию для материала: металл 6 мм (стальной лист),
+ *  дерево — 40 мм (доска/фанера под ступень). */
+export function materialThicknessMM(code: string): number {
+  const m = materialOptions.find((o) => o.value === code)
+  if (!m) return 40
+  return code.startsWith('WOOD-') ? 40 : 6
+}
+
+/** Допустимый диапазон толщины ступени для кода материала (MFG-каталог). */
+export function thicknessRangeMM(code: string): { min: number; max: number } {
+  const m = materialOptions.find((o) => o.value === code)
+  if (!m) return { min: 2, max: 60 }
+  return { min: m.minThicknessMM, max: m.maxThicknessMM }
+}
+
+/**
+ * Толщина ступни, допустимая для материала. Текущее значение сохраняется,
+ * если оно в допуске; иначе берётся пресет материала, вписанный в диапазон.
+ * Нужна при смене материала: дерево требует ≥ 20 мм, а дефолт стора — 6 мм
+ * (стальной лист), иначе бэкенд отвечает 422 MFG-MATERIAL.
+ */
+export function fitThicknessMM(code: string, current: string): string {
+  // Правило поля точнее каталожного: у стали выпуск ступени 3–8 мм,
+  // хотя сам каталожный диапазон 2–60 мм.
+  const rule = rulesFor('stepThicknessMM', code as MaterialCode)
+  const cat = thicknessRangeMM(code)
+  const min = rule.min ?? cat.min
+  const max = rule.max ?? cat.max
+  const t = Number(current)
+  if (Number.isFinite(t) && t >= min && t <= max) return current
+  const preset = materialThicknessMM(code)
+  return String(Math.min(max, Math.max(min, preset)))
+}
+
+export interface StylePreset {
+  id: string
+  label: string
+  hint: string
+  values: Partial<ConfigForm>
+}
+
+export const stylePresets: StylePreset[] = [
+  {
+    id: 'nordic-oak',
+    label: 'Скандинавский дуб',
+    hint: 'Дуб 40 мм · перила с двух сторон',
+    values: { material: 'WOOD-OAK', stepThicknessMM: '40', railing: 'both' },
+  },
+  {
+    id: 'walnut-loft',
+    label: 'Орех в лофте',
+    hint: 'Орех 40 мм · перила слева',
+    values: { material: 'WOOD-WALNUT', stepThicknessMM: '40', railing: 'left' },
+  },
+  {
+    id: 'steel-studio',
+    label: 'Сталь',
+    hint: 'Сталь 6 мм · перила с двух сторон',
+    values: { material: 'STEEL-S235', stepThicknessMM: '6', railing: 'both' },
+  },
+  {
+    id: 'corten',
+    label: 'Кортэн',
+    hint: 'Кортэн 6 мм · без перил',
+    values: { material: 'STEEL-CORTEN', stepThicknessMM: '6', railing: 'none' },
+  },
+  {
+    id: 'aluminium-glass',
+    label: 'Алюминий',
+    hint: 'Алюминий 6 мм · перила с двух сторон',
+    values: { material: 'ALUM-5083', stepThicknessMM: '6', railing: 'both' },
+  },
+]
 
 // ---- Перила (CONF-RAILING) ----
 // Сторона отсчитывается от первой ступени по ходу подъёма: слева от
@@ -268,7 +351,31 @@ export const materialLimits: Record<
     stepThicknessMM: { min: 2, max: 60 },
     stringerThicknessMM: { max: 60 },
   },
+  'STEEL-CORTEN': {
+    widthMM: { max: 3000 },
+    heightMM: { max: 6000 },
+    stepThicknessMM: { min: 3, max: 8 },
+    stringerThicknessMM: { max: 60 },
+  },
   'WOOD-OAK': {
+    widthMM: { max: 3000 },
+    heightMM: { max: 4550 },
+    stepThicknessMM: { min: 20, max: 60 },
+    stringerThicknessMM: { max: 60 },
+  },
+  'WOOD-WALNUT': {
+    widthMM: { max: 3000 },
+    heightMM: { max: 4550 },
+    stepThicknessMM: { min: 20, max: 60 },
+    stringerThicknessMM: { max: 60 },
+  },
+  'WOOD-ASH': {
+    widthMM: { max: 3000 },
+    heightMM: { max: 4550 },
+    stepThicknessMM: { min: 20, max: 60 },
+    stringerThicknessMM: { max: 60 },
+  },
+  'WOOD-SOFT': {
     widthMM: { max: 3000 },
     heightMM: { max: 4550 },
     stepThicknessMM: { min: 20, max: 60 },

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ConfigForm } from '@shared/config'
-import { defaultConfig, directionOptions, flightOptions, materialOptions, railingForSpiral, railingLabel, railingOptions, rulesFor, spiralDirectionOptions, toRequest, validateForm, type FieldErrors, type FieldRule } from '@shared/config'
+import { defaultConfig, directionOptions, flightOptions, materialOptions, materialSwatch, fitThicknessMM, railingForSpiral, railingLabel, railingOptions, rulesFor, spiralDirectionOptions, stylePresets, toRequest, validateForm, type FieldErrors, type FieldRule, type StylePreset } from '@shared/config'
 import type { QuoteResult, QuoteSuggestion, Variation } from '@shared/types'
 import {
   LiveValidator,
@@ -291,6 +291,11 @@ export function Constructor() {
 
   const update = (k: keyof ConfigForm, v: string) => {
     const next = { ...config, [k]: v }
+    // Смена материала подтягивает толщину ступени в допуск нового материала:
+    // дерево (мин. 20 мм) иначе сразу уходит в 422 «не поддерживает толщину».
+    if (k === 'material') {
+      next.stepThicknessMM = fitThicknessMM(v, next.stepThicknessMM)
+    }
     setConfig(next)
     setTouched(true)
     const errs = validateForm(next)
@@ -520,6 +525,18 @@ export function Constructor() {
     applyVariation(v)
   }
 
+  const applyPreset = (pr: StylePreset) => {
+    const next = { ...emptyConfig, ...pr.values }
+    setConfig(next)
+    setErrors(validateForm(next))
+    setTouched(true)
+    setQuote(null)
+    setVariations(null)
+    setActiveVariationId(null)
+    setStatus(null)
+    logAction({ action: 'stair.preset_applied', resource_type: 'stair', detail: pr.id })
+  }
+
   const reset = () => {
     setConfig(emptyConfig)
     setErrors(validateForm(emptyConfig))
@@ -573,6 +590,20 @@ export function Constructor() {
         <h2>Конструктор лестницы</h2>
         <p className="sub">Задайте параметры — мы рассчитаем геометрию и предварительную цену.</p>
         <form onSubmit={handleSubmit}>
+          <div className="presets" role="group" aria-label="Готовые решения">
+            {stylePresets.map((pr) => (
+              <button
+                type="button"
+                key={pr.id}
+                className={`preset${config.material === pr.values.material ? ' is-active' : ''}`}
+                onClick={() => applyPreset(pr)}
+                title={pr.hint}
+              >
+                <span className="preset__label">{pr.label}</span>
+                <span className="preset__hint">{pr.hint}</span>
+              </button>
+            ))}
+          </div>
           <div className="form-sections">
             {fieldSections.map((section) => (
               <section className="form-section" key={section.title}>
@@ -582,7 +613,33 @@ export function Constructor() {
                     k === 'stepHeightMM' || k === 'comfortStepMM' ? null : (
                       <div className="field" key={k} hidden={!visible(k)}>
                         <FieldLabel label={labels[k]} tooltip={tooltips[k]} htmlFor={`cfg-${k}`} />
-                        {selectOptions(k) ? (
+                        {k === 'material' ? (
+                          <div className="material-picker" id="cfg-material" role="radiogroup" aria-label="Материал">
+                            {materialOptions.map((o) => (
+                              <button
+                                type="button"
+                                key={o.value}
+                                role="radio"
+                                aria-checked={config.material === o.value}
+                                className={`material-picker__item${config.material === o.value ? ' is-active' : ''}`}
+                                onClick={() => update('material', o.value)}
+                              >
+                                <img
+                                  className="material-picker__swatch"
+                                  src={materialSwatch(o.value)}
+                                  alt=""
+                                  loading="lazy"
+                                  width={56}
+                                  height={56}
+                                />
+                                <span className="material-picker__label">{o.label}</span>
+                                <span className="material-picker__hint">
+                                  {o.minThicknessMM}–{o.maxThicknessMM} мм
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : selectOptions(k) ? (
                           <select
                             id={`cfg-${k}`}
                             value={config[k] as string}

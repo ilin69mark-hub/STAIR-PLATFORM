@@ -55,6 +55,20 @@ function blockedVariations(cfg: Record<string, string>): QuoteResult {
   }
 }
 
+// pickMaterial — выбор материала в карточках-превью (role=radio).
+const MATERIAL_LABELS: Record<string, RegExp> = {
+  'STEEL-S235': /Сталь S235/,
+  'STEEL-CORTEN': /Кортэн/,
+  'ALUM-5083': /Алюминий/,
+  'WOOD-OAK': /^Дуб/,
+  'WOOD-WALNUT': /Орех/,
+  'WOOD-ASH': /Ясень/,
+  'WOOD-SOFT': /Сосна/,
+}
+function pickMaterial(code: string) {
+  fireEvent.click(screen.getByRole('radio', { name: MATERIAL_LABELS[code] }))
+}
+
 const okQuote: QuoteResult = {
   validation: { valid: true, blocking: false, issues: [] },
   flight: {
@@ -118,7 +132,7 @@ describe('Constructor', () => {
     expect(screen.getByText('Конструктор лестницы')).toBeInTheDocument()
     expect(screen.getByLabelText('Тип лестницы')).toBeInTheDocument()
     expect(screen.getByText('Прямой марш')).toBeInTheDocument()
-    expect(screen.getByLabelText('Материал')).toHaveValue('STEEL-S235')
+    expect(screen.getByRole('radio', { name: /Сталь S235/ })).toHaveAttribute('aria-checked', 'true')
   })
 
   it('загружается с пустыми полями', async () => {
@@ -156,18 +170,37 @@ describe('Constructor', () => {
     expect(screen.getByText('Макс 6000 мм')).toBeInTheDocument()
     expect(screen.getByText('Макс 3000 мм')).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('Материал'), { target: { value: 'WOOD-OAK' } })
+    pickMaterial('WOOD-OAK')
     // Дуб: макс. высота 4550 мм, толщина ступени 20–60 мм.
     expect(screen.getByText('Макс 4550 мм')).toBeInTheDocument()
     expect(screen.getByText('Мин 20 / макс 60 мм')).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('Материал'), { target: { value: 'ALUM-5083' } })
+    pickMaterial('ALUM-5083')
     expect(screen.getByText('Мин 2 / макс 60 мм')).toBeInTheDocument()
+  })
+
+  it('пресет «Скандинавский дуб» подставляет материал, толщину и перила', async () => {
+    await renderWithAuth(<Constructor />, null)
+    fireEvent.click(screen.getByRole('button', { name: /Скандинавский дуб/ }))
+    expect(screen.getByRole('radio', { name: /^Дуб/ })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByLabelText('Толщина ступени (мм)')).toHaveValue('40')
+    expect(screen.getByLabelText('Перила', { selector: '#cfg-railing' })).toHaveValue('both')
+  })
+
+  it('смена материала на дерево подтягивает толщину ступени в допуск (иначе 422)', async () => {
+    await renderWithAuth(<Constructor />, null)
+    const thickness = screen.getByLabelText('Толщина ступени (мм)')
+    fireEvent.change(thickness, { target: { value: '6' } })
+    expect(thickness).toHaveValue('6')
+    pickMaterial('WOOD-OAK')
+    expect(screen.getByLabelText('Толщина ступени (мм)')).toHaveValue('40')
+    pickMaterial('STEEL-S235')
+    expect(screen.getByLabelText('Толщина ступени (мм)')).toHaveValue('6')
   })
 
   it('валидация учитывает пределы материала', async () => {
     await renderWithAuth(<Constructor />, null)
-    fireEvent.change(screen.getByLabelText('Материал'), { target: { value: 'ALUM-5083' } })
+    pickMaterial('ALUM-5083')
     fireEvent.change(screen.getByLabelText('Высота (мм)'), { target: { value: '5000' } })
     expect(await screen.findByText('Не более 4550')).toBeInTheDocument()
   })
@@ -286,7 +319,7 @@ describe('Constructor', () => {
     vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote)
     await renderWithAuth(<Constructor />, null)
     fillValid()
-    fireEvent.change(screen.getByLabelText('Материал'), { target: { value: 'WOOD-OAK' } })
+    pickMaterial('WOOD-OAK')
     // Толщина ступени 6 мм допустима для стали, для дуба — нет (min 20).
     fireEvent.change(screen.getByLabelText('Толщина ступени (мм)'), { target: { value: '30' } })
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))

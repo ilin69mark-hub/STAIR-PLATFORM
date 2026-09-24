@@ -476,6 +476,94 @@ body {
   color: var(--sp-primary-dark);
 }
 
+/* ---- Готовые решения (пресеты) ---- */
+
+.presets {
+  display: flex;
+  gap: var(--sp-gap-sm);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-gap);
+}
+
+.preset {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid var(--sp-border, #d8dde3);
+  border-radius: var(--sp-radius, 8px);
+  background: var(--sp-surface, #fff);
+  cursor: pointer;
+  text-align: left;
+}
+
+.preset:hover {
+  border-color: var(--sp-primary, #2f6fd0);
+}
+
+.preset.is-active {
+  border-color: var(--sp-primary, #2f6fd0);
+  box-shadow: 0 0 0 2px rgba(47, 111, 208, 0.18);
+}
+
+.preset__label {
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.preset__hint {
+  font-size: 0.7rem;
+  opacity: 0.6;
+}
+
+/* ---- Выбор материала (реальные PBR-текстуры) ---- */
+
+.material-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: var(--sp-gap-sm);
+}
+
+.material-picker__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--sp-border, #d8dde3);
+  border-radius: var(--sp-radius, 8px);
+  background: var(--sp-surface, #fff);
+  cursor: pointer;
+  text-align: center;
+}
+
+.material-picker__item:hover {
+  border-color: var(--sp-primary, #2f6fd0);
+}
+
+.material-picker__item.is-active {
+  border-color: var(--sp-primary, #2f6fd0);
+  box-shadow: 0 0 0 2px rgba(47, 111, 208, 0.18);
+}
+
+.material-picker__swatch {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #eceff3;
+}
+
+.material-picker__label {
+  font-size: 0.82rem;
+  line-height: 1.15;
+}
+
+.material-picker__hint {
+  font-size: 0.7rem;
+  opacity: 0.6;
+}
+
 /* ---- Варианты A/B/C (галерея) ---- */
 
 .variation-picker {
