@@ -21,6 +21,12 @@ interface Props {
   onApplySuggestion?: (s: QuoteSuggestion) => void
   onApplyVariation?: (v: Variation) => void
   material?: string
+  // HDRI для отражений (студийная); undefined — процедурная RoomEnvironment.
+  environmentHDRI?: string
+  // Финиш поверх материала (масло/лак/краска) — пока не в форме.
+  finishId?: string
+  // Ограждение металлом вместо стекла (дефолт конструктора — стекло).
+  railingMetal?: boolean
   // Свободное пространство перед первой ступенью (мм), введено в калькуляторе
   // (дефолт 1000). Передаём в solverOf, чтобы не зависеть от сдвига модели.
   approachSpaceMM?: string
@@ -40,6 +46,9 @@ export function QuoteResult({
   onApplySuggestion,
   onApplyVariation,
   material,
+  environmentHDRI = '/static-assets/hdri/studio_small_08_1k.hdr',
+  finishId,
+  railingMetal = true,
   approachSpaceMM,
   variations,
   activeVariationId,
@@ -148,6 +157,10 @@ export function QuoteResult({
                 roomLength={solver.roomLength}
                 approachSpace={solver.approachSpace}
                 heightMM={heightMM}
+                materialCode={material}
+                environmentHDRI={environmentHDRI}
+                finishId={finishId}
+                railingMetal={railingMetal}
               />
               </Suspense>
             </ErrorBoundary>
