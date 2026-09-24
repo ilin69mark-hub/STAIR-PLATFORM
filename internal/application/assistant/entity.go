@@ -166,9 +166,19 @@ func NewService(calc stairCalculator, auditSvc ...*audit.Service) *Service {
 
 // WithPrimaryBackend подключает первичный (LLM) бэкенд с фолбэком на
 // локальный (AI-0003). Вызывается из композиции только при наличии
-// конфигурации STAIR_AI_*.
+// конфигурации STAIR_AI_*. Ранее заданный бюджет (WithBudget) сохраняется.
 func (s *Service) WithPrimaryBackend(b Backend) *Service {
+	budget := s.router.budget
 	s.router = NewModelRouter(b, s.router.local)
+	s.router.budget = budget
+	return s
+}
+
+// WithBudget подключает глобальный дневной лимит LLM-попыток (S-148,
+// S-141 №14): исчерпан — только локальный бэкенд. Порядок относительно
+// WithPrimaryBackend не важен (бюджет сохраняется).
+func (s *Service) WithBudget(b *Budget) *Service {
+	s.router = s.router.WithBudget(b)
 	return s
 }
 

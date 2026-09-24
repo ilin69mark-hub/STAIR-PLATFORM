@@ -227,6 +227,13 @@ func main() {
 		// S-142 (IDOR-фикс S-141 №1): conversation-memory скоупится по
 		// project_id из тела запроса — гейтим членством в проекте.
 		WithProjectAuthz(projectSvc)
+	// S-148 (S-141 №14): глобальный дневной лимит LLM-попыток — защита счёта
+	// OpenRouter от мультиаккаунтного обхода per-user лимита. 0/unset =
+	// без лимита; исчерпан — только локальный бэкенд + метрика для алерта.
+	if dailyBudget := envInt("STAIR_AI_DAILY_LLM_BUDGET", 0); dailyBudget > 0 {
+		assistantSvc = assistantSvc.WithBudget(appast.NewBudget(int64(dailyBudget)))
+		slog.Info("assistant: daily LLM budget enforced", "max_calls", dailyBudget)
+	}
 
 	// Фоновая TTL-очистка conversation-memory (S-135): запускаем при старте
 	// и далее раз в memoryTTL. Best-effort: сбой prune не валит процесс.
