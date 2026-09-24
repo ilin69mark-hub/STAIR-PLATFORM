@@ -1,5 +1,10 @@
 name: CI
 
+# S-149 (S-141 №15, CIS/CWE-732): least-privilege GITHUB_TOKEN. Дефолт —
+# только чтение; джобы с записями поднимают себе права явно (build ниже).
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main, develop]
@@ -594,6 +599,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [lint, test-backend, test-frontend-store, test-frontend-admin]
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    # S-149: GHCR-пуш + gha build-кеш требуют записи сверх contents:read.
+    permissions:
+      contents: read
+      packages: write # пуш образов в GHCR
+      actions: write # build-кеш type=gha (cache-to)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
 
