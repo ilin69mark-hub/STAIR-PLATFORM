@@ -54,6 +54,29 @@ test('блокирующая конфигурация останавливает
   await expect(page.getByText(/Исправьте поля формы/)).toBeVisible()
 })
 
+// Регрессия этапа 1→2: новые коды каталога (орех/ясень/сосна/кортен)
+// добавлены в UI, но не имели листов раскроя и скоростей реза — расчёт падал
+// в blocking «изготовление невозможно» или 500. Здесь проверяем сквозной путь
+// UI → API → цена для материала, добавленного позже остальных.
+test('материал, добавленный в каталог позже (орех), считается и отдаёт цену', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Рассчитать стоимость' }).click()
+  await expect(page.getByRole('heading', { name: 'Конструктор лестницы' })).toBeVisible()
+
+  // Сначала форма (она ставит стальную толщину 6 мм), затем материал: смена
+  // материала подтягивает толщину в допуск нового — дерево требует ≥ 20 мм.
+  await fillForm(page)
+  await page.locator('[data-material-code="WOOD-WALNUT"]').click()
+  await expect(page.locator('[data-material-code="WOOD-WALNUT"]')).toHaveAttribute(
+    'aria-checked',
+    'true',
+  )
+  await expect(page.getByLabel('Толщина ступени (мм)')).toHaveValue('40')
+  await page.getByRole('button', { name: 'Рассчитать' }).click()
+  await expect(page.getByText('Предварительная цена')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText(/Изготовление невозможно/)).toHaveCount(0)
+})
+
 test('анонимный заказ требует вход; после входа создаётся заказ', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'Рассчитать стоимость' }).click()
