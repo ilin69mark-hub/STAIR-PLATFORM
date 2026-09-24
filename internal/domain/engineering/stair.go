@@ -12,6 +12,20 @@ const (
 	FlightSpiral   FlightType = "spiral"
 )
 
+// Valid — принадлежит ли значение известному типу марша.
+// DOM-001 (forensic 2026-09-24): раньше enum не проверялся нигде —
+// StairConfiguration.Validate() проверял только пустое значение, а
+// application/stair.checkedSolve в default-ветке считал ЛЮБОЙ неизвестный
+// Flight прямой маршем. Неизвестный «diagonal» доезжал до геометрии и
+// отдавался клиенту как 500 internal_error.
+func (f FlightType) Valid() bool {
+	switch f {
+	case FlightStraight, FlightLShape, FlightUShape, FlightSpiral:
+		return true
+	}
+	return false
+}
+
 // RailingSide — сторона установки перил (CONF-RAILING). Отсчёт сторон
 // определяется со стороны первой ступени по ходу подъёма: слева от
 // смотрящего вперёд человека — левые перила, справа — правые.
@@ -176,6 +190,13 @@ func (c *StairConfiguration) Validate() error {
 	}
 	if c.Flight == "" {
 		return fmt.Errorf("stair: flight type is required")
+	}
+	// DOM-001 (forensic 2026-09-24): принадлежность множеству известных
+	// типов марша. Раньше проверялось только «не пусто», и неизвестное
+	// значение (например «diagonal») проходило валидацию и ломало конвейер
+	// ниже по стеку (500 клиенту).
+	if !c.Flight.Valid() {
+		return fmt.Errorf("stair: unknown flight type %q (expected straight|l_shape|u_shape|spiral)", c.Flight)
 	}
 	if c.StepCount < 1 {
 		return fmt.Errorf("stair: step count must be positive")

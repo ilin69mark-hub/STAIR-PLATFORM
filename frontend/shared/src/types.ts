@@ -2,6 +2,11 @@
 // документе с PascalCase-ключами (сериализация domain-типов); метаданные
 // расчёта и проекты — snake_case (API-0015).
 
+// DOM-001 (forensic 2026-09-24): тип марша — закрытый набор на бэкенде
+// (engineering.FlightType.Valid()). Строковый тип позволял отправить
+// «diagonal» и получить 500; union отражает контракт на границе.
+export type FlightType = 'straight' | 'l_shape' | 'u_shape' | 'spiral'
+
 export interface Project {
   id: string
   name: string
@@ -92,7 +97,7 @@ export interface Configuration {
   revision: number
   width_mm: number
   height_mm: number
-  flight: string
+  flight: FlightType
   step_height_mm: number
   stringer_thickness_mm: number
   step_thickness_mm: number

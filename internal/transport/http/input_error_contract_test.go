@@ -20,6 +20,7 @@ func TestInvalidInputNeverReturns500(t *testing.T) {
 	}{
 		{"approach_space_out_of_range", `{"width_mm":900,"height_mm":2700,"step_height_mm":180,"flight":"straight","approach_space_mm":500}`},
 		{"landing_width_lt_flight", `{"width_mm":900,"height_mm":2700,"step_height_mm":180,"flight":"l_shape","landing_width_mm":600,"lower_step_count":8}`},
+		{"unknown_flight", `{"width_mm":900,"height_mm":2700,"step_height_mm":180,"flight":"diagonal"}`},
 		{"negative_railing", `{"width_mm":900,"height_mm":2700,"step_height_mm":180,"flight":"straight","railing_height_mm":-50}`},
 		{"lower_step_count_zero", `{"width_mm":900,"height_mm":2700,"step_height_mm":180,"flight":"u_shape","landing_width_mm":900,"lower_step_count":0}`},
 		{"zero_thickness_no_geometry", `{"width_mm":900,"height_mm":2700,"step_height_mm":180,"flight":"straight"}`},

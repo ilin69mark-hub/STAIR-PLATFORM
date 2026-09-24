@@ -395,18 +395,19 @@ func (s *Service) checkedSolve(ctx context.Context, cfg Config, c *engineering.S
 		res.Validation = vr
 		res.Spiral = &sres
 	default:
-		flight, vr, err := solver.SolveChecked(c, s.constraints, comfort)
-		if err != nil {
-			if vr, ok := inputIssue(err); ok {
-				return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
-			}
-			return nil, err
-		}
-		if vr.Blocking {
-			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
-		}
-		res.Validation = vr
-		res.Flight = flight
+		// DOM-001 (forensic 2026-09-24): неизвестный тип марша больше НЕ
+		// трактуется как прямой. Раньше эта ветка молча считала «diagonal»
+		// прямым маршем — пользователь получал чужую геометрию, а если
+		// конвейер спотыкался ниже — 500. Теперь это блокирующая входная
+		// ошибка с перечнем допустимых значений.
+		vr := buildInputResult(&solver.InputError{
+			Code:    constraint.GEO_HEIGHT,
+			Field:   "Тип марша",
+			Message: "Неизвестный тип марша",
+			Guide:   "Допустимые типы марша: straight (прямой), l_shape (Г-образный), u_shape (П-образный), spiral (спиральный).",
+			Fix:     "Выберите тип марша из списка",
+		})
+		return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
 	}
 	return res, nil
 }
