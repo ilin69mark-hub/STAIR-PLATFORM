@@ -12,6 +12,15 @@ func TestSensitive(t *testing.T) {
 		`{"client_secret":"s"}`:                  `{"client_secret":"***"}`,
 		`{"safe":"keep-me"}`:                     `{"safe":"keep-me"}`,
 		`{"username":"name","passwd":"p"}`:       `{"username":"name","passwd":"***"}`,
+		// S-143 (S-141 №2): bearer session/csrf-токены тоже маскируются.
+		`{"session":"SECRET","csrf":"TKN"}`: `{"session":"***","csrf":"***"}`,
+		`session=SECRET&csrf=TKN`:           `session=***&csrf=***`,
+		`{"session_admin":"SECRET"}`:        `{"session_admin":"***"}`,
+		`csrf_admin=TKN`:                    `csrf_admin=***`,
+		`stair_session=SECRET`:              `stair_session=***`,
+		`{"stair-session":"SECRET"}`:        `{"stair-session":"***"}`,
+		// обратная совместимость: близкие, но не токенные ключи не трогаем.
+		`{"session_id":"keep","session_name":"n"}`: `{"session_id":"keep","session_name":"n"}`,
 	}
 	for in, want := range cases {
 		if got := Sensitive(in); got != want {
