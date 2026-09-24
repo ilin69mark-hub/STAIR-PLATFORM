@@ -180,6 +180,26 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("stair: %w", err)
 	}
+	// API-001 (forensic 2026-09-24): геометрия экструдирует косоур/ступень на
+	// толщину; при толщине 0 движок возвращает техническую ошибку
+	// («extrusion distance must be positive»), которая доезжала до HTTP как
+	// 500. Толщина 0 — не «предупреждение нормы», а невозможная геометрия:
+	// отдаём блокирующий результат валидации с подсказкой.
+	if c.StringerThickness.Millimeters() <= 0 || c.StepThickness.Millimeters() <= 0 {
+		field, value := "толщина косоура", c.StringerThickness.Millimeters()
+		if c.StepThickness.Millimeters() <= 0 {
+			field, value = "толщина ступени", c.StepThickness.Millimeters()
+		}
+		vr := buildInputResult(&solver.InputError{
+			Code:    constraint.GEO_STRINGER_THICKNESS,
+			Field:   capitalizeFirst(field),
+			Message: capitalizeFirst(field) + " должна быть положительной",
+			Guide: fmt.Sprintf("Укажите %s больше 0 мм (сейчас %.0f мм): без неё лестница не может быть построена.",
+				field, value),
+			Fix: "Задайте толщину косоура и ступени в мм",
+		})
+		return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+	}
 	gen, err := geometry.Generate(ctx, c)
 	if err != nil {
 		if vr, ok := inputIssue(err); ok {
@@ -537,8 +557,7 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 		Height:     cfg.Height,
 		Flight:     cfg.Flight,
 		StepCount:  1,
-		StepHeight: cfg.Height,
-	}
+		StepHeight: cfg.Height}
 	c.StepHeight = cfg.StepHeight
 	c.StringerThickness = cfg.StringerThickness
 	c.StepThickness = cfg.StepThickness
