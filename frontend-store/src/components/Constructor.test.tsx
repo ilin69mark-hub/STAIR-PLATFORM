@@ -300,15 +300,15 @@ describe('Constructor', () => {
     ).toBe('right')
   })
 
-  it('спираль: направление закрутки и авто-перила от него', async () => {
+  it('спиральный марш скрыт из формы (S-152)', async () => {
     await renderWithAuth(<Constructor />, null)
-    fireEvent.change(screen.getByLabelText('Тип лестницы'), { target: { value: 'spiral' } })
-    const dir = screen.getByRole('combobox', { name: 'Направление спирали' }) as HTMLSelectElement
-    expect(dir).toBeVisible()
-    // Перила автоматически: против часовой → слева (CONF-SPIRAL-RAILING).
-    expect((screen.getByRole('textbox', { name: 'Перила' }) as HTMLInputElement).value).toBe('Слева')
-    fireEvent.change(dir, { target: { value: 'cw' } })
-    expect((screen.getByRole('textbox', { name: 'Перила' }) as HTMLInputElement).value).toBe('Справа')
+    const options = Array.from(
+      screen.getByLabelText('Тип лестницы').querySelectorAll('option'),
+    ).map((o) => (o as HTMLOptionElement).value)
+    expect(options).toEqual(['straight', 'l_shape', 'u_shape'])
+    // Поля спирали (радиус, направление) в форме отсутствуют.
+    expect(screen.queryByLabelText('Радиус (мм)')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Направление спирали')).not.toBeInTheDocument()
   })
 
   it('не вызывает расчёт при ошибках валидации', async () => {
@@ -388,11 +388,11 @@ describe('Constructor', () => {
     expect(screen.getByLabelText('Нижних ступеней (шт)')).toBeInTheDocument()
   })
 
-  it('прямой марш скрывает поля площадки и радиус', async () => {
+  it('прямой марш скрывает поля площадки, радиуса спирали в форме нет', async () => {
     await renderWithAuth(<Constructor />, null)
     expect(screen.queryByLabelText('Ширина площадки (мм)')).not.toBeVisible()
     expect(screen.queryByLabelText('Нижних ступеней (шт)')).not.toBeVisible()
-    expect(screen.queryByLabelText('Радиус (мм)')).not.toBeVisible()
+    expect(screen.queryByLabelText('Радиус (мм)')).not.toBeInTheDocument()
   })
 
   it('высота ступени и шаг комфорта скрыты: рассчитываются автоматически', async () => {
@@ -404,9 +404,6 @@ describe('Constructor', () => {
     fireEvent.change(flight, { target: { value: 'l_shape' } })
     expect(screen.queryByLabelText('Шаг комфорта (мм)')).not.toBeInTheDocument()
 
-    fireEvent.change(flight, { target: { value: 'spiral' } })
-    expect(screen.queryByLabelText('Шаг комфорта (мм)')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Радиус (мм)')).toBeVisible()
   })
 
   it('подсвечивает пустые обязательные поля после ввода', async () => {
@@ -495,21 +492,21 @@ describe('Constructor', () => {
     expect(screen.queryByLabelText('Высота ступени (мм)')).not.toBeInTheDocument()
   })
 
-  it('спираль: «Применить» подставляет ширину и радиус и снимает блокировку', async () => {
-    const blockedSpiral: QuoteResult = {
+  it('«Применить» подставляет предложение советника и снимает блокировку', async () => {
+    const blocked: QuoteResult = {
       validation: {
         valid: false,
         blocking: true,
         issues: [
           {
-            code: 'GEO-SPIRAL-TREAD',
+            code: 'GEO-TREAD',
             severity: 'error',
-            element: 'configuration',
-            message: 'проступь у колонны < 100 мм',
-            guide: 'Проступь 20 мм вне нормы (нужно ≥ 100 мм). Уменьшите ширину марша.',
-            param: 'Радиус спирали',
+            element: 'tread_depth',
+            message: 'проступь вне нормы',
+            guide: 'Проступь 240 мм вне диапазона 260–320 мм. Увеличьте шаг комфорта.',
+            param: 'Шаг комфорта',
             suggestions: [
-              { step_count: 32, step_height_mm: 187.5, tread_depth_mm: 265, angle_deg: 35.3, outer_radius_mm: 1773, width_mm: 1263 },
+              { step_count: 16, step_height_mm: 168.75, tread_depth_mm: 300, angle_deg: 29.3 },
             ],
           },
         ],
@@ -517,51 +514,19 @@ describe('Constructor', () => {
     }
     const spy = vi
       .spyOn(quoteApi, 'calculate')
-      .mockResolvedValueOnce(blockedSpiral)
+      .mockResolvedValueOnce(blocked)
       .mockResolvedValue(okQuote)
     await renderWithAuth(<Constructor />, null)
-
-    const flight = screen.getByLabelText('Тип лестницы')
-    fireEvent.change(flight, { target: { value: 'spiral' } })
     fillValid()
-    fireEvent.change(screen.getByLabelText('Радиус (мм)'), { target: { value: '3100' } })
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
     await screen.findByText(/Расчёт остановлен/)
 
     fireEvent.click(screen.getByRole('button', { name: 'Применить эти значения' }))
 
     await waitFor(() =>
-      expect(spy).toHaveBeenLastCalledWith(
-        expect.objectContaining({ width_mm: 1263, outer_radius_mm: 1773, flight: 'spiral' }),
-      ),
+      expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ flight: 'straight' })),
     )
     expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
-    expect(screen.getByLabelText('Ширина марша (мм)')).toHaveValue('1263')
-    expect(screen.getByLabelText('Радиус (мм)')).toHaveValue('1773')
-  })
-
-  it('«Спасти расчёт» одним кликом применяет ближайший вариант и пересчитывает', async () => {
-    const spy = vi
-      .spyOn(quoteApi, 'calculate')
-      .mockResolvedValueOnce(
-        blockedVariations({ flight: 'straight', heightMM: '3000', widthMM: '1000', stepHeightMM: '166.67' }),
-      )
-      .mockResolvedValue(okQuote)
-    await renderWithAuth(<Constructor />, null)
-    fillValid()
-    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
-    await screen.findByText(/Расчёт остановлен/)
-
-    const rescue = screen.getByRole('button', { name: 'Спасти расчёт' })
-    fireEvent.click(rescue)
-
-    await waitFor(() =>
-      expect(spy).toHaveBeenLastCalledWith(
-        expect.objectContaining({ step_height_mm: 166.67, flight: 'straight' }),
-      ),
-    )
-    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Спасти расчёт' })).not.toBeInTheDocument()
   })
 
   it('вариация (straight) подставляет высоту ступени и пересчитывает', async () => {
@@ -718,19 +683,21 @@ describe('Constructor', () => {
 })
 // ---- Живая валидация при вводе (S-P5) ----
 // Мок ответа публичного :validate: спираль, радиус меньше ширины марша.
-const liveBlockedSpiral = {
+// Блокирующая живая валидация на прямом марше: проступь вне диапазона и
+// готовое предложение советника (спираль отключена, S-152).
+const liveBlockedStraight = {
   valid: false,
   blocking: true,
   issues: [
     {
-      code: 'GEO-SPIRAL-RADIUS',
+      code: 'GEO-TREAD',
       severity: 'error',
-      element: 'configuration',
-      message: 'Радиус спирали не превышает ширину марша',
-      param: 'Радиус спирали',
-      guide: 'Наружный радиус спирали должен быть больше ширины марша.',
+      element: 'tread_depth',
+      message: 'проступь вне диапазона 260–320 мм',
+      param: 'Шаг комфорта',
+      guide: 'Проступь 240 мм вне диапазона 260–320 мм.',
       suggestions: [
-        { step_count: 18, step_height_mm: 150, tread_depth_mm: 290, angle_deg: 31.3, outer_radius_mm: 1050, width_mm: 900 },
+        { step_count: 16, step_height_mm: 168.75, tread_depth_mm: 300, angle_deg: 29.3 },
       ],
     },
   ],
@@ -741,42 +708,37 @@ const LIVE_DEBOUNCE = 700
 
 describe('Constructor · живая валидация (S-P5)', () => {
   it('вызывает :validate при изменении полей и показывает баннер блокировки', async () => {
-    const validateSpy = vi.spyOn(quoteApi, 'validate').mockResolvedValue(liveBlockedSpiral)
+    const validateSpy = vi.spyOn(quoteApi, 'validate').mockResolvedValue(liveBlockedStraight)
     vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote)
     await renderWithAuth(<Constructor />, null)
 
     fillValid()
-    fireEvent.change(screen.getByLabelText('Тип лестницы'), { target: { value: 'spiral' } })
-    fireEvent.change(screen.getByLabelText('Радиус (мм)'), { target: { value: '800' } })
+    // Спираль отключена (S-152) — блокировку показываем на прямом марше
+    // по проступи, применяя предложение советника.
+    fireEvent.change(screen.getByLabelText('Ширина марша (мм)'), { target: { value: '1000' } })
 
     await waitFor(() => expect(validateSpy).toHaveBeenCalledTimes(1), { timeout: 2500 })
-    // Тело запроса: спираль с заполненными габаритами.
     const body = validateSpy.mock.calls[0][0] as Record<string, unknown>
-    expect(body.flight).toBe('spiral')
-    expect(body.width_mm).toBe(900)
-    expect(body.outer_radius_mm).toBe(800)
+    expect(body.flight).toBe('straight')
+    expect(body.width_mm).toBe(1000)
 
-    // Баннер блокировки с guide и подсветка подсвеченного поля.
-    // Текст guide должен появиться дважды: как ошибка поля «Радиус (мм)»
-    // и в баннере блокировки (S-P5).
+    // Баннер блокировки с guide и подсветка поля (S-P5).
     await waitFor(() => {
-      const matches = screen.getAllByText(/Наружный радиус спирали должен быть больше ширины марша/)
-      expect(matches.length).toBeGreaterThanOrEqual(2)
+      expect(screen.getAllByText(/Проступь 240 мм вне диапазона/).length).toBeGreaterThanOrEqual(1)
     }, { timeout: 2500 })
     expect(validateSpy).toHaveBeenCalledTimes(1)
 
     // Кнопка «Применить» из баннера: вариант советника подставляется в форму
     // и запускается полный расчёт с новым радиусом/шириной.
-    fireEvent.click(screen.getByText(/Применить: 18 ступ/))
+    fireEvent.click(screen.getByText(/Применить: 16 ступ/))
     await waitFor(() => expect(quoteApi.calculate).toHaveBeenCalledTimes(1), { timeout: 2500 })
     const calcBody = (quoteApi.calculate as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<string, unknown>
-    expect(calcBody.flight).toBe('spiral')
-    expect(calcBody.width_mm).toBe(900)
-    expect(calcBody.outer_radius_mm).toBe(1050)
+    expect(calcBody.flight).toBe('straight')
+    expect(calcBody.step_height_mm).toBeCloseTo(168.75, 1)
   })
 
   it('не дёргает :validate, пока форма имеет локальные ошибки', async () => {
-    const validateSpy = vi.spyOn(quoteApi, 'validate').mockResolvedValue(liveBlockedSpiral)
+    const validateSpy = vi.spyOn(quoteApi, 'validate').mockResolvedValue(liveBlockedStraight)
     await renderWithAuth(<Constructor />, null)
     // Высота пустая — локальная ошибка «Укажите значение».
     fireEvent.change(screen.getByLabelText('Высота (мм)'), { target: { value: '9999' } })

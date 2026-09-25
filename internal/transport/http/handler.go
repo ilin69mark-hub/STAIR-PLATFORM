@@ -124,6 +124,9 @@ func handleValidate(svc StairService) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
+		if rejectDisabledFlight(w, req.Flight) {
+			return
+		}
 
 		cfg := toConfig(req)
 		opts, err := toOptions(req)

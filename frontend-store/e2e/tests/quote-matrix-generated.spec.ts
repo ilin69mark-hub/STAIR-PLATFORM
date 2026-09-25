@@ -92,7 +92,13 @@ async function fillCase(page: Page, c: GenCase) {
   }
 }
 
-all.forEach((c, i) => {
+// Спиральный марш временно отключён (S-152, SPIRAL_ENABLED=false): кейсы
+// остаются в наборе данных, но не гоняются. При возврате спирали достаточно
+// убрать фильтр.
+const ENABLED = all.filter(c => c.flight !== 'spiral')
+console.log(`matrix: ${ENABLED.length} кейсов из ${all.length} (спираль отключена S-152)`)
+
+ENABLED.forEach((c, i) => {
   test(`matrix ${c.flight} #${i}`, async ({ page }) => {
     const errors: string[] = []
     page.on('pageerror', e => errors.push(String(e?.message ?? e)))

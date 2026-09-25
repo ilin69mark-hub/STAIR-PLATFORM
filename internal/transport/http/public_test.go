@@ -355,10 +355,12 @@ func TestPublicQuoteTallFlightSucceeds(t *testing.T) {
 	}
 }
 
-// TestPublicQuoteSpiralBlockingCarriesRadiusSuggestion — винтовая лестница
-// с несовместимой шириной (W=3000, H=6000) возвращает блокирующую подсказку
-// с готовыми вариантами, уменьшающими ширину и несущими наружный радиус.
-func TestPublicQuoteSpiralBlockingCarriesRadiusSuggestion(t *testing.T) {
+// TestPublicQuoteSpiralTemporarilyDisabled — винтовой марш выведен из
+// публичного расчёта (S-152): нормы EDR-0007 противоречивы, ни одна
+// конфигурация не проходит. Раньше этот тест проверял, что блокирующая
+// подсказка по спирали несёт варианты; теперь публичный API отвечает 422,
+// а сама логика остаётся в движке и проверяется тестами солвера.
+func TestPublicQuoteSpiralTemporarilyDisabled(t *testing.T) {
 	b := `{
 		"width_mm": 3000,
 		"height_mm": 6000,
@@ -370,38 +372,13 @@ func TestPublicQuoteSpiralBlockingCarriesRadiusSuggestion(t *testing.T) {
 		"clearance_mm": 2300,
 		"railing_height_mm": 1100
 	}`
-	req := publicQuoteRequest(b)
 	rec := httptest.NewRecorder()
-	testRouter().ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status 200 with advisory result, got %d: %s", rec.Code, rec.Body.String())
+	testRouter().ServeHTTP(rec, publicQuoteRequest(b))
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("want 422 for spiral, got %d: %s", rec.Code, rec.Body.String())
 	}
-	var resp publicQuoteDTO
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid response: %v", err)
-	}
-	if !resp.Validation.Blocking || len(resp.Validation.Issues) == 0 {
-		t.Fatalf("expected blocking advisory, got %+v", resp.Validation)
-	}
-	var spiral validationIssueDTO
-	found := false
-	for _, it := range resp.Validation.Issues {
-		if it.Code == string(constraint.GEO_SPIRAL_TREAD) {
-			spiral = it
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("expected GEO_SPIRAL_TREAD issue, got %+v", resp.Validation.Issues)
-	}
-	if len(spiral.Suggestions) == 0 {
-		t.Fatalf("spiral issue must carry suggestions, got %+v", spiral)
-	}
-	for _, s := range spiral.Suggestions {
-		if s.OuterRadiusMm <= 0 || s.WidthMm <= 0 || s.WidthMm >= 3000 {
-			t.Fatalf("spiral suggestion %+v must reduce width and carry radius", s)
-		}
+	if !strings.Contains(rec.Body.String(), "flight_temporarily_disabled") {
+		t.Fatalf("want flight_temporarily_disabled, got %s", rec.Body.String())
 	}
 }
 

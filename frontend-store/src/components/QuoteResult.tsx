@@ -94,7 +94,7 @@ export function QuoteResult({
     landingDepthMM?: number
   } | null>(null)
   const stepCount = solver.flight?.StepCount ?? 0
-  // Поворот марша есть только у L/П/спирали: у прямого марша API не принимает
+  // Поворот марша есть только у L/П-маршей: у прямого марша API не принимает
   // направление (вид зеркалит 3D), поэтому кнопку там не показываем.
   const hasDirection = solver.kind === 'l_shape' || solver.kind === 'u_shape' || solver.kind === 'spiral'
   const canAdjust = stepCount > 0 && !!heightMM

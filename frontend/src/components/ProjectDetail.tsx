@@ -20,6 +20,7 @@ import {
   materialOptions,
   directionOptions,
   spiralDirectionOptions,
+  SPIRAL_ENABLED,
   railingOptions,
   railingForSpiral,
   railingLabel,
@@ -636,7 +637,9 @@ const adminSelectOptions = (key: keyof ConfigForm) => {
 }
 
 function ConfigForm({ fields, errors, liveErrors, onChange }: ConfigFormProps) {
-  const visible = flightFields[fields.flight]
+  // Проект могли сохранить со спиралью до её отключения (S-152): форма не
+  // должна падать, показываем поля прямого марша и предупреждение.
+  const visible = flightFields[fields.flight] ?? flightFields.straight
   return (
     <div className="config-grid">
       <div className="field">
@@ -713,7 +716,7 @@ function ConfigForm({ fields, errors, liveErrors, onChange }: ConfigFormProps) {
           </div>
         )
       })}
-      {fields.flight === 'spiral' && (
+      {SPIRAL_ENABLED && fields.flight === 'spiral' && (
         <div className="field">
           <label className="field__label" htmlFor="cfg-railing-auto">
             {labelOf('railing')}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ConfigForm } from '@shared/config'
-import { defaultConfig, directionOptions, flightOptions, materialOptions, materialSwatch, fitThicknessMM, railingForSpiral, railingLabel, railingOptions, rulesFor, spiralDirectionOptions, stylePresets, toRequest, validateForm, type FieldErrors, type FieldRule, type StylePreset } from '@shared/config'
+import { defaultConfig, directionOptions, flightOptions, materialOptions, materialSwatch, fitThicknessMM, railingForSpiral, railingLabel, railingOptions, rulesFor, spiralDirectionOptions, SPIRAL_ENABLED, stylePresets, toRequest, validateForm, type FieldErrors, type FieldRule, type StylePreset } from '@shared/config'
 import type { QuoteResult, QuoteSuggestion, Variation } from '@shared/types'
 import {
   LiveValidator,
@@ -28,7 +28,9 @@ const fieldSections: Array<{ title: string; fields: Array<keyof ConfigForm> }> =
   { title: 'Перила', fields: ['railingHeightMM', 'railing', 'railingLower', 'railingLanding', 'railingUpper'] },
   { title: 'Поворот и площадка', fields: ['direction', 'landingWidthMM', 'landingDepthMM', 'lowerStepCountMM'] },
   { title: 'Помещение', fields: ['roomWidthMM', 'roomLengthMM', 'approachSpaceMM'] },
-  { title: 'Спираль', fields: ['outerRadiusMM', 'spiralDirection'] },
+  ...(SPIRAL_ENABLED
+    ? [{ title: 'Спираль', fields: ['outerRadiusMM', 'spiralDirection'] as Array<keyof ConfigForm> }]
+    : []),
 ]
 
 const labels: Record<keyof ConfigForm, string> = {
@@ -748,7 +750,7 @@ export function Constructor() {
                     ),
                   )}
                   {section.title === 'Ступени' && (
-                    <div className="field" hidden={config.flight === 'spiral'}>
+                    <div className="field" hidden={SPIRAL_ENABLED && config.flight === 'spiral'}>
                       <FieldLabel label={labels.riser} htmlFor="cfg-riser" />
                       <label className="checkbox">
                         <input
@@ -762,7 +764,7 @@ export function Constructor() {
                       {hints.riser && <span className="sub">{hints.riser}</span>}
                     </div>
                   )}
-                  {section.title === 'Перила' && config.flight === 'spiral' && (
+                  {SPIRAL_ENABLED && section.title === 'Перила' && config.flight === 'spiral' && (
                     <div className="field">
                       <FieldLabel label={labels.railing} tooltip={tooltips.railing} htmlFor="cfg-railing-auto" />
                       {/* Спираль: перила всегда с одной стороны, сторона автоматически

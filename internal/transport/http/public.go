@@ -44,6 +44,10 @@ func handlePublicQuote(svc StairService) http.HandlerFunc {
 			return
 		}
 
+		if rejectDisabledFlight(w, req.Flight) {
+			return
+		}
+
 		cfg := toConfig(req)
 		opts, err := toOptions(req)
 		if err != nil {

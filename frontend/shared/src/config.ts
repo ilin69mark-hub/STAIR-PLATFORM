@@ -3,14 +3,27 @@
 
 import type { Rates } from './types'
 
-export const flightOptions = [
+// Спиральный марш временно отключён: нормы EDR-0007 противоречивы, ни одна
+// конфигурация не проходит проверку проступи (S-152). Код движка, каталог и
+// тесты НЕ удалены — вернём вместе с исправлением норм, достаточно убрать
+// флаг ниже.
+export const SPIRAL_ENABLED = false
+
+const allFlightOptions = [
   { value: 'straight', label: 'Прямой марш' },
   { value: 'l_shape', label: 'L-образная (с площадкой)' },
   { value: 'u_shape', label: 'П-образная (с площадкой)' },
   { value: 'spiral', label: 'Спиральная (винтовая)' },
 ] as const
 
-export type Flight = (typeof flightOptions)[number]['value']
+export const flightOptions = SPIRAL_ENABLED
+  ? allFlightOptions
+  : allFlightOptions.filter((o) => o.value !== 'spiral')
+
+export type Flight = (typeof allFlightOptions)[number]['value']
+
+/** Все типы марша, включая отключённые (для разбора снимков и проектов). */
+export const allFlightTypes = allFlightOptions.map((o) => o.value) as Flight[]
 
 // Доступные материалы конструктора (коды каталога MFG-0005). Совпадают
 // с материалами DefaultMaterialRegistry и ставками RatesForm.

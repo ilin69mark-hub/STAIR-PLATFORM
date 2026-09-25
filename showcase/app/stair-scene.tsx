@@ -20,7 +20,7 @@ export function StairScene({
 }: {
   mesh: Mesh
   material: string
-  flight?: 'straight' | 'l_shape' | 'u_shape' | 'spiral'
+  flight?: 'straight' | 'l_shape' | 'u_shape'
   heightMM?: number
 }) {
   if (!mesh?.Vertices?.length) {

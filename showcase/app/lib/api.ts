@@ -113,13 +113,6 @@ export async function fetchExamples(): Promise<ShowcaseExample[]> {
       material: 'STEEL-S235',
       result: { validation: { valid: true, blocking: false }, mesh: undefined },
     },
-    {
-      id: 'spiral-aluminium',
-      title: 'Спираль, алюминий',
-      caption: 'Наружный радиус 1500 мм, винтовой марш с центральной колонной',
-      material: 'ALUM-5083',
-      result: { validation: { valid: true, blocking: false }, mesh: undefined },
-    },
   ]
   // Каждый пример считаем живым расчётом: витрина показывает настоящую
   // геометрию и цену, а не нарисованную картинку.
@@ -161,24 +154,6 @@ export async function fetchExamples(): Promise<ShowcaseExample[]> {
       railing_landing: 'both',
       railing_upper: 'right',
       direction: 'left',
-      room_width_mm: 3600,
-      room_length_mm: 3600,
-    },
-    'spiral-aluminium': {
-      width_mm: 1400,
-      height_mm: 2800,
-      flight: 'spiral',
-      material: 'ALUM-5083',
-      step_height_mm: 175,
-      step_thickness_mm: 6,
-      stringer_thickness_mm: 50,
-      riser: true,
-      clearance_mm: 2000,
-      railing_height_mm: 900,
-      outer_radius_mm: 1500,
-      // Спираль задаёт направление закрутки в терминах «по/против часовой
-      // стрелки», а не left/right (CONF-SPIRAL-RAILING).
-      spiral_direction: 'ccw',
       room_width_mm: 3600,
       room_length_mm: 3600,
     },
