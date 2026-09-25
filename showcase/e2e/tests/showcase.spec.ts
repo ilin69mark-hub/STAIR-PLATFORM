@@ -92,3 +92,50 @@ test('страница 404 без каталога отдаёт понятный
   await page.goto('/materials/WOOD-NOPE')
   await expect(page.getByText('Материал не найден')).toBeVisible()
 })
+
+// ---- Этап 4: оплата инженерных услуг ----
+
+test('услуги: прайс с сервера виден гостю, оплата — после входа', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(String(e?.message ?? e)))
+
+  await page.goto('/services')
+  // Каталог услуг приходит с /api/v1/public/payment-tiers: две карточки с
+  // серверными ценами — их видит и гость.
+  const cards = page.locator('[data-tier]')
+  await expect(cards).toHaveCount(2, { timeout: 15_000 })
+  await expect(cards.filter({ hasText: 'Выезд инженера и замер' })).toBeVisible()
+  await expect(cards.filter({ hasText: 'Проект и рабочая документация' })).toBeVisible()
+  await expect(page.getByText('900').first()).toBeVisible()
+  await expect(page.getByText('1 800').first()).toBeVisible()
+
+  // Гость платит не может — вместо кнопки оплаты вход.
+  await expect(page.getByRole('button', { name: 'Войти и оплатить', exact: true }).first()).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Оплатить', exact: true })).toHaveCount(0)
+  expect(errors, `ошибки страницы: ${errors.join('; ')}`).toHaveLength(0)
+})
+
+test('услуги: вход раскрывает оплату, checkout отдаёт URL страницы PSP', async ({ page }) => {
+  await page.goto('/services')
+  await expect(page.getByRole('button', { name: 'Войти и оплатить', exact: true }).first()).toBeVisible({
+    timeout: 15_000,
+  })
+
+  // Сначала выбираем услугу — только после этого раскрывается форма входа.
+  await page.getByRole('button', { name: 'Войти и оплатить', exact: true }).first().click()
+  await expect(page.getByTestId('services-auth')).toBeVisible()
+  await page.getByLabel('Email').fill(process.env.STORE_E2E_EMAIL ?? 'user@user.ru')
+  await page.getByLabel('Пароль').fill(process.env.STORE_E2E_PASSWORD ?? 'user1234')
+  await page.getByRole('button', { name: 'Войти', exact: true }).click()
+
+  const pay = page.getByRole('button', { name: 'Оплатить', exact: true }).first()
+  await expect(pay).toBeVisible({ timeout: 15_000 })
+  const [request] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/v1/public/services/checkout')),
+    pay.click(),
+  ])
+  expect(request.status()).toBe(201)
+  const body = (await request.json()) as { checkout_url?: string; amount_minor?: number }
+  expect(body.checkout_url).toBeTruthy()
+  expect(body.amount_minor).toBeGreaterThan(0)
+})

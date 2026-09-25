@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { fetchExamples, fetchMaterials } from './lib/api'
 import { materialLabelRu } from './lib/labels'
 import { StairScene } from './stair-scene'
+import { ServicesPay } from './services-pay'
 
 export const revalidate = 900
 
@@ -166,6 +167,17 @@ export default async function Home() {
             ))}
           </div>
         )}
+      </section>
+
+      <section className="wrap section">
+        <h2>Инженерные услуги</h2>
+        <p className="section__head">
+          Замер и проект — фиксированная цена, оплата онлайн после входа. Стоимость
+          самой лестности считаем по результатам замера.
+        </p>
+        <div id="services">
+          <ServicesPay />
+        </div>
       </section>
 
       <section className="wrap section" id="faq">

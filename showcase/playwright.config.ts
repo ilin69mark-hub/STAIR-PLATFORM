@@ -5,6 +5,7 @@ import { defineConfig, devices } from '@playwright/test'
 // витрины поднимает только Next.
 export default defineConfig({
   testDir: './e2e/tests',
+  globalSetup: './e2e/global-setup.ts',
   fullyParallel: false,
   workers: 1,
   reporter: process.env.CI ? 'github' : 'line',

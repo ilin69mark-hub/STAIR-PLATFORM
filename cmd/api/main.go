@@ -396,7 +396,11 @@ func main() {
 		Storage:         storageSvc,
 		// Этап 1 «студийный 3D»: раздача PBR-текстур и HDRI по
 		// /static-assets/ (иммутабельный кэш, только GET/HEAD).
-		StaticAssetsDir:       envOr("STAIR_STATIC_ASSETS_DIR", "assets"),
+		StaticAssetsDir: envOr("STAIR_STATIC_ASSETS_DIR", "assets"),
+		// Этап 4: источники сайта, которым разрешён мутирующий запрос с
+		// double-submit CSRF. Сайт (Next.js) и API в проде на разных доменах,
+		// а прокси подменяет Host — без списка оплата с витрины даёт 403.
+		CSRFAllowedOrigins:    envStringSlice("STAIR_CSRF_ALLOWED_ORIGINS", nil),
 		Payments:              paymentSvc,
 		PaymentsWebhookSecret: paymentWebhookSecret,
 		Analytics:             analyticsSvc,

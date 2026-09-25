@@ -10,7 +10,7 @@ import { Constructor } from '@shared/storefront/components/Constructor'
 // Конструктор читает пользователя из контекста витрины-калькулятора, поэтому
 // остов (AuthProvider) тоже переиспользуется: сессия одна и та же (cookie
 // домена), логика входа не дублируется.
-import { AuthProvider } from '@shared/storefront/auth/AuthProvider'
+import { StorefrontProviders } from '@shared/storefront/StorefrontProviders'
 import { defaultConfig } from '@shared/config'
 // Стили: только база, конструктор и 3D-вьювер. Лендинг, кабинет, формы
 // авторизации витрине не нужны — раньше она тянула весь App.css целиком.
@@ -26,9 +26,9 @@ export function Calculator({ initialMaterial }: { initialMaterial?: string }) {
   if (!ready) return <div className="scene__loading">Загрузка калькулятора…</div>
   return (
     <div data-testid="showcase-calculator" data-default-material={initialMaterial ?? defaultConfig.material}>
-      <AuthProvider>
+      <StorefrontProviders>
         <Constructor />
-      </AuthProvider>
+      </StorefrontProviders>
     </div>
   )
 }

@@ -431,7 +431,7 @@ func TestCSRFOriginAllowed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/v1/projects",
 		strings.NewReader(`{"name":"A"}`))
 	req.Header.Set("Origin", "http://localhost")
-	if !csrfOriginAllowed(req) {
+	if !csrfOriginAllowed(req, nil) {
 		t.Fatal("same-origin Origin must be allowed")
 	}
 }
@@ -440,7 +440,7 @@ func TestCSRFCrossOriginRejected(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/v1/projects",
 		strings.NewReader(`{"name":"A"}`))
 	req.Header.Set("Origin", "http://evil.example")
-	if csrfOriginAllowed(req) {
+	if csrfOriginAllowed(req, nil) {
 		t.Fatal("cross-origin Origin must be rejected")
 	}
 }
@@ -449,7 +449,7 @@ func TestCSRFRefererAllowed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/v1/projects",
 		strings.NewReader(`{"name":"A"}`))
 	req.Header.Set("Referer", "http://localhost/app")
-	if !csrfOriginAllowed(req) {
+	if !csrfOriginAllowed(req, nil) {
 		t.Fatal("same-host Referer must be allowed")
 	}
 }
@@ -457,7 +457,7 @@ func TestCSRFRefererAllowed(t *testing.T) {
 func TestCSRFNoOriginAllowed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/v1/projects",
 		strings.NewReader(`{"name":"A"}`))
-	if !csrfOriginAllowed(req) {
+	if !csrfOriginAllowed(req, nil) {
 		t.Fatal("request without Origin/Referer must be allowed (non-browser client)")
 	}
 }

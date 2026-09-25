@@ -127,7 +127,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		return requireAuth(authSvc, authRateLimiter, secure)(next)
 	}
 	authMutating := func(next http.Handler) http.Handler {
-		return requireAuth(authSvc, authRateLimiter, secure)(requireCSRF(next))
+		return requireAuth(authSvc, authRateLimiter, secure)(requireCSRF(cfg.CSRFAllowedOrigins, next))
 	}
 
 	mux.Handle("GET /api/v1/auth/me", authProtected(handleMe()))

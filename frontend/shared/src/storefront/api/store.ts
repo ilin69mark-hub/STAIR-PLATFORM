@@ -51,6 +51,52 @@ export const quoteApi = {
   },
 }
 
+// Каталог платных услуг и покупка услуги (этап 4). Прайс приходит с сервера:
+// клиент сумму не присылает (S-150).
+export interface PaymentTier {
+  id: string
+  title: string
+  description?: string
+  amount_minor: number
+  currency: string
+  amount_rub: number
+}
+
+export interface MyPayment {
+  id: string
+  title: string
+  tier_id?: string
+  amount_minor: number
+  currency: string
+  status: 'pending' | 'paid' | 'failed' | 'refunded'
+  created_at: string
+  paid_at?: string
+}
+
+export interface ServiceCheckout {
+  payment_id: string
+  tier_id: string
+  title: string
+  amount_minor: number
+  currency: string
+  checkout_url: string
+}
+
+export const paymentsApi = {
+  /** Каталог услуг для витрины (публичный GET). */
+  async tiers(): Promise<PaymentTier[]> {
+    return get<PaymentTier[]>('/api/v1/public/payment-tiers')
+  },
+  /** Покупка услуги: возвращает URL страницы оплаты PSP. */
+  async checkout(tierId: string): Promise<ServiceCheckout> {
+    return post<ServiceCheckout>('/api/v1/public/services/checkout', { tier_id: tierId })
+  },
+  /** Мои покупки (кабинет). */
+  async mine(): Promise<MyPayment[]> {
+    return get<MyPayment[]>('/api/v1/payments/mine')
+  },
+}
+
 export const ordersApi = {
   // POST /api/v1/orders — создание заказа (auth+CSRF).
   create: (body: CreateOrderRequest) => post<OrderDTO>('/api/v1/orders', body),
