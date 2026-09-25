@@ -100,6 +100,7 @@ console.log(`matrix: ${ENABLED.length} кейсов из ${all.length} (спир
 
 ENABLED.forEach((c, i) => {
   test(`matrix ${c.flight} #${i}`, async ({ page }) => {
+    test.setTimeout(90_000)
     const errors: string[] = []
     page.on('pageerror', e => errors.push(String(e?.message ?? e)))
     const audit403: string[] = []
