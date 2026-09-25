@@ -2684,6 +2684,40 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /public/materials:
+    get:
+      tags: ["stairs"]
+      summary: "Получить materials"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /public/orders:
     post:
       tags: ["stairs"]

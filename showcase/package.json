@@ -1,0 +1,30 @@
+{
+  "name": "showcase",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 5176",
+    "build": "tsc --noEmit && next build",
+    "start": "next start -p 5176",
+    "lint": "oxlint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "next": "16.3.6",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5",
+    "oxlint": "^1.30.0",
+    "vitest": "^3.2.4",
+    "@vitest/coverage-v8": "^3.2.4",
+    "jsdom": "^26.1.0",
+    "three": "^0.185.1",
+    "@types/three": "^0.185.0"
+  }
+}
