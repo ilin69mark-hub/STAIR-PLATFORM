@@ -47,16 +47,21 @@ var materialFinishes = map[dommfg.MaterialCode][]string{
 
 // handlePublicMaterials — GET /api/v1/public/materials.
 // Публичный каталог материалов: код, плотность, диапазоны толщины и габаритов,
-// ставка ₽/кг и ссылка на PBR-превью. Ответ детерминирован (реестры
-// неизменяемы), поэтому витрина кэширует его на edge-CDN.
-func handlePublicMaterials() http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
+// ставка ₽/кг и ссылка на PBR-превью. Цена — прайс магазина поверх встроенных
+// ставок движка (волна 0), поэтому витрина и расчёт показывают одно число.
+// Каталог кэшируется на edge-CDN; цена магазина меняется редко, а сброс
+// кэша — через Cache-Control админки.
+func handlePublicMaterials(storeSvc StoreService, authSvc AuthService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		registry, err := engmfg.DefaultMaterialRegistry()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		rates := engprc.DefaultRates()
+		if storeRates, ok := publicStoreRates(r, storeSvc, authSvc); ok {
+			rates = *storeRates
+		}
 		out := make([]materialDTO, 0, 8)
 		for _, m := range registry.Materials() {
 			dto := materialDTO{

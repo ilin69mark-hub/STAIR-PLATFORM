@@ -84,6 +84,13 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	assistantSvc := cfg.Assistant
 	ordersSvc := cfg.Orders
 
+	// Response cache для read-heavy GET-запросов (5min TTL, 512 entries)
+	respCacheMW, storeCacheInvalidator := NewResponseCacheWithInvalidation(ResponseCacheConfig{
+		MaxEntries: 512,
+		DefaultTTL: 5 * time.Minute,
+		Methods:    []string{http.MethodGet},
+	})
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handleHealth(cfg.Region))
 	mux.Handle("GET /metrics", InternalOnlyMiddleware(http.HandlerFunc(handleMetrics)))
@@ -112,10 +119,17 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		mux.Handle("GET /api/v1/public/payment-tiers", handlePublicPaymentTiers(payments))
 	}
 
+	// Настройки магазина для витрины (волна 0): контакты, реквизиты, соцсети,
+	// SEO и коды счётчиков. Прайс материалов отдаётся каталогом materials.
+	storeSvc := cfg.Store
+	if storeSvc != nil {
+		mux.Handle("GET /api/v1/public/store-settings", limitRate(validateLimiter, trusted, handlePublicStoreSettings(storeSvc, authSvc)))
+	}
+
 	// Каталог материалов для витрины (этап 3): единственный источник истины
 	// для кодов, плотностей, диапазонов и ставок — бэкенд, не фронт.
-	mux.Handle("GET /api/v1/public/materials", limitRate(validateLimiter, trusted, handlePublicMaterials()))
-	mux.Handle("POST /api/v1/public/stairs:quote", limitRate(quoteLimiter, trusted, handlePublicQuote(svc)))
+	mux.Handle("GET /api/v1/public/materials", limitRate(validateLimiter, trusted, handlePublicMaterials(storeSvc, authSvc)))
+	mux.Handle("POST /api/v1/public/stairs:quote", limitRate(quoteLimiter, trusted, handlePublicQuote(svc, storeSvc, authSvc)))
 	// Живая валидация при вводе для клиентского сайта (S-P5): тот же блок
 	// validation, что и в расчёте, но без геометрии/производства/цены.
 	mux.Handle("POST /api/v1/public/stairs:validate", limitRate(validateLimiter, trusted, handleValidate(svc)))
@@ -148,6 +162,16 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	mux.Handle("GET /api/v1/admin/api-keys", authProtected(handleListApiKeys(authSvc)))
 	mux.Handle("POST /api/v1/admin/api-keys", authMutating(handleCreateApiKey(authSvc)))
 	mux.Handle("DELETE /api/v1/admin/api-keys/{id}", authMutating(handleRevokeApiKey(authSvc)))
+
+	// Настройки и прайс магазина (волна 0 «store admin»): контакты, реквизиты,
+	// соцсети, SEO, параметры расчёта и цены материалов в ₽/кг.
+	if storeSvc != nil {
+		mux.Handle("GET /api/v1/admin/store/settings", authProtected(handleGetStoreSettings(storeSvc)))
+		mux.Handle("PUT /api/v1/admin/store/settings", authMutating(handleUpdateStoreSettings(storeSvc, storeCacheInvalidator)))
+		mux.Handle("GET /api/v1/admin/store/prices", authProtected(handleListMaterialPrices(storeSvc)))
+		mux.Handle("PUT /api/v1/admin/store/prices", authMutating(handleSetMaterialPrice(storeSvc, storeCacheInvalidator)))
+		mux.Handle("DELETE /api/v1/admin/store/prices/{code}", authMutating(handleDeleteMaterialPrice(storeSvc, storeCacheInvalidator)))
+	}
 
 	if auditsvc != nil {
 		mux.Handle("GET /api/v1/audit", authProtected(handleListTenantAudit(auditsvc)))
@@ -287,13 +311,6 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		"/assets/":             CacheImmutable, // webpack assets — immutable
 	}
 
-	// Response cache для read-heavy GET-запросов (5min TTL, 512 entries)
-	respCache := ResponseCacheMiddleware(ResponseCacheConfig{
-		MaxEntries: 512,
-		DefaultTTL: 5 * time.Minute,
-		Methods:    []string{http.MethodGet},
-	})
-
 	// Deduplication для тяжёлых операций
 	dedup := DeduplicateMiddleware(DeduplicateByKey)
 
@@ -304,7 +321,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	h := withLogging(mux)
 	h = secMiddleware(h)
 	h = dedup(h)
-	h = respCache(h)
+	h = respCacheMW(h)
 	h = CacheMiddleware(cachePolicies)(h)
 	h = BodySizeLimit(cfg.MaxBodyBytes)(h)
 	h = CompressionMiddleware(h)

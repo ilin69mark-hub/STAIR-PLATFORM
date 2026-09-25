@@ -23,6 +23,7 @@ import (
 	orderapp "stairplatform/internal/application/order"
 	"stairplatform/internal/application/payments"
 	"stairplatform/internal/application/project"
+	storeapp "stairplatform/internal/application/store"
 	testimonialapp "stairplatform/internal/application/testimonial"
 	domevents "stairplatform/internal/domain/events"
 	"stairplatform/internal/infrastructure/circuitbreaker"
@@ -335,6 +336,11 @@ func main() {
 	}
 	paymentWebhookSecret := os.Getenv("STAIR_PAYMENT_WEBHOOK_SECRET")
 
+	// Store (волна 0 «store admin»): настройки магазина и прайс материалов в ₽/кг.
+	// Публичный расчёт и каталог витрины берут ставки отсюда, поэтому цена на
+	// сайте и в расчёте не расходится.
+	storeSvc := storeapp.NewService(database.NewStoreRepository(pool))
+
 	// WebSocket + EventBridge для real-time updates
 	hub := ws.NewHub()
 	go hub.Run()
@@ -403,6 +409,7 @@ func main() {
 		CSRFAllowedOrigins:    envStringSlice("STAIR_CSRF_ALLOWED_ORIGINS", nil),
 		Payments:              paymentSvc,
 		PaymentsWebhookSecret: paymentWebhookSecret,
+		Store:                 storeSvc,
 		Analytics:             analyticsSvc,
 		Jobs:                  jobsSvc,
 		Assistant:             assistantSvc,

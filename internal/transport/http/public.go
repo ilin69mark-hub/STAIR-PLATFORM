@@ -33,14 +33,23 @@ type publicQuoteDTO struct {
 //
 //	200 — успешный расчёт;
 //	400 — некорректный JSON;
-//	422 — невалидный вход;
+//	422 — невалидный вход, отключённый марш или rates в теле (волна 0);
 //	429 — превышен rate-limit;
 //	500 — внутренняя ошибка.
-func handlePublicQuote(svc StairService) http.HandlerFunc {
+func handlePublicQuote(svc StairService, storeSvc StoreService, authSvc AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req calculateRequest
 		if err := decodeJSON(w, r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
+			return
+		}
+
+		// Ставки цены задаёт магазин (волна 0): анонимный клиент не может
+		// прислать rates и занизить предварительную цену. Переопределение
+		// ставок остаётся только у авторизованного расчёта.
+		if req.Rates != nil {
+			writeError(w, http.StatusUnprocessableEntity, "rates_not_allowed",
+				"Ставки цены задаются магазином; переопределять их в запросе нельзя.")
 			return
 		}
 
@@ -53,6 +62,9 @@ func handlePublicQuote(svc StairService) http.HandlerFunc {
 		if err != nil {
 			writeInputError(w, "invalid_rates", err)
 			return
+		}
+		if rates, ok := publicStoreRates(r, storeSvc, authSvc); ok {
+			opts.Rates = rates
 		}
 
 		res, err := svc.Calculate(r.Context(), cfg, opts)

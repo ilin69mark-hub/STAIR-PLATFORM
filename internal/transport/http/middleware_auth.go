@@ -107,6 +107,9 @@ type Config struct {
 	// Testimonials — сервис отзывов клиентов (клиентский сайт); nil —
 	// маршруты testimonials и admin/testimonials не регистрируются.
 	Testimonials TestimonialService
+	// Store — сервис настроек и прайса магазина (волна 0 «store admin»);
+	// nil — маршруты store-settings, admin/store не регистрируются.
+	Store StoreService
 	// WebSocketHandler — handler для WebSocket подключений; nil —
 	// маршрут /ws не регистрируется.
 	WebSocketHandler *WebSocketHandler
