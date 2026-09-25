@@ -45,3 +45,7 @@ bench.out
 /assets/pbr/*.jpg
 /assets/hdri/*.hdr
 
+
+# Playwright (артефакты прогонов)
+/test-results
+/playwright-report
