@@ -141,7 +141,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
         resource_type: 'stair',
         resource_id: projectId,
         detail: JSON.stringify({ field: key }),
-      })
+      }, 'admin')
     }, 600)
     // Живая валидация при вводе: дебаунс + дедуп по конфигу; при локальных
     // ошибках формы сервер не дёргаем (они уже подсвечены).
@@ -264,7 +264,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
       resource_type: 'stair',
       resource_id: projectId,
       detail: JSON.stringify({ id: v.id, title: v.title }),
-    })
+    }, 'admin')
     setBusy(true)
     setError(null)
     try {
@@ -291,7 +291,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
       resource_type: 'stair',
       resource_id: projectId,
       detail: JSON.stringify({ step_height_mm: si.stepHeightMm, step_count: si.stepCount }),
-    })
+    }, 'admin')
   }
   const applyLiveVariation = (v: LiveVariation) => {
     const next = liveApplyVariation(config, v)
@@ -303,7 +303,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
       resource_type: 'stair',
       resource_id: projectId,
       detail: JSON.stringify({ id: v.id, title: v.title }),
-    })
+    }, 'admin')
   }
 
 
