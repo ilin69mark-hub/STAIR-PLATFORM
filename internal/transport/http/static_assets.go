@@ -7,6 +7,9 @@ import (
 	"strings"
 )
 
+// staticAssetsMount — префикс публичного монтирования ассетов в роутере.
+const staticAssetsMount = "/static-assets"
+
 // StaticAssetsHandler — публичная раздача версионированных статических
 // ассетов (этап 1 «студийный 3D»): PBR-текстуры материалов и HDRI.
 //
@@ -27,7 +30,6 @@ func StaticAssetsHandler(root string) http.Handler {
 	if err != nil {
 		absRoot = root
 	}
-	fileServer := http.FileServer(http.Dir(absRoot))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
@@ -39,7 +41,13 @@ func StaticAssetsHandler(root string) http.Handler {
 		w.Header().Set("Access-Control-Allow-Origin", "*") // текстуры грузятся с другого origin (Next.js)
 		w.Header().Set("Cross-Origin-Resource-Policy", "cross-origin")
 
-		upath := filepath.Clean("/" + strings.TrimPrefix(r.URL.Path, "/"))
+		// ServeMux отдаёт полный путь, поэтому префикс монтирования убираем
+		// сами: без этого target уезжал в <root>/static-assets/... и все текстуры
+		// отдавали 404 (юнит-тест передал путь уже без префикса и баг маскировал).
+		upath := filepath.Clean("/" + strings.TrimPrefix(r.URL.Path, staticAssetsMount+"/"))
+		if !strings.HasPrefix(upath, "/") {
+			upath = "/" + upath
+		}
 		target := filepath.Join(absRoot, upath)
 		// Двойная проверка: после Join путь обязан остаться внутри root.
 		if !strings.HasPrefix(target, absRoot+string(os.PathSeparator)) && target != absRoot {
@@ -52,6 +60,15 @@ func StaticAssetsHandler(root string) http.Handler {
 			writeError(w, http.StatusNotFound, "not_found", "Ассет не найден")
 			return
 		}
-		fileServer.ServeHTTP(w, r)
+		// Файл отдаём сами, а не через http.FileServer: тот смотрит на
+		// r.URL.Path, где префикс монтирования ещё присутствует, и ищет файл
+		// в <root>/static-assets/... (отсюда 404 на всех текстурах).
+		f, openErr := os.Open(target)
+		if openErr != nil {
+			writeError(w, http.StatusNotFound, "not_found", "Ассет не найден")
+			return
+		}
+		defer f.Close()
+		http.ServeContent(w, r, info.Name(), info.ModTime(), f)
 	})
 }

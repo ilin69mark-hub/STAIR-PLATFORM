@@ -63,11 +63,14 @@ export interface QuoteResult {
   railing_mesh?: Mesh
 }
 
-async function getJSON<T>(path: string, init?: RequestInit & { revalidate?: number }): Promise<T | null> {
+async function getJSON<T>(
+  path: string,
+  init?: RequestInit & { revalidate?: number },
+): Promise<T | null> {
   try {
     const res = await fetch(`${API}${path}`, {
       ...init,
-      headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+      headers: { 'Content-Type': 'application/json', ...init?.headers },
       next: { revalidate: init?.revalidate ?? 300 },
     })
     if (!res.ok) return null
