@@ -6,17 +6,17 @@
 // же код, что и на витрине-калькуляторе, поэтому расхождений между сайтами
 // не будет. Браузер обращается к /api, который Next проксирует на Go-API.
 import { useEffect, useState } from 'react'
-import { Constructor } from '@store/components/Constructor'
+import { Constructor } from '@shared/storefront/components/Constructor'
 // Конструктор читает пользователя из контекста витрины-калькулятора, поэтому
 // остов (AuthProvider) тоже переиспользуется: сессия одна и та же (cookie
 // домена), логика входа не дублируется.
-import { AuthProvider } from '@store/auth/AuthContext'
+import { AuthProvider } from '@shared/storefront/auth/AuthProvider'
 import { defaultConfig } from '@shared/config'
 // Стили: только база, конструктор и 3D-вьювер. Лендинг, кабинет, формы
 // авторизации витрине не нужны — раньше она тянула весь App.css целиком.
-import '@store/styles/base.css'
-import '@store/styles/constructor.css'
-import '@store/styles/viewer.css'
+import '@shared/storefront/styles/base.css'
+import '@shared/storefront/styles/constructor.css'
+import '@shared/storefront/styles/viewer.css'
 
 export function Calculator({ initialMaterial }: { initialMaterial?: string }) {
   // Материал можно задать ссылкой с карточки материала:

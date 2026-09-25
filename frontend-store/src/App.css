@@ -1,7 +1,10 @@
-@import './styles/base.css';
+/* Порядок импортов совпадает с прежним монолитом: каскад не изменился.
+   Базовые токены, стили конструктора и 3D живут в общем пакете
+   (@shared/storefront/styles) — их использует и витрина на Next.js. */
+@import '@shared/storefront/styles/base.css';
 @import './styles/landing.css';
-@import './styles/constructor.css';
+@import '@shared/storefront/styles/constructor.css';
 @import './styles/auth.css';
 @import './styles/cabinet.css';
-@import './styles/viewer.css';
+@import '@shared/storefront/styles/viewer.css';
 @import './styles/site.css';
