@@ -25,7 +25,9 @@ OUT_SERVED = ROOT / "internal" / "transport" / "http" / "swagger" / "swagger.yam
 OUT_DOCS = ROOT / "docs" / "openapi" / "swagger.yaml"
 
 # Роуты, не входящие в REST-спецификацию (инфраструктура/мета/веб-сокет).
-NON_REST = {"/", "/ws", "/swagger", "/docs/openapi/swagger.yaml", "/n/swagger.yaml"}
+# Синхронизировано с nonRESTRoutes в internal/transport/http/swagger_sync_test.go:
+# /ws/admin добавлен вместе с admin-namespace (S-116) — тоже веб-сокет, не REST.
+NON_REST = {"/", "/ws", "/ws/admin", "/swagger", "/docs/openapi/swagger.yaml", "/n/swagger.yaml"}
 
 # Публичные (без bearerAuth) и webhook-маршруты.
 PUBLIC = {

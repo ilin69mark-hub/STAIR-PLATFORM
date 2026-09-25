@@ -3,7 +3,6 @@ package http
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -14,6 +13,9 @@ import (
 // транспортным слоем (инверсия зависимостей, DOM-0008).
 type AssistantService interface {
 	Ask(ctx context.Context, tenantID, userID string, kind appast.Kind, req appast.Request) (*appast.Result, error)
+	// Forget стирает conversation-memory проекта (S-141 №13); не-член —
+	// appast.ErrForbidden.
+	Forget(ctx context.Context, tenantID, userID, projectID string) (int64, error)
 }
 
 // assistantRequest — запрос к ассистенту. Поля конфигурации совпадают с
@@ -33,6 +35,7 @@ type assistantRequest struct {
 // kind ∈ design|engineering|manufacturing|pricing.
 // 200 — рекомендация ассистента (структурный ответ + комментарий);
 // 400 — некорректный JSON;
+// 403 — project_id из тела, но вызывающий не член проекта (S-142);
 // 404 — неизвестный kind;
 // 422 — невалидный вход / недоступный ассистент / нет допустимой конфигурации;
 // 499 — отмена контекста; 500 — внутренняя ошибка.
@@ -90,18 +93,54 @@ func handleAssistantAsk(svc AssistantService) http.HandlerFunc {
 				return
 			}
 			// ErrInvalid / ErrNoFeasible — ошибка входных данных (клиент):
-			// 422. Прочие (сбой модели, инфраструктуры, неожиданное) —
+			// 422. ErrForbidden — проект вне членства вызывающего (S-142):
+			// 403. Прочие (сбой модели, инфраструктуры, неожиданное) —
 			// 500, чтобы не маскировать внутренние проблемы под ошибку ввода.
+			if errors.Is(err, appast.ErrForbidden) {
+				writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
+				return
+			}
 			if errors.Is(err, appast.ErrInvalid) || errors.Is(err, appast.ErrNoFeasible) {
 				writeInputError(w, "invalid_input", err)
 			} else {
-				wrapped := fmt.Sprintf("assistant: %v", err)
+				// S-144 (S-141 №8): клиенту — фиксированный текст без
+				// внутренней цепочки (URL провайдера, имена сервисов — CWE-209);
+				// детали — только в slog.
 				slog.Error("assistant request failed", "kind", kind, "error", err)
-				writeError(w, http.StatusInternalServerError, "internal", wrapped)
+				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка. Попробуйте позже.")
 			}
 			return
 		}
 
 		writeJSON(w, http.StatusOK, res)
+	}
+}
+
+// handleAssistantForget — DELETE /api/v1/assistant/memory?project_id=...
+// (Phase D, S-141 №13): право на забвение conversation-memory проекта.
+// 200 — {deleted: n}; 400 — нет project_id; 403 — вызывающий не член
+// проекта (S-142); 500 — внутренняя ошибка (фикс-текст, без err-цепочки).
+func handleAssistantForget(svc AssistantService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		projectID := r.URL.Query().Get("project_id")
+		if projectID == "" {
+			writeError(w, http.StatusBadRequest, "invalid_request", "Требуется project_id")
+			return
+		}
+		n, err := svc.Forget(r.Context(), tenantID(r.Context()), userID(r.Context()), projectID)
+		if err != nil {
+			if errors.Is(err, appast.ErrForbidden) {
+				writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
+				return
+			}
+			if errors.Is(err, appast.ErrInvalid) {
+				writeInputError(w, "invalid_input", err)
+				return
+			}
+			slog.Error("assistant memory purge failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка. Попробуйте позже.")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"deleted": n})
 	}
 }

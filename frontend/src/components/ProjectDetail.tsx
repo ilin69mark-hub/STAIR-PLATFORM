@@ -20,6 +20,7 @@ import {
   materialOptions,
   directionOptions,
   spiralDirectionOptions,
+  SPIRAL_ENABLED,
   railingOptions,
   railingForSpiral,
   railingLabel,
@@ -140,7 +141,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
         resource_type: 'stair',
         resource_id: projectId,
         detail: JSON.stringify({ field: key }),
-      })
+      }, 'admin')
     }, 600)
     // Живая валидация при вводе: дебаунс + дедуп по конфигу; при локальных
     // ошибках формы сервер не дёргаем (они уже подсвечены).
@@ -263,7 +264,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
       resource_type: 'stair',
       resource_id: projectId,
       detail: JSON.stringify({ id: v.id, title: v.title }),
-    })
+    }, 'admin')
     setBusy(true)
     setError(null)
     try {
@@ -290,7 +291,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
       resource_type: 'stair',
       resource_id: projectId,
       detail: JSON.stringify({ step_height_mm: si.stepHeightMm, step_count: si.stepCount }),
-    })
+    }, 'admin')
   }
   const applyLiveVariation = (v: LiveVariation) => {
     const next = liveApplyVariation(config, v)
@@ -302,7 +303,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
       resource_type: 'stair',
       resource_id: projectId,
       detail: JSON.stringify({ id: v.id, title: v.title }),
-    })
+    }, 'admin')
   }
 
 
@@ -636,7 +637,9 @@ const adminSelectOptions = (key: keyof ConfigForm) => {
 }
 
 function ConfigForm({ fields, errors, liveErrors, onChange }: ConfigFormProps) {
-  const visible = flightFields[fields.flight]
+  // Проект могли сохранить со спиралью до её отключения (S-152): форма не
+  // должна падать, показываем поля прямого марша и предупреждение.
+  const visible = flightFields[fields.flight] ?? flightFields.straight
   return (
     <div className="config-grid">
       <div className="field">
@@ -713,7 +716,7 @@ function ConfigForm({ fields, errors, liveErrors, onChange }: ConfigFormProps) {
           </div>
         )
       })}
-      {fields.flight === 'spiral' && (
+      {SPIRAL_ENABLED && fields.flight === 'spiral' && (
         <div className="field">
           <label className="field__label" htmlFor="cfg-railing-auto">
             {labelOf('railing')}
@@ -759,8 +762,12 @@ interface RatesFormProps {
 
 const rateFields: Array<{ key: keyof RatesForm; label: string; placeholder: string }> = [
   { key: 'steel', label: 'Сталь STEEL-S235, ₽/кг', placeholder: 'дефолт' },
+  { key: 'corten', label: 'Кортэн STEEL-CORTEN, ₽/кг', placeholder: 'дефолт' },
   { key: 'alum', label: 'Алюминий ALUM-5083, ₽/кг', placeholder: 'дефолт' },
   { key: 'wood', label: 'Дуб WOOD-OAK, ₽/кг', placeholder: 'дефолт' },
+  { key: 'walnut', label: 'Орех WOOD-WALNUT, ₽/кг', placeholder: 'дефолт' },
+  { key: 'ash', label: 'Ясень WOOD-ASH, ₽/кг', placeholder: 'дефолт' },
+  { key: 'soft', label: 'Сосна WOOD-SOFT, ₽/кг', placeholder: 'дефолт' },
   { key: 'machinePerHour', label: 'Станок, ₽/час', placeholder: 'дефолт' },
   { key: 'laborPerHour', label: 'Труд, ₽/час', placeholder: 'дефолт' },
   { key: 'overheadPct', label: 'Накладные, %', placeholder: 'дефолт' },

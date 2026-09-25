@@ -5,7 +5,29 @@ replicaCount: 2
 # Background worker (separate Deployment; same image, /bin/worker entrypoint)
 worker:
   replicaCount: 1
-  resources:
+# NetworkPolicy (S-149, S-141 №12, CIS Benchmark 5.3): сегментация трафика.
+# По умолчанию ВЫКЛЮЧЕНА: корректные CIDR знает только оператор среды, а
+# default-deny с пустыми CIDR сломает прод на первом upgrade. Включение:
+# staging (helm template --set networkPolicy.enabled=true ... → сверка) → прод.
+# При enabled databaseCIDRs/redisCIDRs ОБЯЗАТЕЛЬНЫ (fail-fast в шаблоне).
+networkPolicy:
+  enabled: false
+  # CIDR ingress-контроллера/LB, которым разрешён вход на :service.port
+  # (пример: pod-CIDR кластера "10.42.0.0/16").
+  ingressCIDRs: []
+  # CIDR внешней PostgreSQL (RDS/Cloud SQL), порт databasePort.
+  databaseCIDRs: []
+  databasePort: 5432
+  # CIDR внешнего Redis (ElastiCache/Memorystore), порт redisPort.
+  redisCIDRs: []
+  redisPort: 6379
+  # HTTPS наружу (Stripe API + OpenRouter). Выключать только если внешний
+  # PSP/LLM не используется.
+  egressInternet: true
+  # Дополнительные egress-CIDR (мониторинг, SMTP и т.п.).
+  extraEgressCIDRs: []
+
+resources:
     limits:
       cpu: 500m
       memory: 512Mi

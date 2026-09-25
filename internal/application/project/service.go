@@ -213,6 +213,16 @@ func (s *Service) member(ctx context.Context, tenantID, userID, projectID string
 	return nil, false, err
 }
 
+// IsMember возвращает true, если пользователь является членом проекта
+// (EDR-0008). Публичный порт членства для кросс-сервисной авторизации
+// (S-142): AI-ассистенты гейтят conversation-memory проверкой членства
+// (IDOR-фикс S-141 №1). Чужой/несуществующий проект — (false, nil);
+// сбой хранилища — (false, err).
+func (s *Service) IsMember(ctx context.Context, tenantID, userID, projectID string) (bool, error) {
+	_, ok, err := s.member(ctx, tenantID, userID, projectID)
+	return ok, err
+}
+
 // AddComment добавляет комментарий к проекту (EDR-0009). Требуется
 // членство (owner/editor/viewer). Возвращает созданный комментарий.
 func (s *Service) AddComment(ctx context.Context, tenantID, userID, projectID, body string) (*Comment, error) {

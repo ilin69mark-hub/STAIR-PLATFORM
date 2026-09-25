@@ -49,6 +49,10 @@ export default defineConfig({
         target: process.env.STAIR_API_PROXY_URL ?? 'http://localhost:8080',
         changeOrigin: false,
       },
+      '/static-assets': {
+        target: process.env.STAIR_API_PROXY_URL ?? 'http://localhost:8080',
+        changeOrigin: false,
+      },
     },
   },
 })

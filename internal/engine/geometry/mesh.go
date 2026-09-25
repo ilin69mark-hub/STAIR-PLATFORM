@@ -22,18 +22,27 @@ func ToPreviewMeshCached(model *kerngeo.Compound, tess *kerngeo.TessellationCach
 		return nil, fmt.Errorf("geometry: model is required")
 	}
 	mesh := &kerngeo.Mesh{}
-	for _, solid := range model.Solids() {
+	for i, solid := range model.Solids() {
 		verts, tris, err := meshSolid(solid, tess)
 		if err != nil {
 			return nil, err
 		}
 		base := len(mesh.Vertices)
 		mesh.Vertices = append(mesh.Vertices, verts...)
+		start := len(mesh.Triangles)
 		for _, tr := range tris {
 			if err := mesh.AddTriangle(base+tr[0], base+tr[1], base+tr[2]); err != nil {
 				return nil, err
 			}
 		}
+		// Роль тела сохраняем для материала в 3D (этап 1): ступени, косоуры,
+		// площадка и ограждение получают разные PBR-пресеты.
+		mesh.PartRanges = append(mesh.PartRanges, kerngeo.PartRange{
+			Solid: i,
+			Role:  solid.Role(),
+			Start: start,
+			End:   len(mesh.Triangles),
+		})
 	}
 	return mesh, nil
 }

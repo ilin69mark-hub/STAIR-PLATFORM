@@ -17,6 +17,9 @@ type Service struct {
 	verifier      WebhookVerifier
 	maxWebhookAge time.Duration
 	now           func() time.Time
+	// catalog — серверный прайс-каталог (S-150): единственный источник
+	// суммы для checkout; nil = NewService подставляет DefaultCatalog.
+	catalog *Catalog
 }
 
 // NewService создаёт сервис платежей. maxAge <= 0 — WebhookVerifier решает
@@ -27,23 +30,38 @@ func NewService(repo Repository, provider Provider, verifier WebhookVerifier, ma
 		provider:      provider,
 		verifier:      verifier,
 		maxWebhookAge: maxAge,
+		catalog:       DefaultCatalog(),
 		now:           time.Now,
 	}
 }
 
+// ListTiers возвращает серверный прайс услуг для витрины: витрина показывает
+// эти цены, а checkout считает по ним же. Клиент сумму не присылает (S-150).
+func (s *Service) ListTiers() []Tier { return s.catalog.List() }
+
+// WithCatalog задаёт серверный прайс-каталог (S-150): значения из тела
+// запроса не принимаются, цена — только из каталога.
+func (s *Service) WithCatalog(c *Catalog) *Service {
+	if c != nil {
+		s.catalog = c
+	}
+	return s
+}
+
 // CreateCheckout создаёт pending-интент через Provider и возвращает
-// checkout URL (EDR-0027 §3.4). Валидирует сумму и валюту.
-func (s *Service) CreateCheckout(ctx context.Context, tenantID, projectID, userID string, amountMinor int64, currency string) (*PaymentIntent, error) {
+// checkout URL (EDR-0027 §3.4). Сумма и валюта берутся ТОЛЬКО из
+// серверного каталога по tierID (S-150: клиент больше не присылает цену —
+// red-team «платное бесплатно» закрыт). tierID обязателен и должен быть
+// известен каталогу, иначе ErrInvalid (422).
+func (s *Service) CreateCheckout(ctx context.Context, tenantID, projectID, userID, tierID string) (*PaymentIntent, error) {
 	if tenantID == "" || projectID == "" {
 		return nil, fmt.Errorf("%w: project required", ErrInvalid)
 	}
-	if amountMinor <= 0 {
-		return nil, fmt.Errorf("%w: amount_minor must be positive", ErrInvalid)
+	tier, err := s.catalog.Resolve(tierID)
+	if err != nil {
+		return nil, err
 	}
-	currency = strings.ToUpper(strings.TrimSpace(currency))
-	if currency == "" {
-		return nil, fmt.Errorf("%w: currency required", ErrInvalid)
-	}
+	amountMinor, currency := tier.AmountMinor, tier.Currency
 
 	checkoutID, checkoutURL, err := s.provider.CreateCheckout(ctx, amountMinor, currency)
 	if err != nil {
@@ -69,6 +87,48 @@ func (s *Service) CreateCheckout(ctx context.Context, tenantID, projectID, userI
 	return p, nil
 }
 
+// CreateServiceCheckout создаёт оплату услуги с витрины (этап 4): проект не
+// нужен, интент привязан к пользователю и коду услуги из каталога. Цена —
+// только серверная (S-150): tierID, не сумма.
+func (s *Service) CreateServiceCheckout(ctx context.Context, tenantID, userID, tierID string) (*PaymentIntent, error) {
+	if tenantID == "" || userID == "" {
+		return nil, fmt.Errorf("%w: tenant and user required", ErrInvalid)
+	}
+	tier, err := s.catalog.Resolve(tierID)
+	if err != nil {
+		return nil, err
+	}
+	checkoutID, checkoutURL, err := s.provider.CreateCheckout(ctx, tier.AmountMinor, tier.Currency)
+	if err != nil {
+		return nil, err
+	}
+	p := &PaymentIntent{
+		TenantID:           tenantID,
+		UserID:             userID,
+		TierID:             tier.ID,
+		AmountMinor:        tier.AmountMinor,
+		Currency:           tier.Currency,
+		Status:             StatusPending,
+		Provider:           s.provider.Name(),
+		ProviderCheckoutID: checkoutID,
+		CheckoutURL:        checkoutURL,
+		CreatedAt:          s.now().UTC(),
+		UpdatedAt:          s.now().UTC(),
+	}
+	if err := s.repo.CreateIntent(ctx, p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// ListByUser возвращает платежи пользователя (кабинет, этап 4).
+func (s *Service) ListByUser(ctx context.Context, tenantID, userID string) ([]*PaymentIntent, error) {
+	if tenantID == "" || userID == "" {
+		return nil, fmt.Errorf("%w: tenant and user required", ErrInvalid)
+	}
+	return s.repo.ListByUser(ctx, tenantID, userID)
+}
+
 // ListByProject возвращает платежи проекта (tenant-скоуп).
 func (s *Service) ListByProject(ctx context.Context, tenantID, projectID string) ([]*PaymentIntent, error) {
 	return s.repo.ListByProject(ctx, tenantID, projectID)
@@ -77,6 +137,14 @@ func (s *Service) ListByProject(ctx context.Context, tenantID, projectID string)
 // Get возвращает интент по ID (tenant-скоуп).
 func (s *Service) Get(ctx context.Context, tenantID, id string) (*PaymentIntent, error) {
 	return s.repo.GetIntent(ctx, tenantID, id)
+}
+
+// GetIntentByProviderCheckout возвращает интент по (provider, checkout_id).
+// Публичный доступ к чтению нужен для сверки состояния интента с событием
+// при дубликате webhook (S-141 №3, crash-window reconcile): StripeWebhookService
+// через опциональный интерфейс IntentReader type-assert'ит Service.
+func (s *Service) GetIntentByProviderCheckout(ctx context.Context, provider, checkoutID string) (*PaymentIntent, error) {
+	return s.repo.GetIntentByProviderCheckout(ctx, provider, checkoutID)
 }
 
 // webhookPayload — тело входящего события PSP (EDR-0027 §3.4).
@@ -148,12 +216,6 @@ func (s *Service) applyVerifiedEvent(ctx context.Context, provider, checkoutID, 
 	if newStatus == StatusPaid {
 		paidAt = &now
 	}
-	if err := s.repo.UpdateStatus(ctx, intent.TenantID, intent.ID, newStatus, paidAt); err != nil {
-		return nil, err
-	}
-	intent.Status = newStatus
-	intent.PaidAt = paidAt
-
 	event := &PaymentEvent{
 		TenantID:  intent.TenantID,
 		IntentID:  intent.ID,
@@ -161,6 +223,25 @@ func (s *Service) applyVerifiedEvent(ctx context.Context, provider, checkoutID, 
 		Payload:   append(json.RawMessage(nil), body...),
 		CreatedAt: now,
 	}
+
+	// DB-002 (forensic 2026-09-24): статус + журнал события — в одной
+	// транзакции, если репозиторий её умеет (инфраструктура). Иначе —
+	// прежняя последовательность (совместимость с прочими реализациями).
+	if applier, ok := s.repo.(EventApplier); ok {
+		if err := applier.ApplyVerifiedEventTx(ctx, intent.TenantID, intent.ID, newStatus, paidAt, event); err != nil {
+			return nil, err
+		}
+		intent.Status = newStatus
+		intent.PaidAt = paidAt
+		return event, nil
+	}
+
+	if err := s.repo.UpdateStatus(ctx, intent.TenantID, intent.ID, newStatus, paidAt); err != nil {
+		return nil, err
+	}
+	intent.Status = newStatus
+	intent.PaidAt = paidAt
+
 	if err := s.repo.AppendEvent(ctx, event); err != nil {
 		return nil, err
 	}

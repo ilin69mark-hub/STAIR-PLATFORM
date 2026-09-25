@@ -27,7 +27,17 @@ else
 fi
 
 # Исключаем database-пакет, если тестовая БД не задана.
+# TEST-001 (forensic 2026-09-24): раньше исключение проходило молча, и
+# локальный «зелёный» прогод означал покрытие без integration-пакета.
+# Теперь: явное предупреждение + opt-in флаг ALLOW_DB_SKIP=1 (в CI
+# исключение запрещено — там STAIR_TEST_DATABASE_URL обязателен).
 if [[ -z "${STAIR_TEST_DATABASE_URL:-}" ]]; then
+    if [[ "${ALLOW_DB_SKIP:-0}" != "1" ]]; then
+        echo "ERROR: STAIR_TEST_DATABASE_URL is not set — $DB_PKG would be excluded from coverage." >&2
+        echo "       Set the test DB URL, or opt in explicitly with ALLOW_DB_SKIP=1 (local-only)." >&2
+        exit 1
+    fi
+    echo "WARNING: STAIR_TEST_DATABASE_URL not set — excluding $DB_PKG from coverage (ALLOW_DB_SKIP=1)." >&2
     nodb="$(mktemp)"
     trap 'rm -f "$nodb"' EXIT
     grep -v "$DB_PKG/" "$profile" > "$nodb" || true

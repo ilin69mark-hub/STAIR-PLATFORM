@@ -15,4 +15,12 @@ var (
 		"AI assistant response duration",
 		nil, "kind", "valid",
 	)
+
+	// assistantLLMBudgetDenied — отказы дневного LLM-бюджета (S-148, S-141
+	// №14): попытка ушла в local-бэкенд. Источник для алерта на бесконтрольный
+	// расход OpenRouter.
+	assistantLLMBudgetDenied = ServiceMetricsReg.Counter(
+		"stair_assistant_llm_budget_denied_total",
+		"AI assistant LLM calls denied by daily budget (local backend used)",
+	)
 )

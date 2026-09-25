@@ -1,7 +1,7 @@
 import { screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Cabinet } from './Cabinet'
-import { ordersApi } from '../api/store'
+import { ordersApi, paymentsApi } from '../api/store'
 import { renderWithAuth, testUser } from '../test/render'
 import type { OrderDTO } from '@shared/types'
 
@@ -55,6 +55,25 @@ describe('Cabinet', () => {
     vi.spyOn(ordersApi, 'listMine').mockResolvedValue([])
     await renderWithAuth(<Cabinet />)
     expect(await screen.findByText(/Заказов пока нет/)).toBeInTheDocument()
+  })
+
+  it('показывает купленные услуги из /payments/mine', async () => {
+    vi.spyOn(paymentsApi, 'mine').mockResolvedValue([
+      {
+        id: 'pay-1',
+        title: 'Выезд инженера и замер',
+        tier_id: 'basic',
+        amount_minor: 90_000,
+        currency: 'RUB',
+        status: 'paid',
+        created_at: '2026-09-20T10:00:00Z',
+        paid_at: '2026-09-20T10:05:00Z',
+      },
+    ])
+    await renderWithAuth(<Cabinet />)
+    expect(await screen.findByText('Выезд инженера и замер')).toBeInTheDocument()
+    expect(screen.getByText(/оплачено/)).toBeInTheDocument()
+    expect(screen.getByText(/900/)).toBeInTheDocument()
   })
 
   it('показывает ошибку загрузки', async () => {

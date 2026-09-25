@@ -53,9 +53,20 @@ async function selectIfVisible(page: Page, label: string, val: string, exact = f
   await loc.first().selectOption(val)
 }
 
+// setMaterial — материал выбирается либо нативным <select> (старый UI), либо
+// карточками-превью с data-material-code (этап 1, студийные текстуры).
+async function setMaterial(page: Page, code: string) {
+  const card = page.locator(`[data-material-code="${code}"]`)
+  if ((await card.count()) > 0) {
+    await card.first().click()
+    return
+  }
+  await selectIfVisible(page, 'Материал', code)
+}
+
 async function fillCase(page: Page, c: GenCase) {
   await selectIfVisible(page, 'Тип лестницы', c.flight)
-  await selectIfVisible(page, 'Материал', c.material)
+  await setMaterial(page, c.material)
   await fillIfVisible(page, 'Ширина марша (мм)', num(c.width_mm))
   await fillIfVisible(page, 'Высота (мм)', num(c.height_mm))
   await fillIfVisible(page, 'Толщина ступени (мм)', num(c.step_thickness_mm))
@@ -81,8 +92,15 @@ async function fillCase(page: Page, c: GenCase) {
   }
 }
 
-all.forEach((c, i) => {
+// Спиральный марш временно отключён (S-152, SPIRAL_ENABLED=false): кейсы
+// остаются в наборе данных, но не гоняются. При возврате спирали достаточно
+// убрать фильтр.
+const ENABLED = all.filter(c => c.flight !== 'spiral')
+console.log(`matrix: ${ENABLED.length} кейсов из ${all.length} (спираль отключена S-152)`)
+
+ENABLED.forEach((c, i) => {
   test(`matrix ${c.flight} #${i}`, async ({ page }) => {
+    test.setTimeout(90_000)
     const errors: string[] = []
     page.on('pageerror', e => errors.push(String(e?.message ?? e)))
     const audit403: string[] = []

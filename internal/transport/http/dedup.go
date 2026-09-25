@@ -75,6 +75,12 @@ func DeduplicateByKey(r *http.Request) string {
 	case http.MethodGet, http.MethodHead, http.MethodOptions:
 		return ""
 	}
+	// Auth-ручки дедуплицировать нельзя: у них собственные rate-limiter'ы, а
+	// параллельный вход одного пользователя из двух вкладок — легитимный
+	// сценарий. Прежде dedup отвечал на него 429 «duplicate request».
+	if strings.HasPrefix(r.URL.Path, "/api/v1/auth/") {
+		return ""
+	}
 	base := dedupIP(r) + ":" + r.Method + ":" + r.URL.Path
 	sum, ok := dedupBodyHash(r)
 	if !ok {

@@ -21,13 +21,13 @@ LDFLAGS     := -s -w \
 	-X stairplatform/internal/version.Commit=$(GIT_COMMIT) \
 	-X stairplatform/internal/version.BuildTime=$(BUILD_TIME)
 
-.PHONY: setup up stop run test coverage coverage-check migrate seed lint build build-api fmt vet env-up env-down clean frontend-install frontend-test frontend-build fe store admin frontends store-logs admin-logs bench backup restore backup-check obs-up obs-down obs-config obs-tracing-up version
+.PHONY: setup up stop run test coverage coverage-check migrate seed lint build build-api fmt vet env-up env-down clean frontend-install frontend-test frontend-build fe store admin store-admin frontends store-logs admin-logs store-admin-logs store-admin-fe store-admin-test store-admin-build bench backup restore backup-check obs-up obs-down obs-config obs-tracing-up version
 
-## start the whole stack (PostgreSQL + Redis + API + store + admin frontends),
+## start the whole stack (PostgreSQL + Redis + API + store + admin + store-admin),
 ## rebuild images, apply migrations. Frontends: store :3000, admin :5174.
 up: env-up
 	$(GO) run ./cmd/migrate -dir migrations -database "$(STAIR_DATABASE_URL)"
-	@echo "Stack up: API :8080, store :3000, admin :5174. Frontend dev server: make fe"
+	@echo "Stack up: API :8080, store :3000, admin :5174, store-admin :5177. Frontend dev server: make fe"
 
 ## rebuild & restart the store frontend container (part of the stack)
 store:
@@ -39,8 +39,12 @@ admin:
 	@docker build --pull=false --network=host -f deployments/admin.Dockerfile -t stair-platform-admin . 2>&1 | tail -3 || true
 	$(COMPOSE) -f deployments/docker-compose.yml up -d admin
 
-## rebuild & restart both frontend containers
-frontends: store admin
+store-admin:
+	@docker build --pull=false --network=host -f deployments/store-admin.Dockerfile -t stair-platform-store-admin . 2>&1 | tail -3 || true
+	$(COMPOSE) -f deployments/docker-compose.yml up -d store-admin
+
+## rebuild & restart frontend containers
+frontends: store admin store-admin
 
 ## tail logs of the store frontend
 store-logs:
@@ -49,6 +53,18 @@ store-logs:
 ## tail logs of the admin frontend
 admin-logs:
 	$(COMPOSE) -f deployments/docker-compose.yml logs -f admin
+
+store-admin-logs:
+	$(COMPOSE) -f deployments/docker-compose.yml logs -f store-admin
+
+store-admin-fe:
+	$(NPM) --prefix frontend-store-admin run dev
+
+store-admin-test:
+	$(NPM) --prefix frontend-store-admin run test
+
+store-admin-build:
+	$(NPM) --prefix frontend-store-admin run build
 
 ## stop everything (Docker stack)
 stop: env-down
@@ -167,6 +183,7 @@ env-up:
 	@docker build --pull=false --network=host --build-arg VERSION="$(GIT_VERSION)" --build-arg COMMIT="$(GIT_COMMIT)" --build-arg BUILD_TIME="$(BUILD_TIME)" -f deployments/Dockerfile -t stair-platform-api . 2>&1 | tail -5 || true
 	@docker build --pull=false --network=host -f deployments/admin.Dockerfile -t stair-platform-admin . 2>&1 | tail -5 || true
 	@docker build --pull=false --network=host -f deployments/store.Dockerfile -t stair-platform-store . 2>&1 | tail -5 || true
+	@docker build --pull=false --network=host -f deployments/store-admin.Dockerfile -t stair-platform-store-admin . 2>&1 | tail -5 || true
 	$(COMPOSE) -f deployments/docker-compose.yml up -d
 
 ## alias for env-up (always rebuild)
@@ -184,4 +201,4 @@ env-down:
 
 clean:
 	rm -f coverage.out coverage.html
-	rm -rf frontend/dist
+	rm -rf frontend/dist frontend-store-admin/dist

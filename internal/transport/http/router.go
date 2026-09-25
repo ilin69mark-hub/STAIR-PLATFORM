@@ -79,10 +79,18 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	readiness := cfg.Readiness
 	storage := cfg.Storage
 	payments := cfg.Payments
+	paymentAdmin := cfg.PaymentAdmin
 	analytics := cfg.Analytics
 	jobsSvc := cfg.Jobs
 	assistantSvc := cfg.Assistant
 	ordersSvc := cfg.Orders
+
+	// Response cache для read-heavy GET-запросов (5min TTL, 512 entries)
+	respCacheMW, storeCacheInvalidator := NewResponseCacheWithInvalidation(ResponseCacheConfig{
+		MaxEntries: 512,
+		DefaultTTL: 5 * time.Minute,
+		Methods:    []string{http.MethodGet},
+	})
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", handleHealth(cfg.Region))
@@ -90,6 +98,14 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	if readiness != nil {
 		mux.HandleFunc("GET /ready", handleReady(readiness))
 	}
+	// Версионированные статические ассеты (PBR-текстуры, HDRI — этап 1).
+	// Публичные и иммутабельные: файлы версионируются по содержимому.
+	if cfg.StaticAssetsDir != "" {
+		// Литерал, не конкатенация: регэксп swagger-sync вытаскивает пути из
+		// исходника. Префикс должен совпадать с staticAssetsMount.
+		mux.Handle("GET /static-assets/", StaticAssetsHandler(cfg.StaticAssetsDir))
+	}
+
 	// Swagger UI (internal only)
 	mux.Handle("GET /swagger", InternalOnlyMiddleware(http.HandlerFunc(handleSwaggerUI)))
 	mux.Handle("GET /docs/openapi/swagger.yaml", InternalOnlyMiddleware(http.HandlerFunc(handleSwaggerSpec)))
@@ -98,7 +114,23 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 
 	// Публичный расчёт предварительной цены для клиентского сайта (store).
 	// Без аутентификации; rate-limiter защищает от злоупотреблений.
-	mux.Handle("POST /api/v1/public/stairs:quote", limitRate(quoteLimiter, trusted, handlePublicQuote(svc)))
+	// Прайс платных услуг для витрины (этап 4): суммы — только из серверного
+	// каталога тарифов (S-150), клиент на них не влияет.
+	if payments != nil {
+		mux.Handle("GET /api/v1/public/payment-tiers", handlePublicPaymentTiers(payments))
+	}
+
+	// Настройки магазина для витрины (волна 0): контакты, реквизиты, соцсети,
+	// SEO и коды счётчиков. Прайс материалов отдаётся каталогом materials.
+	storeSvc := cfg.Store
+	if storeSvc != nil {
+		mux.Handle("GET /api/v1/public/store-settings", limitRate(validateLimiter, trusted, handlePublicStoreSettings(storeSvc, authSvc)))
+	}
+
+	// Каталог материалов для витрины (этап 3): единственный источник истины
+	// для кодов, плотностей, диапазонов и ставок — бэкенд, не фронт.
+	mux.Handle("GET /api/v1/public/materials", limitRate(validateLimiter, trusted, handlePublicMaterials(storeSvc, authSvc)))
+	mux.Handle("POST /api/v1/public/stairs:quote", limitRate(quoteLimiter, trusted, handlePublicQuote(svc, storeSvc, authSvc)))
 	// Живая валидация при вводе для клиентского сайта (S-P5): тот же блок
 	// validation, что и в расчёте, но без геометрии/производства/цены.
 	mux.Handle("POST /api/v1/public/stairs:validate", limitRate(validateLimiter, trusted, handleValidate(svc)))
@@ -110,7 +142,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		return requireAuth(authSvc, authRateLimiter, secure)(next)
 	}
 	authMutating := func(next http.Handler) http.Handler {
-		return requireAuth(authSvc, authRateLimiter, secure)(requireCSRF(next))
+		return requireAuth(authSvc, authRateLimiter, secure)(requireCSRF(cfg.CSRFAllowedOrigins, next))
 	}
 
 	mux.Handle("GET /api/v1/auth/me", authProtected(handleMe()))
@@ -132,6 +164,16 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	mux.Handle("POST /api/v1/admin/api-keys", authMutating(handleCreateApiKey(authSvc)))
 	mux.Handle("DELETE /api/v1/admin/api-keys/{id}", authMutating(handleRevokeApiKey(authSvc)))
 
+	// Настройки и прайс магазина (волна 0 «store admin»): контакты, реквизиты,
+	// соцсети, SEO, параметры расчёта и цены материалов в ₽/кг.
+	if storeSvc != nil {
+		mux.Handle("GET /api/v1/admin/store/settings", authProtected(handleGetStoreSettings(storeSvc)))
+		mux.Handle("PUT /api/v1/admin/store/settings", authMutating(handleUpdateStoreSettings(storeSvc, storeCacheInvalidator)))
+		mux.Handle("GET /api/v1/admin/store/prices", authProtected(handleListMaterialPrices(storeSvc)))
+		mux.Handle("PUT /api/v1/admin/store/prices", authMutating(handleSetMaterialPrice(storeSvc, storeCacheInvalidator)))
+		mux.Handle("DELETE /api/v1/admin/store/prices/{code}", authMutating(handleDeleteMaterialPrice(storeSvc, storeCacheInvalidator)))
+	}
+
 	if auditsvc != nil {
 		mux.Handle("GET /api/v1/audit", authProtected(handleListTenantAudit(auditsvc)))
 		mux.Handle("GET /api/v1/projects/{id}/audit", authProtected(handleListProjectAudit(projects, auditsvc)))
@@ -139,12 +181,17 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		mux.Handle("POST /api/v1/audit", authMutating(handleRecordAudit(auditsvc)))
 	}
 
-	mux.Handle("POST /api/v1/stairs:calculate", authProtected(handleCalculate(svc, auditsvc)))
-	mux.Handle("POST /api/v1/stairs:validate", authProtected(handleValidate(svc)))
-	mux.Handle("POST /api/v1/stairs:optimize", authProtected(handleOptimize(svc)))
+	mux.Handle("POST /api/v1/stairs:calculate", authMutating(handleCalculate(svc, auditsvc)))
+	mux.Handle("POST /api/v1/stairs:validate", authMutating(handleValidate(svc)))
+	mux.Handle("POST /api/v1/stairs:optimize", authMutating(handleOptimize(svc)))
 	if assistantSvc != nil {
 		// AI-ассистенты (Phase D, D1–D4): design/engineering/manufacturing/pricing.
-		mux.Handle("POST /api/v1/assistant/{kind}", authProtected(handleAssistantAsk(assistantSvc)))
+		// S-144 (S-141 №7): мутирующие POST (LLM-бюджет, запись conversation-memory)
+		// — CSRF (double-submit), как у остальных mutating-роутов.
+		mux.Handle("POST /api/v1/assistant/{kind}", authMutating(handleAssistantAsk(assistantSvc)))
+		// Право на забвение conversation-memory (S-141 №13): purge памяти
+		// проекта, членство проверяет прикладной слой (S-142 → 403).
+		mux.Handle("DELETE /api/v1/assistant/memory", authMutating(handleAssistantForget(assistantSvc)))
 	}
 	if ordersSvc != nil {
 		// Розничные заказы (клиентский сайт, Store). Клиентский кабинет и
@@ -214,6 +261,14 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		mux.Handle("POST /api/v1/projects/{id}/checkout", authMutating(handleCheckout(projects, payments)))
 		mux.Handle("GET /api/v1/projects/{id}/payments", authProtected(handleListPayments(projects, payments)))
 		mux.Handle("GET /api/v1/payments/{id}", authProtected(handleGetPayment(payments)))
+		// Этап 4: покупка услуги с витрины (auth, CSRF) и мои покупки.
+		mux.Handle("POST /api/v1/public/services/checkout", authMutating(handleServiceCheckout(payments)))
+		mux.Handle("GET /api/v1/payments/mine", authProtected(handleListMyPayments(payments)))
+	}
+
+	if paymentAdmin != nil {
+		mux.Handle("GET /api/v1/admin/payments", authProtected(handleAdminListPayments(paymentAdmin)))
+		mux.Handle("POST /api/v1/admin/payments/{id}/refund", authMutating(handleAdminRefundPayment(paymentAdmin, auditsvc)))
 	}
 
 	// Stripe webhook endpoint (публичный; Stripe-Signature верификация).
@@ -262,13 +317,6 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		"/assets/":             CacheImmutable, // webpack assets — immutable
 	}
 
-	// Response cache для read-heavy GET-запросов (5min TTL, 512 entries)
-	respCache := ResponseCacheMiddleware(ResponseCacheConfig{
-		MaxEntries: 512,
-		DefaultTTL: 5 * time.Minute,
-		Methods:    []string{http.MethodGet},
-	})
-
 	// Deduplication для тяжёлых операций
 	dedup := DeduplicateMiddleware(DeduplicateByKey)
 
@@ -279,7 +327,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	h := withLogging(mux)
 	h = secMiddleware(h)
 	h = dedup(h)
-	h = respCache(h)
+	h = respCacheMW(h)
 	h = CacheMiddleware(cachePolicies)(h)
 	h = BodySizeLimit(cfg.MaxBodyBytes)(h)
 	h = CompressionMiddleware(h)

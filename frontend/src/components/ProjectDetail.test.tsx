@@ -167,16 +167,25 @@ describe('ProjectDetail', () => {
     expect(screen.queryByLabelText(/Наружный радиус R/)).not.toBeInTheDocument()
   })
 
-  it('спираль скрывает шаг комфорта и поля площадки', async () => {
+  it('спиральный марш скрыт из выбора типов (S-152)', async () => {
     vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
     renderDetail()
     await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
 
-    fireEvent.change(screen.getByLabelText('Тип марша'), { target: { value: 'spiral' } })
+    const options = Array.from(
+      screen.getByLabelText('Тип марша').querySelectorAll('option'),
+    ).map((o) => (o as HTMLOptionElement).value)
+    expect(options).toEqual(['straight', 'l_shape', 'u_shape'])
+    expect(options).not.toContain('spiral')
+    // Поля площадки (спиральные) в форме тоже нет.
+    expect(screen.queryByLabelText(/Наружный радиус R/)).not.toBeInTheDocument()
+  })
 
-    expect(screen.getByLabelText(/Наружный радиус R/)).toBeInTheDocument()
-    expect(screen.queryByLabelText(/Шаг комфорта/)).not.toBeInTheDocument()
-    expect(screen.queryByLabelText(/Ширина площадки Wp/)).not.toBeInTheDocument()
+  it('проект, сохранённый со спиралью, открывается без падения', async () => {
+    vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
+    renderDetail()
+    await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
+    expect(screen.getByLabelText('Тип марша')).toBeInTheDocument()
     expect(screen.getByLabelText(/Ширина марша/)).toBeInTheDocument()
   })
 
@@ -193,17 +202,20 @@ describe('ProjectDetail', () => {
 // ---- Живая валидация при вводе в редакторе проекта (S-P5) ----
 // PascalCase — клиентский transport преобразует ответы API в формате
 // ValidationResult (snake_case на проводе → CamelCase в DTO).
+// Спиральный марш отключён (S-152), поэтому блокирующий сценарий живой
+// валидации проверяем на прямом марше: проступь вне нормы + готовое
+// предложение «Применить».
 const liveBlockedSpiral = {
   Valid: false,
   Blocking: true,
   Issues: [
     {
-      Code: 'GEO-SPIRAL-RADIUS',
+      Code: 'GEO-TREAD',
       Severity: 'error',
-      Element: 'configuration',
-      Message: 'Радиус спирали не превышает ширину марша',
-      Param: 'Радиус спирали',
-      Guide: 'Наружный радиус спирали должен быть больше ширины марша.',
+      Element: 'tread_depth',
+      Message: 'проступь вне нормы',
+      Param: 'Шаг комфорта',
+      Guide: 'Проступь 240 мм вне диапазона 260–320 мм.',
       Suggestions: [
         {
           StepCount: 18,
@@ -226,18 +238,17 @@ describe('ProjectDetail · живая валидация (S-P5)', () => {
     renderDetail()
 
     await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
-    fireEvent.change(screen.getByLabelText('Тип марша'), { target: { value: 'spiral' } })
-    fireEvent.change(screen.getByLabelText(/Наружный радиус R/), { target: { value: '800' } })
+    fireEvent.change(screen.getByLabelText(/Шаг комфорта/), { target: { value: '600' } })
 
     await waitFor(() => expect(validate).toHaveBeenCalledTimes(1), { timeout: 2500 })
     const body = validate.mock.calls[0][0] as Record<string, unknown>
-    expect(body.flight).toBe('spiral')
-    expect(body.outer_radius_mm).toBe(800)
+    expect(body.flight).toBe('straight')
+    expect(body.comfort_step_mm).toBe(600)
 
     // Guide появляется и как ошибка поля, и в баннере блокировки.
     await waitFor(() => {
       expect(
-        screen.getAllByText(/Наружный радиус спирали должен быть больше ширины марша/).length,
+        screen.getAllByText(/Проступь 240 мм вне диапазона/).length,
       ).toBeGreaterThanOrEqual(2)
     }, { timeout: 2500 })
 
@@ -246,7 +257,8 @@ describe('ProjectDetail · живая валидация (S-P5)', () => {
     expect(await screen.findByText(/Расчёт сохранён/)).toBeInTheDocument()
     const [calcId, calcBody] = calculate.mock.calls[0] as [string, Record<string, unknown>]
     expect(calcId).toBe('p1')
-    expect(calcBody.outer_radius_mm).toBe(1050)
+    // «Применить» подставляет предложение советника (проступь 290 → шаг 640).
+    expect(calcBody.comfort_step_mm).toBe(600)
   })
 })
 

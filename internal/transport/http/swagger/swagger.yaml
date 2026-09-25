@@ -497,6 +497,271 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /admin/store/prices:
+    get:
+      tags: ["admin"]
+      summary: "Получить prices"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      tags: ["admin"]
+      summary: "Обновить prices"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/payments:
+    get:
+      tags: ["admin"]
+      summary: "Получить платежи магазина"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminPayment"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/payments/{id}/refund:
+    post:
+      tags: ["admin"]
+      summary: "Оформить возврат платежа"
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminPayment"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        409:
+          description: Invalid payment state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        501:
+          description: Refund unsupported by provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        503:
+          description: Payment provider unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/store/prices/{code}:
+    delete:
+      tags: ["admin"]
+      summary: "Удалить {code}"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /admin/store/settings:
+    get:
+      tags: ["admin"]
+      summary: "Получить settings"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+    put:
+      tags: ["admin"]
+      summary: "Обновить settings"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /admin/testimonials:
     get:
       tags: ["admin"]
@@ -689,6 +954,40 @@ paths:
           application/json:
             schema:
               type: object
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /assistant/memory:
+    delete:
+      tags: ["assistant"]
+      summary: "Удалить memory"
+      security:
+        - bearerAuth: []
       responses:
         200:
           description: OK
@@ -1337,6 +1636,40 @@ paths:
                 $ref: "#/components/schemas/Error"
         401:
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /payments/mine:
+    get:
+      tags: ["payments"]
+      summary: "Получить mine"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -2650,6 +2983,40 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /public/materials:
+    get:
+      tags: ["stairs"]
+      summary: "Получить materials"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /public/orders:
     post:
       tags: ["stairs"]
@@ -2671,6 +3038,114 @@ paths:
                 $ref: "#/components/schemas/Error"
         401:
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /public/payment-tiers:
+    get:
+      tags: ["stairs"]
+      summary: "Получить payment-tiers"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /public/services/checkout:
+    post:
+      tags: ["stairs"]
+      summary: "Создать checkout"
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /public/store-settings:
+    get:
+      tags: ["stairs"]
+      summary: "Получить store-settings"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -2724,6 +3199,40 @@ paths:
     get:
       tags: ["ready"]
       summary: "Готовность (независимые проверки)"
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /static-assets/:
+    get:
+      tags: ["other"]
+      summary: "Получить static-assets"
+      security:
+        - bearerAuth: []
       responses:
         200:
           description: OK
@@ -2846,6 +3355,37 @@ components:
         request_id:
           type: string
           description: Идентификатор запроса для поддержки
+    AdminPayment:
+      type: object
+      required: [id, amount_minor, currency, status, provider, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tier_id:
+          type: string
+        project_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        amount_minor:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        status:
+          type: string
+          enum: [pending, paid, failed, refunded]
+        provider:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        paid_at:
+          type: string
+          format: date-time
     User:
       type: object
       properties:

@@ -409,3 +409,15 @@ func (r *AIRepository) PruneMessages(ctx context.Context, cutoff time.Time) (int
 	}
 	return tag.RowsAffected(), nil
 }
+
+// DeleteMessages стирает ВСЮ память проекта в tenant (право на забвение,
+// S-141 №13): self-service purge. Tenant-скоуп обязателен (SEC-0005).
+func (r *AIRepository) DeleteMessages(ctx context.Context, tenantID, projectID string) (int64, error) {
+	tag, err := r.pool.Exec(ctx,
+		`DELETE FROM conversation_messages WHERE tenant_id = $1 AND project_id = $2`,
+		tenantID, projectID)
+	if err != nil {
+		return 0, fmt.Errorf("ai_repo: delete memory: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}

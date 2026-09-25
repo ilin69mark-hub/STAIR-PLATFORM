@@ -274,8 +274,45 @@ func configInputError(err error) *solver.InputError {
 			Guide:   "Направление спирали: по часовой (cw) или против часовой (ccw) стрелки при виде сверху.",
 			Fix:     "Выберите направление спирали",
 		}
+	default:
+		// API-001 (forensic 2026-09-24): любая ошибка engineering.Validate(),
+		// не попавшая в таблицу выше, раньше доезжала до транспорта «прочей»
+		// и отдавалась 500 internal_error. Теперь это обычная входная ошибка
+		// с блокирующим результатом валидации (200 + validation.valid=false) —
+		// тем же контрактом, что у ошибок solver'а и который уже ожидает
+		// фронт (projects.ts: validateStair читает r.validation).
+		return genericConfigInputError(msg)
 	}
-	return nil
+}
+
+// genericConfigInputError — fallback для ошибок доменной валидации без
+// явного кейса: сохраняет исходный текст (он уже на русском и без
+// внутренних деталей) и оборачивает в InputError, чтобы вызывающий получил
+// блокирующий результат вместо 500.
+func genericConfigInputError(msg string) *solver.InputError {
+	text := strings.TrimSpace(strings.TrimPrefix(msg, "stair:"))
+	if text == "" {
+		text = "Некорректные параметры конфигурации"
+	}
+	return &solver.InputError{
+		Code:    constraint.GEO_WIDTH, // нейтральный код: элемент конфигурации
+		Field:   "Параметры лестницы",
+		Message: capitalizeFirst(text),
+		Guide:   "Проверьте параметры конфигурации: " + text,
+		Fix:     "Исправьте параметры конфигурации",
+	}
+}
+
+// capitalizeFirst поднимает первую букву сообщения (для пользовательского текста).
+func capitalizeFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	r := []rune(s)
+	if r[0] >= 'a' && r[0] <= 'z' {
+		r[0] = r[0] - 'a' + 'A'
+	}
+	return string(r)
 }
 
 // materialCodeFromError извлекает код материала из ошибки вида

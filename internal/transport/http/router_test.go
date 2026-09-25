@@ -278,6 +278,45 @@ func TestCalculateInvalidInput(t *testing.T) {
 	}
 }
 
+// TestCalculateCustomRateNewMaterial — переопределение ставки материала,
+// добавленного в каталог на этапе 1 (орех/ясень/сосна/кортен). Раньше DTO
+// знал только 3 кода, ставки новых материалов нельзя было переопределить.
+func TestCalculateCustomRateNewMaterial(t *testing.T) {
+	cases := []struct {
+		code  string
+		field string
+	}{
+		{"WOOD-WALNUT", "WOOD_WALNUT"},
+		{"WOOD-ASH", "WOOD_ASH"},
+		{"WOOD-SOFT", "WOOD_SOFT"},
+		{"STEEL-CORTEN", "STEEL_CORTEN"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.code, func(t *testing.T) {
+			body := `{
+				"width_mm": 900, "height_mm": 2700, "flight": "straight",
+				"material": "` + tc.code + `",
+				"step_height_mm": 180, "stringer_thickness_mm": 50,
+				"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 1000,
+				"rates": {"material_per_kg_rub": {"` + tc.code + `": 9999}}
+			}`
+			req := authedRequest(http.MethodPost, "/api/v1/stairs:calculate", body)
+			rec := httptest.NewRecorder()
+			testRouter().ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+			}
+			var resp calculateResponse
+			if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+				t.Fatalf("invalid response: %v", err)
+			}
+			if resp.Pricing.MaterialRub <= 0 {
+				t.Fatalf("override for %s must affect price, got %v", tc.code, resp.Pricing.MaterialRub)
+			}
+		})
+	}
+}
+
 func TestCalculateCustomRates(t *testing.T) {
 	body := `{
 		"width_mm": 900,

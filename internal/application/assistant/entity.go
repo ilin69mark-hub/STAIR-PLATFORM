@@ -33,6 +33,12 @@ var ErrInvalid = errors.New("assistant: invalid input")
 // ErrNoFeasible — для входных данных нет допустимой конфигурации.
 var ErrNoFeasible = errors.New("assistant: no feasible configuration for the input")
 
+// ErrForbidden — доступ запрещён (S-142, IDOR-фикс S-141 №1): запрос
+// ссылается на проект (project_id из тела), членом которого вызывающий
+// не является; conversation-memory такому запросу не отдаётся и не
+// дописывается. Маппится в 403 на транспортном слое.
+var ErrForbidden = errors.New("assistant: forbidden")
+
 // Kind — тип ассистента (одно из направлений Phase D).
 type Kind string
 
@@ -110,8 +116,9 @@ type AnalysisRequest struct {
 	Config  stair.Config
 	Options stair.Options
 	// ProjectID — скоуп conversation-memory (S-135, AI-0006); пустая —
-	// память для запроса не используется. Проект должен принадлежать tenant
-	// (проверяется на уровне хранилища).
+	// память для запроса не используется. Перед чтением/записью памяти
+	// сервис проверяет членство вызывающего в проекте (S-142, EDR-0008):
+	// не-член получает ErrForbidden.
 	ProjectID string
 	// HistoryLimit — число последних сообщений диалога в контекст
 	// (0 → DefaultHistoryLimit=10, cap MaxHistoryLimit=50; <0 → без истории).
@@ -137,6 +144,10 @@ type Service struct {
 	topK int
 	// Память диалога (S-135, AI-0006): nil — память выключена.
 	memory MemoryStore
+	// projectAuthz — проверка членства в проекте (S-142, IDOR-фикс S-141
+	// №1): обязателен при включённой памяти, иначе доступ к памяти
+	// fail-closed (без авторизатора conversation-memory не работает).
+	projectAuthz ProjectAuthorizer
 }
 
 // NewService создаёт сервис ассистентов с локальным (детерминированным)
@@ -155,9 +166,19 @@ func NewService(calc stairCalculator, auditSvc ...*audit.Service) *Service {
 
 // WithPrimaryBackend подключает первичный (LLM) бэкенд с фолбэком на
 // локальный (AI-0003). Вызывается из композиции только при наличии
-// конфигурации STAIR_AI_*.
+// конфигурации STAIR_AI_*. Ранее заданный бюджет (WithBudget) сохраняется.
 func (s *Service) WithPrimaryBackend(b Backend) *Service {
+	budget := s.router.budget
 	s.router = NewModelRouter(b, s.router.local)
+	s.router.budget = budget
+	return s
+}
+
+// WithBudget подключает глобальный дневной лимит LLM-попыток (S-148,
+// S-141 №14): исчерпан — только локальный бэкенд. Порядок относительно
+// WithPrimaryBackend не важен (бюджет сохраняется).
+func (s *Service) WithBudget(b *Budget) *Service {
+	s.router = s.router.WithBudget(b)
 	return s
 }
 
@@ -184,6 +205,16 @@ func (s *Service) WithRAG(r Retriever, topK int) *Service {
 // выполняет хранилище/фоновый prune (STAIR_AI_MEMORY_TTL).
 func (s *Service) WithMemory(m MemoryStore) *Service {
 	s.memory = m
+	return s
+}
+
+// WithProjectAuthz подключает проверку членства в проекте (S-142,
+// IDOR-фикс S-141 №1): project_id приходит из тела запроса, поэтому перед
+// чтением/записью conversation-memory сервис обязан убедиться, что
+// вызывающий — член проекта (реализует project.Service). Без авторизатора
+// память не работает (fail-closed).
+func (s *Service) WithProjectAuthz(a ProjectAuthorizer) *Service {
+	s.projectAuthz = a
 	return s
 }
 
@@ -260,9 +291,10 @@ func jsonMarshal(v interface{}) (string, error) {
 
 // Ask обрабатывает запрос ассистента kind: планирование → tool calls →
 // сборка ответа → RAG-контекст/память → комментарий модели; аудит и
-// метрика. Ошибка — только при невозможности выполнить анализ
-// (невалидный вход, сбой тула, отмена). Сбой RAG/памяти — best-effort:
-// ответ не проваливается (AI-0003 деградация).
+// метрика. Ошибка — при невозможности выполнить анализ (невалидный вход,
+// сбой тула, отмена) либо ErrForbidden, когда запрос ссылается на проект,
+// членом которого вызывающий не является (S-142). Сбой RAG/памяти —
+// best-effort: ответ не проваливается (AI-0003 деградация).
 func (s *Service) Ask(ctx context.Context, tenantID, userID string, kind Kind, req Request) (*Result, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -277,6 +309,17 @@ func (s *Service) Ask(ctx context.Context, tenantID, userID string, kind Kind, r
 
 	projectID := projectIDOf(req)
 	historyLimit := historyLimitOf(req)
+
+	// S-142 (IDOR-фикс S-141 №1): project_id приходит из тела запроса.
+	// Проверка членства выполняется ДО чтения (RecentMessages) и записи
+	// (remember): не-член получает ErrForbidden, память не читается и не
+	// дописывается (единая проверка на весь запрос).
+	if s.memory != nil && projectID != "" {
+		if err := s.authorizeProject(ctx, tenantID, userID, projectID, kind); err != nil {
+			return nil, err
+		}
+	}
+
 	var history []MemoryMessage
 	if s.memory != nil && projectID != "" {
 		if h, herr := s.memory.RecentMessages(ctx, tenantID, projectID, historyLimit); herr == nil {
@@ -341,6 +384,82 @@ func (s *Service) Ask(ctx context.Context, tenantID, userID string, kind Kind, r
 	s.auditResult(ctx, tenantID, userID, kind, audit.ResultOK, detail)
 	assistantDuration.With(string(kind), "true").Observe(s.now().Sub(start).Seconds())
 	return &Result{Kind: kind, Response: *resp, Commentary: ans.Text}, nil
+}
+
+// authorizeProject проверяет членство вызывающего в проекте перед
+// чтением/записью conversation-memory (S-142, IDOR-фикс S-141 №1).
+// Не-член — ErrForbidden (отказ аудируется); сбой проверки/отсутствие
+// авторизатора — ошибка (fail-closed: память без авторизации недоступна).
+func (s *Service) authorizeProject(ctx context.Context, tenantID, userID, projectID string, kind Kind) error {
+	if s.projectAuthz == nil {
+		return fmt.Errorf("assistant: project authorization not configured (memory requires WithProjectAuthz, S-142)")
+	}
+	ok, err := s.projectAuthz.IsMember(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return fmt.Errorf("assistant: project membership check: %w", err)
+	}
+	if !ok {
+		s.auditResult(ctx, tenantID, userID, kind, audit.ResultDenied, "conversation-memory: project membership denied")
+		return fmt.Errorf("%w: not a member of project", ErrForbidden)
+	}
+	return nil
+}
+
+// Forget стирает conversation-memory проекта (право на забвение, S-141
+// №13, GDPR Art.17/152-ФЗ): self-service purge через
+// DELETE /api/v1/assistant/memory. Требуется членство в проекте (та же
+// семантика, что в Ask, S-142): не-член — ErrForbidden (отказ аудируется).
+// Возвращает число удалённых сообщений. Purge kind-agnostic: строки памяти
+// не атрибутированы ни kind, ни user_id — стирание выполняется через purge
+// проектов пользователя; каскад при удалении tenant/project — на уровне БД
+// (ON DELETE CASCADE, миграция 000026).
+func (s *Service) Forget(ctx context.Context, tenantID, userID, projectID string) (int64, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if tenantID == "" || projectID == "" {
+		return 0, fmt.Errorf("%w: tenant and project required", ErrInvalid)
+	}
+	if s.memory == nil {
+		return 0, fmt.Errorf("assistant: memory not configured")
+	}
+	// Членство — fail-closed, как в authorizeProject, но с собственным
+	// аудитом (purge не привязан к kind — dedicate action ниже).
+	if s.projectAuthz == nil {
+		return 0, fmt.Errorf("assistant: project authorization not configured (memory requires WithProjectAuthz, S-142)")
+	}
+	ok, err := s.projectAuthz.IsMember(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return 0, fmt.Errorf("assistant: project membership check: %w", err)
+	}
+	if !ok {
+		s.auditMemory(ctx, tenantID, userID, audit.ResultDenied, "conversation-memory purge denied: not a member")
+		return 0, fmt.Errorf("%w: not a member of project", ErrForbidden)
+	}
+	n, err := s.memory.DeleteMessages(ctx, tenantID, projectID)
+	if err != nil {
+		return 0, err
+	}
+	s.auditMemory(ctx, tenantID, userID, audit.ResultOK, "conversation-memory purged")
+	return n, nil
+}
+
+// auditMemory пишет событие purge памяти с dedicated action (purge
+// kind-agnostic — kind-coupled auditResult здесь неприменим).
+func (s *Service) auditMemory(ctx context.Context, tenantID, userID string, result audit.Result, detail string) {
+	if s.audit == nil {
+		return
+	}
+	e := &audit.Event{
+		ActorID:      userID,
+		TenantID:     tenantID,
+		Action:       "ai.assist.memory.purged",
+		ResourceType: "assistant.memory",
+		Result:       result,
+		Detail:       detail,
+		CreatedAt:    s.now().UTC(),
+	}
+	_ = s.audit.Record(ctx, e)
 }
 
 // remember дописывает user+assistant сообщения диалога в хранилище

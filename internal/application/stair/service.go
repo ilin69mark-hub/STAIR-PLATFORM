@@ -180,6 +180,26 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("stair: %w", err)
 	}
+	// API-001 (forensic 2026-09-24): геометрия экструдирует косоур/ступень на
+	// толщину; при толщине 0 движок возвращает техническую ошибку
+	// («extrusion distance must be positive»), которая доезжала до HTTP как
+	// 500. Толщина 0 — не «предупреждение нормы», а невозможная геометрия:
+	// отдаём блокирующий результат валидации с подсказкой.
+	if c.StringerThickness.Millimeters() <= 0 || c.StepThickness.Millimeters() <= 0 {
+		field, value := "толщина косоура", c.StringerThickness.Millimeters()
+		if c.StepThickness.Millimeters() <= 0 {
+			field, value = "толщина ступени", c.StepThickness.Millimeters()
+		}
+		vr := buildInputResult(&solver.InputError{
+			Code:    constraint.GEO_STRINGER_THICKNESS,
+			Field:   capitalizeFirst(field),
+			Message: capitalizeFirst(field) + " должна быть положительной",
+			Guide: fmt.Sprintf("Укажите %s больше 0 мм (сейчас %.0f мм): без неё лестница не может быть построена.",
+				field, value),
+			Fix: "Задайте толщину косоура и ступени в мм",
+		})
+		return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+	}
 	gen, err := geometry.Generate(ctx, c)
 	if err != nil {
 		if vr, ok := inputIssue(err); ok {
@@ -375,18 +395,19 @@ func (s *Service) checkedSolve(ctx context.Context, cfg Config, c *engineering.S
 		res.Validation = vr
 		res.Spiral = &sres
 	default:
-		flight, vr, err := solver.SolveChecked(c, s.constraints, comfort)
-		if err != nil {
-			if vr, ok := inputIssue(err); ok {
-				return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
-			}
-			return nil, err
-		}
-		if vr.Blocking {
-			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
-		}
-		res.Validation = vr
-		res.Flight = flight
+		// DOM-001 (forensic 2026-09-24): неизвестный тип марша больше НЕ
+		// трактуется как прямой. Раньше эта ветка молча считала «diagonal»
+		// прямым маршем — пользователь получал чужую геометрию, а если
+		// конвейер спотыкался ниже — 500. Теперь это блокирующая входная
+		// ошибка с перечнем допустимых значений.
+		vr := buildInputResult(&solver.InputError{
+			Code:    constraint.GEO_HEIGHT,
+			Field:   "Тип марша",
+			Message: "Неизвестный тип марша",
+			Guide:   "Допустимые типы марша: straight (прямой), l_shape (Г-образный), u_shape (П-образный), spiral (спиральный).",
+			Fix:     "Выберите тип марша из списка",
+		})
+		return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
 	}
 	return res, nil
 }
@@ -537,8 +558,7 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 		Height:     cfg.Height,
 		Flight:     cfg.Flight,
 		StepCount:  1,
-		StepHeight: cfg.Height,
-	}
+		StepHeight: cfg.Height}
 	c.StepHeight = cfg.StepHeight
 	c.StringerThickness = cfg.StringerThickness
 	c.StepThickness = cfg.StepThickness

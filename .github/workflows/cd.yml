@@ -124,6 +124,16 @@ jobs:
           tags: |
             ${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY_STORE || 'stairplatform/store' }}:${{ env.APP_VERSION }}
 
+      - name: Build, tag & push store admin
+        if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7 (S-123b)
+        with:
+          context: .
+          file: deployments/store-admin.Dockerfile
+          push: true
+          tags: |
+            ${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY_STORE_ADMIN || 'stairplatform/store-admin' }}:${{ env.APP_VERSION }}
+
   deploy:
     name: Helm upgrade EKS
     needs: release

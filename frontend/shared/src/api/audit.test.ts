@@ -39,8 +39,9 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals()
-  document.cookie = 'session=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'
-  document.cookie = 'csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'
+  for (const name of ['session', 'csrf', 'csrf_admin']) {
+    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`
+  }
 })
 
 describe('logAction', () => {
@@ -50,10 +51,12 @@ describe('logAction', () => {
     expect(fn).not.toHaveBeenCalled()
   })
 
-  it('с cookie сессии шлёт POST /api/v1/audit с телом и credentials', () => {
+  // session-cookie HttpOnly и из JS не видна: признак входа — csrf-cookie,
+  // который сервер выставляет вместе с сессией (SEC-0003).
+  it('с csrf-cookie шлёт POST /api/v1/audit с телом и credentials', () => {
     const fn = fetchMock()
     fn.mockResolvedValue({ ok: true })
-    document.cookie = 'session=abc; path=/'
+    document.cookie = 'csrf=csrf-1; path=/'
     logAction({
       action: 'stair.config_changed',
       resource_type: 'stair',
@@ -86,7 +89,7 @@ describe('logAction', () => {
   it('тихо игнорирует ошибку сети (best-effort)', async () => {
     const fn = fetchMock()
     fn.mockRejectedValue(new Error('network'))
-    document.cookie = 'session=abc; path=/'
+    document.cookie = 'csrf=csrf-1; path=/'
     expect(() => logAction({ action: 'auth.login' })).not.toThrow()
     await Promise.resolve()
     expect(fn).toHaveBeenCalledTimes(1)
@@ -95,9 +98,31 @@ describe('logAction', () => {
   it('добавляет X-CSRF-Token из cookie csrf', () => {
     const fn = fetchMock()
     fn.mockResolvedValue({ ok: true })
-    document.cookie = 'session=abc; path=/'
     document.cookie = 'csrf=csrf-1; path=/'
     logAction({ action: 'auth.logout' })
     expect(fn.mock.calls[0][1].headers['X-CSRF-Token']).toBe('csrf-1')
+  })
+
+  // Регрессия (волна 0): админка слала аудит без X-App-Origin и со store-CSRF,
+  // поэтому сервер искал session (а не session_admin) → 401/403 и потери событий.
+  it('для origin=admin шлёт X-App-Origin и admin csrf-токен', () => {
+    const fn = fetchMock()
+    fn.mockResolvedValue({ ok: true })
+    document.cookie = 'csrf_admin=csrf-admin-1; path=/'
+    logAction({ action: 'stair.config_changed', resource_type: 'stair' }, 'admin')
+    const headers = fn.mock.calls[0][1].headers
+    expect(headers['X-App-Origin']).toBe('admin')
+    expect(headers['X-CSRF-Token']).toBe('csrf-admin-1')
+  })
+
+  it('для origin=store не прикладывает admin csrf-токен', () => {
+    const fn = fetchMock()
+    fn.mockResolvedValue({ ok: true })
+    document.cookie = 'csrf=csrf-store-1; path=/'
+    document.cookie = 'csrf_admin=csrf-admin-1; path=/'
+    logAction({ action: 'quote.requested' })
+    const headers = fn.mock.calls[0][1].headers
+    expect(headers['X-App-Origin']).toBe('store')
+    expect(headers['X-CSRF-Token']).toBe('csrf-store-1')
   })
 })

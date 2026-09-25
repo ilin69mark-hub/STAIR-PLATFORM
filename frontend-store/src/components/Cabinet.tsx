@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ordersApi } from '../api/store'
+import { ordersApi, paymentsApi, type MyPayment } from '../api/store'
 import { useAuth } from '../auth/context'
 import { apiErrorMessage } from '../auth/errors'
 import type { OrderDTO, OrderStatus } from '@shared/types'
@@ -32,6 +32,9 @@ function formatCreatedAt(raw: unknown): string {
 export function Cabinet() {
   const { user } = useAuth()
   const [orders, setOrders] = useState<OrderDTO[]>([])
+  // Покупки услуг (этап 4): оплаченные и ожидающие оплаты замеры/проекты.
+  const [payments, setPayments] = useState<MyPayment[]>([])
+  const [paymentsError, setPaymentsError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -51,6 +54,17 @@ export function Cabinet() {
     if (user) void load()
   }, [user, load])
 
+  useEffect(() => {
+    if (!user) return
+    paymentsApi
+      .mine()
+      .then(setPayments)
+      .catch((e) => {
+        setPayments([])
+        setPaymentsError(apiErrorMessage(e, 'Не удалось загрузить покупки'))
+      })
+  }, [user])
+
   if (!user) {
     return (
       <div>
@@ -64,7 +78,32 @@ export function Cabinet() {
   }
 
   return (
-    <section className="panel">
+    <>
+      <section className="panel">
+        <h2>Мои покупки</h2>
+        <p className="sub">
+          {payments.length === 0
+            ? 'Оплаченные услуги и счета по заказам появятся здесь.'
+            : 'Услуги и их статус оплаты.'}
+        </p>
+        {paymentsError && <p className="error">{paymentsError}</p>}
+        {payments.length > 0 && (
+          <ul className="list">
+            {payments.map((p) => (
+              <li key={p.id} data-payment={p.tier_id ?? 'project'}>
+                <div>
+                  <strong>{p.title}</strong>
+                  <div className="sub">
+                    {formatRub(p.amount_minor)} · {PAYMENT_STATUS[p.status] ?? p.status} ·{' '}
+                    {new Date(p.created_at).toLocaleDateString('ru-RU')}
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <section className="panel">
       <h2>Мои заказы</h2>
       <p className="sub">
         {user.name} ({user.email})
@@ -105,8 +144,24 @@ export function Cabinet() {
           </tbody>
         </table>
       )}
-    </section>
+      </section>
+    </>
   )
+}
+
+const PAYMENT_STATUS: Record<string, string> = {
+  pending: 'ожидает оплаты',
+  paid: 'оплачено',
+  failed: 'ошибка оплаты',
+  refunded: 'возврат',
+}
+
+function formatRub(minor: number): string {
+  return new Intl.NumberFormat('ru-RU', {
+    style: 'currency',
+    currency: 'RUB',
+    maximumFractionDigits: 0,
+  }).format(minor / 100)
 }
 
 function configDims(o: OrderDTO): string {

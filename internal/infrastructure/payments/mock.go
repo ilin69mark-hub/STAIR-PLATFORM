@@ -53,6 +53,24 @@ func (p *MockProvider) CreateCheckout(ctx context.Context, amountMinor int64, cu
 	return checkoutID, checkoutURL, nil
 }
 
+// Refund подтверждает возврат mock-платежа. Идентификатор детерминирован от
+// checkout ID, поэтому повтор с тем же intent не создаёт новую операцию.
+func (p *MockProvider) Refund(ctx context.Context, providerCheckoutID, idempotencyKey string) (string, error) {
+	if ctx == nil {
+		return "", errors.New("payments/mock: nil context")
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if providerCheckoutID == "" {
+		return "", errors.New("payments/mock: checkout id is required")
+	}
+	if idempotencyKey == "" {
+		return "", errors.New("payments/mock: idempotency key is required")
+	}
+	return "rf_" + providerCheckoutID, nil
+}
+
 // WebhookEvent — событие, которое «отправляет» mock-провайдер на
 // POST /api/v1/payments/webhook (EDR-0027 §3.4).
 type WebhookEvent struct {

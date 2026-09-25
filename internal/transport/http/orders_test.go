@@ -145,6 +145,7 @@ func TestCreateConsultationPublic(t *testing.T) {
 	body := `{"contact":{"name":"Мария","email":"m@ex.ru","phone":"+7 000 000-00-00"},` +
 		`"question":"Сколько стоит лестница на 3 метра?"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/orders", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -171,6 +172,7 @@ func TestCreateConsultationMissingQuestion(t *testing.T) {
 	router := ordersRouter(fake)
 	body := `{"contact":{"name":"М","email":"m@ex.ru"},"question":"   "}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/orders", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -398,6 +400,7 @@ func TestCreateConsultationInvalidJSON(t *testing.T) {
 	fake := &fakeOrderService{}
 	router := ordersRouter(fake)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/orders", strings.NewReader("NOT-JSON"))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -411,6 +414,7 @@ func TestCreateConsultationTenantError(t *testing.T) {
 	router := ordersPublicRouterWithTenant(fake, failingTenantAuth{})
 	body := `{"contact":{"name":"М","email":"m@ex.ru"},"question":"Какой срок?"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/orders", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -424,6 +428,7 @@ func TestCreateConsultationServiceError(t *testing.T) {
 	router := ordersRouter(fake)
 	body := `{"contact":{"name":"М","email":"m@ex.ru"},"question":"Какой срок?"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/orders", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 

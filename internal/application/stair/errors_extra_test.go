@@ -1,6 +1,7 @@
 package stair
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -93,8 +94,18 @@ func TestConfigInputErrorBranches(t *testing.T) {
 			t.Fatalf("want InputError for %q", m)
 		}
 	}
-	if got := configInputError(errString("unknown error")); got != nil {
-		t.Fatalf("want nil for unknown, got %+v", got)
+	// API-001 (forensic 2026-09-24): раньше неизвестная ошибка доменной
+	// валидации возвращалась nil → «прочая» ошибка → 500. Теперь она
+	// становится обычной входной ошибкой (блокирующий результат валидации).
+	got := configInputError(errString("approach space must be within 1000-1200 mm for straight"))
+	if got == nil {
+		t.Fatal("want generic InputError for unmapped validation error")
+	}
+	if !strings.Contains(got.Message, "1000") {
+		t.Fatalf("generic InputError must keep the original text, got %q", got.Message)
+	}
+	if configInputError(errString("some internal failure")) == nil {
+		t.Fatal("generic fallback must cover unknown errors too")
 	}
 }
 

@@ -50,10 +50,22 @@ const (
 	PermissionOrdersList Permission = "orders.list"
 	// PermissionOrdersManage — смена статуса заказа (Store).
 	PermissionOrdersManage Permission = "orders.manage"
+	// PermissionPaymentsList — просмотр платежей tenant (админ).
+	PermissionPaymentsList Permission = "payments.list"
+	// PermissionPaymentsManage — ручной возврат платежа (админ).
+	PermissionPaymentsManage Permission = "payments.manage"
 	// PermissionTestimonialsList — просмотр отзывов клиентов (Store).
 	PermissionTestimonialsList Permission = "testimonials.list"
 	// PermissionTestimonialsManage — создание/редактирование отзывов (Store).
 	PermissionTestimonialsManage Permission = "testimonials.manage"
+	// PermissionStoreSettingsRead — чтение настроек магазина (волна 0).
+	PermissionStoreSettingsRead Permission = "store.settings.read"
+	// PermissionStoreSettingsWrite — правка настроек магазина (волна 0).
+	PermissionStoreSettingsWrite Permission = "store.settings.write"
+	// PermissionStorePricesRead — чтение прайса материалов магазина (волна 0).
+	PermissionStorePricesRead Permission = "store.prices.read"
+	// PermissionStorePricesWrite — правка прайса материалов магазина (волна 0).
+	PermissionStorePricesWrite Permission = "store.prices.write"
 )
 
 // AllPermissions возвращает полный набор известных прав системы.
@@ -65,7 +77,10 @@ func AllPermissions() []Permission {
 		PermissionUsersManage, PermissionSettingsRead, PermissionSettingsWrite,
 		PermissionDataExport, PermissionApiKeysManage, PermissionIntegrationsManage,
 		PermissionAnalyticsRead, PermissionOrdersList, PermissionOrdersManage,
+		PermissionPaymentsList, PermissionPaymentsManage,
 		PermissionTestimonialsList, PermissionTestimonialsManage,
+		PermissionStoreSettingsRead, PermissionStoreSettingsWrite,
+		PermissionStorePricesRead, PermissionStorePricesWrite,
 	}
 }
 
@@ -89,7 +104,10 @@ func (r Role) Permissions() []Permission {
 			PermissionUsersManage, PermissionSettingsRead, PermissionSettingsWrite,
 			PermissionDataExport, PermissionApiKeysManage, PermissionIntegrationsManage,
 			PermissionAnalyticsRead, PermissionOrdersList, PermissionOrdersManage,
+			PermissionPaymentsList, PermissionPaymentsManage,
 			PermissionTestimonialsList, PermissionTestimonialsManage,
+			PermissionStoreSettingsRead, PermissionStoreSettingsWrite,
+			PermissionStorePricesRead, PermissionStorePricesWrite,
 		}
 	case RoleUser:
 		return nil

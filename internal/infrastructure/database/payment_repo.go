@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -24,14 +26,15 @@ func NewPaymentRepository(pool *pgxpool.Pool) *PaymentRepository {
 }
 
 var _ payments.Repository = (*PaymentRepository)(nil)
+var _ payments.AdminRepository = (*PaymentRepository)(nil)
 
-const intentCols = `id, tenant_id, project_id, user_id, amount_minor, currency, status, provider, provider_checkout_id, created_at, updated_at, paid_at`
+const intentCols = `id, tenant_id, project_id, user_id, amount_minor, currency, status, provider, provider_checkout_id, tier_id, created_at, updated_at, paid_at`
 
 func scanIntent(row pgx.Row) (*payments.PaymentIntent, error) {
 	var p payments.PaymentIntent
-	var projectID, userID *string
+	var projectID, userID, tierID *string
 	if err := row.Scan(&p.ID, &p.TenantID, &projectID, &userID, &p.AmountMinor, &p.Currency,
-		&p.Status, &p.Provider, &p.ProviderCheckoutID, &p.CreatedAt, &p.UpdatedAt, &p.PaidAt); err != nil {
+		&p.Status, &p.Provider, &p.ProviderCheckoutID, &tierID, &p.CreatedAt, &p.UpdatedAt, &p.PaidAt); err != nil {
 		return nil, err
 	}
 	if projectID != nil {
@@ -39,6 +42,9 @@ func scanIntent(row pgx.Row) (*payments.PaymentIntent, error) {
 	}
 	if userID != nil {
 		p.UserID = *userID
+	}
+	if tierID != nil {
+		p.TierID = *tierID
 	}
 	return &p, nil
 }
@@ -52,11 +58,15 @@ func (r *PaymentRepository) CreateIntent(ctx context.Context, p *payments.Paymen
 	if p.UserID != "" {
 		userID = p.UserID
 	}
+	var tierID any
+	if p.TierID != "" {
+		tierID = p.TierID
+	}
 	err := r.pool.QueryRow(ctx,
-		`INSERT INTO payment_intents (tenant_id, project_id, user_id, amount_minor, currency, status, provider, provider_checkout_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`INSERT INTO payment_intents (tenant_id, project_id, user_id, amount_minor, currency, status, provider, provider_checkout_id, tier_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 RETURNING id, created_at, updated_at`,
-		p.TenantID, projectID, userID, p.AmountMinor, p.Currency, string(p.Status), p.Provider, p.ProviderCheckoutID,
+		p.TenantID, projectID, userID, p.AmountMinor, p.Currency, string(p.Status), p.Provider, p.ProviderCheckoutID, tierID,
 	).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("payments: create intent: %w", err)
@@ -92,6 +102,59 @@ func (r *PaymentRepository) GetIntentByProviderCheckout(ctx context.Context, pro
 	return p, nil
 }
 
+// ListByUser возвращает платежи пользователя (покупки услуг на витрине и
+// оплаты проектов), новые первыми. Нужен личному кабинету этапа 4.
+func (r *PaymentRepository) ListByUser(ctx context.Context, tenantID, userID string) ([]*payments.PaymentIntent, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT `+intentCols+` FROM payment_intents
+		 WHERE tenant_id = $1 AND user_id = $2
+		 ORDER BY created_at DESC`, tenantID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("payments: list intents by user: %w", err)
+	}
+	defer rows.Close()
+	var out []*payments.PaymentIntent
+	for rows.Next() {
+		p, err := scanIntent(rows)
+		if err != nil {
+			return nil, fmt.Errorf("payments: scan intent: %w", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("payments: list intents by user rows: %w", err)
+	}
+	return out, nil
+}
+
+// ListAll возвращает все платежи tenant, новые первыми. tenantID всегда
+// participates в WHERE, поэтому пустое значение не превращается в unscoped list.
+func (r *PaymentRepository) ListAll(ctx context.Context, tenantID string) ([]*payments.PaymentIntent, error) {
+	if tenantID == "" {
+		return []*payments.PaymentIntent{}, nil
+	}
+	rows, err := r.pool.Query(ctx,
+		`SELECT `+intentCols+` FROM payment_intents
+		 WHERE tenant_id = $1
+		 ORDER BY created_at DESC`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("payments: list all intents: %w", err)
+	}
+	defer rows.Close()
+	out := make([]*payments.PaymentIntent, 0)
+	for rows.Next() {
+		p, err := scanIntent(rows)
+		if err != nil {
+			return nil, fmt.Errorf("payments: scan all intents: %w", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("payments: list all intents rows: %w", err)
+	}
+	return out, nil
+}
+
 // ListByProject возвращает интенты проекта в порядке создания.
 func (r *PaymentRepository) ListByProject(ctx context.Context, tenantID, projectID string) ([]*payments.PaymentIntent, error) {
 	rows, err := r.pool.Query(ctx,
@@ -114,16 +177,140 @@ func (r *PaymentRepository) ListByProject(ctx context.Context, tenantID, project
 	return out, nil
 }
 
-// UpdateStatus обновляет статус и paid_at (nil — не менять).
+// terminalStatusGuardSQL — SQL-литерал терминальных статусов интента (см.
+// payments.TerminalStatuses): событие PSP не может перевести интент из
+// терминального статуса в другой статус — разрешён только повтор того же
+// статуса (идемпотентная доставка, «succeeded→succeeded»). Защита от
+// регрессии: поздний checkout.session.expired перетирал paid в failed
+// (S-141 №4, CWE-20). Список собран из констант application-уровня, чтобы
+// строки не дублировались.
+var terminalStatusGuardSQL = func() string {
+	statuses := payments.TerminalStatuses()
+	q := make([]string, len(statuses))
+	for i, s := range statuses {
+		q[i] = "'" + string(s) + "'"
+	}
+	return strings.Join(q, ", ")
+}()
+
+// UpdateStatus обновляет статус и paid_at (nil — не менять). Терминальный
+// статус нельзя перезаписать другим статусом: при отклонённом переходе
+// (RowsAffected == 0) статус и paid_at не трогаются — только warn-лог
+// (intent_id, from → to); метрик для этого случая нет (не выдумываем).
 func (r *PaymentRepository) UpdateStatus(ctx context.Context, tenantID, id string, s payments.Status, paidAt *time.Time) error {
-	_, err := r.pool.Exec(ctx,
+	tag, err := r.pool.Exec(ctx,
 		`UPDATE payment_intents SET status = $1, paid_at = COALESCE($2, paid_at), updated_at = now()
-		 WHERE tenant_id = $3 AND id = $4`,
+		 WHERE tenant_id = $3 AND id = $4
+		   AND NOT (status IN (`+terminalStatusGuardSQL+`) AND status <> $1)`,
 		string(s), paidAt, tenantID, id)
 	if err != nil {
 		return fmt.Errorf("payments: update intent status: %w", err)
 	}
+	if tag.RowsAffected() == 0 {
+		warnRejectedStatusUpdate(ctx, r.pool, tenantID, id, s)
+	}
 	return nil
+}
+
+// MarkRefunded атомарно переводит paid -> refunded и записывает одно событие
+// payment.refunded. SELECT FOR UPDATE сериализует параллельные возвраты; уже
+// возвращённый интент — успешный идемпотентный повтор без второй записи.
+func (r *PaymentRepository) MarkRefunded(ctx context.Context, tenantID, intentID string, event *payments.PaymentEvent) (*payments.PaymentIntent, error) {
+	var updated *payments.PaymentIntent
+	err := WithTx(ctx, r.pool, func(tx pgx.Tx) error {
+		intent, err := scanIntent(tx.QueryRow(ctx,
+			`SELECT `+intentCols+` FROM payment_intents
+			 WHERE tenant_id = $1 AND id = $2
+			 FOR UPDATE`, tenantID, intentID))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return payments.ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("payments: lock intent for refund: %w", err)
+		}
+		if intent.Status == payments.StatusRefunded {
+			updated = intent
+			return nil
+		}
+		if intent.Status != payments.StatusPaid {
+			return fmt.Errorf("%w: cannot refund payment in status %q", payments.ErrInvalidStatus, intent.Status)
+		}
+		if event == nil || event.TenantID != intent.TenantID || event.IntentID != intent.ID || event.EventType != payments.EventTypePaymentRefunded {
+			return errors.New("payments: refund event does not match intent")
+		}
+		if err := tx.QueryRow(ctx,
+			`UPDATE payment_intents
+			 SET status = $1, updated_at = now()
+			 WHERE tenant_id = $2 AND id = $3
+			 RETURNING updated_at`,
+			string(payments.StatusRefunded), tenantID, intentID).Scan(&intent.UpdatedAt); err != nil {
+			return fmt.Errorf("payments: mark intent refunded: %w", err)
+		}
+		if err := appendEventTx(ctx, tx, event); err != nil {
+			return err
+		}
+		intent.Status = payments.StatusRefunded
+		updated = intent
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+// ApplyVerifiedEventTx атомарно меняет статус интента и пишет событие в
+// журнал payment_events (DB-002, forensic 2026-09-24). Одна транзакция:
+// падение на AppendEvent откатывает и статус — «оплачено, но без следа» в
+// финансовом аудите больше невозможно. SQL-guard терминальных статусов тот
+// же, что в UpdateStatus.
+func (r *PaymentRepository) ApplyVerifiedEventTx(ctx context.Context, tenantID, intentID string, s payments.Status, paidAt *time.Time, e *payments.PaymentEvent) error {
+	return WithTx(ctx, r.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx,
+			`UPDATE payment_intents SET status = $1, paid_at = COALESCE($2, paid_at), updated_at = now()
+			 WHERE tenant_id = $3 AND id = $4
+			   AND NOT (status IN (`+terminalStatusGuardSQL+`) AND status <> $1)`,
+			string(s), paidAt, tenantID, intentID)
+		if err != nil {
+			return fmt.Errorf("payments: update intent status: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			warnRejectedStatusUpdate(ctx, r.pool, tenantID, intentID, s)
+		}
+		return appendEventTx(ctx, tx, e)
+	})
+}
+
+// appendEventTx пишет событие в журнал в рамках уже открытой транзакции.
+func appendEventTx(ctx context.Context, tx pgx.Tx, e *payments.PaymentEvent) error {
+	if err := tx.QueryRow(ctx,
+		`INSERT INTO payment_events (tenant_id, intent_id, event_type, payload)
+		 VALUES ($1, $2, $3, $4)
+		 RETURNING id, created_at`,
+		e.TenantID, e.IntentID, e.EventType, e.Payload,
+	).Scan(&e.ID, &e.CreatedAt); err != nil {
+		return fmt.Errorf("payments: append event: %w", err)
+	}
+	return nil
+}
+
+// warnRejectedStatusUpdate логирует отклонённый переход статуса: интент не
+// найден либо терминальный статус не может быть перезаписан другим статусом.
+func warnRejectedStatusUpdate(ctx context.Context, pool *pgxpool.Pool, tenantID, id string, to payments.Status) {
+	var from string
+	err := pool.QueryRow(ctx,
+		`SELECT status FROM payment_intents WHERE tenant_id = $1 AND id = $2`, tenantID, id).Scan(&from)
+	switch {
+	case err == nil:
+		slog.Warn("payments: intent status transition rejected (terminal status)",
+			"intent_id", id, "from", from, "to", string(to))
+	case errors.Is(err, pgx.ErrNoRows):
+		slog.Warn("payments: intent not found for status update",
+			"intent_id", id, "to", string(to))
+	default:
+		slog.Warn("payments: failed to read intent status for rejected transition",
+			"intent_id", id, "to", string(to), "error", err)
+	}
 }
 
 // AppendEvent пишет событие в журнал payment_events.

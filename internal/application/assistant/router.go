@@ -42,6 +42,9 @@ type LocalCommenter func(ctx context.Context, p Prompt, resp *Response) (string,
 type ModelRouter struct {
 	primary Backend
 	local   LocalCommenter
+	// budget — глобальный дневной лимит LLM-попыток (S-148, S-141 №14):
+	// nil — без лимита. Исчерпан → primary пропускается (только local).
+	budget *Budget
 }
 
 // NewModelRouter создаёт роутер; primary может быть nil (чисто локальный режим).
@@ -51,6 +54,13 @@ func NewModelRouter(primary Backend, local LocalCommenter) ModelRouter {
 		panic("assistant: ModelRouter requires a local commenter")
 	}
 	return ModelRouter{primary: primary, local: local}
+}
+
+// WithBudget подключает дневной LLM-бюджет (возвращает копию — роутер
+// хранится в Service значением).
+func (r ModelRouter) WithBudget(b *Budget) ModelRouter {
+	r.budget = b
+	return r
 }
 
 // Infer формирует ответ модели: пробует первичный бэкенд, при отсутствии,
@@ -67,7 +77,16 @@ func (r ModelRouter) Infer(ctx context.Context, it *intent, resp *Response) (*An
 		StructuredData: it.Data,
 	}
 
-	if r.primary != nil {
+	usePrimary := r.primary != nil
+	if usePrimary && r.budget != nil && !r.budget.Allow() {
+		// S-148 (S-141 №14): дневной бюджет исчерпан — только локальный
+		// бэкенд (счёт под контролем), отказ виден в метрике для алерта.
+		assistantLLMBudgetDenied.With().Inc()
+		slog.WarnContext(ctx, "assistant: LLM budget exhausted, local backend only",
+			"kind", it.Kind)
+		usePrimary = false
+	}
+	if usePrimary {
 		ans, err := r.primary.Infer(ctx, p)
 		if err == nil && ans != nil && strings.TrimSpace(ans.Text) != "" {
 			return ans, nil

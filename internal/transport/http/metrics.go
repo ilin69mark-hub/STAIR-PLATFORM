@@ -14,6 +14,8 @@ import (
 	"stairplatform/internal/infrastructure/circuitbreaker"
 	"stairplatform/internal/infrastructure/metrics"
 	"stairplatform/internal/infrastructure/security"
+
+	appast "stairplatform/internal/application/assistant"
 )
 
 // Глобальный реестр метрик HTTP-слоя (EDR-0021 §3.4). Пакетная переменная:
@@ -206,5 +208,10 @@ func handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	// Response cache metrics
 	if err := cacheRegistry.Write(w); err != nil {
 		writeError(w, http.StatusInternalServerError, "metrics", "Не удалось сохранить cache метрики.")
+		return
+	}
+	// AI assistant metrics (S-148: отказы дневного LLM-бюджета)
+	if err := appast.ServiceMetricsReg.Write(w); err != nil {
+		writeError(w, http.StatusInternalServerError, "metrics", "Не удалось сохранить assistant метрики.")
 	}
 }

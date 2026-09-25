@@ -25,7 +25,8 @@ func BenchmarkAskWithRAG(b *testing.B) {
 		pubChunk(4, "Шаг комфорта 2h+b в диапазоне 600–640 мм.", "Комфорт"),
 	}}
 	mem := &fakeMemory{}
-	svc := NewService(calc, nil).WithRAG(retr, 5).WithMemory(mem)
+	svc := NewService(calc, nil).WithRAG(retr, 5).WithMemory(mem).
+		WithProjectAuthz(&fakeAuthz{members: map[string]bool{"t1/u1/p1": true}})
 
 	b.ReportAllocs()
 	b.ResetTimer()

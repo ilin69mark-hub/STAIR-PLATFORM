@@ -29,7 +29,7 @@ export default defineConfig({
       // API стартует с БД из окружения (в CI — postgres service), дефолт —
       // локальный compose (stair:stair@localhost:5432/stair_platform).
       command:
-        'STAIR_DATABASE_URL=${STAIR_DATABASE_URL:-postgres://stair:stair@localhost:5432/stair_platform?sslmode=disable} STAIR_REGISTER_RATE_LIMIT=5000 STAIR_LOGIN_RATE_LIMIT=10000 STAIR_AUTH_RATE_LIMIT=10000 STAIR_QUOTE_RATE_LIMIT=600 STAIR_VALIDATE_RATE_LIMIT=1000 go run ./cmd/api',
+        'STAIR_ENVIRONMENT=development STAIR_DATABASE_URL=${STAIR_DATABASE_URL:-postgres://stair:stair@localhost:5432/stair_platform?sslmode=disable} STAIR_REGISTER_RATE_LIMIT=5000 STAIR_LOGIN_RATE_LIMIT=10000 STAIR_AUTH_RATE_LIMIT=10000 STAIR_QUOTE_RATE_LIMIT=600 STAIR_VALIDATE_RATE_LIMIT=1000 go run ./cmd/api',
       url: 'http://localhost:8080/health',
       cwd: '..',
       reuseExistingServer: !process.env.CI,

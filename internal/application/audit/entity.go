@@ -54,6 +54,7 @@ const (
 
 	// Заказы (EDR-0027): изменение статуса администратором.
 	ActionOrderStatusChanged Action = "order.status_changed"
+	ActionPaymentRefunded    Action = "payment.refunded"
 
 	// Отзывы: CRUD операции администратора.
 	ActionTestimonialCreated Action = "testimonial.created"
