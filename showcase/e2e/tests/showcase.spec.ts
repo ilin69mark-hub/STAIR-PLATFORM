@@ -130,12 +130,26 @@ test('услуги: вход раскрывает оплату, checkout отд�
 
   const pay = page.getByRole('button', { name: 'Оплатить', exact: true }).first()
   await expect(pay).toBeVisible({ timeout: 15_000 })
+
+  // Клик уводит на страницу оплаты PSP — проверяем, что ушли на адрес с
+  // API-хоста (его вернул сервер). Мок-провайдер отдаёт такой же localhost:8080,
+  // поэтому страница может вернуть 404 — это не наша проверка.
+  const api = process.env.STAIR_API_URL ?? 'http://localhost:8080'
   const [request] = await Promise.all([
     page.waitForResponse((r) => r.url().includes('/api/v1/public/services/checkout')),
     pay.click(),
   ])
   expect(request.status()).toBe(201)
-  const body = (await request.json()) as { checkout_url?: string; amount_minor?: number }
-  expect(body.checkout_url).toBeTruthy()
-  expect(body.amount_minor).toBeGreaterThan(0)
+  await page.waitForURL(/localhost:8080/, { timeout: 15_000 })
+
+  // Покупка записана на сервере: её видит кабинет клиента.
+  const mine = await page.request.get(`${api}/api/v1/payments/mine`)
+  expect(mine.status()).toBe(200)
+  const purchases = (await mine.json()) as Array<{
+    tier_id?: string
+    amount_minor: number
+    status: string
+  }>
+  const fresh = purchases.find((p) => p.status === 'pending' && p.amount_minor > 0)
+  expect(fresh, `покупка не появилась в кабинете: ${JSON.stringify(purchases)}`).toBeTruthy()
 })
