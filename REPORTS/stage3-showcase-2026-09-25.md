@@ -70,13 +70,44 @@ DTO не отдаёт спиральные варианты советника (
 | e2e витрины | 6/6 |
 | e2e витрины-калькулятора (store/rails/room-fit/seo/session) | 20/20 |
 
+## Общий пакет `@shared/storefront` (2026-09-25)
+
+Витрина и магазин делили код только через алиас `@store/*` — зависимость от
+исходников соседнего приложения. Код перенесён в общий пакет:
+
+| Было | Стало |
+|---|---|
+| `frontend-store/src/components/{Constructor,QuoteResult,quoteView,OrderForm,AuthForm}` | `frontend/shared/src/storefront/components/*` |
+| `frontend-store/src/api/{client,store,auth}` | `frontend/shared/src/storefront/api/*` |
+| `frontend-store/src/auth/{context,AuthContext,errors}` | `frontend/shared/src/storefront/auth/*` |
+| `frontend-store/src/styles/{base,constructor,viewer}.css` | `frontend/shared/src/storefront/styles/*` |
+
+В магазине остались тонкие фасады (`export * from '@shared/storefront/…'`), поэтому
+его код и тесты не менялись; алиас `@store/*` из витрины удалён. Модульные тесты,
+которые шпионили за фасадом (`api/auth.test.ts`, `api/store.test.ts`, `AuthForm.test.tsx`),
+переведены на реальные модули пакета — иначе spy не перехватывал вызов.
+
+Каскад стилей сохранён: `App.css` импортирует секции в прежнем порядке, три из них
+теперь живут в общем пакете.
+
+## Финальные гейты (после общего пакета)
+
+| Гейт | Результат |
+|---|---|
+| `go test -race -p 1 ./...` | 61/61, 0 FAIL |
+| `frontend` | 450/450 |
+| `frontend-store` | 2111/2111 |
+| `showcase` | vitest 6/6, tsc 0, oxlint 0 замечаний, build OK |
+| e2e витрины | 6/6 |
+| e2e магазина (store/rails/room-fit/seo/session) | 20/20 |
+
 ## Известные ограничения
 
 - Локализация живёт в каталоге MFG-0005 (`NameRu`) и покрывает только материалы; тексты
   интерфейса по-прежнему в коде фронтендов — полноценного i18n на бэкенде нет.
-- Витрина переиспользует стили и компоненты витрины-калькуляторе по алиасу `@store/*`:
-  дублирования кода нет, но витрина зависит от исходников соседнего приложения. Следующий
-  шаг — общий пакет `frontend-shared` с компонентами конструктора и стилями.
+- Общий пакет лежит в `frontend/shared/src/storefront` и подключается алиасом `@shared/*`
+  в обоих приложениях; отдельного npm-пакета с публикацией в реестр нет — монорепо
+  собирается из исходников, как и остальной shared-код.
 - Vitest витрины покрывает чистые функции (подписи, список маршей); UI покрыт e2e.
 - `STAIR_API_URL` и `SITE_URL` задаются окружением; локально — localhost:8080 и :5176.
 
