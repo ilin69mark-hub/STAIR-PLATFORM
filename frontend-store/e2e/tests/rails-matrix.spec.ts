@@ -77,6 +77,7 @@ async function fillCommon(page: import('@playwright/test').Page, c: Case) {
 
 for (const c of ENABLED_CASES) {
   test(`rails-matrix: ${c.name}`, async ({ page }) => {
+    test.setTimeout(90_000)
     const errors: string[] = []
     page.on('pageerror', e => errors.push(e.message))
     const audit403: string[] = []
@@ -105,9 +106,9 @@ for (const c of ENABLED_CASES) {
     if (await price.isVisible()) {
       // 3D не должен падать: GeometryViewer canvas виден, без TypeError
       // 3D — ленивый чанк (three.js + PBR + HDRI): на холодном dev-сервере
-      // Vite трансформирует его дольше 5 с, поэтому ждём 20 с (в прод-сборке
+      // Vite трансформирует его дольше 5 с, поэтому ждём 45 с (в прод-сборке
       // чанк один и открывается мгновенно).
-      await expect(page.locator('.geometry-viewer, .viewer__stage')).toBeVisible({ timeout: 20_000 })
+      await expect(page.locator('.geometry-viewer, .viewer__stage')).toBeVisible({ timeout: 45_000 })
       // 2D схема — проверяем сторону перил: none=0, both/right/left>0 или spiral 0 линий
       const railingCount = await page.locator('.scheme__railing, .scheme-3d__title').count()
       // не строгая проверка, главное — нет вылета
