@@ -152,11 +152,11 @@ export default async function Home() {
                 <img
                   className="swatch-card__img"
                   src={m.swatch_url}
-                  alt={`Текстура: ${materialLabelRu(m.code, m.name)}`}
+                  alt={`Текстура: ${materialLabelRu(m.code, m.name_ru, m.name)}`}
                   loading="lazy"
                 />
                 <div className="swatch-card__body">
-                  <span className="card__title">{materialLabelRu(m.code, m.name)}</span>
+                  <span className="card__title">{materialLabelRu(m.code, m.name_ru, m.name)}</span>
                   <span className="price">{formatRub(m.price_per_kg_rub)}/кг</span>
                   <span className="card__meta">
                     Толщина {m.min_thickness_mm}–{m.max_thickness_mm} мм

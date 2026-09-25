@@ -41,6 +41,9 @@ func TestPublicMaterials(t *testing.T) {
 		if m.SwatchURL != "/static-assets/pbr/"+code+"/color.jpg" {
 			t.Errorf("%s: swatch_url %q", code, m.SwatchURL)
 		}
+		if m.NameRu == "" {
+			t.Errorf("%s: name_ru обязателен для витрины", code)
+		}
 		if m.Density <= 0 || m.MinThicknessMM <= 0 || m.MaxThicknessMM <= m.MinThicknessMM {
 			t.Errorf("%s: физические параметры некорректны: %+v", code, m)
 		}

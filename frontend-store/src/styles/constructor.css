@@ -1,0 +1,465 @@
+/* ---- Constructor ---- */
+
+.panel {
+  background: var(--sp-card);
+  border: 1px solid var(--sp-border);
+  border-radius: 14px;
+  padding: 22px;
+}
+
+.panel + .panel {
+  margin-top: 18px;
+}
+
+.panel h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+
+.panel .sub {
+  margin: 0 0 16px;
+  color: var(--sp-muted);
+  font-size: 14px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+/* Поля формы сгруппированы в блоки: заголовок секции + сетка полей.
+   Секции отделены друг от друга, чтобы глазами разбить форму на части. */
+.form-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.form-section__title {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: var(--sp-text);
+  border-bottom: 1px solid var(--sp-border);
+  padding-bottom: 6px;
+}
+
+/* Предупреждение о расчёте без габаритов помещения: текст + две кнопки. */
+.room-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.room-prompt__actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* Атрибут hidden (скрытие нерелевантных полей марша) не должен
+   перекрываться правилом выше. */
+.field[hidden] {
+  display: none;
+}
+
+.field label {
+  font-size: 13px;
+  color: var(--sp-muted);
+}
+
+.field-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.field-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--sp-border);
+  color: var(--sp-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: help;
+  user-select: none;
+}
+
+.field-help:focus-visible {
+  outline: 2px solid var(--sp-primary);
+  outline-offset: 1px;
+}
+
+.field-help-tip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 240px;
+  padding: 8px 10px;
+  background: #2b2f36;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.field-help:hover .field-help-tip,
+.field-help:focus-visible .field-help-tip {
+  opacity: 1;
+  visibility: visible;
+}
+
+.field input,
+.field select {
+  padding: 10px 12px;
+  border: 1px solid var(--sp-border);
+  border-radius: 8px;
+  font: inherit;
+  background: #fff;
+}
+
+.field input.field-invalid {
+  border-color: var(--sp-error);
+}
+
+.field .checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--sp-border);
+  border-radius: 8px;
+  background: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.field .checkbox input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--sp-primary);
+  cursor: pointer;
+}
+
+.field input:focus,
+.field select:focus {
+  outline: 2px solid var(--sp-primary);
+  outline-offset: -1px;
+}
+
+.field .error {
+  font-size: 12px;
+  color: var(--sp-error);
+}
+
+.issue {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 0;
+}
+
+.issue-param {
+  font-size: 13px;
+  color: var(--sp-muted);
+}
+
+.issue-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px dashed var(--sp-border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+
+.alert {
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 12px 0;
+  font-size: 14px;
+}
+
+.alert--error {
+  background: #fdecea;
+  border: 1px solid #f5c6c2;
+  color: var(--sp-error);
+}
+
+.alert--warn {
+  background: #fdecec;
+  border: 1px solid #f2c9c6;
+  color: var(--sp-warn);
+}
+
+.rescue {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-gap);
+  flex-wrap: wrap;
+}
+
+.rescue__text {
+  max-width: 60ch;
+}
+
+.alert--ok {
+  background: #e9f7f0;
+  border: 1px solid #c3e8d5;
+  color: var(--sp-primary-dark);
+}
+
+/* ---- Готовые решения (пресеты) ---- */
+
+.presets {
+  display: flex;
+  gap: var(--sp-gap-sm);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-gap);
+}
+
+.preset {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 1px solid var(--sp-border, #d8dde3);
+  border-radius: var(--sp-radius, 8px);
+  background: var(--sp-surface, #fff);
+  cursor: pointer;
+  text-align: left;
+}
+
+.preset:hover {
+  border-color: var(--sp-primary, #2f6fd0);
+}
+
+.preset.is-active {
+  border-color: var(--sp-primary, #2f6fd0);
+  box-shadow: 0 0 0 2px rgba(47, 111, 208, 0.18);
+}
+
+.preset__label {
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.preset__hint {
+  font-size: 0.7rem;
+  opacity: 0.6;
+}
+
+/* ---- Выбор материала (реальные PBR-текстуры) ---- */
+
+.material-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: var(--sp-gap-sm);
+}
+
+.material-picker__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--sp-border, #d8dde3);
+  border-radius: var(--sp-radius, 8px);
+  background: var(--sp-surface, #fff);
+  cursor: pointer;
+  text-align: center;
+}
+
+.material-picker__item:hover {
+  border-color: var(--sp-primary, #2f6fd0);
+}
+
+.material-picker__item.is-active {
+  border-color: var(--sp-primary, #2f6fd0);
+  box-shadow: 0 0 0 2px rgba(47, 111, 208, 0.18);
+}
+
+.material-picker__swatch {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #eceff3;
+}
+
+.material-picker__label {
+  font-size: 0.82rem;
+  line-height: 1.15;
+}
+
+.material-picker__hint {
+  font-size: 0.7rem;
+  opacity: 0.6;
+}
+
+/* ---- Варианты A/B/C (галерея) ---- */
+
+.variation-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.variation-picker__hint {
+  color: var(--sp-muted);
+  font-size: 13px;
+}
+
+.variation-gallery {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.variation-gallery__main {
+  flex: 1 1 58%;
+  min-width: 0;
+}
+
+.variation-gallery__main .variation-picker__item {
+  min-height: 100%;
+}
+
+.variation-gallery__thumbs {
+  flex: 1 1 42%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.variation-picker__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--sp-border);
+  border-radius: 10px;
+  background: var(--sp-card);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: var(--sp-text);
+}
+
+.variation-picker__item:hover {
+  border-color: var(--sp-primary);
+  box-shadow: var(--sp-shadow);
+}
+
+.variation-picker__item--active {
+  border-color: var(--sp-primary);
+  background: #eff6f3;
+}
+
+.variation-picker__item--thumb {
+  padding: 8px 12px;
+}
+
+.variation-picker__title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.variation-picker__summary,
+.variation-picker__desc {
+  font-size: 12px;
+  color: var(--sp-muted);
+}
+
+.variation-picker__applied {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--sp-primary);
+}
+
+/* ---- Result / price ---- */
+
+.price-box {
+  background: linear-gradient(135deg, var(--sp-primary), var(--sp-primary-dark));
+  color: #fff;
+  border-radius: 14px;
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.price-box .price-label {
+  opacity: 0.85;
+  font-size: 14px;
+}
+
+.price-box .price-value {
+  font-size: 32px;
+  font-weight: 700;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px 20px;
+  margin: 14px 0 0;
+}
+
+.kv > div {
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px dashed var(--sp-border);
+  padding: 6px 0;
+}
+
+.kv dt {
+  color: var(--sp-muted);
+}
+
+.kv dd {
+  margin: 0;
+  font-weight: 600;
+}
+

@@ -66,7 +66,7 @@ export default async function MaterialsPage() {
                         style={{ borderRadius: 6, verticalAlign: 'middle', marginRight: 8 }}
                         loading="lazy"
                       />
-                      {materialLabelRu(m.code, m.name)}
+                      {materialLabelRu(m.code, m.name_ru, m.name)}
                     </a>
                   </td>
                   <td>{m.density_kg_m3} кг/м³</td>

@@ -26,21 +26,21 @@ func DefaultMaterialRegistry() (*dommfg.MaterialRegistry, error) {
 	defaultMaterialRegistry.once.Do(func() {
 		reg, err := dommfg.NewMaterialRegistry(
 			&dommfg.Material{
-				Code: "STEEL-S235", Name: "Structural Steel S235", Category: "Steel",
+				Code: "STEEL-S235", Name: "Structural Steel S235", NameRu: "Сталь S235", Category: "Steel",
 				Density: 7850, MinThickness: 2, MaxThickness: 60,
 				// Энвелоп MFG-0012: крупнейший лист 10400×6200 покрывает
 				// косоур до H≈6000, проступи до ширины W=3000 (лист 6000×3000).
 				MaxWidthMm: 3000, MaxHeightMm: 6000,
 			},
 			&dommfg.Material{
-				Code: "ALUM-5083", Name: "Aluminum 5083", Category: "Aluminum",
+				Code: "ALUM-5083", Name: "Aluminum 5083", NameRu: "Алюминий 5083", Category: "Aluminum",
 				Density: 2700, MinThickness: 2, MaxThickness: 60,
 				// Энвелоп MFG-0012: крупнейший лист 9000×4600 покрывает
 				// косоур до H≈4550, проступи до W=3000 (лист 6000×3000).
 				MaxWidthMm: 3000, MaxHeightMm: 4550,
 			},
 			&dommfg.Material{
-				Code: "WOOD-OAK", Name: "Oak Wood", Category: "Wood",
+				Code: "WOOD-OAK", Name: "Oak Wood", NameRu: "Дуб", Category: "Wood",
 				Density: 700, MinThickness: 20, MaxThickness: 60,
 				// Энвелоп MFG-0012: крупнейшая плита 9000×4600 покрывает
 				// косоур до H≈4550, проступи до W=3000 (плита 6000×3000).
@@ -50,22 +50,22 @@ func DefaultMaterialRegistry() (*dommfg.MaterialRegistry, error) {
 			// разной ценой и плотностью. Плотность влияет на массу/стоимость
 			// (cost.go), диапазон толщин — на допустимость детали (MFG-0012).
 			&dommfg.Material{
-				Code: "WOOD-WALNUT", Name: "American Walnut", Category: "Wood",
+				Code: "WOOD-WALNUT", Name: "American Walnut", NameRu: "Орех", Category: "Wood",
 				Density: 640, MinThickness: 20, MaxThickness: 60,
 				MaxWidthMm: 3000, MaxHeightMm: 4550,
 			},
 			&dommfg.Material{
-				Code: "WOOD-ASH", Name: "Ash Wood", Category: "Wood",
+				Code: "WOOD-ASH", Name: "Ash Wood", NameRu: "Ясень", Category: "Wood",
 				Density: 690, MinThickness: 20, MaxThickness: 60,
 				MaxWidthMm: 3000, MaxHeightMm: 4550,
 			},
 			&dommfg.Material{
-				Code: "WOOD-SOFT", Name: "Softwood (pine)", Category: "Wood",
+				Code: "WOOD-SOFT", Name: "Softwood (pine)", NameRu: "Сосна", Category: "Wood",
 				Density: 520, MinThickness: 20, MaxThickness: 60,
 				MaxWidthMm: 3000, MaxHeightMm: 4550,
 			},
 			&dommfg.Material{
-				Code: "STEEL-CORTEN", Name: "Weathering Steel (Corten)", Category: "Steel",
+				Code: "STEEL-CORTEN", Name: "Weathering Steel (Corten)", NameRu: "Кортэн", Category: "Steel",
 				Density: 7850, MinThickness: 2, MaxThickness: 60,
 				MaxWidthMm: 3000, MaxHeightMm: 6000,
 			},

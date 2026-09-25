@@ -12,7 +12,11 @@ import { Constructor } from '@store/components/Constructor'
 // домена), логика входа не дублируется.
 import { AuthProvider } from '@store/auth/AuthContext'
 import { defaultConfig } from '@shared/config'
-import '@store/App.css'
+// Стили: только база, конструктор и 3D-вьювер. Лендинг, кабинет, формы
+// авторизации витрине не нужны — раньше она тянула весь App.css целиком.
+import '@store/styles/base.css'
+import '@store/styles/constructor.css'
+import '@store/styles/viewer.css'
 
 export function Calculator({ initialMaterial }: { initialMaterial?: string }) {
   // Материал можно задать ссылкой с карточки материала:

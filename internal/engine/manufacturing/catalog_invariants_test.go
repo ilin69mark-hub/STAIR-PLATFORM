@@ -30,6 +30,11 @@ func TestEveryCatalogMaterialIsManufacturable(t *testing.T) {
 		if _, ok := rates.CutSpeed[code]; !ok {
 			t.Errorf("материал %s: нет скорости реза в MFG-0009", code)
 		}
+		// Витрина показывает русское имя из каталога: без него пришлось бы
+		// держать второй список подписей во фронте.
+		if m.NameRu == "" {
+			t.Errorf("материал %s: нет русского имени (NameRu) в каталоге", code)
+		}
 	}
 }
 

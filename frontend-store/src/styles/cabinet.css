@@ -1,0 +1,222 @@
+/* ---- Cabinet (orders) ---- */
+
+.orders-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 14px;
+}
+
+.orders-table th,
+.orders-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--sp-border);
+  font-size: 14px;
+}
+
+.orders-table th {
+  color: var(--sp-muted);
+  font-weight: 600;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  background: #eef4f1;
+  color: var(--sp-primary-dark);
+}
+
+.muted {
+  color: var(--sp-muted);
+}
+
+/* Схемы лестниц (FE-0017): профиль/план — цветовая схема store */
+.scheme__svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.scheme__fill {
+  fill: #eef2f8;
+  stroke: none;
+}
+
+.scheme__outline {
+  fill: none;
+  stroke: #b197fc;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+/* Свободное пространство перед первой ступенью (EDR-0023): штриховая
+   зона-«зазор» справа от марша на плане. */
+.scheme__approach {
+  fill: #fff3bf;
+  fill-opacity: 0.6;
+  stroke: #f08c00;
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+}
+
+.scheme__stringer {
+  fill: #ff6b6b;
+  stroke: #c92a2a;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.scheme__step {
+  fill: #4dabf7;
+  stroke: #1971c2;
+  stroke-width: 1;
+}
+
+.scheme__riser {
+  fill: #51cf66;
+  stroke: #2f9e44;
+  stroke-width: 1;
+}
+
+.scheme__railing {
+  stroke: #ffd43b;
+  stroke-width: 3;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.scheme__post {
+  stroke: #ff922b;
+  stroke-width: 3;
+  fill: none;
+  stroke-linecap: round;
+}
+
+.scheme__tread {
+  stroke: #adb5bd;
+  stroke-width: 1;
+}
+
+.scheme__tread--lower {
+  stroke: #4dabf7;
+  stroke-width: 2;
+}
+
+.scheme__tread--upper {
+  stroke: #51cf66;
+  stroke-width: 2;
+}
+
+.scheme__axis {
+  stroke: #adb5bd;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+}
+
+.scheme__column {
+  fill: #ced4da;
+  stroke: #868e96;
+  stroke-width: 2;
+}
+
+.scheme__room {
+  fill: rgba(77, 171, 247, 0.08);
+  stroke: #4dabf7;
+  stroke-width: 1.5;
+  stroke-dasharray: 7 5;
+}
+
+.scheme__room--overflow {
+  fill: rgba(255, 107, 107, 0.10);
+  stroke: #fa5252;
+  stroke-width: 2;
+  stroke-dasharray: 7 5;
+}
+
+/* Временная цвето-буквенная разметка периметра и рёбер (debug, см. scheme-annot.ts).
+   Цвета задаются inline; здесь только толщины/шрифты. */
+.scheme__wall {
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.scheme__wlabel {
+  font-size: 16px;
+  font-weight: 800;
+  font-family: inherit;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 3px;
+}
+
+.scheme__edge {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+
+.scheme__elabel {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: inherit;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 2.5px;
+}
+
+.scheme__warntext {
+  fill: #fa5252;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.scheme__dir {
+  stroke: #e8a33d;
+  stroke-width: 2.5;
+  fill: #e8a33d;
+  stroke-linecap: round;
+}
+
+.scheme__dimline {
+  stroke: #22b8cf;
+  stroke-width: 1;
+  fill: #22b8cf;
+}
+
+.scheme__dimtext {
+  fill: #212529;
+  stroke: #fff;
+  stroke-width: 3;
+  paint-order: stroke;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.scheme__label {
+  fill: #212529;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.scheme__caption {
+  margin: 8px 2px 0;
+  color: var(--sp-muted);
+  font-size: 12px;
+}
+
+/* 3D-вьювер (FE-0017) — интерактивная модель на витрине */
+.scheme-3d {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--sp-border);
+}
+
+.scheme-3d__title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: var(--sp-text);
+}
+

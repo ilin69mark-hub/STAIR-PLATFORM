@@ -1,0 +1,275 @@
+/* ---- Footer ---- */
+
+.store-footer {
+  border-top: 1px solid var(--sp-border);
+  padding: 16px 28px;
+  text-align: center;
+  color: var(--sp-muted);
+  font-size: 13px;
+  display: grid;
+  gap: 6px;
+}
+
+.footer-contacts a,
+.footer-links a {
+  color: var(--sp-primary);
+  text-decoration: none;
+}
+
+.footer-links {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.footer-links a:hover {
+  text-decoration: underline;
+}
+
+.footer-note {
+  margin: 4px 0 0;
+}
+
+.sep {
+  margin: 0 6px;
+  opacity: 0.6;
+}
+
+/* ---- Отзывы ---- */
+
+.testimonials {
+  padding: 32px 28px;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.testimonials h2 {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.testimonials-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.testimonial {
+  background: var(--sp-card);
+  border: 1px solid var(--sp-border);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: var(--sp-shadow);
+}
+
+.testimonial-rating {
+  color: var(--sp-accent);
+  letter-spacing: 2px;
+}
+
+.testimonial-rating .empty {
+  opacity: 0.25;
+}
+
+.testimonial-text {
+  margin: 8px 0;
+}
+
+.testimonial-author {
+  margin: 0;
+  color: var(--sp-muted);
+  font-size: 13px;
+}
+
+/* ---- Консультация ---- */
+
+.consultation {
+  padding: 32px 28px;
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+.consultation h2 {
+  text-align: center;
+}
+
+.consultation-form {
+  display: grid;
+  gap: 12px;
+  background: var(--sp-card);
+  border: 1px solid var(--sp-border);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: var(--sp-shadow);
+}
+
+.consultation-form .field label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 4px;
+  color: var(--sp-muted);
+}
+
+.consultation-form textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.consultation-form .actions {
+  text-align: center;
+}
+
+.alert--ok {
+  background: #e7f5ee;
+  border: 1px solid var(--sp-primary);
+  color: var(--sp-primary-dark);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+}
+
+/* ---- О нас ---- */
+
+.about {
+  padding: 32px 28px 48px;
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.about h2 {
+  text-align: center;
+}
+
+.about .sub {
+  text-align: center;
+  max-width: 640px;
+  margin: 0 auto 20px;
+  color: var(--sp-muted);
+}
+
+.about-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.about-item {
+  background: var(--sp-card);
+  border: 1px solid var(--sp-border);
+  border-radius: 12px;
+  padding: 18px;
+}
+
+.about-item h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.about-item p {
+  margin: 0;
+  color: var(--sp-muted);
+  font-size: 14px;
+}
+
+/* ---- Инфо-страницы (оферта/политики) ---- */
+
+.info-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.info-head h1 {
+  font-size: 20px;
+  margin: 0;
+}
+
+.legal-text h3 {
+  margin: 16px 0 6px;
+  font-size: 15px;
+}
+
+.legal-text p {
+  margin: 0 0 8px;
+}
+
+/* ---- Cookie banner ---- */
+
+.cookie-banner {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  background: var(--sp-card);
+  border: 1px solid var(--sp-border);
+  border-radius: 12px;
+  padding: 14px 18px;
+  box-shadow: 0 10px 30px rgba(11, 110, 79, 0.15);
+  font-size: 14px;
+}
+
+.cookie-banner p {
+  margin: 0;
+}
+
+.cookie-banner a {
+  color: var(--sp-primary);
+}
+
+.cookie-banner-actions {
+  flex-shrink: 0;
+}
+/* ErrorBoundary (S-140): общий fallback при ошибке рендера. */
+.sentry-boundary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  padding: 32px;
+  text-align: center;
+}
+
+.sentry-boundary__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--sp-text);
+}
+
+.sentry-boundary__text {
+  margin: 0;
+  color: var(--sp-muted);
+  font-size: 14px;
+}
+
+.sentry-boundary__event-id {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--sp-muted);
+}
+
+.sentry-boundary__retry {
+  padding: 10px 18px;
+  border: none;
+  border-radius: 8px;
+  background: var(--sp-primary);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sentry-boundary__retry:hover {
+  background: var(--sp-primary-dark);
+}

@@ -23,8 +23,13 @@ type MaterialCode string
 // BOM и cut list; прочностные и стоимостные свойства добавляются
 // на следующих этапах.
 type Material struct {
-	Code         MaterialCode
-	Name         string
+	Code MaterialCode
+	// Name — техническое имя каталога (английский, используется в
+	// производственных документах и логах).
+	Name string
+	// NameRu — витринное имя на русском. Пустое значение допустимо: тогда
+	// клиент показывает Name (витрина не ломается на нелокализованном коде).
+	NameRu       string
 	Category     string
 	Density      float64 // кг/м³
 	MinThickness float64 // мм

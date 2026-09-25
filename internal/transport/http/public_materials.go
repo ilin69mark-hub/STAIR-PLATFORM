@@ -14,8 +14,11 @@ import (
 // (DefaultRates): витрина не дублирует каталог кодом, а читает его с API,
 // поэтому новый материал появляется на сайте вместе с бэкендом.
 type materialDTO struct {
-	Code           string  `json:"code"`
-	Name           string  `json:"name"`
+	Code string `json:"code"`
+	Name string `json:"name"`
+	// NameRu — витринное имя на русском (MFG-0005, NameRu). Пустое у нового
+	// материала — клиент покажет Name, поэтому поле не ломает контракт.
+	NameRu         string  `json:"name_ru,omitempty"`
 	Category       string  `json:"category"`
 	Density        float64 `json:"density_kg_m3"`
 	MinThicknessMM float64 `json:"min_thickness_mm"`
@@ -59,6 +62,7 @@ func handlePublicMaterials() http.HandlerFunc {
 			dto := materialDTO{
 				Code:           string(m.Code),
 				Name:           m.Name,
+				NameRu:         m.NameRu,
 				Category:       m.Category,
 				Density:        m.Density,
 				MinThicknessMM: m.MinThickness,

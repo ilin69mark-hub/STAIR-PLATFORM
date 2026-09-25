@@ -10,6 +10,8 @@ const API = process.env.STAIR_API_URL ?? 'http://localhost:8080'
 export interface Material {
   code: string
   name: string
+  /** Витринное имя на русском из каталога MFG-0005. */
+  name_ru?: string
   category: string
   density_kg_m3: number
   min_thickness_mm: number

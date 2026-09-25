@@ -54,7 +54,7 @@ export default async function MaterialPage({ params }: MaterialPageProps) {
           <p className="section__head">
             <a href="/materials">{CATEGORY_LABELS[m.category] ?? m.category}</a> · код {m.code}
           </p>
-          <h1>{materialLabelRu(m.code, m.name)}</h1>
+          <h1>{materialLabelRu(m.code, m.name_ru, m.name)}</h1>
           <div className="hero">
             <div>
               <p className="hero__lead">{USAGE[code] ?? 'Материал из каталога лестниц.'}</p>
@@ -88,7 +88,7 @@ export default async function MaterialPage({ params }: MaterialPageProps) {
               </table>
               <p style={{ marginTop: 24 }}>
                 <a className="btn" href={`/calculator?material=${m.code}`}>
-                  Рассчитать из {materialLabelRu(m.code, m.name)}
+                  Рассчитать из {materialLabelRu(m.code, m.name_ru, m.name)}
                 </a>
               </p>
             </div>
@@ -96,7 +96,7 @@ export default async function MaterialPage({ params }: MaterialPageProps) {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={m.swatch_url}
-                alt={`Текстура материала ${materialLabelRu(m.code, m.name)}`}
+                alt={`Текстура материала ${materialLabelRu(m.code, m.name_ru, m.name)}`}
                 style={{ width: '100%', height: 380, objectFit: 'cover', display: 'block' }}
               />
               <div className="scene__caption">
@@ -117,7 +117,7 @@ export default async function MaterialPage({ params }: MaterialPageProps) {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img className="swatch-card__img" src={o.swatch_url} alt="" loading="lazy" />
                 <div className="swatch-card__body">
-                  <span className="card__title">{materialLabelRu(o.code, o.name)}</span>
+                  <span className="card__title">{materialLabelRu(o.code, o.name_ru, o.name)}</span>
                   <span className="price">{formatRub(o.price_per_kg_rub)}/кг</span>
                 </div>
               </a>
