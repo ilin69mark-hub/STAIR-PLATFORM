@@ -141,7 +141,7 @@ func handleValidate(svc StairService) http.HandlerFunc {
 			return
 		}
 
-		writeJSON(w, http.StatusOK, map[string]any{"validation": toValidationResult(res)})
+		writeJSON(w, http.StatusOK, map[string]any{"validation": toValidationResult(res, false)})
 	}
 }
 
@@ -214,7 +214,7 @@ func handleOptimize(svc StairService) http.HandlerFunc {
 
 func toResponse(res *stair.Result) calculateResponse {
 	resp := calculateResponse{
-		Validation: toValidationResult(res),
+		Validation: toValidationResult(res, false),
 	}
 	if res.Validation.Blocking || res.Package == nil || res.Price == nil {
 		// Конвейер остановлен: производственных и финансовых данных нет.

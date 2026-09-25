@@ -424,7 +424,11 @@ type calculateResponse struct {
 
 // ---- converters: domain/engine → DTO ----
 
-func toValidationResult(r *stair.Result) validationDTO {
+// toValidationResult конвертирует результат валидации в DTO. dropDisabledFlights
+// включает фильтрацию вариантов отключённых типов марша (S-152): публичные
+// ручки передают true, внутренние — false, чтобы поведение не зависело от
+// глобального состояния и было безопасно при параллельных запросах.
+func toValidationResult(r *stair.Result, dropDisabledFlights bool) validationDTO {
 	issues := make([]validationIssueDTO, 0, len(r.Validation.Issues))
 	for _, i := range r.Validation.Issues {
 		dto := validationIssueDTO{
@@ -446,10 +450,19 @@ func toValidationResult(r *stair.Result) validationDTO {
 		if len(i.Variations) > 0 {
 			dto.Variations = make([]variationDTO, 0, len(i.Variations))
 			for _, v := range i.Variations {
+				// Публичному расчёту спираль недоступна (S-152): вариант
+				// «C: спиральная» не показываем, иначе кнопка «Спасти расчёт»
+				// увела бы в 422. Внутренний расчёт варианты сохраняет.
+				if dropDisabledFlights && v.Config["flight"] == string(engineering.FlightSpiral) {
+					continue
+				}
 				dto.Variations = append(dto.Variations, variationDTO{
 					ID: v.ID, Title: v.Title, Description: v.Description,
 					Config: v.Config, Fits: v.Fits, Summary: v.Summary,
 				})
+			}
+			if len(dto.Variations) == 0 {
+				dto.Variations = nil
 			}
 		}
 		issues = append(issues, dto)

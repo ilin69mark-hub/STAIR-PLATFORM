@@ -44,3 +44,26 @@ func TestInternalCalculateStillAcceptsSpiral(t *testing.T) {
 		t.Fatalf("внутренний расчёт спирали должен работать, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
+
+// TestPublicQuoteDropsSpiralVariations — советник может предлагать спиральные
+// варианты (движок их строит), но публичный расчёт их не отдаёт: «Спасти
+// расчёт» не должна уводить в 422 (S-152). Внутренняя ручка сохраняет всё.
+func TestPublicQuoteDropsSpiralVariations(t *testing.T) {
+	body := `{
+		"width_mm": 1100, "height_mm": 2700, "flight": "straight", "material": "STEEL-S235",
+		"step_height_mm": 168, "step_thickness_mm": 6, "stringer_thickness_mm": 50,
+		"riser": true, "clearance_mm": 2000, "railing_height_mm": 900,
+		"room_width_mm": 4500, "room_length_mm": 900
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	testRouter().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `"flight":"spiral"`) {
+		t.Errorf("публичный ответ не должен предлагать спиральные варианты: %s", rec.Body.String())
+	}
+}

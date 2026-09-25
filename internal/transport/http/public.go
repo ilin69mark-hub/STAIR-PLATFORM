@@ -71,7 +71,7 @@ func handlePublicQuote(svc StairService) http.HandlerFunc {
 // проставляется во все варианты flight-результата из конфигурации.
 func toPublicQuote(res *stair.Result, cfg stair.Config) publicQuoteDTO {
 	out := publicQuoteDTO{
-		Validation: toValidationResult(res),
+		Validation: toValidationResult(res, true),
 	}
 	if res.Validation.Blocking || res.Price == nil {
 		return out
