@@ -1,9 +1,11 @@
-// UI 20: 5×4 типа, полностью через page (form → calculate → 3D → КП)
+// UI 20: 5×N типа, полностью через page (form → calculate → 3D → КП)
 import { expect, test } from '@playwright/test'
 import { register, uniqueEmail } from '../helpers/auth'
 
 test.describe.serial('UI 20 — 5×4 через page', () => {
-  test.setTimeout(600_000)
+  // 15 итераций ≈ 4.5 мин локально и ≈ 8-9 мин на CI-раннере (1 worker).
+  // 600 с не хватало: тест уходил в таймаут вместо результата.
+  test.setTimeout(900_000)
   const flights: Array<{ flight: string; params: Record<string, string> }> = [
     { flight: 'straight', params: {} },
     { flight: 'l_shape', params: { landingWidthMM: '1000', lowerStepCountMM: '5' } },
@@ -11,11 +13,17 @@ test.describe.serial('UI 20 — 5×4 через page', () => {
     { flight: 'spiral', params: { outerRadiusMM: '960' } },
   ]
 
-  test('20 проектов UI: форма → расчёт → 3D → КП', async ({ page }) => {
+  // Тип марша скрыт в форме, пока SPIRAL_ENABLED = false (S-152): спиральные
+  // итерации пропускаются, остальные возвращаются вместе со спиралью.
+  const ENABLED = flights.filter((f) => f.flight !== 'spiral')
+  const TOTAL = ENABLED.length * 5
+  const MIN_OK = Math.floor(TOTAL * 0.75)
+
+  test(`${TOTAL} проектов UI: форма → расчёт → 3D → КП`, async ({ page }) => {
     await register(page, uniqueEmail())
     let ok = 0
     let fail: string[] = []
-    for (const f of flights) {
+    for (const f of ENABLED) {
       for (let i = 0; i < 5; i++) {
         const name = `UI-${f.flight}-${i}-${Date.now() % 10000}`
         try {
@@ -62,7 +70,7 @@ test.describe.serial('UI 20 — 5×4 через page', () => {
         }
       }
     }
-    console.log(`UI 20: ok ${ok}/20, fail ${fail.length}: ${fail.join('; ').slice(0, 500)}`)
-    expect(ok).toBeGreaterThanOrEqual(15)
+    console.log(`UI 20: ok ${ok}/${TOTAL}, fail ${fail.length}: ${fail.join('; ').slice(0, 500)}`)
+    expect(ok).toBeGreaterThanOrEqual(MIN_OK)
   })
 })
