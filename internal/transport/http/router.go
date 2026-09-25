@@ -93,7 +93,9 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	// Версионированные статические ассеты (PBR-текстуры, HDRI — этап 1).
 	// Публичные и иммутабельные: файлы версионируются по содержимому.
 	if cfg.StaticAssetsDir != "" {
-		mux.Handle("GET "+staticAssetsMount+"/", StaticAssetsHandler(cfg.StaticAssetsDir))
+		// Литерал, не конкатенация: регэксп swagger-sync вытаскивает пути из
+		// исходника. Префикс должен совпадать с staticAssetsMount.
+		mux.Handle("GET /static-assets/", StaticAssetsHandler(cfg.StaticAssetsDir))
 	}
 
 	// Swagger UI (internal only)
