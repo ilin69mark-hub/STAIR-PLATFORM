@@ -16,6 +16,10 @@ type Tier struct {
 	ID          string
 	AmountMinor int64
 	Currency    string
+	// Title/Description — витринные подписи услуги. Пустые допустимы:
+	// кабинет и API отдадут ID, витрина покажет то, что есть.
+	Title       string
+	Description string
 }
 
 // Catalog — набор доступных тарифов (server-side price authority).
@@ -44,8 +48,16 @@ func NewCatalog(tiers ...Tier) *Catalog {
 // не влияет.
 func DefaultCatalog() *Catalog {
 	return NewCatalog(
-		Tier{ID: TierBasic, AmountMinor: 90_000, Currency: "RUB"},
-		Tier{ID: TierPro, AmountMinor: 180_000, Currency: "RUB"},
+		Tier{
+			ID: TierBasic, AmountMinor: 90_000, Currency: "RUB",
+			Title:       "Выезд инженера и замер",
+			Description: "Инженер приедет с образцами материалов, снимет размеры проёма и проверит, вписывается ли лестница. Смету по замерам — в тот же день.",
+		},
+		Tier{
+			ID: TierPro, AmountMinor: 180_000, Currency: "RUB",
+			Title:       "Проект и рабочая документация",
+			Description: "Полный проект под ключ: планы, разрезы, спецификация деталей и раскрой. По этому проекту лестницу собирает любой мастер.",
+		},
 	)
 }
 

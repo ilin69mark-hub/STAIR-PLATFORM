@@ -20,6 +20,12 @@ type PaymentService interface {
 	ListByProject(ctx context.Context, tenantID, projectID string) ([]*payments.PaymentIntent, error)
 	Get(ctx context.Context, tenantID, id string) (*payments.PaymentIntent, error)
 	HandleWebhook(ctx context.Context, secret, tsUnix, sigValue string, body []byte) (*payments.PaymentEvent, error)
+	// ListTiers — серверный прайс услуг для публичной витрины (этап 4).
+	ListTiers() []payments.Tier
+	// CreateServiceCheckout — оплата услуги клиентом сайта (без проекта).
+	CreateServiceCheckout(ctx context.Context, tenantID, userID, tierID string) (*payments.PaymentIntent, error)
+	// ListByUser — покупки пользователя для кабинета.
+	ListByUser(ctx context.Context, tenantID, userID string) ([]*payments.PaymentIntent, error)
 }
 
 // StripeWebhookService — интерфейс для Stripe-специфичной обработки webhook.

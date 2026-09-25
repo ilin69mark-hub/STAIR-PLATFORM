@@ -27,13 +27,13 @@ func NewPaymentRepository(pool *pgxpool.Pool) *PaymentRepository {
 
 var _ payments.Repository = (*PaymentRepository)(nil)
 
-const intentCols = `id, tenant_id, project_id, user_id, amount_minor, currency, status, provider, provider_checkout_id, created_at, updated_at, paid_at`
+const intentCols = `id, tenant_id, project_id, user_id, amount_minor, currency, status, provider, provider_checkout_id, tier_id, created_at, updated_at, paid_at`
 
 func scanIntent(row pgx.Row) (*payments.PaymentIntent, error) {
 	var p payments.PaymentIntent
-	var projectID, userID *string
+	var projectID, userID, tierID *string
 	if err := row.Scan(&p.ID, &p.TenantID, &projectID, &userID, &p.AmountMinor, &p.Currency,
-		&p.Status, &p.Provider, &p.ProviderCheckoutID, &p.CreatedAt, &p.UpdatedAt, &p.PaidAt); err != nil {
+		&p.Status, &p.Provider, &p.ProviderCheckoutID, &tierID, &p.CreatedAt, &p.UpdatedAt, &p.PaidAt); err != nil {
 		return nil, err
 	}
 	if projectID != nil {
@@ -41,6 +41,9 @@ func scanIntent(row pgx.Row) (*payments.PaymentIntent, error) {
 	}
 	if userID != nil {
 		p.UserID = *userID
+	}
+	if tierID != nil {
+		p.TierID = *tierID
 	}
 	return &p, nil
 }
@@ -54,11 +57,15 @@ func (r *PaymentRepository) CreateIntent(ctx context.Context, p *payments.Paymen
 	if p.UserID != "" {
 		userID = p.UserID
 	}
+	var tierID any
+	if p.TierID != "" {
+		tierID = p.TierID
+	}
 	err := r.pool.QueryRow(ctx,
-		`INSERT INTO payment_intents (tenant_id, project_id, user_id, amount_minor, currency, status, provider, provider_checkout_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`INSERT INTO payment_intents (tenant_id, project_id, user_id, amount_minor, currency, status, provider, provider_checkout_id, tier_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		 RETURNING id, created_at, updated_at`,
-		p.TenantID, projectID, userID, p.AmountMinor, p.Currency, string(p.Status), p.Provider, p.ProviderCheckoutID,
+		p.TenantID, projectID, userID, p.AmountMinor, p.Currency, string(p.Status), p.Provider, p.ProviderCheckoutID, tierID,
 	).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("payments: create intent: %w", err)
@@ -92,6 +99,31 @@ func (r *PaymentRepository) GetIntentByProviderCheckout(ctx context.Context, pro
 		return nil, fmt.Errorf("payments: get intent by checkout: %w", err)
 	}
 	return p, nil
+}
+
+// ListByUser возвращает платежи пользователя (покупки услуг на витрине и
+// оплаты проектов), новые первыми. Нужен личному кабинету этапа 4.
+func (r *PaymentRepository) ListByUser(ctx context.Context, tenantID, userID string) ([]*payments.PaymentIntent, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT `+intentCols+` FROM payment_intents
+		 WHERE tenant_id = $1 AND user_id = $2
+		 ORDER BY created_at DESC`, tenantID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("payments: list intents by user: %w", err)
+	}
+	defer rows.Close()
+	var out []*payments.PaymentIntent
+	for rows.Next() {
+		p, err := scanIntent(rows)
+		if err != nil {
+			return nil, fmt.Errorf("payments: scan intent: %w", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("payments: list intents by user rows: %w", err)
+	}
+	return out, nil
 }
 
 // ListByProject возвращает интенты проекта в порядке создания.

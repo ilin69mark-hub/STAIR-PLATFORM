@@ -35,6 +35,10 @@ func NewService(repo Repository, provider Provider, verifier WebhookVerifier, ma
 	}
 }
 
+// ListTiers возвращает серверный прайс услуг для витрины: витрина показывает
+// эти цены, а checkout считает по ним же. Клиент сумму не присылает (S-150).
+func (s *Service) ListTiers() []Tier { return s.catalog.List() }
+
 // WithCatalog задаёт серверный прайс-каталог (S-150): значения из тела
 // запроса не принимаются, цена — только из каталога.
 func (s *Service) WithCatalog(c *Catalog) *Service {
@@ -81,6 +85,48 @@ func (s *Service) CreateCheckout(ctx context.Context, tenantID, projectID, userI
 		return nil, err
 	}
 	return p, nil
+}
+
+// CreateServiceCheckout создаёт оплату услуги с витрины (этап 4): проект не
+// нужен, интент привязан к пользователю и коду услуги из каталога. Цена —
+// только серверная (S-150): tierID, не сумма.
+func (s *Service) CreateServiceCheckout(ctx context.Context, tenantID, userID, tierID string) (*PaymentIntent, error) {
+	if tenantID == "" || userID == "" {
+		return nil, fmt.Errorf("%w: tenant and user required", ErrInvalid)
+	}
+	tier, err := s.catalog.Resolve(tierID)
+	if err != nil {
+		return nil, err
+	}
+	checkoutID, checkoutURL, err := s.provider.CreateCheckout(ctx, tier.AmountMinor, tier.Currency)
+	if err != nil {
+		return nil, err
+	}
+	p := &PaymentIntent{
+		TenantID:           tenantID,
+		UserID:             userID,
+		TierID:             tier.ID,
+		AmountMinor:        tier.AmountMinor,
+		Currency:           tier.Currency,
+		Status:             StatusPending,
+		Provider:           s.provider.Name(),
+		ProviderCheckoutID: checkoutID,
+		CheckoutURL:        checkoutURL,
+		CreatedAt:          s.now().UTC(),
+		UpdatedAt:          s.now().UTC(),
+	}
+	if err := s.repo.CreateIntent(ctx, p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// ListByUser возвращает платежи пользователя (кабинет, этап 4).
+func (s *Service) ListByUser(ctx context.Context, tenantID, userID string) ([]*PaymentIntent, error) {
+	if tenantID == "" || userID == "" {
+		return nil, fmt.Errorf("%w: tenant and user required", ErrInvalid)
+	}
+	return s.repo.ListByUser(ctx, tenantID, userID)
 }
 
 // ListByProject возвращает платежи проекта (tenant-скоуп).

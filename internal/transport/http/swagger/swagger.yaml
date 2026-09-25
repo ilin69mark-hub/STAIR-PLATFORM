@@ -1388,6 +1388,40 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /payments/mine:
+    get:
+      tags: ["payments"]
+      summary: "Получить mine"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /payments/stripe/webhook:
     post:
       tags: ["payments"]
@@ -2722,6 +2756,80 @@ paths:
     post:
       tags: ["stairs"]
       summary: "Публичная заявка на расчёт"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        401:
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /public/payment-tiers:
+    get:
+      tags: ["stairs"]
+      summary: "Получить payment-tiers"
+      security:
+        - bearerAuth: []
+      responses:
+        200:
+          description: OK
+        400:
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /public/services/checkout:
+    post:
+      tags: ["stairs"]
+      summary: "Создать checkout"
+      security:
+        - bearerAuth: []
       requestBody:
         required: true
         content:

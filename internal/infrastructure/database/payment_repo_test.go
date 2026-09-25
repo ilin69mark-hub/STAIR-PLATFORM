@@ -147,6 +147,52 @@ func TestPaymentListByProject(t *testing.T) {
 	}
 }
 
+// TestPaymentServiceCheckoutAndListByUser — покупка услуги с витрины (этап 4):
+// интент без проекта, с кодом услуги; кабинет видит покупки пользователя и не
+// видит чужие (user_id фильтр, tenant-скоуп).
+func TestPaymentServiceCheckoutAndListByUser(t *testing.T) {
+	prRepo, projectRepo := newPaymentRepo(t)
+	ctx := context.Background()
+	tenant := testTenantID(t, projectRepo)
+	owner := testOwnerID(t, projectRepo, tenant)
+
+	if err := prRepo.CreateIntent(ctx, &payments.PaymentIntent{
+		TenantID: tenant, UserID: owner, TierID: "pro",
+		AmountMinor: 180_000, Currency: "RUB", Status: payments.StatusPending,
+		Provider: "mock", ProviderCheckoutID: "svc-" + itoaUD(),
+	}); err != nil {
+		t.Fatalf("CreateIntent(service): %v", err)
+	}
+
+	mine, err := prRepo.ListByUser(ctx, tenant, owner)
+	if err != nil {
+		t.Fatalf("ListByUser: %v", err)
+	}
+	if len(mine) != 1 {
+		t.Fatalf("want 1 покупка, got %d", len(mine))
+	}
+	if mine[0].TierID != "pro" || mine[0].AmountMinor != 180_000 {
+		t.Fatalf("покупка потеряла код услуги или сумму: %+v", mine[0])
+	}
+	if mine[0].ProjectID != "" {
+		t.Errorf("покупка услуги не привязана к проекту: %q", mine[0].ProjectID)
+	}
+
+	// Чужой пользователь не видит покупки.
+	other := testOwnerID(t, projectRepo, tenant)
+	otherUser := other
+	if otherUser == owner {
+		otherUser = "00000000-0000-0000-0000-000000000000"
+	}
+	none, err := prRepo.ListByUser(ctx, tenant, otherUser)
+	if err != nil {
+		t.Fatalf("ListByUser(other): %v", err)
+	}
+	if len(none) != 0 {
+		t.Fatalf("чужие покупки не должны показываться, got %d", len(none))
+	}
+}
+
 // TestPaymentUpdateStatus: переход pending → paid с paid_at; терминальный
 // статус (paid) не перезаписывается другим статусом (S-141 №4): поздний
 // checkout.session.expired (failed) не переворачивает оплаченный интент,

@@ -55,9 +55,12 @@ const (
 // CheckoutURL — URL редиректа на PSP, возвращается клиенту при создании
 // и НЕ сохраняется в БД (только факт+идентификатор сессии провайдера).
 type PaymentIntent struct {
-	ID                 string
-	TenantID           string
-	ProjectID          string
+	ID        string
+	TenantID  string
+	ProjectID string
+	// TierID — код купленной услуги из серверного каталога (S-150). Пусто у
+	// платежей за проект инженерной панели.
+	TierID             string
 	UserID             string
 	AmountMinor        int64
 	Currency           string
@@ -122,6 +125,8 @@ type Repository interface {
 	GetIntentByProviderCheckout(ctx context.Context, provider, checkoutID string) (*PaymentIntent, error)
 	// ListByProject возвращает интенты проекта в порядке создания.
 	ListByProject(ctx context.Context, tenantID, projectID string) ([]*PaymentIntent, error)
+	// ListByUser возвращает платежи пользователя, новые первыми (кабинет, этап 4).
+	ListByUser(ctx context.Context, tenantID, userID string) ([]*PaymentIntent, error)
 	// UpdateStatus обновляет статус и paid_at (nil — не менять).
 	UpdateStatus(ctx context.Context, tenantID, id string, s Status, paidAt *time.Time) error
 	// AppendEvent пишет событие в журнал payment_events.

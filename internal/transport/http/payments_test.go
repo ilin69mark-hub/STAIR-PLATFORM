@@ -48,6 +48,39 @@ func (f *fakePaymentService) CreateCheckout(ctx context.Context, tenantID, proje
 	return p, nil
 }
 
+func (f *fakePaymentService) CreateServiceCheckout(ctx context.Context, tenantID, userID, tierID string) (*payments.PaymentIntent, error) {
+	if f.checkoutErr != nil {
+		return nil, f.checkoutErr
+	}
+	tier, err := payments.DefaultCatalog().Resolve(tierID)
+	if err != nil {
+		return nil, err
+	}
+	f.lastTier = tierID
+	p := &payments.PaymentIntent{
+		ID: "pay-svc-1", TenantID: tenantID, UserID: userID, TierID: tier.ID,
+		AmountMinor: tier.AmountMinor, Currency: tier.Currency,
+		Status: payments.StatusPending, Provider: "mock", ProviderCheckoutID: "chk-svc-1",
+		CheckoutURL: "https://pay.example.com/pay/chk-svc-1",
+	}
+	f.intents = append(f.intents, p)
+	return p, nil
+}
+
+func (f *fakePaymentService) ListByUser(ctx context.Context, tenantID, userID string) ([]*payments.PaymentIntent, error) {
+	var out []*payments.PaymentIntent
+	for _, p := range f.intents {
+		if p.TenantID == tenantID && p.UserID == userID {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakePaymentService) ListTiers() []payments.Tier {
+	return payments.DefaultCatalog().List()
+}
+
 func (f *fakePaymentService) ListByProject(ctx context.Context, tenantID, projectID string) ([]*payments.PaymentIntent, error) {
 	var out []*payments.PaymentIntent
 	for _, p := range f.intents {

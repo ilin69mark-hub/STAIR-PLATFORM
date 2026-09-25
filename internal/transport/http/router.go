@@ -106,6 +106,12 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 
 	// Публичный расчёт предварительной цены для клиентского сайта (store).
 	// Без аутентификации; rate-limiter защищает от злоупотреблений.
+	// Прайс платных услуг для витрины (этап 4): суммы — только из серверного
+	// каталога тарифов (S-150), клиент на них не влияет.
+	if payments != nil {
+		mux.Handle("GET /api/v1/public/payment-tiers", handlePublicPaymentTiers(payments))
+	}
+
 	// Каталог материалов для витрины (этап 3): единственный источник истины
 	// для кодов, плотностей, диапазонов и ставок — бэкенд, не фронт.
 	mux.Handle("GET /api/v1/public/materials", limitRate(validateLimiter, trusted, handlePublicMaterials()))
@@ -230,6 +236,9 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		mux.Handle("POST /api/v1/projects/{id}/checkout", authMutating(handleCheckout(projects, payments)))
 		mux.Handle("GET /api/v1/projects/{id}/payments", authProtected(handleListPayments(projects, payments)))
 		mux.Handle("GET /api/v1/payments/{id}", authProtected(handleGetPayment(payments)))
+		// Этап 4: покупка услуги с витрины (auth, CSRF) и мои покупки.
+		mux.Handle("POST /api/v1/public/services/checkout", authMutating(handleServiceCheckout(payments)))
+		mux.Handle("GET /api/v1/payments/mine", authProtected(handleListMyPayments(payments)))
 	}
 
 	// Stripe webhook endpoint (публичный; Stripe-Signature верификация).
