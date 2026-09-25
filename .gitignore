@@ -27,9 +27,12 @@ tmp/
 node_modules/
 frontend/node_modules/
 frontend-store/node_modules/
+frontend-store-admin/node_modules/
 frontend/dist/
 frontend-store/dist/
+frontend-store-admin/dist/
 frontend/*.tsbuildinfo
+frontend-store-admin/*.tsbuildinfo
 # Local tooling
 .opencode/
 *.bck.yml

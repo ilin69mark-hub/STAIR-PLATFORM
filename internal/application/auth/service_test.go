@@ -545,6 +545,7 @@ func TestAdminPermissionsMatrix(t *testing.T) {
 	for _, perm := range []Permission{
 		PermissionUsersManage, PermissionSettingsRead, PermissionSettingsWrite,
 		PermissionDataExport, PermissionApiKeysManage, PermissionOrdersList, PermissionOrdersManage,
+		PermissionPaymentsList, PermissionPaymentsManage,
 	} {
 		if !RoleAdmin.HasPermission(perm) {
 			t.Errorf("admin must have %s", perm)

@@ -317,12 +317,14 @@ func main() {
 		paymentProvider = paymentsinfra.NewMockProvider(envString("STAIR_PAYMENT_BASE_URL", "http://localhost:8080"))
 		slog.Info("payments: using mock provider (dev only)")
 	}
+	paymentRepo := database.NewPaymentRepository(pool)
 	paymentSvc := payments.NewService(
-		database.NewPaymentRepository(pool),
+		paymentRepo,
 		paymentProvider,
 		paymentsinfra.NewVerifier(),
 		0,
 	)
+	paymentAdminSvc := payments.NewAdminService(paymentRepo, paymentProvider)
 	// Stripe webhook: подключаем application payments.Service как обработчик
 	// интентов (подпись проверяет ad-hoc Stripe-реализация). Совместимость с
 	// тестами сохранена — процессор подключается отдельным сеттером.
@@ -408,6 +410,7 @@ func main() {
 		// а прокси подменяет Host — без списка оплата с витрины даёт 403.
 		CSRFAllowedOrigins:    envStringSlice("STAIR_CSRF_ALLOWED_ORIGINS", nil),
 		Payments:              paymentSvc,
+		PaymentAdmin:          paymentAdminSvc,
 		PaymentsWebhookSecret: paymentWebhookSecret,
 		Store:                 storeSvc,
 		Analytics:             analyticsSvc,

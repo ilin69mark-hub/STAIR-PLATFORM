@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -327,5 +328,155 @@ func TestPaymentAppendEvent(t *testing.T) {
 	}
 	if e.ID == "" || e.CreatedAt.IsZero() {
 		t.Fatalf("expected assigned id/created_at: %+v", e)
+	}
+}
+
+func TestPaymentListAllIsTenantScoped(t *testing.T) {
+	payRepo, projectRepo := newPaymentRepo(t)
+	ctx := context.Background()
+	tenant := testTenantID(t, projectRepo)
+
+	var otherTenant string
+	err := projectRepo.pool.QueryRow(ctx,
+		`INSERT INTO tenants (name, slug) VALUES ($1, $2) RETURNING id`,
+		"Payments other", "payments-other-"+itoaUD()).Scan(&otherTenant)
+	if err != nil {
+		t.Fatalf("create other tenant: %v", err)
+	}
+
+	mine := &payments.PaymentIntent{
+		TenantID: tenant, AmountMinor: 100, Currency: "RUB", Status: payments.StatusPaid,
+		Provider: "mock", ProviderCheckoutID: "list-mine-" + itoaUD(),
+	}
+	other := &payments.PaymentIntent{
+		TenantID: otherTenant, AmountMinor: 200, Currency: "RUB", Status: payments.StatusPaid,
+		Provider: "mock", ProviderCheckoutID: "list-other-" + itoaUD(),
+	}
+	if err := payRepo.CreateIntent(ctx, mine); err != nil {
+		t.Fatalf("create mine: %v", err)
+	}
+	if err := payRepo.CreateIntent(ctx, other); err != nil {
+		t.Fatalf("create other: %v", err)
+	}
+
+	list, err := payRepo.ListAll(ctx, tenant)
+	if err != nil {
+		t.Fatalf("ListAll: %v", err)
+	}
+	foundMine, foundOther := false, false
+	for _, intent := range list {
+		foundMine = foundMine || intent.ID == mine.ID
+		foundOther = foundOther || intent.ID == other.ID
+	}
+	if !foundMine || foundOther {
+		t.Fatalf("tenant list leaked or missed intent: mine=%v other=%v", foundMine, foundOther)
+	}
+	empty, err := payRepo.ListAll(ctx, "")
+	if err != nil {
+		t.Fatalf("ListAll(empty tenant): %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("empty tenant must stay scoped, got %d intents", len(empty))
+	}
+}
+
+func TestPaymentMarkRefundedAtomicAndIdempotent(t *testing.T) {
+	payRepo, projectRepo := newPaymentRepo(t)
+	ctx := context.Background()
+	tenant := testTenantID(t, projectRepo)
+	intent := &payments.PaymentIntent{
+		TenantID: tenant, AmountMinor: 900, Currency: "RUB", Status: payments.StatusPaid,
+		Provider: "mock", ProviderCheckoutID: "refund-" + itoaUD(),
+	}
+	if err := payRepo.CreateIntent(ctx, intent); err != nil {
+		t.Fatalf("CreateIntent: %v", err)
+	}
+	event := &payments.PaymentEvent{
+		TenantID: tenant, IntentID: intent.ID, EventType: payments.EventTypePaymentRefunded,
+		Payload: []byte(`{"provider":"mock","idempotency_key":"refund:intent"}`),
+	}
+
+	got, err := payRepo.MarkRefunded(ctx, tenant, intent.ID, event)
+	if err != nil {
+		t.Fatalf("MarkRefunded: %v", err)
+	}
+	if got.Status != payments.StatusRefunded {
+		t.Fatalf("MarkRefunded returned status %q, want refunded", got.Status)
+	}
+	stored, err := payRepo.GetIntent(ctx, tenant, intent.ID)
+	if err != nil {
+		t.Fatalf("GetIntent: %v", err)
+	}
+	if stored.Status != payments.StatusRefunded {
+		t.Fatalf("stored status = %q, want refunded", stored.Status)
+	}
+
+	repeatEvent := &payments.PaymentEvent{
+		TenantID: tenant, IntentID: intent.ID, EventType: payments.EventTypePaymentRefunded,
+		Payload: []byte(`{"repeat":true}`),
+	}
+	got, err = payRepo.MarkRefunded(ctx, tenant, intent.ID, repeatEvent)
+	if err != nil {
+		t.Fatalf("repeat MarkRefunded: %v", err)
+	}
+	if got.Status != payments.StatusRefunded {
+		t.Fatalf("repeat returned status %q", got.Status)
+	}
+	var eventCount int
+	if err := payRepo.pool.QueryRow(ctx,
+		`SELECT count(*) FROM payment_events WHERE intent_id = $1`, intent.ID).Scan(&eventCount); err != nil {
+		t.Fatalf("count events: %v", err)
+	}
+	if eventCount != 1 {
+		t.Fatalf("refund event count = %d, want exactly 1", eventCount)
+	}
+}
+
+func TestPaymentMarkRefundedRejectsMismatchedEvent(t *testing.T) {
+	payRepo, projectRepo := newPaymentRepo(t)
+	ctx := context.Background()
+	tenant := testTenantID(t, projectRepo)
+	intent := &payments.PaymentIntent{
+		TenantID: tenant, AmountMinor: 100, Currency: "RUB", Status: payments.StatusPaid,
+		Provider: "mock", ProviderCheckoutID: "refund-event-" + itoaUD(),
+	}
+	if err := payRepo.CreateIntent(ctx, intent); err != nil {
+		t.Fatalf("CreateIntent: %v", err)
+	}
+	event := &payments.PaymentEvent{
+		TenantID: tenant, IntentID: intent.ID, EventType: payments.EventTypePaymentSucceeded,
+		Payload: []byte(`{}`),
+	}
+
+	if _, err := payRepo.MarkRefunded(ctx, tenant, intent.ID, event); err == nil {
+		t.Fatal("want mismatched event error")
+	}
+	got, err := payRepo.GetIntent(ctx, tenant, intent.ID)
+	if err != nil {
+		t.Fatalf("GetIntent: %v", err)
+	}
+	if got.Status != payments.StatusPaid {
+		t.Fatalf("status = %q, want paid", got.Status)
+	}
+}
+
+func TestPaymentMarkRefundedRejectsInvalidStatus(t *testing.T) {
+	payRepo, projectRepo := newPaymentRepo(t)
+	ctx := context.Background()
+	tenant := testTenantID(t, projectRepo)
+	intent := &payments.PaymentIntent{
+		TenantID: tenant, AmountMinor: 100, Currency: "RUB", Status: payments.StatusPending,
+		Provider: "mock", ProviderCheckoutID: "refund-pending-" + itoaUD(),
+	}
+	if err := payRepo.CreateIntent(ctx, intent); err != nil {
+		t.Fatalf("CreateIntent: %v", err)
+	}
+	event := &payments.PaymentEvent{
+		TenantID: tenant, IntentID: intent.ID, EventType: payments.EventTypePaymentRefunded,
+		Payload: []byte(`{}`),
+	}
+
+	if _, err := payRepo.MarkRefunded(ctx, tenant, intent.ID, event); !errors.Is(err, payments.ErrInvalidStatus) {
+		t.Fatalf("error = %v, want ErrInvalidStatus", err)
 	}
 }

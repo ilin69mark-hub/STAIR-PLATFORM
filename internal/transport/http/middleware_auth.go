@@ -89,6 +89,9 @@ type Config struct {
 	// Payments — сервис платежей (EDR-0027 §3.3); nil — маршруты
 	// payments/checkout/webhook не регистрируются.
 	Payments PaymentService
+	// PaymentAdmin — административные операции с платежами store; nil —
+	// маршруты admin/payments не регистрируются.
+	PaymentAdmin PaymentAdminService
 	// PaymentsWebhookSecret — секрет верификации входящего webhook PSP
 	// (STAIR_PAYMENT_WEBHOOK_SECRET); пусто — webhook отклоняется (401).
 	PaymentsWebhookSecret string

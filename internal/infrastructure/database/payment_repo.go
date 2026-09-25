@@ -26,6 +26,7 @@ func NewPaymentRepository(pool *pgxpool.Pool) *PaymentRepository {
 }
 
 var _ payments.Repository = (*PaymentRepository)(nil)
+var _ payments.AdminRepository = (*PaymentRepository)(nil)
 
 const intentCols = `id, tenant_id, project_id, user_id, amount_minor, currency, status, provider, provider_checkout_id, tier_id, created_at, updated_at, paid_at`
 
@@ -126,6 +127,34 @@ func (r *PaymentRepository) ListByUser(ctx context.Context, tenantID, userID str
 	return out, nil
 }
 
+// ListAll возвращает все платежи tenant, новые первыми. tenantID всегда
+// participates в WHERE, поэтому пустое значение не превращается в unscoped list.
+func (r *PaymentRepository) ListAll(ctx context.Context, tenantID string) ([]*payments.PaymentIntent, error) {
+	if tenantID == "" {
+		return []*payments.PaymentIntent{}, nil
+	}
+	rows, err := r.pool.Query(ctx,
+		`SELECT `+intentCols+` FROM payment_intents
+		 WHERE tenant_id = $1
+		 ORDER BY created_at DESC`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("payments: list all intents: %w", err)
+	}
+	defer rows.Close()
+	out := make([]*payments.PaymentIntent, 0)
+	for rows.Next() {
+		p, err := scanIntent(rows)
+		if err != nil {
+			return nil, fmt.Errorf("payments: scan all intents: %w", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("payments: list all intents rows: %w", err)
+	}
+	return out, nil
+}
+
 // ListByProject возвращает интенты проекта в порядке создания.
 func (r *PaymentRepository) ListByProject(ctx context.Context, tenantID, projectID string) ([]*payments.PaymentIntent, error) {
 	rows, err := r.pool.Query(ctx,
@@ -181,6 +210,53 @@ func (r *PaymentRepository) UpdateStatus(ctx context.Context, tenantID, id strin
 		warnRejectedStatusUpdate(ctx, r.pool, tenantID, id, s)
 	}
 	return nil
+}
+
+// MarkRefunded атомарно переводит paid -> refunded и записывает одно событие
+// payment.refunded. SELECT FOR UPDATE сериализует параллельные возвраты; уже
+// возвращённый интент — успешный идемпотентный повтор без второй записи.
+func (r *PaymentRepository) MarkRefunded(ctx context.Context, tenantID, intentID string, event *payments.PaymentEvent) (*payments.PaymentIntent, error) {
+	var updated *payments.PaymentIntent
+	err := WithTx(ctx, r.pool, func(tx pgx.Tx) error {
+		intent, err := scanIntent(tx.QueryRow(ctx,
+			`SELECT `+intentCols+` FROM payment_intents
+			 WHERE tenant_id = $1 AND id = $2
+			 FOR UPDATE`, tenantID, intentID))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return payments.ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("payments: lock intent for refund: %w", err)
+		}
+		if intent.Status == payments.StatusRefunded {
+			updated = intent
+			return nil
+		}
+		if intent.Status != payments.StatusPaid {
+			return fmt.Errorf("%w: cannot refund payment in status %q", payments.ErrInvalidStatus, intent.Status)
+		}
+		if event == nil || event.TenantID != intent.TenantID || event.IntentID != intent.ID || event.EventType != payments.EventTypePaymentRefunded {
+			return errors.New("payments: refund event does not match intent")
+		}
+		if err := tx.QueryRow(ctx,
+			`UPDATE payment_intents
+			 SET status = $1, updated_at = now()
+			 WHERE tenant_id = $2 AND id = $3
+			 RETURNING updated_at`,
+			string(payments.StatusRefunded), tenantID, intentID).Scan(&intent.UpdatedAt); err != nil {
+			return fmt.Errorf("payments: mark intent refunded: %w", err)
+		}
+		if err := appendEventTx(ctx, tx, event); err != nil {
+			return err
+		}
+		intent.Status = payments.StatusRefunded
+		updated = intent
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 // ApplyVerifiedEventTx атомарно меняет статус интента и пишет событие в

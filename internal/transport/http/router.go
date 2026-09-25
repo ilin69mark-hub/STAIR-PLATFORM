@@ -79,6 +79,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	readiness := cfg.Readiness
 	storage := cfg.Storage
 	payments := cfg.Payments
+	paymentAdmin := cfg.PaymentAdmin
 	analytics := cfg.Analytics
 	jobsSvc := cfg.Jobs
 	assistantSvc := cfg.Assistant
@@ -263,6 +264,11 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		// Этап 4: покупка услуги с витрины (auth, CSRF) и мои покупки.
 		mux.Handle("POST /api/v1/public/services/checkout", authMutating(handleServiceCheckout(payments)))
 		mux.Handle("GET /api/v1/payments/mine", authProtected(handleListMyPayments(payments)))
+	}
+
+	if paymentAdmin != nil {
+		mux.Handle("GET /api/v1/admin/payments", authProtected(handleAdminListPayments(paymentAdmin)))
+		mux.Handle("POST /api/v1/admin/payments/{id}/refund", authMutating(handleAdminRefundPayment(paymentAdmin, auditsvc)))
 	}
 
 	// Stripe webhook endpoint (публичный; Stripe-Signature верификация).

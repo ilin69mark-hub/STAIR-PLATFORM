@@ -50,6 +50,10 @@ const (
 	PermissionOrdersList Permission = "orders.list"
 	// PermissionOrdersManage — смена статуса заказа (Store).
 	PermissionOrdersManage Permission = "orders.manage"
+	// PermissionPaymentsList — просмотр платежей tenant (админ).
+	PermissionPaymentsList Permission = "payments.list"
+	// PermissionPaymentsManage — ручной возврат платежа (админ).
+	PermissionPaymentsManage Permission = "payments.manage"
 	// PermissionTestimonialsList — просмотр отзывов клиентов (Store).
 	PermissionTestimonialsList Permission = "testimonials.list"
 	// PermissionTestimonialsManage — создание/редактирование отзывов (Store).
@@ -73,6 +77,7 @@ func AllPermissions() []Permission {
 		PermissionUsersManage, PermissionSettingsRead, PermissionSettingsWrite,
 		PermissionDataExport, PermissionApiKeysManage, PermissionIntegrationsManage,
 		PermissionAnalyticsRead, PermissionOrdersList, PermissionOrdersManage,
+		PermissionPaymentsList, PermissionPaymentsManage,
 		PermissionTestimonialsList, PermissionTestimonialsManage,
 		PermissionStoreSettingsRead, PermissionStoreSettingsWrite,
 		PermissionStorePricesRead, PermissionStorePricesWrite,
@@ -99,6 +104,7 @@ func (r Role) Permissions() []Permission {
 			PermissionUsersManage, PermissionSettingsRead, PermissionSettingsWrite,
 			PermissionDataExport, PermissionApiKeysManage, PermissionIntegrationsManage,
 			PermissionAnalyticsRead, PermissionOrdersList, PermissionOrdersManage,
+			PermissionPaymentsList, PermissionPaymentsManage,
 			PermissionTestimonialsList, PermissionTestimonialsManage,
 			PermissionStoreSettingsRead, PermissionStoreSettingsWrite,
 			PermissionStorePricesRead, PermissionStorePricesWrite,

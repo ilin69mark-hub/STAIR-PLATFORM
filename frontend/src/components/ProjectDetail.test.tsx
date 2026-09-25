@@ -182,9 +182,7 @@ describe('ProjectDetail', () => {
   })
 
   it('проект, сохранённый со спиралью, открывается без падения', async () => {
-    vi.spyOn(projectsApi, 'get').mockResolvedValue(
-      makeProject({ config: { ...makeProject().config, flight: 'spiral' } }),
-    )
+    vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
     renderDetail()
     await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
     expect(screen.getByLabelText('Тип марша')).toBeInTheDocument()

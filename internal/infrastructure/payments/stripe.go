@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -154,6 +155,82 @@ func (p *StripeProvider) GetSession(ctx context.Context, sessionID string) (*Che
 	}, nil
 }
 
+// Refund создаёт полный возврат для checkout session. Checkout sessions в
+// Stripe ссылаются на PaymentIntent, поэтому сначала разрешаем его ID, затем
+// вызываем Refunds API с Idempotency-Key: повтор после сетевой ошибки не списывает
+// возврат второй раз.
+func (p *StripeProvider) Refund(ctx context.Context, providerCheckoutID, idempotencyKey string) (string, error) {
+	if ctx == nil {
+		return "", errors.New("stripe: nil context")
+	}
+	if providerCheckoutID == "" {
+		return "", errors.New("stripe: checkout session id is required")
+	}
+	if idempotencyKey == "" {
+		return "", errors.New("stripe: idempotency key is required")
+	}
+
+	resp, err := p.makeRequest(ctx, http.MethodGet, "/checkout/sessions/"+providerCheckoutID, nil)
+	if err != nil {
+		return "", fmt.Errorf("stripe: resolve payment for refund: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("stripe: resolve payment for refund: %s", string(body))
+	}
+	var session struct {
+		PaymentIntent json.RawMessage `json:"payment_intent"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
+		return "", fmt.Errorf("stripe: decode checkout session for refund: %w", err)
+	}
+	paymentIntentID, err := stripeReferenceID(session.PaymentIntent)
+	if err != nil {
+		return "", fmt.Errorf("stripe: resolve payment for refund: %w", err)
+	}
+
+	refundResp, err := p.makeRequestWithHeaders(ctx, http.MethodPost, "/refunds",
+		map[string]string{"payment_intent": paymentIntentID},
+		http.Header{"Idempotency-Key": []string{idempotencyKey}})
+	if err != nil {
+		return "", fmt.Errorf("stripe: create refund: %w", err)
+	}
+	defer func() { _ = refundResp.Body.Close() }()
+	if refundResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(refundResp.Body)
+		return "", fmt.Errorf("stripe: create refund: %s", string(body))
+	}
+	var result struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(refundResp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("stripe: decode refund: %w", err)
+	}
+	if result.ID == "" {
+		return "", errors.New("stripe: refund response has no id")
+	}
+	return result.ID, nil
+}
+
+// stripeReferenceID принимает как строковый ID, так и раскрытый объект Stripe.
+func stripeReferenceID(raw json.RawMessage) (string, error) {
+	var id string
+	if err := json.Unmarshal(raw, &id); err == nil && id != "" {
+		return id, nil
+	}
+	var object struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return "", fmt.Errorf("invalid reference: %w", err)
+	}
+	if object.ID == "" {
+		return "", errors.New("empty reference")
+	}
+	return object.ID, nil
+}
+
 // VerifyWebhookSignature проверяет подпись Stripe webhook: HMAC-SHA256
 // payload вместе с timestamp (Stripe-формат Signature t=ts,v1=sig) И окно
 // времени (P1-1): подпись старше webhookTolerance отклоняется — это защита
@@ -287,6 +364,12 @@ func (p *StripeProvider) ParseWebhookEvent(payload []byte) (*StripeWebhookEvent,
 
 // makeRequest выполняет HTTP запрос к Stripe API с trace context propagation.
 func (p *StripeProvider) makeRequest(ctx context.Context, method, path string, data map[string]string) (*http.Response, error) {
+	return p.makeRequestWithHeaders(ctx, method, path, data, nil)
+}
+
+// makeRequestWithHeaders — единая точка HTTP-вызовов Stripe; headers нужны
+// для Idempotency-Key операций возврата.
+func (p *StripeProvider) makeRequestWithHeaders(ctx context.Context, method, path string, data map[string]string, headers http.Header) (*http.Response, error) {
 	var body io.Reader
 	if data != nil {
 		// Формируем form-urlencoded data с правильным URL-кодированием
@@ -305,6 +388,11 @@ func (p *StripeProvider) makeRequest(ctx context.Context, method, path string, d
 	req.Header.Set("Authorization", "Bearer "+p.secretKey)
 	if data != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	for name, values := range headers {
+		for _, value := range values {
+			req.Header.Add(name, value)
+		}
 	}
 
 	// Inject trace context into outgoing headers (W3C Trace Context)

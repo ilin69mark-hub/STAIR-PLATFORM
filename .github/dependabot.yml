@@ -1,6 +1,6 @@
 # Dependabot (P3): еженедельные PRs на обновление зависимостей.
-# Закрывает пробел «нет зависимости от багов снабжения» — Go и оба npm-фронта.
-# npm через корневые workspaces: один package-lock.json на frontend + frontend-store.
+# Закрывает пробел «нет зависимости от багов снабжения» — Go и npm-фронты.
+# npm через корневые workspaces: один package-lock.json на все фронты.
 version: 2
 updates:
   - package-ecosystem: gomod

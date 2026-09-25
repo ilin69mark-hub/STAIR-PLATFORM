@@ -69,3 +69,31 @@ func TestApplyVerifiedEventTxAtomic(t *testing.T) {
 		t.Fatal("event id must be returned from the transaction")
 	}
 }
+
+func TestMarkRefundedRollsBackWhenEventInsertFails(t *testing.T) {
+	payRepo, projRepo := newPaymentRepo(t)
+	ctx := context.Background()
+	tenant := testTenantID(t, projRepo)
+	intent := &payments.PaymentIntent{
+		TenantID: tenant, AmountMinor: 900, Currency: "RUB", Status: payments.StatusPaid,
+		Provider: "mock", ProviderCheckoutID: "refund-atomic-" + itoaUD(),
+	}
+	if err := payRepo.CreateIntent(ctx, intent); err != nil {
+		t.Fatalf("create intent: %v", err)
+	}
+	badEvent := &payments.PaymentEvent{
+		TenantID: tenant, IntentID: "00000000-0000-0000-0000-000000000000",
+		EventType: payments.EventTypePaymentRefunded, Payload: []byte(`{}`),
+	}
+
+	if _, err := payRepo.MarkRefunded(ctx, tenant, intent.ID, badEvent); err == nil {
+		t.Fatal("want event insert error")
+	}
+	got, err := payRepo.GetIntent(ctx, tenant, intent.ID)
+	if err != nil {
+		t.Fatalf("get intent: %v", err)
+	}
+	if got.Status != payments.StatusPaid {
+		t.Fatalf("status must roll back to paid, got %s", got.Status)
+	}
+}

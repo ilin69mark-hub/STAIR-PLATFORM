@@ -23,6 +23,17 @@
                      └────────────────────────┘
 ```
 
+## Frontend-сервисы
+
+| Сервис | Порт | Назначение |
+|--------|------|------------|
+| store | 3000 | Клиентская витрина |
+| admin | 5174 | Платформенная админка |
+| store-admin | 5177 | Отдельная панель настроек текущего store |
+
+Панель `store-admin` использует общую admin-сессию и backend-права `store.*`.
+
+
 ## Env-переменные, важные для развёртывания
 
 | Env | Deфолт | Описание |
@@ -118,6 +129,6 @@ docker run --rm -v "$PWD/deployments/observability/alertmanager:/etc/alertmanage
 
 ## Примеры
 
-- `deployments/docker-compose.yml` — локальный dev-стек (postgres+redis+api).
+- `deployments/docker-compose.yml` — локальный dev-стек (postgres+redis+api+store+admin+store-admin).
 - `deployments/multi-region.example.yml` — multi-instance пример с region/instance
   метками и общими postgres/redis.

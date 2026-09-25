@@ -28,3 +28,6 @@ Dev-сервер на `http://localhost:5173`, проксирует `/api` на 
 - `src/api/` — API-клиент и типы (FE-0011)
 - `src/components/` — страницы и панели результата
 - `src/lib/` — форматирование и конфигурация формы
+
+Панель настроек отдельного store находится в `frontend-store-admin` и запускается
+командой `make store-admin-fe` на `http://localhost:5177`.
