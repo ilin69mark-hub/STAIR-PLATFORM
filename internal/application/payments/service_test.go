@@ -41,6 +41,16 @@ func (f *fakeRepo) GetIntentByProviderCheckout(_ context.Context, provider, chec
 	return nil, ErrNotFound
 }
 
+func (f *fakeRepo) ListByUser(_ context.Context, tenantID, userID string) ([]*PaymentIntent, error) {
+	var out []*PaymentIntent
+	for _, p := range f.intents {
+		if p.TenantID == tenantID && p.UserID == userID {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeRepo) ListByProject(_ context.Context, tenantID, projectID string) ([]*PaymentIntent, error) {
 	var out []*PaymentIntent
 	for _, p := range f.intents {
