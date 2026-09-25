@@ -256,7 +256,7 @@ func validateOutboundURL(target string) error {
 		return fmt.Errorf("integrations: invalid webhook url %q", target)
 	}
 	host := u.Hostname()
-	isLocal := host == "127.0.0.1" || host == "localhost" || host == "::1"
+	isLocal := isLoopbackHost(host)
 	if u.Scheme != "https" && !isLocal {
 		return fmt.Errorf("integrations: https required for %q", target)
 	}

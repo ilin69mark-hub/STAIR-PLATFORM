@@ -29,7 +29,9 @@ func (r *recordingBackend) count() int {
 
 func TestBudgetAllowAndExhaust(t *testing.T) {
 	b := NewBudget(2)
-	if !b.Allow() || !b.Allow() {
+	first := b.Allow()
+	second := b.Allow()
+	if !first || !second {
 		t.Fatal("first two calls must be allowed")
 	}
 	if b.Allow() {

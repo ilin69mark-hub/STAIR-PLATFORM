@@ -10,7 +10,6 @@ import (
 	domprc "stairplatform/internal/domain/pricing"
 	enggeo "stairplatform/internal/engine/geometry"
 	engmfg "stairplatform/internal/engine/manufacturing"
-	manu "stairplatform/internal/engine/manufacturing"
 )
 
 // testDataset собирает полный конвейер геометрия→производство для теста цены.
@@ -70,7 +69,7 @@ func TestDefaultRates(t *testing.T) {
 // Без этого новый материал проходит каталог, а расчёт падает в рантайме
 // (nil/0 ₽ за кг) — цена становится фиктивной.
 func TestEveryCatalogMaterialHasPrice(t *testing.T) {
-	reg, err := manu.DefaultMaterialRegistry()
+	reg, err := engmfg.DefaultMaterialRegistry()
 	if err != nil {
 		t.Fatalf("material registry: %v", err)
 	}

@@ -48,13 +48,14 @@ func StaticAssetsHandler(root string) http.Handler {
 		if !strings.HasPrefix(upath, "/") {
 			upath = "/" + upath
 		}
-		target := filepath.Join(absRoot, upath)
-		// Двойная проверка: после Join путь обязан остаться внутри root.
-		if !strings.HasPrefix(target, absRoot+string(os.PathSeparator)) && target != absRoot {
-			writeError(w, http.StatusForbidden, "forbidden", "Доступ запрещён")
+		relativePath := strings.TrimPrefix(upath, "/")
+		root, rootErr := os.OpenRoot(absRoot)
+		if rootErr != nil {
+			writeError(w, http.StatusNotFound, "not_found", "Ассет не найден")
 			return
 		}
-		info, statErr := os.Stat(target)
+		defer func() { _ = root.Close() }()
+		info, statErr := root.Stat(relativePath)
 		if statErr != nil || info.IsDir() {
 			// Нет файла или это каталог (листинга не делаем).
 			writeError(w, http.StatusNotFound, "not_found", "Ассет не найден")
@@ -63,12 +64,12 @@ func StaticAssetsHandler(root string) http.Handler {
 		// Файл отдаём сами, а не через http.FileServer: тот смотрит на
 		// r.URL.Path, где префикс монтирования ещё присутствует, и ищет файл
 		// в <root>/static-assets/... (отсюда 404 на всех текстурах).
-		f, openErr := os.Open(target)
+		f, openErr := root.Open(relativePath)
 		if openErr != nil {
 			writeError(w, http.StatusNotFound, "not_found", "Ассет не найден")
 			return
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		http.ServeContent(w, r, info.Name(), info.ModTime(), f)
 	})
 }

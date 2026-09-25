@@ -124,7 +124,7 @@ func runSafetyCase(t *testing.T, c *safetyCase) bool {
 		})
 	}
 	// Отравленный RAG-корпус.
-	var chunks []Chunk
+	chunks := make([]Chunk, 0, len(c.RAGSeed))
 	for i, s := range c.RAGSeed {
 		chunks = append(chunks, pubChunk(i, s.Content, s.Title))
 	}

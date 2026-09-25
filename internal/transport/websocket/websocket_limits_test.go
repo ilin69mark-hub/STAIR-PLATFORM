@@ -10,18 +10,18 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// waitClientCount ждёт, пока ClientCount станет want (или таймаут) — без
+// waitClientCount ждёт, пока ClientCount станет равен 2 (или таймаут) — без
 // flaky-sleep на каждую регистрацию.
-func waitClientCount(t *testing.T, hub *Hub, want int) {
+func waitClientCount(t *testing.T, hub *Hub) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if hub.ClientCount() == want {
+		if hub.ClientCount() == 2 {
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("ClientCount = %d, want %d", hub.ClientCount(), want)
+	t.Fatalf("ClientCount = %d, want 2", hub.ClientCount())
 }
 
 // TestHubConnCapPerUser — ловушка S-141 №10: N+1 коннект того же userID
@@ -37,7 +37,7 @@ func TestHubConnCapPerUser(t *testing.T) {
 	c1, c2, c3 := mk(), mk(), mk()
 	hub.register <- c1
 	hub.register <- c2
-	waitClientCount(t, hub, 2)
+	waitClientCount(t, hub)
 
 	hub.register <- c3
 	// Отклонение сигнализируется закрытием send; ждём его (не сон).
@@ -75,11 +75,11 @@ func TestHubConnCapPerIP(t *testing.T) {
 	}
 	hub.register <- mk("u1")
 	hub.register <- mk("u2")
-	waitClientCount(t, hub, 2)
+	waitClientCount(t, hub)
 
 	c3 := mk("u3")
 	hub.register <- c3
-	waitClientCount(t, hub, 2) // не должен вырасти
+	waitClientCount(t, hub) // не должен вырасти
 	if hub.ClientCountByIP("10.9.0.7") != 2 {
 		t.Fatalf("ClientCountByIP = %d, want 2", hub.ClientCountByIP("10.9.0.7"))
 	}
@@ -114,19 +114,22 @@ func TestHandleWebSocketConnCapReject(t *testing.T) {
 
 	dial := func() *websocket.Conn {
 		t.Helper()
-		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+		conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
 		if err != nil {
 			t.Fatalf("dial: %v", err)
 		}
 		return conn
 	}
 	c1, c2 := dial(), dial()
-	defer c1.Close()
-	defer c2.Close()
-	waitClientCount(t, hub, 2)
+	defer func() { _ = c1.Close() }()
+	defer func() { _ = c2.Close() }()
+	waitClientCount(t, hub)
 
 	c3 := dial()
-	defer c3.Close()
+	defer func() { _ = c3.Close() }()
 	// Handshake проходит (upgrade уже выполнен), затем сервер закрывает:
 	// чтение должно быстро вернуть ошибку закрытия.
 	_ = c3.SetReadDeadline(time.Now().Add(5 * time.Second))

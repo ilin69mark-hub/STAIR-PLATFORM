@@ -29,7 +29,6 @@ func TestStaticAssetsHandler(t *testing.T) {
 	h := StaticAssetsHandler(dir)
 	// Роутер монтирует обработчик на /static-assets/, поэтому пути приходят
 	// с префиксом — именно этот случай ломался (404 на всех текстурах).
-	const mount = "/static-assets"
 
 	// 1) Файл отдаётся + иммутабельный кэш + CORS.
 	rec := httptest.NewRecorder()
