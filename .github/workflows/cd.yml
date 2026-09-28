@@ -74,7 +74,7 @@ jobs:
     env:
       AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (S-123b)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4 (S-123b)
 
       # Режим "staging off": без роли OIDC AWS-шаги ниже пропускаются,
       # джоба завершается success с notice, workflow не падает.
@@ -134,7 +134,7 @@ jobs:
     env:
       AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (S-123b)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4 (S-123b)
 
       - name: Guard — секреты AWS отсутствуют (джоба deploy пропущена)
         if: ${{ env.AWS_ROLE_TO_ASSUME == '' }}
