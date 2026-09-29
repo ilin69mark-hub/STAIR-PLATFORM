@@ -460,3 +460,43 @@ func TestAnalyticsRealInternalErrorStill500(t *testing.T) {
 		t.Error("500 must carry a non-empty request_id (API-002/API-004)")
 	}
 }
+
+// queryTime: «to=YYYY-MM-DD» — это конец дня, а не полночь. С полночью
+// отчёт молча терял весь текущий день: события есть, а панель показывает
+// ноль, и виновата выглядит не панель, а данные.
+func TestQueryTime_DateOnlyBounds(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/x?to=2026-09-29&from=2026-08-30", nil)
+
+	from, err := queryTime(r, "from", time.Time{})
+	if err != nil {
+		t.Fatalf("from: %v", err)
+	}
+	if !from.Equal(time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("from = %v, хочу начало 2026-08-30", from)
+	}
+
+	to, err := queryTime(r, "to", time.Time{})
+	if err != nil {
+		t.Fatalf("to: %v", err)
+	}
+	if to.Day() != 29 || to.Hour() != 23 || to.Minute() != 59 {
+		t.Errorf("to = %v, хочу конец 2026-09-29 (23:59)", to)
+	}
+	// Событие внутри сегодняшнего дня обязано попасть в окно.
+	inside := time.Date(2026, 9, 29, 11, 46, 42, 0, time.UTC)
+	if inside.Before(from) || inside.After(to) {
+		t.Errorf("событие %v вне окна %v..%v", inside, from, to)
+	}
+}
+
+// RFC3339 не трогаем: там время задано явно.
+func TestQueryTime_RFC3339Untouched(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/x?to=2026-09-29T10:00:00Z", nil)
+	to, err := queryTime(r, "to", time.Time{})
+	if err != nil {
+		t.Fatalf("to: %v", err)
+	}
+	if !to.Equal(time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC)) {
+		t.Errorf("to = %v, хочу ровно 10:00", to)
+	}
+}

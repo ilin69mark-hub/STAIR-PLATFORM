@@ -231,14 +231,28 @@ func (r *AnalyticsRepository) ProjectList(ctx context.Context, tenantID string) 
 
 // ManufacturingTotals возвращает агрегаты производства tenant за окно
 // (EDR-0030 §3.3): JSONB-суммы по расчётам с полем manufacturing.
+// ManufacturingTotals и ManufacturingSeries считают длины массивов внутри
+// result->'manufacturing'.
+//
+// Длина берётся через CASE WHEN jsonb_typeof(...) = 'array', а НЕ через
+// COALESCE(x, '[]'::jsonb). COALESCE ловит только SQL NULL, а JSON `null` —
+// это значение, и jsonb_array_length(jsonb 'null') падает с «cannot get array
+// length of a scalar». На демо-данных (миграции/seeds) четыре расчёта хранят
+// manufacturing->Parts именно как JSON null, и вся вкладка «Производство»
+// отдавала 500.
+//
+// Скалярные поля (Utilization, PartArea и т.п.) через ->> при отсутствующем
+// ключе дают SQL NULL, и COALESCE(..., 0) после приведения корректен. Проверено
+// на демо-данных: там ключа Utilization просто нет, и запрос отдаёт 0, а не
+// ошибку.
 func (r *AnalyticsRepository) ManufacturingTotals(ctx context.Context, tenantID string, from, to time.Time) (analytics.ManufacturingTotals, error) {
 	var t analytics.ManufacturingTotals
 	err := r.pool.QueryRow(ctx,
 		`SELECT COUNT(DISTINCT c.id),
-			COALESCE(SUM(jsonb_array_length(COALESCE(c.result->'manufacturing'->'Parts', '[]'::jsonb))), 0) AS parts,
-			COALESCE(SUM(jsonb_array_length(COALESCE(c.result->'manufacturing'->'BOM'->'Lines', '[]'::jsonb))), 0) AS bom,
-			COALESCE(SUM(jsonb_array_length(COALESCE(c.result->'manufacturing'->'CutList'->'Items', '[]'::jsonb))), 0) AS cut,
-			COALESCE(SUM(jsonb_array_length(COALESCE(c.result->'manufacturing'->'Nesting'->'Sheets', '[]'::jsonb))), 0) AS sheets,
+			COALESCE(SUM(jsonb_array_length(CASE WHEN jsonb_typeof(c.result->'manufacturing'->'Parts') = 'array' THEN c.result->'manufacturing'->'Parts' ELSE '[]'::jsonb END)), 0) AS parts,
+			COALESCE(SUM(jsonb_array_length(CASE WHEN jsonb_typeof(c.result->'manufacturing'->'BOM'->'Lines') = 'array' THEN c.result->'manufacturing'->'BOM'->'Lines' ELSE '[]'::jsonb END)), 0) AS bom,
+			COALESCE(SUM(jsonb_array_length(CASE WHEN jsonb_typeof(c.result->'manufacturing'->'CutList'->'Items') = 'array' THEN c.result->'manufacturing'->'CutList'->'Items' ELSE '[]'::jsonb END)), 0) AS cut,
+			COALESCE(SUM(jsonb_array_length(CASE WHEN jsonb_typeof(c.result->'manufacturing'->'Nesting'->'Sheets') = 'array' THEN c.result->'manufacturing'->'Nesting'->'Sheets' ELSE '[]'::jsonb END)), 0) AS sheets,
 			COALESCE(SUM(COALESCE((c.result->'manufacturing'->'Nesting'->>'PartArea')::float8, 0)), 0) AS part_area,
 			COALESCE(SUM(COALESCE((c.result->'manufacturing'->'Nesting'->>'SheetArea')::float8, 0)), 0) AS sheet_area,
 			COALESCE(SUM(COALESCE((c.result->'manufacturing'->'Nesting'->>'WasteArea')::float8, 0)), 0) AS waste_area,
@@ -259,7 +273,15 @@ func (r *AnalyticsRepository) ManufacturingTotals(ctx context.Context, tenantID 
 		`SELECT m->>'Material' AS material, COUNT(*) AS n
 		FROM calculations c
 		JOIN public.projects p ON p.id = c.project_id,
-		     jsonb_array_elements(c.result->'manufacturing'->'Parts') AS m
+		     -- LATERAL, а не jsonb_array_elements в FROM: на демо-данных Parts
+		     -- бывает JSON null, а разворачивание скаляра в jsonb_array_elements
+		     -- падает. CASE отдаёт пустой массив, и такие расчёты просто не
+		     -- дают строк (у них производство не считалось).
+		     LATERAL jsonb_array_elements(
+		       CASE WHEN jsonb_typeof(c.result->'manufacturing'->'Parts') = 'array'
+		            THEN c.result->'manufacturing'->'Parts'
+		            ELSE '[]'::jsonb END
+		     ) AS m
 		WHERE p.tenant_id = $1 AND c.created_at BETWEEN $2 AND $3
 		  AND c.result ? 'manufacturing'
 		GROUP BY 1`,
@@ -301,8 +323,8 @@ func (r *AnalyticsRepository) ManufacturingSeries(ctx context.Context, tenantID 
 		)
 		SELECT b.bucket,
 			COUNT(m.result) AS calcs,
-			COALESCE(SUM(jsonb_array_length(COALESCE(m.result->'manufacturing'->'Parts', '[]'::jsonb))), 0) AS parts,
-			COALESCE(SUM(jsonb_array_length(COALESCE(m.result->'manufacturing'->'Nesting'->'Sheets', '[]'::jsonb))), 0) AS sheets,
+			COALESCE(SUM(jsonb_array_length(CASE WHEN jsonb_typeof(m.result->'manufacturing'->'Parts') = 'array' THEN m.result->'manufacturing'->'Parts' ELSE '[]'::jsonb END)), 0) AS parts,
+			COALESCE(SUM(jsonb_array_length(CASE WHEN jsonb_typeof(m.result->'manufacturing'->'Nesting'->'Sheets') = 'array' THEN m.result->'manufacturing'->'Nesting'->'Sheets' ELSE '[]'::jsonb END)), 0) AS sheets,
 			COALESCE(AVG(COALESCE((m.result->'manufacturing'->'Nesting'->>'Utilization')::float8, 0)), 0) AS util
 		FROM buckets b
 		LEFT JOIN manuf m ON m.bucket = b.bucket
