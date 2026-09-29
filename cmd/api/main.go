@@ -18,6 +18,7 @@ import (
 	appast "stairplatform/internal/application/assistant"
 	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/auth"
+	"stairplatform/internal/application/funnel"
 	"stairplatform/internal/application/integrations"
 	"stairplatform/internal/application/jobs"
 	orderapp "stairplatform/internal/application/order"
@@ -148,6 +149,11 @@ func main() {
 
 	// Analytics (EDR-0028, Phase F): read-only агрегации Usage Analytics.
 	analyticsSvc := analytics.NewService(database.NewAnalyticsRepository(pool))
+
+	// Воронка витрины (миграция 000035): приём клиентских событий и отчёт.
+	// Отдельный сервис, а не часть business-аналитики: там источник — БД, тут
+	// — события, которые присылает посетитель после согласия.
+	funnelSvc := funnel.NewService(database.NewFunnelRepository(pool), nil)
 
 	// Readyness/честная очередь заданий (EDR-0020): Redis-бэкенд при наличии
 	// STAIR_REDIS_ADDR, иначе in-memory (single-instance). Queue нужна
@@ -443,10 +449,15 @@ func main() {
 		PaymentsWebhookSecret: paymentWebhookSecret,
 		Store:                 storeSvc,
 		Analytics:             analyticsSvc,
-		Jobs:                  jobsSvc,
-		Assistant:             assistantSvc,
-		Orders:                ordersSvc,
-		Testimonials:          testimonialSvc,
+		Funnel:                funnelSvc,
+		// Соль псевдонима посетителя. Пусто — посетитель не идентифицируется
+		// (visitor=''), остаются только session_id. Задаётся переменной
+		// окружения, а не константой: секрет не должен попадать в репозиторий.
+		FunnelVisitorSalt: os.Getenv("STAIR_ANALYTICS_SALT"),
+		Jobs:              jobsSvc,
+		Assistant:         assistantSvc,
+		Orders:            ordersSvc,
+		Testimonials:      testimonialSvc,
 		SecurityConfig: &transporthttp.SecurityConfig{
 			AllowedOrigins: corsOrigins,
 			EnableHSTS:     envBool("STAIR_HSTS_ENABLED", false),

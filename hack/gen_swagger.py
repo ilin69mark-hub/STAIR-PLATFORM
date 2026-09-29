@@ -265,6 +265,9 @@ RPC = [
     "POST /stairs:validate",
     "POST /public/stairs:quote",
     "POST /public/stairs:validate",
+    # Приём событий воронки витрины (миграция 000035). Без аутентификации,
+    # но ТОЛЬКО после согласия: без consent_version сервер ничего не пишет.
+    "POST /public/analytics:events",
 ]
 
 

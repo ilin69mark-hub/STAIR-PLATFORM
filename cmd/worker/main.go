@@ -131,7 +131,8 @@ func main() {
 	defer backend.Close()
 
 	reg := newRegistry(database.NewAuthRepository(pool), database.NewAuditRepository(pool),
-		database.NewIntegrationRepository(pool), newJobsService(pool), retentionDays)
+		database.NewIntegrationRepository(pool), newJobsService(pool), retentionDays,
+		database.NewFunnelRepository(pool))
 	// S-104: нормализованный продакшен-детект (production|prod, EqualFold).
 	// Неканоничное значение STAIR_ENVIRONMENT не должно отключать SSRF-политику.
 	// S1-1: SSRF-политика webhook-доставки. В проде loopback запрещён,
@@ -322,7 +323,10 @@ func scheduleCleanup(ctx context.Context, jobq queue.JobQueue, interval time.Dur
 // enqueueCleanup создаёт и ставит задания очистки (sessions, sso_states,
 // audit) — EDR-0020 §3.3.
 func enqueueCleanup(ctx context.Context, jobq queue.JobQueue) {
-	for _, typ := range []string{queue.JobCleanupSessions, queue.JobCleanupSsoStates, queue.JobCleanupAudit} {
+	for _, typ := range []string{
+		queue.JobCleanupSessions, queue.JobCleanupSsoStates, queue.JobCleanupAudit,
+		queue.JobCleanupWebEvents,
+	} {
 		job, err := queue.NewJob(typ, nil)
 		if err != nil {
 			slog.Error("worker: build cleanup job", "type", typ, "error", err)

@@ -98,6 +98,18 @@ type Config struct {
 	// Analytics — сервис аналитики (EDR-0028 §3.4, Phase F); nil —
 	// маршруты analytics не регистрируются.
 	Analytics AnalyticsService
+	// Funnel — сервис воронки витрины (миграция 000035); nil — ни приём
+	// событий, ни admin/analytics/funnel не регистрируются.
+	Funnel FunnelService
+	// FunnelRateLimit — максимум пачек событий с одного IP за окно; по
+	// умолчанию DefaultConfig. Пачка ≤ funnel.MaxBatchEvents, поэтому
+	// «одна пачка» — это и есть верхняя граница телеметрии одного визита.
+	FunnelRateLimit int
+	// FunnelRateWindow — окно rate-limit приёма событий.
+	FunnelRateWindow time.Duration
+	// FunnelVisitorSalt — соль HMAC для псевдонима посетителя
+	// (STAIR_ANALYTICS_SALT). Пусто — посетитель не идентифицируется вовсе.
+	FunnelVisitorSalt string
 	// Jobs — сервис фоновых заданий (EDR-0035, Phase B B4); nil —
 	// маршруты stairs:calculate/async и jobs/{id} не регистрируются.
 	Jobs JobsService
@@ -136,11 +148,16 @@ func DefaultConfig() Config {
 		QuoteRateWindow:    time.Minute,
 		ValidateRateLimit:  120,
 		ValidateRateWindow: time.Minute,
-		AuthRateLimit:      200,
-		AuthRateWindow:     time.Minute,
-		SsoRateLimit:       20,
-		SsoRateWindow:      time.Minute,
-		MaxBodyBytes:       1 << 20, // 1 MiB
+		// 30 пачек в минуту с одного IP: витрина шлёт пачку раз в несколько
+		// секунд активности плюс один beacon на уход, то есть честный визит
+		// укладывается в десяток. Сотня — уже злоупотребление.
+		FunnelRateLimit:  30,
+		FunnelRateWindow: time.Minute,
+		AuthRateLimit:    200,
+		AuthRateWindow:   time.Minute,
+		SsoRateLimit:     20,
+		SsoRateWindow:    time.Minute,
+		MaxBodyBytes:     1 << 20, // 1 MiB
 	}
 }
 

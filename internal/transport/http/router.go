@@ -42,6 +42,12 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	if cfg.ValidateRateWindow <= 0 {
 		cfg.ValidateRateWindow = DefaultConfig().ValidateRateWindow
 	}
+	if cfg.FunnelRateLimit <= 0 {
+		cfg.FunnelRateLimit = DefaultConfig().FunnelRateLimit
+	}
+	if cfg.FunnelRateWindow <= 0 {
+		cfg.FunnelRateWindow = DefaultConfig().FunnelRateWindow
+	}
 	if cfg.AuthRateLimit <= 0 {
 		cfg.AuthRateLimit = DefaultConfig().AuthRateLimit
 	}
@@ -63,6 +69,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	registerLimiter := newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.RegisterRateLimit, cfg.RegisterRateWindow)
 	quoteLimiter := newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.QuoteRateLimit, cfg.QuoteRateWindow)
 	validateLimiter := newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.ValidateRateLimit, cfg.ValidateRateWindow)
+	funnelLimiter := newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.FunnelRateLimit, cfg.FunnelRateWindow)
 	// Authenticated rate limiter: 200 req/min per user/API key
 	authRateLimiter := newRateLimiterStrategy(context.Background(), cfg.RedisAddr, cfg.AuthRateLimit, cfg.AuthRateWindow)
 	// SSO rate limiter: публичные begin/callback/config (S-109).
@@ -137,6 +144,16 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	// Публичная консультация (store): анонимный запрос обратной связи.
 	// Создаёт заказ-лид kind=consultation без пользователя и цены.
 	mux.Handle("POST /api/v1/public/orders", limitRate(quoteLimiter, trusted, handleCreateConsultation(ordersSvc, authSvc)))
+
+	// Приём событий воронки витрины (миграция 000035). Публичный и без
+	// аутентификации: события шлёт анонимный посетитель. Без согласия
+	// витрина ничего не отправляет, а сервер отказывает и без согласия
+	// (ErrConsentRequired). visitor считается сервером из IP и User-Agent,
+	// сами IP и UA не сохраняются.
+	if cfg.Funnel != nil {
+		mux.Handle("POST /api/v1/public/analytics:events", limitRate(funnelLimiter, trusted,
+			handleIngestAnalytics(cfg.Funnel, newVisitorHasher(cfg.FunnelVisitorSalt))))
+	}
 
 	authProtected := func(next http.Handler) http.Handler {
 		return requireAuth(authSvc, authRateLimiter, secure)(next)
@@ -281,6 +298,10 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		mux.Handle("GET /api/v1/admin/analytics/projects", authProtected(handleProjectsAnalytics(analytics)))
 		mux.Handle("GET /api/v1/admin/analytics/manufacturing", authProtected(handleManufacturingAnalytics(analytics)))
 		mux.Handle("GET /api/v1/admin/analytics/cost", authProtected(handleCostAnalytics(analytics)))
+	}
+	// Воронка витрины — отдельный сервис (не бизнес-аналитика по БД).
+	if analytics != nil && cfg.Funnel != nil {
+		mux.Handle("GET /api/v1/admin/analytics/funnel", authProtected(handleFunnelAnalytics(cfg.Funnel)))
 	}
 
 	// WebSocket endpoint (EDR-0038). /ws — store-namespace, /ws/admin —
