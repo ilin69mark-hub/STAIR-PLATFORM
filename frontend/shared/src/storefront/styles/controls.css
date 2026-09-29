@@ -383,54 +383,53 @@
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Равные строки: заголовки должны быть одного размера, а не «как текст
+     влез». grid-auto-rows: 1fr уравнивает и третий ряд, когда у L-марша
+     появляется пятая секция. */
+  grid-auto-rows: 1fr;
   gap: 6px;
 }
 
-/* Обводка ВНУТРИ, а не рамка снаружи: рамка двигала бы всю сетку панели и
-   ломала бы вертикальный ритм; inset-обводка держит ту же границу, не
-   сдвигая ни одного элемента. */
-.acc__head {
-  background: var(--sp-card);
-  border-radius: var(--sp-radius-sm, 8px);
-  box-shadow: inset 0 0 0 1px rgba(11, 110, 79, 0.09);
-  overflow: hidden;
-}
-
-.acc__head.is-open {
-  box-shadow: inset 0 0 0 1px rgba(11, 110, 79, 0.28);
-  background: rgba(11, 110, 79, 0.05);
-}
-
-/* Открытый заголовок занимает всю ширину сетки: он связан с телом под ним
-   и заодно закрывает «дыру» неполного последнего ряда. */
-.acc__head.is-open {
-  grid-column: 1 / -1;
-  order: -1;
-}
-
+/* Заголовок секции = вкладка. Четыре одинаковых прямоугольника сеткой 2×2 в
+   фиксированном порядке: основные | ограждение / цвет | помещение.
+   Раньше открытая вкладка прыгала наверх (order: -1) и растягивалась на всю
+   ширину — из-за этого «плитки» меняли размер и место при каждом щелчке, и
+   человек терял из виду раздел, который только что открывал. Порядок вкладок
+   теперь неизменен, поэтому ищут по тому же месту. */
 .acc__head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 6px;
   width: 100%;
-  /* 30px — высота чипа. Ниже 28px подпись перестаёт читаться как раздел,
-     выше 32px сетка снова начинает съедать высоту тела. */
-  min-height: 30px;
-  padding: 5px 10px;
+  /* 34px — размер активного чипа Segmented: вкладка должна читаться как
+     переключатель, а не как мелкая подпись. */
+  min-height: 34px;
+  padding: 6px 8px;
   font: inherit;
-  /* 13px + 600. Заголовок больше не заголовок статьи, а подпись чипа, но
-     он всё равно должен читаться раньше знака +/−, поэтому 600. */
-  font-size: 13px;
-  font-weight: 600;
-  text-align: left;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: center;
   color: var(--sp-text);
-  border: none;
+  background: var(--sp-card);
+  border: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius-sm, 8px);
   cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
 }
 
 .acc__head:hover {
-  box-shadow: inset 0 0 0 1px rgba(11, 110, 79, 0.22);
+  border-color: #c3d2cc;
+}
+
+/* Активная вкладка — тем же оформлением, что и выбранный чип
+   Segmented: тот же зелёный, та же заливка, тот же жирный шрифт. Иначе
+   «где я сейчас» приходится вычислять по знаку +/−. */
+.acc__head.is-open {
+  color: var(--sp-primary);
+  background: rgba(11, 110, 79, 0.07);
+  border-color: var(--sp-primary);
+  font-weight: 600;
 }
 
 .acc__head:focus-visible {
@@ -442,6 +441,7 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 100%;
   white-space: nowrap;
 }
 

@@ -73,6 +73,36 @@ describe('Constructor: рендер без падения в ErrorBoundary', () 
   // тело открытой секции ездило по высоте. Теперь заголовки — компактная
   // сетка (три ряда), а тело ОДНО под ними, поэтому прыгать нечему и
   // порядок разделов остаётся постоянным.
+  // Вкладки: четыре ОДИНАКОВЫЕ плитки в одной сетке и фиксированный порядок.
+  // Тест ловит возврат к «открытая на всю ширину и первой» (order: -1):
+  // размер плиток должен быть одинаковым, а позиции — неизменными.
+  it('заголовки — одинаковые вкладки в фиксированном порядке', () => {
+    render(<Constructor />)
+    const heads = Array.from(
+      document.querySelectorAll('.accordion__heads .acc__head'),
+    ) as HTMLElement[]
+    expect(heads.map((h) => h.textContent?.replace(/[+−]$/, '').trim())).toEqual([
+      'Основные настройки',
+      'Ограждение',
+      'Цвет и материал',
+      'Помещение',
+    ])
+
+    // Ровно одна открыта, и помечена — иначе «где я сейчас» не читается.
+    const open = heads.filter((h) => h.classList.contains('is-open'))
+    expect(open).toHaveLength(1)
+    expect(open[0].getAttribute('aria-expanded')).toBe('true')
+
+    // Переключение не двигает и не переставляет вкладки.
+    fireEvent.click(screen.getByText('Помещение'))
+    const after = Array.from(
+      document.querySelectorAll('.accordion__heads .acc__head'),
+    ) as HTMLElement[]
+    expect(after).toEqual(heads)
+    expect(after.filter((h) => h.classList.contains('is-open'))).toHaveLength(1)
+    expect(after[3]).toHaveClass('is-open')
+  })
+
   it('порядок секций не меняется при раскрытии, тело всегда одно', () => {
     render(<Constructor />)
     const titles = () =>
