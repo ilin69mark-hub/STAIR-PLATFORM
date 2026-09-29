@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -69,7 +70,7 @@ func TestIngest_WritesAcceptedEvents(t *testing.T) {
 	res, err := svc.Ingest(context.Background(), goodSession, []Event{
 		{Name: EventFunnelOpen, Path: "/#constructor"},
 		{Name: EventBlockerField, Props: map[string]any{"reason": "widthMM"}},
-	}, 1)
+	}, CurrentConsentPolicyVersion)
 	if err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
@@ -82,7 +83,7 @@ func TestIngest_WritesAcceptedEvents(t *testing.T) {
 	if repo.inserted[0].SessionID != goodSession {
 		t.Errorf("session_id не проставлен: %q", repo.inserted[0].SessionID)
 	}
-	if repo.inserted[0].ConsentVersion != 1 {
+	if repo.inserted[0].ConsentVersion != CurrentConsentPolicyVersion {
 		t.Errorf("consent_version не проставлен: %d", repo.inserted[0].ConsentVersion)
 	}
 }
@@ -90,7 +91,7 @@ func TestIngest_WritesAcceptedEvents(t *testing.T) {
 // Главная защита приватности: без актуального согласия не пишется НИЧЕГО,
 // даже если пакет валиден.
 func TestIngest_RequiresConsent(t *testing.T) {
-	for _, version := range []int{0, -1, 2, 99} {
+	for _, version := range []int{0, -1, CurrentConsentPolicyVersion + 1, 99} {
 		repo := &memRepo{}
 		svc := NewService(repo, nil)
 		_, err := svc.Ingest(context.Background(), goodSession, []Event{{Name: EventPageView}}, version)
@@ -110,7 +111,7 @@ func TestIngest_DropsUnknownNameButKeepsRest(t *testing.T) {
 		{Name: "totally.made_up"},
 		{Name: "foo.bar.baz.qux"},
 		{Name: EventPageView},
-	}, 1)
+	}, CurrentConsentPolicyVersion)
 	if err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
@@ -131,7 +132,7 @@ func TestIngest_RejectsOversizedBatch(t *testing.T) {
 	for i := range events {
 		events[i] = Event{Name: EventPageView}
 	}
-	if _, err := svc.Ingest(context.Background(), goodSession, events, 1); !errors.Is(err, ErrBatchTooLarge) {
+	if _, err := svc.Ingest(context.Background(), goodSession, events, CurrentConsentPolicyVersion); !errors.Is(err, ErrBatchTooLarge) {
 		t.Fatalf("ожидался ErrBatchTooLarge, получено %v", err)
 	}
 	if len(repo.inserted) != 0 {
@@ -143,7 +144,7 @@ func TestIngest_RejectsBadSessionID(t *testing.T) {
 	repo := &memRepo{}
 	svc := NewService(repo, nil)
 	for _, id := range []string{"", "не-uuid", "11111111-2222-3333-4444-55555555555", "ZZZZZZZZ-2222-3333-4444-555555555555"} {
-		if _, err := svc.Ingest(context.Background(), id, []Event{{Name: EventPageView}}, 1); !errors.Is(err, ErrInvalidSession) {
+		if _, err := svc.Ingest(context.Background(), id, []Event{{Name: EventPageView}}, CurrentConsentPolicyVersion); !errors.Is(err, ErrInvalidSession) {
 			t.Errorf("session_id=%q: ожидался ErrInvalidSession, получено %v", id, err)
 		}
 	}
@@ -216,7 +217,7 @@ func TestIngest_ClampsClientClock(t *testing.T) {
 		{Name: EventPageView, OccurredAt: far},
 		{Name: EventPageView, OccurredAt: past},
 		{Name: EventPageView, OccurredAt: now.Add(-time.Minute)},
-	}, 1)
+	}, CurrentConsentPolicyVersion)
 	if err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
@@ -320,7 +321,7 @@ func TestReport_ZeroSessionsNoDivByZero(t *testing.T) {
 func TestIngest_PropagatesRepositoryError(t *testing.T) {
 	repo := &memRepo{fail: errors.New("db down")}
 	svc := NewService(repo, nil)
-	if _, err := svc.Ingest(context.Background(), goodSession, []Event{{Name: EventPageView}}, 1); err == nil {
+	if _, err := svc.Ingest(context.Background(), goodSession, []Event{{Name: EventPageView}}, CurrentConsentPolicyVersion); err == nil {
 		t.Fatal("ошибка репозитория должна пробрасываться, а не теряться")
 	}
 }
@@ -510,5 +511,37 @@ func TestReport_FallsBackToSessions(t *testing.T) {
 	}
 	if rep.Steps[1].Share != 0.5 {
 		t.Errorf("доля шага %v, хочу 0.5 (50 сессий из 100)", rep.Steps[1].Share)
+	}
+}
+
+// Версия политики согласия обязана совпадать на фронте и на бэке. Расхождение
+// коварно: интерфейс работает, ошибок нет, а сервер отвергает ВСЕ события
+// (ErrConsentRequired → 202 без записи), и отчёт просто перестаёт наполняться.
+// Причина в том, что владелец поднял версию после подключения Яндекс.Метрики
+// (новый получатель данных — вопрос задаётся заново) и сделал это в двух
+// пакетах.
+func TestConsentVersionMatchesBackend(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "frontend", "shared", "src", "consent.ts"))
+	if err != nil {
+		t.Fatalf("читать consent.ts: %v", err)
+	}
+	re := regexp.MustCompile(`CONSENT_VERSION\s*=\s*(\d+)`)
+	m := re.FindStringSubmatch(string(raw))
+	if m == nil {
+		t.Fatal("в consent.ts не найдено CONSENT_VERSION")
+	}
+	front, err := strconv.Atoi(m[1])
+	if err != nil {
+		t.Fatalf("разбор версии: %v", err)
+	}
+	if front != CurrentConsentPolicyVersion {
+		t.Errorf("фронт CONSENT_VERSION = %d, бэк CurrentConsentPolicyVersion = %d. "+
+			"События будут молча выбрасываться.", front, CurrentConsentPolicyVersion)
+	}
+	if !CurrentConsentVersion(front) {
+		t.Errorf("бэк не принимает собственную версию %d", front)
+	}
+	if CurrentConsentVersion(front - 1) {
+		t.Errorf("бэк принимает устаревшую версию %d — вопрос заново не задастся", front-1)
 	}
 }

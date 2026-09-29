@@ -191,8 +191,18 @@ func truncate(s string, n int) string {
 }
 
 // CurrentConsentVersion — версия политики, под которой согласие считается
-// действующим. Временная (1×1=1), чтобы дёшево было её поднять.
-func CurrentConsentVersion(v int) bool { return v == 1 }
+// действующим. Всё, что НЕ равно текущей версии, отвергается: при появлении
+// нового получателя данных (v2 — Яндекс.Метрика) вопрос задаётся заново.
+//
+// Значение обязано совпадать с CONSENT_VERSION во
+// frontend/shared/src/consent.ts. Расхождение не даёт видимой ошибки — сервер
+// просто молча выбросит ВСЕ события визита (ErrConsentRequired → 202 без
+// записи). Синхрон проверяет тест TestConsentVersionMatchesBackend в
+// internal/application/funnel.
+func CurrentConsentVersion(v int) bool { return v == CurrentConsentPolicyVersion }
+
+// CurrentConsentPolicyVersion — актуальная версия политики согласия.
+const CurrentConsentPolicyVersion = 2
 
 // Report строит воронку за окно [from, to].
 func (s *Service) Report(ctx context.Context, from, to time.Time) (*FunnelReport, error) {

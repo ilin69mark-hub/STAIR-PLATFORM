@@ -18,8 +18,18 @@
 export const CONSENT_KEY = 'stair-platform-cookie-consent'
 
 /** Текущая версия политики. Поднимается при каждом изменении состава
- *  получателей данных или способов обработки. */
-export const CONSENT_VERSION = 1
+ *  получателей данных или способов обработки.
+ *
+ *  v2 — 2026-09-29: добавлена Яндекс.Метрика (её cookie и обработка IP).
+ *      Поднятие обязательно: согласие, данное до этого, было дано на
+ *      политику БЕЗ упоминания Метрики, и без новой версии её cookie поставили
+ *      бы тем, кто её не видел. Ровно для этого случая версия и существует.
+ *
+ *  ВАЖНО: значение обязано совпадать с funnel.CurrentConsentVersion на бэке
+ *  (миграция 000035). Расхождение не ломает интерфейс, а молча выбрасывает
+ *  ВСЕ события: сервер отвергает версию, которой нет в его каталоге. Синхрон
+ *  проверяется тестом TestConsentVersionMatchesBackend. */
+export const CONSENT_VERSION = 2
 
 export interface ConsentRecord {
   /** Версия политики, под которой дано согласие. */
@@ -48,7 +58,8 @@ export function readConsent(): ConsentRecord | null {
   try {
     const raw = localStorage.getItem(CONSENT_KEY)
     if (!raw) return null
-    // Старый формат: просто строка 'accepted' — согласие на версию 1.
+    // Старый формат: просто строка 'accepted' — согласие на версию 1, на
+    // которую тогда не было ни Метрики, ни сбора событий.
     if (raw === 'accepted') return { v: 1, at: '' }
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== 'object' || parsed === null) return null
