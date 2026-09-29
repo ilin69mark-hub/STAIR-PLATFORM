@@ -376,8 +376,6 @@ const STEP_LABELS: Record<string, string> = {
   'funnel.constructor_open': 'Дошёл до конструктора',
   'funnel.step_done': 'Получил расчёт',
   'cta.quote_clicked': 'Нажал «Рассчитать»',
-  'blocker.field_invalid': 'Затык: поля не прошли проверку',
-  'blocker.api_error': 'Затык: сервер отверг',
   'cta.order_clicked': 'Отправил заявку',
 }
 
@@ -461,6 +459,11 @@ export const FunnelAnalyticsPanel = React.memo(function FunnelAnalyticsPanel({
   }
 
   const hasData = funnel.sessions > 0
+  const people = funnel.visitors > 0 ? funnel.visitors : funnel.sessions
+  // Люди — это разные числа: визитов может быть в разы больше, чем
+  // посетителей. Показываем оба, иначе «100 визитов» читается как
+  // «100 человек».
+  const peopleWord = funnel.visitors > 0 ? 'Уникальных посетителей' : 'Визитов (без идентификации)'
 
   return (
     <section className="panel">
@@ -474,7 +477,19 @@ export const FunnelAnalyticsPanel = React.memo(function FunnelAnalyticsPanel({
         <p className="muted">За выбранное окно согласий не было — собрать нечего.</p>
       ) : (
         <>
+          {!funnel.visitor_identity_enabled && (
+            <p className="muted">
+              Уникальные посетители не считаются: на сервере не задана соль{' '}
+              <code>STAIR_ANALYTICS_SALT</code>. Пока её нет, визиты и посетители
+              совпадают. Это осознанный режим приватности: без соли пересечь
+              визиты невозможно.
+            </p>
+          )}
           <dl className="kv">
+            <div>
+              <dt>{peopleWord}</dt>
+              <dd>{people}</dd>
+            </div>
             <div>
               <dt>Визитов</dt>
               <dd>{funnel.sessions}</dd>
@@ -494,6 +509,7 @@ export const FunnelAnalyticsPanel = React.memo(function FunnelAnalyticsPanel({
             <thead>
               <tr>
                 <th>Шаг</th>
+                <th className="num">Людей</th>
                 <th className="num">Визитов</th>
                 <th className="num">Доля</th>
                 <th className="num">От предыдущего</th>
@@ -503,6 +519,7 @@ export const FunnelAnalyticsPanel = React.memo(function FunnelAnalyticsPanel({
               {funnel.steps.map((s) => (
                 <tr key={s.name}>
                   <td>{stepLabel(s.name)}</td>
+                  <td className="num">{s.visitors > 0 ? s.visitors : s.sessions}</td>
                   <td className="num">{s.sessions}</td>
                   <td className="num">{pct(s.share)}</td>
                   <td className="num row--total">
@@ -540,7 +557,8 @@ export const FunnelAnalyticsPanel = React.memo(function FunnelAnalyticsPanel({
           <p className="panel__sub">Где бросают</p>
           <p className="muted">
             Последнее действие перед уходом со страницы. Это и есть ответ на
-            вопрос, что чинить в первую очередь.
+            вопрос, что чинить в первую очередь. Доли считаются от всех
+            уходов, поэтому в столбце сумма всегда 100%.
           </p>
           {funnel.abandons.length === 0 ? (
             <p className="muted">Данных об уходах нет (нужно время на визит).</p>
@@ -550,7 +568,7 @@ export const FunnelAnalyticsPanel = React.memo(function FunnelAnalyticsPanel({
                 <tr>
                   <th>На чём бросили</th>
                   <th className="num">Визитов</th>
-                  <th className="num">Доля уходов</th>
+                  <th className="num">Доля от уходов</th>
                   <th className="num">Сколько пробыли</th>
                 </tr>
               </thead>

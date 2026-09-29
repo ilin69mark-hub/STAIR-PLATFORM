@@ -939,6 +939,8 @@ export interface CreateConsultationRequest {
 export interface FunnelStep {
   name: string
   sessions: number
+  /** Уникальные посетители, дошедшие до шага. 0, если соль не задана. */
+  visitors: number
   share: number
   step_share: number
 }
@@ -959,6 +961,10 @@ export interface FunnelAbandonPoint {
 export interface FunnelReport {
   from: string
   to: string
+  /** Уникальные посетители окна. */
+  visitors: number
+  /** Считается ли вообще идентификация (задана ли STAIR_ANALYTICS_SALT). */
+  visitor_identity_enabled: boolean
   sessions: number
   events: number
   steps: FunnelStep[]

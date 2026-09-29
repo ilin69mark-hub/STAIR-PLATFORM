@@ -163,14 +163,16 @@ const cost: CostReport = {
 const funnel: FunnelReport = {
   from: '2026-08-15',
   to: '2026-09-15',
+  visitors: 46,
+  visitor_identity_enabled: true,
   sessions: 120,
   events: 640,
   avg_seconds: 95,
   steps: [
-    { name: 'session.start', sessions: 120, share: 1, step_share: 0 },
-    { name: 'page.view', sessions: 110, share: 0.917, step_share: 0.917 },
-    { name: 'funnel.constructor_open', sessions: 70, share: 0.583, step_share: 0.636 },
-    { name: 'cta.quote_clicked', sessions: 40, share: 0.333, step_share: 0.571 },
+    { name: 'session.start', sessions: 120, visitors: 46, share: 1, step_share: 0 },
+    { name: 'page.view', sessions: 110, visitors: 44, share: 0.957, step_share: 0.957 },
+    { name: 'funnel.constructor_open', sessions: 70, visitors: 33, share: 0.717, step_share: 0.75 },
+    { name: 'cta.quote_clicked', sessions: 40, visitors: 24, share: 0.522, step_share: 0.727 },
   ],
   blockers: [
     { event: 'blocker.field_invalid', reason: 'widthMM', count: 18 },
@@ -402,6 +404,8 @@ describe('AdminPanel', () => {
     vi.spyOn(analyticsApi, 'funnel').mockResolvedValue({
       from: '2026-08-15',
       to: '2026-09-15',
+      visitors: 0,
+      visitor_identity_enabled: false,
       sessions: 0,
       events: 0,
       avg_seconds: 0,
@@ -411,6 +415,31 @@ describe('AdminPanel', () => {
     })
     render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
     expect(await screen.findByText(/согласий не было/)).toBeInTheDocument()
+  })
+
+  // Без соли на сервере посетителей посчитать нечем. Панель обязана это
+  // сказать: «уникальных посетителей: 0» читалось бы как «никто не приходил».
+  it('без соли объясняет, что посетителей посчитать нечем', async () => {
+    mockApi()
+    vi.spyOn(analyticsApi, 'funnel').mockResolvedValue({
+      ...funnel,
+      visitors: 0,
+      visitor_identity_enabled: false,
+    })
+    render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
+    expect(await screen.findByText(/STAIR_ANALYTICS_SALT/)).toBeInTheDocument()
+    expect(screen.getByText('Визитов (без идентификации)')).toBeInTheDocument()
+  })
+
+  it('показывает и людей, и визиты по отдельности', async () => {
+    mockApi()
+    render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
+    expect(await screen.findByText('Уникальных посетителей')).toBeInTheDocument()
+    // Числа различаются: 46 людей и 120 визитов. Ищем в блоке «Людей» первого
+    // шага, где людей 46, а визитов 120 — иначе «46» встречается и в шаге.
+    const firstRow = screen.getByText('Открыл сайт').closest('tr')
+    expect(firstRow?.textContent).toContain('46')
+    expect(firstRow?.textContent).toContain('120')
   })
 
   it('показывает сводку по проектам', async () => {
