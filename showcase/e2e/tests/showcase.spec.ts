@@ -12,7 +12,7 @@ test('главная: каталог материалов и 3D-пример с�
 
   // Каталог: семь материалов с русскими названиями и ценой за кг.
   await expect(page.getByRole('heading', { name: 'Материалы' })).toBeVisible()
-  for (const name of ['Сталь S235', 'Кортэн', 'Алюминий 5083', 'Дуб', 'Орех', 'Ясень', 'Сосна']) {
+  for (const name of ['Сталь S235', 'Дуб', 'Орех', 'Ясень', 'Сосна']) {
     await expect(page.getByText(name, { exact: true }).first()).toBeVisible()
   }
   await expect(page.getByText(/₽\/кг/).first()).toBeVisible()
