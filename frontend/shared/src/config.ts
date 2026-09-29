@@ -419,6 +419,18 @@ export function fieldRulesFor(key: keyof ConfigForm, cfg: ConfigForm): FieldRule
 
 export type FieldErrors = Partial<Record<keyof ConfigForm, string>>
 
+/**
+ * Ошибка обязательного, но не заполненного поля.
+ *
+ * Конструктор витрины этот текст НЕ показывает: поле только краснеет
+ * (field-invalid). Решение владельца — «и так понятно, что там надо
+ * делать»; раньше текст вылезал даже под теми полями, которых
+ * пользователь не касался, стоило сдвинуть любой соседний ползунок.
+ * Само значение текста менять нельзя: по нему фильтруют шум в админке
+ * (ProjectDetail) и проверяют e2e/юнит-тесты.
+ */
+export const REQUIRED_VALUE_ERROR = 'Укажите значение'
+
 export function validateForm(f: ConfigForm): FieldErrors {
   const errors: FieldErrors = {}
   for (const [key] of Object.entries(fieldRules) as Array<
@@ -460,7 +472,7 @@ export function validateForm(f: ConfigForm): FieldErrors {
       key === 'comfortStepMM' || key === 'roomWidthMM' || key === 'roomLengthMM'
     const raw = f[key]
     if (String(raw).trim() === '') {
-      if (!optional) errors[key] = 'Укажите значение'
+      if (!optional) errors[key] = REQUIRED_VALUE_ERROR
       continue
     }
     const v = Number(raw)

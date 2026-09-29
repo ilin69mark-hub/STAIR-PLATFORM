@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ConfigForm } from '@shared/config'
-import { defaultConfig, directionOptions, flightOptions, materialOptions, fitThicknessMM, fieldRulesFor, railingOptions, rulesFor, spiralDirectionOptions, toRequest, turnKindOptions, validateForm, type FieldErrors, type FieldRule } from '@shared/config'
+import { defaultConfig, directionOptions, flightOptions, materialOptions, fitThicknessMM, fieldRulesFor, railingOptions, rulesFor, spiralDirectionOptions, toRequest, turnKindOptions, validateForm, REQUIRED_VALUE_ERROR, type FieldErrors, type FieldRule } from '@shared/config'
 import type { QuoteResult, QuoteSuggestion, Variation } from '@shared/types'
 import {
   LiveValidator,
@@ -103,8 +103,11 @@ const labels: Record<keyof ConfigForm, string> = {
   winderCountMM: 'Поворотных ступеней (шт)',
 }
 
+// Подсказки под ползунком — только нормативы, который не видно из подписи.
+// Подсказки-инструкции убраны намеренно: «Выберите тип марша» висела под
+// переключателем, где «Прямой марш» уже выбран, и «Задайте параметры…»
+// повторяла то, что и так видно по пустым полям и кнопке «Рассчитать».
 const hints: Partial<Record<keyof ConfigForm, string>> = {
-  flight: 'Выберите тип марша',
   clearanceMM: 'Рекомендуем ≥ 2000 мм',
   railingHeightMM: 'Рекомендуем 900–1100 мм',
 }
@@ -224,9 +227,23 @@ export function Constructor() {
   // дубовой ступенью — обычная комплектация, а не исключение.
   const [finishId, setFinishId] = useState('raw')
   const [treadFinishId, setTreadFinish] = useState('oil')
+  // Отделка ПОДСТУПЕНКОВ. Материал подступенка производный — он следует за
+  // материалом ступеней, — но отделку для дерева можно выбрать свою, поэтому
+  // это отдельное состояние. Для металла оно игнорируется (см. riserFinish
+  // ниже): подступенок того же цвета, что и ступени.
+  const [riserFinishId, setRiserFinish] = useState('oil')
   // Ошибки не показываем до первого взаимодействия пользователя.
   const [errors, setErrors] = useState<FieldErrors>({})
-  const [touched, setTouched] = useState(false)
+  // Помечено КАЖДОЕ поле отдельно, а не форма целиком. Флаг на всю форму
+  // показывал ошибки чужих полей: стоило сдвинуть «Высоту», и под пустым
+  // «Ширина марша» появлялось «Укажите значение» — про поле, которого
+  // пользователь не касался. Текст обязательного поля теперь вовсе не
+  // показывается (REQUIRED_VALUE_ERROR), поле только краснеет, но остальные
+  // ошибки («Не более 3000», «Введите число») остаются привязаны к своему
+  // полю, а не ко всей форме.
+  const [touched, setTouched] = useState<Partial<Record<keyof ConfigForm, true>>>({})
+  const markTouched = (k: keyof ConfigForm) =>
+    setTouched((t) => (t[k] ? t : { ...t, [k]: true }))
   const [quote, setQuote] = useState<QuoteResult | null>(null)
   const [request, setRequest] = useState<Record<string, unknown> | null>(null)
   const [status, setStatus] = useState<string | null>(null)
@@ -359,7 +376,7 @@ export function Constructor() {
       next.stepThicknessMM = fitThicknessMM(v, next.stepThicknessMM)
     }
     setConfig(next)
-    setTouched(true)
+    markTouched(k)
     const errs = validateForm(next)
     setErrors(errs)
     if (next.roomWidthMM.trim() !== '' && next.roomLengthMM.trim() !== '') {
@@ -396,7 +413,7 @@ export function Constructor() {
   // Условие обязано быть общим и для ползунка (prop invalid), и для
   // обычного input (className) — иначе комнатные поля не краснеют.
   const isInvalid = (k: keyof ConfigForm) =>
-    !!(touched && errors[k]) ||
+    !!(touched[k] && errors[k]) ||
     liveFieldErrors[k] != null ||
     !!(roomHighlight && (k === 'roomWidthMM' || k === 'roomLengthMM') && (config[k] as string).trim() === '')
 
@@ -413,18 +430,16 @@ export function Constructor() {
     setErrors(validateForm(next))
   }
 
-  const roomError = (k: keyof ConfigForm): string | undefined => {
-    if (!roomHighlight) return undefined
-    if (k === 'roomWidthMM' && config.roomWidthMM.trim() === '') return 'Укажите ширину помещения'
-    if (k === 'roomLengthMM' && config.roomLengthMM.trim() === '') return 'Укажите длину помещения'
-    return undefined
-  }
-
   const calculate = async (cfg: ConfigForm = config) => {
     const errs = validateForm(cfg)
     setErrors(errs)
     if (Object.keys(errs).length > 0) {
       setStatus('Исправьте поля формы перед расчётом')
+      // Главный ответ на вопрос «где затык»: человек нажал «Рассчитать»,
+      // но не смог. Имена полей (не значения!) уходят в blocker.field_invalid.
+      for (const k of Object.keys(errs) as (keyof ConfigForm)[]) {
+        track(EVENTS.blockerField, { reason: String(k), where: 'calculate' })
+      }
       return
     }
     setBusy(true)
@@ -600,7 +615,7 @@ export function Constructor() {
     const next = { ...config, stepHeightMM: String(stepHeightMM) }
     setConfig(next)
     setErrors(validateForm(next))
-    setTouched(true)
+    markTouched('stepHeightMM')
     logAction({ action: 'stair.step_height_adjusted', resource_type: 'stair', detail: String(stepHeightMM) })
     void calculate(next)
   }
@@ -610,7 +625,7 @@ export function Constructor() {
     const next = { ...config, heightMM: String(heightMM) }
     setConfig(next)
     setErrors(validateForm(next))
-    setTouched(true)
+    markTouched('heightMM')
     logAction({ action: 'stair.height_adjusted', resource_type: 'stair', detail: String(heightMM) })
     void calculate(next)
   }
@@ -621,7 +636,7 @@ export function Constructor() {
     const next = { ...config, comfortStepMM: String(comfortStepMM) }
     setConfig(next)
     setErrors(validateForm(next))
-    setTouched(true)
+    markTouched('comfortStepMM')
     logAction({
       action: 'stair.comfort_step_adjusted',
       resource_type: 'stair',
@@ -636,7 +651,7 @@ export function Constructor() {
     const next = { ...config, [key]: String(mm) }
     setConfig(next)
     setErrors(validateForm(next))
-    setTouched(true)
+    markTouched(key)
     logAction({ action: 'stair.landing_adjusted', resource_type: 'stair', detail: `${key}=${mm}` })
     void calculate(next)
   }
@@ -650,7 +665,7 @@ export function Constructor() {
     }
     setConfig(next)
     setErrors(validateForm(next))
-    setTouched(true)
+    // flipDirection меняет только направление (строка/enum), числовые поля не трогает — отмечать нечего
     logAction({ action: 'stair.direction_flipped', resource_type: 'stair', detail: next.direction })
     void calculate(next)
   }
@@ -672,9 +687,6 @@ export function Constructor() {
     liveValidator.current.cancel()
     applyLive(null)
   }
-
-  const renderRoomFieldError = (k: keyof ConfigForm): React.ReactNode =>
-    roomError(k) ? <span className="error">{roomError(k)}</span> : null
 
   // Галерея: снапшоты пользователя + свежие альтернативы бэкенда без дублей
   // по содержимому (совпавшая с уже выбранным конфигом альтернатива скрыта).
@@ -815,11 +827,16 @@ export function Constructor() {
           />
         )}
         {hintOf(k) && sliderFor(k) ? null : hintOf(k) && <span className="sub">{hintOf(k)}</span>}
-        {touched && errors[k] && <span className="error">{errors[k]}</span>}
-        {touched && !errors[k] && liveFieldErrors[k] && (
+        {/* Ошибку «поле обязательно, но пустое» не показываем: поле и так
+            красное, а текст только шумел (решение владельца). Остальные
+            ошибки — «Не более 3000», «Введите число» — остаются: они
+            называют конкретное число, которое надо поменять. */}
+        {touched[k] && errors[k] && errors[k] !== REQUIRED_VALUE_ERROR && (
+          <span className="error">{errors[k]}</span>
+        )}
+        {touched[k] && !errors[k] && liveFieldErrors[k] && (
           <span className="error">{liveFieldErrors[k]}</span>
         )}
-        {renderRoomFieldError(k)}
       </div>
     )
   }
@@ -1097,11 +1114,6 @@ export function Constructor() {
         ) : (
           <div className="calc__stage-empty">
             <h2>3D-модель лестницы</h2>
-            <p>
-              {quote && quote.validation.blocking
-                ? 'Расчёт остановлен: устраните блокирующие замечания в панели справа — и модель появится здесь.'
-                : 'Задайте параметры в панели справа и нажмите «Рассчитать» — здесь появится объёмная модель лестницы.'}
-            </p>
           </div>
         )}
       </div>
@@ -1109,7 +1121,6 @@ export function Constructor() {
       <aside className="calc__rail">
       <section className="panel">
         <h2>Конструктор лестницы</h2>
-        <p className="sub">Задайте параметры — посчитаем геометрию и цену.</p>
         <form onSubmit={handleSubmit}>
           {/* Блок «Готовые решения» УДАЛЁН намеренно. Он был в конструкторе
               до редизайна, в референсе niora его нет, и после разделения

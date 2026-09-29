@@ -638,20 +638,38 @@ describe('Constructor', () => {
 
   })
 
-  it('подсвечивает пустые обязательные поля после ввода', async () => {
+  it('пустое обязательное поле краснеет, но текст «Укажите значение» не показывается', async () => {
     await renderWithAuth(<Constructor />, null)
-    // Ошибки показываются после первого изменения поля (touched-подход):
-    // сперва вводим значение ширины, затем очищаем — форма уже touched.
     const width = field('Ширина марша (мм)')
     fireEvent.change(width, { target: { value: '900' } })
     fireEvent.change(width, { target: { value: '' } })
-    // Показываются ошибки только тронутых полей: очищена ширина — красная
-    // и с текстом ровно она. Поля площадки у прямого марша скрыты и в
-    // валидации не участвуют.
-    const errors = inSection('Помещение', () => screen.queryAllByText('Укажите значение'))
-    expect(errors).toHaveLength(1)
     expect(width).toHaveClass('field-invalid')
+    expect(screen.queryByText('Укажите значение')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Ширина площадки (мм)')).not.toBeInTheDocument()
+  })
+
+  // Регрессия: touched был одним флагом на всю форму, поэтому сдвиг ЛЮБОГО
+  // ползунка показывал ошибки под всеми пустыми полями — «Укажите значение»
+  // вылезал под «Шириной марша», которую пользователь не трогал. Теперь
+  // помечается конкретное поле.
+  it('сдвиг чужого ползунка не трогает соседние пустые поля', async () => {
+    await renderWithAuth(<Constructor />, null)
+    const height = field('Высота (мм)')
+    expect(height).not.toHaveClass('field-invalid')
+    expect(field('Ширина марша (мм)')).not.toHaveClass('field-invalid')
+
+    fireEvent.change(height, { target: { value: '2500' } })
+
+    // «Ширина марша» пуста и не тронута — красной рамки и текста быть не должно.
+    expect(field('Ширина марша (мм)')).not.toHaveClass('field-invalid')
+    expect(screen.queryByText('Укажите значение')).not.toBeInTheDocument()
+
+    // А вот очистка «Ширины марша» — уже её собственная ошибка: поле краснеет.
+    const width = field('Ширина марша (мм)')
+    fireEvent.change(width, { target: { value: '900' } })
+    fireEvent.change(width, { target: { value: '' } })
+    expect(width).toHaveClass('field-invalid')
+    expect(screen.queryByText('Укажите значение')).not.toBeInTheDocument()
   })
 
   it('ошибки пропадают после заполнения обязательных полей', async () => {
@@ -692,13 +710,14 @@ describe('Constructor', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Внести данные площади' }))
     expect(screen.queryByText(/Корректный расчёт/)).not.toBeInTheDocument()
+    // Подсказки-инструкции убраны намеренно: пустые комнатные поля помечаются
+    // только красной рамкой (field-invalid), без текста «Укажите ширину…».
     expect(field('Ширина помещения (мм)')).toHaveClass('field-invalid')
     expect(field('Длина помещения (мм)')).toHaveClass('field-invalid')
-    expect(screen.getAllByText(/Укажите (ширину|длину) помещения/)).toHaveLength(2)
+    expect(screen.queryByText(/Укажите (ширину|длину) помещения/)).not.toBeInTheDocument()
     expect(spy).not.toHaveBeenCalled()
 
     fireEvent.change(field('Ширина помещения (мм)'), { target: { value: '3000' } })
-    expect(screen.queryByText('Укажите ширину помещения')).not.toBeInTheDocument()
     fireEvent.change(field('Длина помещения (мм)'), { target: { value: '4200' } })
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
