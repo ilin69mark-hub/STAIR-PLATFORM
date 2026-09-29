@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { ordersApi } from '../api/store'
 import { useAuth } from '../auth/context'
 import { apiErrorMessage } from '../auth/errors'
+import { EVENTS, track } from '@shared/analytics'
 import type { OrderDTO, QuoteResult } from '@shared/types'
 import { AuthForm } from './AuthForm'
 
@@ -41,6 +42,9 @@ export function OrderForm({ quote, config, onCreated }: Props) {
         config,
         price: quote.pricing ?? null,
       })
+      // Заявка отправлена — конец воронки. Именно это событие отделяет
+      // «посмотрел цену» от «увёз заказ».
+      track(EVENTS.ctaOrder)
       onCreated?.(created)
     } catch (err) {
       setError(apiErrorMessage(err, 'Не удалось отправить заказ'))

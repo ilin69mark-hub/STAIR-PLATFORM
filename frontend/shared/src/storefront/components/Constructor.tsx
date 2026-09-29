@@ -13,7 +13,9 @@ import {
   type LiveVariation,
 } from '@shared/liveValidate'
 import { quoteApi } from '../api/store'
-import { apiErrorMessage } from '../auth/errors'
+import { EVENTS, track } from '@shared/analytics'
+import { useConsentGranted } from '@shared/consentReact'
+import { apiErrorCode, apiErrorMessage } from '../auth/errors'
 import { elementLabel } from '@shared/validationText'
 import { QuoteResult as QuoteResultView, Stage3D } from './QuoteResult'
 import { solverOf } from './quoteView'
@@ -256,6 +258,29 @@ export function Constructor() {
   const [liveFieldErrors, setLiveFieldErrors] = useState<FieldErrors>({})
   const liveValidator = useRef(new LiveValidator())
   const clearLive = useRef(false)
+
+  // Открытие конструктора — верх воронки витрины: после лендинга и входа в
+  // кабинет это главный переход.
+  //
+  // Зависимость от согласия обязательна: баннер висит поверх конструктора, и
+  // большинство нажимает «Разрешить» уже здесь. Без неё верх воронки
+  // терялся бы ровно у этих людей (событие до согласия не отправляется), и
+  // отчёт показывал бы неверный вход. Событие при этом одно: ref не даёт
+  // продублировать его ни при смене согласия, ни в StrictMode.
+  const consentGranted = useConsentGranted()
+  const openedReported = useRef(false)
+  useEffect(() => {
+    if (!consentGranted || openedReported.current) return
+    openedReported.current = true
+    track(EVENTS.constructorOpen)
+  }, [consentGranted])
+  // Уже отмеченные «живые» затыки. Живая валидация срабатывает на каждом
+  //debounce-вводе, и без дедупликации одно и то же поле дало бы десятки
+  // одинаковых событий — отчёт превратился бы в шум, а вопрос «где затыкают»
+  // перестал бы читаться. Поэтому событие уходит один раз на пару
+  // «поле + код» до ближайшего успеха.
+  const reportedBlockers = useRef<Set<string>>(new Set())
+
   const applyLive = (v: LiveValidation | null) => {
     if (clearLive.current) {
       clearLive.current = false
@@ -265,6 +290,16 @@ export function Constructor() {
     setLiveBlocking(withIssues)
     setLiveIssues(withIssues ? v!.issues : [])
     setLiveFieldErrors(withIssues ? v!.fieldErrors : {})
+    if (!withIssues) {
+      reportedBlockers.current.clear()
+      return
+    }
+    for (const issue of v!.issues) {
+      const key = `${issue.element ?? ''}|${issue.code}`
+      if (reportedBlockers.current.has(key)) continue
+      reportedBlockers.current.add(key)
+      track(EVENTS.blockerApi, { reason: issue.code, element: issue.element ?? '' })
+    }
   }
 
   // Вариации (A/B/C) от последнего блокирующего ответа + снапшоты «моих
@@ -302,6 +337,16 @@ export function Constructor() {
   // Предупреждение при расчёте без габаритов помещения + подсветка комнатных
   // полей, если пользователь выбрал «внести данные площади».
   const [roomPrompt, setRoomPrompt] = useState(false)
+  // Вопрос «укажите размеры помещения» — самая частая точка, на которой
+  // посетитель отваливается: нажал «Рассчитать» и ушёл, не ответив. По
+  // отчёту без этого события он выглядит как «нажал и исчез», а на самом деле
+  // вопрос ему даже не успели разобрать. Событие одно за показ вопроса.
+  const roomPromptReported = useRef(false)
+  useEffect(() => {
+    if (!roomPrompt || roomPromptReported.current) return
+    roomPromptReported.current = true
+    track(EVENTS.blockerField, { reason: 'room_prompt', where: 'submit' })
+  }, [roomPrompt])
   const [roomHighlight, setRoomHighlight] = useState(false)
   const [skipRoomPrompt, setSkipRoomPrompt] = useState(false)
   const roomWidthRef = useRef<HTMLInputElement | null>(null)
@@ -451,6 +496,15 @@ export function Constructor() {
       const res = await quoteApi.calculate(body)
       setQuote(res)
       setRequest(body)
+      // Успех отмечаем ДО разбора валидации: расчёт был, а заблокирован он
+      // или нет — это разные вопросы, и их видно по разным событиям
+      // (cta.quote_clicked и blocker.* от живого ответа).
+      track(EVENTS.stepDone, { step: 'quote' })
+      if (res.validation.blocking) {
+        for (const issue of res.validation.issues ?? []) {
+          track(EVENTS.blockerApi, { reason: issue.code, element: issue.element ?? '' })
+        }
+      }
       // Полный расчёт выполнен: его validation и есть актуальная картина —
       // живой баннер и подсветка больше не нужны.
       liveValidator.current.invalidate(configKey(cfg))
@@ -466,6 +520,9 @@ export function Constructor() {
         setActiveVariationId(pushVersion(cfg))
       }
     } catch (e) {
+      // Отказ сервера — тоже «где затык»: код ошибки важнее текста, который
+      // зависит от формулировки.
+      track(EVENTS.blockerApi, { reason: apiErrorCode(e), where: 'calculate' })
       setStatus(apiErrorMessage(e, 'Не удалось выполнить расчёт'))
     } finally {
       setBusy(false)
@@ -477,6 +534,7 @@ export function Constructor() {
   // без проверки вписываемости.
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    track(EVENTS.ctaQuote)
     if (Object.keys(validateForm(config)).length > 0) {
       void calculate()
       return
