@@ -467,6 +467,62 @@
   color: var(--sp-primary);
 }
 
+/* Обёртка тела секции — неподвижный слой для указателя «снизу есть ещё».
+   Без неё стрелка жила бы внутри .acc__body, а position: absolute внутри
+   прокручиваемого контейнера уезжает вместе с содержимым. */
+.acc__body-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Мягкое затухание у нижнего края + кружок со стрелкой вниз. Виден, пока
+   низ тела не доскроллен, и пропадает, когда доскроллили (считает
+   Accordion.tsx) — знак «есть ещё», а не украшение. */
+.acc__more {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  height: 40px;
+  padding-bottom: 6px;
+  background: linear-gradient(to top, var(--sp-card) 45%, rgba(255, 255, 255, 0));
+  /* Не перехватываем клик: под стрелкой всё ещё лежат поля раздела. */
+  pointer-events: none;
+}
+
+.acc__more-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--sp-primary);
+  background: var(--sp-card);
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(11, 110, 79, 0.18), 0 1px 4px rgba(11, 110, 79, 0.2);
+  animation: acc-more-nudge 1.7s ease-in-out infinite;
+}
+
+@keyframes acc-more-nudge {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acc__more-dot {
+    animation: none;
+  }
+}
 .acc__body {
   display: flex;
   flex-direction: column;

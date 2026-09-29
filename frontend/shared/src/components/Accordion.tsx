@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from 'react'
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 
 // Аккордеон панели калькулятора.
 //
@@ -38,6 +38,17 @@ import { useId, useState, type ReactNode } from 'react'
 //     нижняя строка остаётся полупустой, и последняя вкладка растягивается
 //     на всю ширину — см. .acc__head:last-child:nth-child(odd) в controls.css.
 //
+//  6. УКАЗАТЕЛЬ «СНИЗУ ЕСТЬ ЕЩЁ». Панель не скроллится, скроллится тело
+//     открытой секции, поэтому длинный раздел («Цвет и материал») обрезан
+//     молча: низ выглядит как конец, и поля под ним не видно. У нижнего края
+//     тела стоит маленький кружок со стрелкой вниз, и он УХОДИТ, как только
+//     пользователь докрутил до низа (требование владельца) — то есть он
+//     честно отвечает «есть ещё», а не висит украшением.
+//
+//     Сам указатель лежит ВНЕ .acc__body, в .acc__body-wrap: position:
+//     absolute внутри прокручиваемого контейнера уезжает вместе с
+//     содержимым, и стрелка уехала бы с экрана на первом же прокрутке.
+//
 // Разметка повторяет референс: заголовок + знак «+»/«−». Знак — не декорация,
 // он показывает состояние при мгновенном закрытии анимации.
 
@@ -59,7 +70,31 @@ export interface AccordionProps {
 
 export function Accordion({ sections, defaultOpen, onChange }: AccordionProps) {
   const [open, setOpen] = useState<string | null>(defaultOpen ?? sections.find((s) => !s.hidden)?.id ?? null)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const [more, setMore] = useState(false)
   const baseId = useId()
+
+  // Показываем указатель «снизу есть ещё» ровно тогда, когда низ не виден.
+  // Эффект без зависимостей — намеренно: длина содержимого живёт (выбрал
+  // материал — добавились поля, сменил марш — секция стала короче), и решать
+  // это по одному id секции нельзя. setMore с тем же значением ререндер не
+  // вызывает, поэтому меряем дёшево и на каждый рендер.
+  useLayoutEffect(() => {
+    const el = bodyRef.current
+    if (!el) {
+      setMore(false)
+      return
+    }
+    // 12px допуска: остаток в 1–2px — округление, а не недоступный контент.
+    const update = () => setMore(el.scrollHeight - el.scrollTop - el.clientHeight > 12)
+    update()
+    el.addEventListener('scroll', update, { passive: true })
+    window.addEventListener('resize', update)
+    return () => {
+      el.removeEventListener('scroll', update)
+      window.removeEventListener('resize', update)
+    }
+  })
 
   // Повторное нажатие на открытую секцию закрывает её: свернуть всё —
   // разрешённое состояние. Иначе «свернуть» означало бы «свернуть нельзя».
@@ -101,13 +136,32 @@ export function Accordion({ sections, defaultOpen, onChange }: AccordionProps) {
         })}
       </div>
       {current && (
-        <div
-          className="acc__body"
-          id={`${baseId}-${current.id}`}
-          role="region"
-          aria-label={current.title}
-        >
-          {current.content}
+        <div className="acc__body-wrap">
+          <div
+            className="acc__body"
+            id={`${baseId}-${current.id}`}
+            role="region"
+            aria-label={current.title}
+            ref={bodyRef}
+          >
+            {current.content}
+          </div>
+          {more && (
+            <div className="acc__more" aria-hidden="true">
+              <span className="acc__more-dot">
+                <svg viewBox="0 0 16 16" width="11" height="11" focusable="false">
+                  <path
+                    d="M3.5 6.5 8 11l4.5-4.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
+            </div>
+          )}
         </div>
       )}
     </div>

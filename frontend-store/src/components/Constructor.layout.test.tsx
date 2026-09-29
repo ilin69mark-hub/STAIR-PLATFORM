@@ -32,6 +32,19 @@ describe('компоновка панели конструктора', () => {
     expect(block).toContain('overflow-x: hidden')
   })
 
+  // Указатель «снизу есть ещё» обязан лежать ВНЕ прокручиваемого тела:
+  // position: absolute внутри скроллера уезжает вместе с содержимым, и
+  // стрелка исчезла бы с экрана на первом же прокрутке.
+  it('указатель прокрутки живёт в обёртке, а не в прокручиваемом теле', () => {
+    const controls = css('controls.css')
+    const wrap = controls.match(/\.acc__body-wrap\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(wrap).toContain('position: relative')
+    const more = controls.match(/\.acc__more\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(more).toContain('position: absolute')
+    // Под стрелкой всё ещё лежат поля раздела — клик должен проходить.
+    expect(more).toContain('pointer-events: none')
+  })
+
   it('чипы перил ниже, чем остальные сегменты', () => {
     const controls = css('controls.css')
     const compact = controls.match(/\.segmented\[data-compact\] \.segmented__item\s*\{[^}]*\}/)?.[0] ?? ''

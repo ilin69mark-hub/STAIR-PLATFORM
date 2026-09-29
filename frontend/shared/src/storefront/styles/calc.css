@@ -177,6 +177,14 @@
   min-height: 0;
 }
 
+/* Обёртка забирает остаток высоты панели, тело внутри неё — оставшееся:
+   рост задаёт обёртка (position: relative), а правило на .acc__body ниже
+   осталось в силе для flex/min-height внутри обёртки. */
+.calc__rail .acc__body-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .calc__rail .acc__body {
   flex: 1 1 auto;
   min-height: 0;
