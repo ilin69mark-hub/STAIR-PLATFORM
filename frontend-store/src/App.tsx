@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { EVENTS, track } from '@shared/analytics'
+import { useConsentGranted } from '@shared/consentReact'
 import './App.css'
 import { useAuth } from './auth/context'
 import { Landing } from './components/Landing'
@@ -41,6 +43,15 @@ function App() {
     window.addEventListener('hashchange', sync)
     return () => window.removeEventListener('hashchange', sync)
   }, [])
+
+  // Экран витрины: лендинг, конструктор, кабинет, страницы документов.
+  // Отвечает на вопрос «куда идёт трафик» — без этого в воронке видно только
+  // «дошёл до конструктора», а откуда пришёл человек — нет.
+  const consentGranted = useConsentGranted()
+  useEffect(() => {
+    if (!consentGranted) return
+    track(EVENTS.pageView, { screen: legal ?? route })
+  }, [route, legal, consentGranted])
 
   const syncHash = (r: Route, l: LegalRoute | null) => {
     const target = l ? `#${l}` : r === 'landing' ? window.location.pathname : `#${r}`

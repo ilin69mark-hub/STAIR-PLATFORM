@@ -9,8 +9,18 @@
 // (все функции no-op, приложение работает как раньше) — S-118 отложен,
 // реальный DSN появится позже.
 //
+// ГЕЙТ СОГЛАСИЯ: даже с заданным DSN SDK не грузится без согласия
+// посетителя на обработку данных. Sentry отправляет IP, стектрейсы и
+// содержимое request.data, то есть персональные данные; грузить его «по
+// умолчанию, потому что DSN прописан» — значит собирать данные без
+// согласия. Согласие, выданное ПОСЛЕ загрузки, догружает SDK: события,
+// накопленные до него, лежат в очереди и уходят вместе с инициализацией.
+// В админке (не витрина) гейт не применяется: там решения принимают
+// сотрудники, а не анонимные посетители (см. requireConsent).
+//
 // PII-политика (как на бэке): IP и ip_address дропаются, «парольные» поля
 // форм удаляются, email заменяется на SHA-256-хеш (первые 12 hex).
+import { hasConsent, onConsentChange } from '../consent'
 import type { BrowserOptions, ErrorEvent } from '@sentry/react'
 
 // Лимит очереди ошибок до инициализации SDK (защита от неконтролируемого роста).
@@ -33,6 +43,23 @@ let sdkReady = false
 let initStarted = false
 const queue: PendingError[] = []
 
+// Требовать согласия на отправку. Витрина — да (публичный сайт, анонимный
+// посетитель), админка — нет.
+let requireConsent = true
+
+/** Включить/выключить требование согласия. Ставится один раз при старте
+ *  приложения: витрина оставляет включённым, админка выключает. */
+export function setSentryRequiresConsent(value: boolean): void {
+  requireConsent = value
+}
+
+/** Есть ли согласие, при котором можно грузить SDK. Статический импорт
+ *  consent.ts тут безопасен: модуль согласия ничего не знает про Sentry, так
+ *  что цикла нет, а consent.ts иначе оказался бы в бандле дважды. */
+function consentGranted(): boolean {
+  return requireConsent ? hasConsent() : true
+}
+
 /** Вернуть DSN из окружения или null (Sentry выключен). */
 export function getSentryDsn(): string | null {
   const raw = import.meta.env.VITE_SENTRY_DSN as unknown
@@ -49,6 +76,11 @@ export function isSentryEnabled(): boolean {
 // немедленно (первая ошибка = «раньше»), из initSentry — через idle/timeout.
 function ensureSdkLoaded(): void {
   if (initStarted || !isSentryEnabled()) return
+  if (!consentGranted()) {
+    // Подписываемся на согласие: когда его дадут, SDK догрузится.
+    watchConsent()
+    return
+  }
   initStarted = true
   const load = (): void => {
     void loadAndInit()
@@ -108,6 +140,17 @@ export function initSentry(): void {
   ensureSdkLoaded()
 }
 
+// watchConsent — одноразовая подписка: согласие может прийти уже после
+// первого кадра, и тогда SDK должен загрузиться без перезагрузки страницы.
+let consentWatched = false
+function watchConsent(): void {
+  if (consentWatched) return
+  consentWatched = true
+  onConsentChange((granted) => {
+    if (granted) ensureSdkLoaded()
+  })
+}
+
 /**
  * Захватить ошибку для Sentry. Возвращает eventId (для показа пользователю),
  * если событие уже ушло в SDK; undefined — если SDK ещё не готов (ошибка
@@ -116,6 +159,7 @@ export function initSentry(): void {
  */
 export function captureError(error: unknown, context?: Record<string, unknown>): Promise<string | undefined> {
   if (!isSentryEnabled()) return Promise.resolve(undefined)
+  if (!consentGranted()) return Promise.resolve(undefined)
   ensureSdkLoaded()
   if (sdkReady && sdk) {
     return Promise.resolve(sdk.captureException(error, context ? { extra: context } : undefined))
@@ -249,5 +293,7 @@ export function resetSentryModule(): void {
   sdk = null
   sdkReady = false
   initStarted = false
+  consentWatched = false
+  requireConsent = true
   queue.length = 0
 }

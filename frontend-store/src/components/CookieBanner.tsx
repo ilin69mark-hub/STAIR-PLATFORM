@@ -1,45 +1,58 @@
-import { useState } from 'react'
-import { COOKIE_CONSENT_KEY } from '../config'
+import { useEffect, useState } from 'react'
+import { grantConsent, hasConsent } from '@shared/consent'
 
 interface Props {
   onOpenPolicy: () => void
 }
 
-// Баннер согласия на использование cookie (EU-стиль). Решение хранится в
-// localStorage; после согласия баннер больше не показывается.
+// Баннер согласия на обработку данных. ВАЖНО: теперь он не декоративный.
+// Раньше кнопка «Принять» писала в localStorage строку 'accepted', которую
+// больше не читал никто: ни один счётчик не грузился, cookie не ставились,
+// аналитики не было. Баннер врал («анализ посещаемости») и при этом висел
+// поверх кнопки «Рассчитать».
+//
+// Теперь решение управляет сбором: без него не уходят ни события воронки, ни
+// Sentry. И решение хранится с ВЕРСИЕЙ политики — при появлении нового
+// получателя данных баннер спросит заново, а не навсегда останется скрытым
+// у тех, кто нажимал кнопку раньше.
+//
+// Баннер показывается ТОЛЬКО когда согласия нет. Отзыв согласия — на странице
+// политики cookie: держать постоянную плашку «отозвать» значило бы опять
+// закрыть собой кнопку «Рассчитать».
 export function CookieBanner({ onOpenPolicy }: Props) {
-  const [hidden, setHidden] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(COOKIE_CONSENT_KEY) === 'accepted'
-    } catch {
-      return false
-    }
-  })
+  const [accepted, setAccepted] = useState<boolean>(() => hasConsent())
 
-  if (hidden) {
-    return null
-  }
+  useEffect(() => {
+    // Согласие могли дать в другой вкладке: localStorage синхронно между
+    // вкладками не рассылает события, но «storage» приходит в эту.
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'stair-platform-cookie-consent') setAccepted(hasConsent())
+    }
+    globalThis.addEventListener?.('storage', onStorage)
+    return () => globalThis.removeEventListener?.('storage', onStorage)
+  }, [])
 
   const accept = () => {
-    try {
-      localStorage.setItem(COOKIE_CONSENT_KEY, 'accepted')
-    } catch {
-      // localStorage недоступен (приватный режим) — просто скрываем баннер.
-    }
-    setHidden(true)
+    grantConsent()
+    setAccepted(true)
   }
 
+  if (accepted) return null
+
   return (
-    <div className="cookie-banner" role="region" aria-label="Согласие на cookie">
+    <div className="cookie-banner" role="region" aria-label="Согласие на обработку данных">
       <p>
-        Мы используем cookie для корректной работы сайта и анализа посещаемости.{' '}
+        Чтобы понимать, где посетитель спотыкается и где уходит, мы собираем
+        обезличенную статистику: какие экраны открывают, какие поля оставляют
+        пустыми, где расчёт не проходит. Без cookie, без IP и без содержимого
+        полей. Пока вы не согласны — не собираем ничего.{' '}
         <a href="#cookies" onClick={(e) => { e.preventDefault(); onOpenPolicy() }}>
-          Подробнее о политике cookie
+          Подробнее о политике
         </a>
       </p>
       <div className="cookie-banner-actions">
         <button className="sp-btn sp-btn--primary" onClick={accept}>
-          Принять
+          Разрешить
         </button>
       </div>
     </div>

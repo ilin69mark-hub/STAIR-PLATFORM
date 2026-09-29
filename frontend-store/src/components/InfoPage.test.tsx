@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { CookieBanner } from './CookieBanner'
 import { InfoPage } from './InfoPage'
 import { render } from '@testing-library/react'
-import { COOKIE_CONSENT_KEY } from '../config'
+import { CONSENT_KEY, CONSENT_VERSION, grantConsent } from '@shared/consent'
 
 describe('InfoPage', () => {
   it('показывает публичную оферту', () => {
@@ -35,28 +35,68 @@ describe('CookieBanner', () => {
   it('показывается, если согласие не дано', () => {
     localStorage.clear()
     render(<CookieBanner onOpenPolicy={vi.fn()} />)
-    expect(screen.getByLabelText('Согласие на cookie')).toBeInTheDocument()
+    expect(screen.getByLabelText('Согласие на обработку данных')).toBeInTheDocument()
   })
 
-  it('скрывается после принятия', () => {
+  it('скрывается после согласия и пишет версию политики', () => {
     localStorage.clear()
     render(<CookieBanner onOpenPolicy={vi.fn()} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Принять' }))
-    expect(screen.queryByLabelText('Согласие на cookie')).not.toBeInTheDocument()
-    expect(localStorage.getItem(COOKIE_CONSENT_KEY)).toBe('accepted')
+    fireEvent.click(screen.getByRole('button', { name: 'Разрешить' }))
+    expect(screen.queryByLabelText('Согласие на обработку данных')).not.toBeInTheDocument()
+    // Именно объект с версией, а не строка 'accepted': при новом получателе
+    // данных версия поднимается, и все, кто согласился раньше, должны
+    // увидеть вопрос заново.
+    const raw = localStorage.getItem(CONSENT_KEY)
+    expect(raw).toBeTruthy()
+    expect(JSON.parse(raw as string)).toMatchObject({ v: CONSENT_VERSION })
   })
 
   it('не показывается, если согласие уже дано', () => {
-    localStorage.setItem(COOKIE_CONSENT_KEY, 'accepted')
+    grantConsent()
     render(<CookieBanner onOpenPolicy={vi.fn()} />)
-    expect(screen.queryByLabelText('Согласие на cookie')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Согласие на обработку данных')).not.toBeInTheDocument()
   })
 
-  it('открывает политику cookie по ссылке', () => {
+  // Старый баннер писал просто 'accepted'. Такой формат считается согласием
+  // на версию 1, иначе баннер начал бы появляться у всех, кто нажал кнопку
+  // до появления версий.
+  it('старое значение "accepted" считается согласием', () => {
+    localStorage.setItem(CONSENT_KEY, 'accepted')
+    render(<CookieBanner onOpenPolicy={vi.fn()} />)
+    expect(screen.queryByLabelText('Согласие на обработку данных')).not.toBeInTheDocument()
+  })
+
+  // Согласие под СТАРОЙ версией политики — вопрос заново: появился новый
+  // получатель данных, и у этого посетителя его не спрашивали.
+  it('согласие под старой версией политики не подходит', () => {
+    localStorage.setItem(CONSENT_KEY, JSON.stringify({ v: CONSENT_VERSION - 1, at: '' }))
+    render(<CookieBanner onOpenPolicy={vi.fn()} />)
+    expect(screen.getByLabelText('Согласие на обработку данных')).toBeInTheDocument()
+  })
+
+  it('открывает политику по ссылке', () => {
     localStorage.clear()
     const open = vi.fn()
     render(<CookieBanner onOpenPolicy={open} />)
-    fireEvent.click(screen.getByText(/Подробнее о политике cookie/))
+    fireEvent.click(screen.getByText(/Подробнее о политике/))
     expect(open).toHaveBeenCalled()
+  })
+})
+
+describe('политика cookie', () => {
+  it('позволяет отозвать согласие', () => {
+    localStorage.clear()
+    grantConsent()
+    render(<InfoPage kind="cookies" onBack={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Отозвать согласие' }))
+    expect(localStorage.getItem(CONSENT_KEY)).toBeNull()
+    expect(screen.getByText(/Согласия нет/)).toBeInTheDocument()
+  })
+
+  it('честно перечисляет, что собирается и что нет', () => {
+    localStorage.clear()
+    render(<InfoPage kind="cookies" onBack={vi.fn()} />)
+    expect(screen.getByText(/на каком шаге вы ушли со страницы/)).toBeInTheDocument()
+    expect(screen.getByText(/содержимое заполненных полей/)).toBeInTheDocument()
   })
 })
