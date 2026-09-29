@@ -17,6 +17,10 @@ type fakeRepo struct {
 	apiKeys   []*ApiKey
 	oauths    []*OAuthAccount
 	ssoStates []*SsoState
+	// revokedKeyUsers — учёт вызовов отзыва ключей (SEC-007, CRITICAL-05).
+	revokedKeyUsers map[string]bool
+	// disableErr — принудительный сбой атомарной блокировки (CRITICAL-05).
+	disableErr error
 }
 
 func newFakeRepo() *fakeRepo {
@@ -139,6 +143,47 @@ func (f *fakeRepo) RevokeApiKey(ctx context.Context, tenantID, keyID string) err
 		if k.ID == keyID && k.TenantID == tenantID {
 			now := time.Now().UTC()
 			k.RevokedAt = &now
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+// RevokeApiKeysByUser — отзыв всех API-ключей пользователя (SEC-007).
+func (f *fakeRepo) RevokeApiKeysByUser(_ context.Context, tenantID, userID string) error {
+	if f.revokedKeyUsers == nil {
+		f.revokedKeyUsers = map[string]bool{}
+	}
+	f.revokedKeyUsers[tenantID+"/"+userID] = true
+	return nil
+}
+
+// DisableUser — атомарная блокировка (CRITICAL-05): статус, сессии и ключи
+// одним шагом. fakeRepo моделирует транзакцию «всё или ничего»: при
+// disableErr статус НЕ меняется, сессии остаются, ключи остаются — то есть
+// ровно то промежуточное состояние, которого фикс обязан не допускать.
+func (f *fakeRepo) DisableUser(_ context.Context, tenantID, userID string) error {
+	if f.disableErr != nil {
+		return f.disableErr
+	}
+	for _, u := range f.users {
+		if u.ID == userID && u.TenantID == tenantID {
+			u.Status = StatusDisabled
+			for h, s := range f.sessions {
+				if s.UserID == userID {
+					delete(f.sessions, h)
+				}
+			}
+			for _, k := range f.apiKeys {
+				if k.CreatedBy == userID && k.TenantID == tenantID && k.RevokedAt == nil {
+					now := time.Now().UTC()
+					k.RevokedAt = &now
+				}
+			}
+			if f.revokedKeyUsers == nil {
+				f.revokedKeyUsers = map[string]bool{}
+			}
+			f.revokedKeyUsers[tenantID+"/"+userID] = true
 			return nil
 		}
 	}
@@ -622,6 +667,25 @@ func TestUpdateUserNotFoundInTenant(t *testing.T) {
 	}
 }
 
+// TestDisableUserRevokesApiKeysToo — SEC-007: блокировка учётной записи
+// обязана закрывать ОБА способа входа. Раньше отзывались только сессии,
+// поэтому `Authorization: Bearer <ключ>` заблокированного пользователя
+// продолжал работать с полным набором scopes.
+func TestDisableUserRevokesApiKeysToo(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, 0)
+	u, _, _ := svc.Register(context.Background(), "key@example.com", "A", "password123")
+
+	disabled := StatusDisabled
+	if err := svc.UpdateUser(context.Background(), u.TenantID, "admin", u.ID, nil, &disabled); err != nil {
+		t.Fatalf("UpdateUser: %v", err)
+	}
+	if !repo.revokedKeyUsers[u.TenantID+"/"+u.ID] {
+		t.Fatal("SEC-007: API-ключи пользователя не отозваны при блокировке — " +
+			"Bearer-ключ остался рабочим")
+	}
+}
+
 func TestDisableUserRevokesSessions(t *testing.T) {
 	repo := newFakeRepo()
 	svc := NewService(repo, 0)
@@ -759,6 +823,11 @@ func TestCreateApiKeyReturnsTokenOnce(t *testing.T) {
 func TestAuthenticateApiKey(t *testing.T) {
 	repo := newFakeRepo()
 	svc := NewService(repo, 0)
+	// CRITICAL-05: ключ аутентифицируется только при наличии АКТИВНОГО
+	// владельца, поэтому создатель обязан существовать в репозитории.
+	owner := &User{ID: "u-1", TenantID: "t-1", Email: "ci@example.com", Role: RoleUser, Status: StatusActive}
+	repo.byID[owner.ID] = owner
+	repo.users[owner.TenantID+"/"+owner.ID] = owner
 	_, token, _ := svc.CreateApiKey(context.Background(), "t-1", "u-1", "CI", []Permission{PermissionUsersList})
 
 	key, err := svc.AuthenticateApiKey(context.Background(), token)

@@ -139,6 +139,18 @@ func (s *Service) Get(ctx context.Context, tenantID, id string) (*PaymentIntent,
 	return s.repo.GetIntent(ctx, tenantID, id)
 }
 
+// GetByUser возвращает интент в скоупе tenant'а И плательщика.
+//
+// SEC-004: HTTP-маршрут GET /api/v1/payments/{id} обязан вызывать именно его.
+// Раньше там был tenant-only Get, а регистрация всегда выдаёт единственный
+// дефолтный tenant — значит любой пользователь читал чужие платежи.
+func (s *Service) GetByUser(ctx context.Context, tenantID, userID, id string) (*PaymentIntent, error) {
+	if userID == "" {
+		return nil, ErrNotFound
+	}
+	return s.repo.GetIntentByUser(ctx, tenantID, userID, id)
+}
+
 // GetIntentByProviderCheckout возвращает интент по (provider, checkout_id).
 // Публичный доступ к чтению нужен для сверки состояния интента с событием
 // при дубликате webhook (S-141 №3, crash-window reconcile): StripeWebhookService
@@ -227,6 +239,12 @@ func (s *Service) applyVerifiedEvent(ctx context.Context, provider, checkoutID, 
 	// DB-002 (forensic 2026-09-24): статус + журнал события — в одной
 	// транзакции, если репозиторий её умеет (инфраструктура). Иначе —
 	// прежняя последовательность (совместимость с прочими реализациями).
+	//
+	// CRITICAL-04 (2026-09-27): ошибка ApplyVerifiedEventTx пробрасывается
+	// ДО присваивания intent.Status. Отклонённый переход (терминальный
+	// статус) обязан оставить интент в прежнем статусе и не вернуть
+	// событие, которого не было: раньше здесь стоял `err == nil` вопреки
+	// отклонению в БД, и вызывающий получал успех с выдуманным статусом.
 	if applier, ok := s.repo.(EventApplier); ok {
 		if err := applier.ApplyVerifiedEventTx(ctx, intent.TenantID, intent.ID, newStatus, paidAt, event); err != nil {
 			return nil, err

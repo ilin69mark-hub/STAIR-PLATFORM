@@ -125,7 +125,8 @@ func TestMaterialPricesMergeDefaults(t *testing.T) {
 	if !ok || oak.PricePerKgRub != 4500 || !oak.Overridden {
 		t.Fatalf("цена магазина для WOOD-OAK не применена: %+v", byCode)
 	}
-	if len(byCode) < 7 {
+	// Каталог MFG-0005: сталь + 4 породы дерева.
+	if len(byCode) < 5 {
 		t.Fatalf("встроенные материалы потеряны: %d", len(byCode))
 	}
 	for code, p := range byCode {

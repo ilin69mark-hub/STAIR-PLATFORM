@@ -58,8 +58,20 @@ func ForRoomFit(ctx context.Context, cfg *engineering.StairConfiguration, set *c
 
 // forRoomFitTol собирает вариации A/B/C с заданным допуском вписываемости tol.
 func forRoomFitTol(ctx context.Context, cfg *engineering.StairConfiguration, set *constraint.ConstraintSet, rw, rl, tol float64) []validation.Variation {
-	comfort := cfg.Length.Millimeters()
+	// Шаг комфорта берётся ИЗ САМОЙ КОНФИГУРАЦИИ по определению EDR-0001
+	// §4.3: b = S − 2h, то есть S = b + 2h.
+	//
+	// Раньше здесь стояло `comfort := cfg.Length.Millimeters()` — то есть
+	// ДЛИНА МАРША (например 4050 мм) читалась как шаг комфорта. Он всегда
+	// лежит вне нормативных [600, 640], поэтому условие ниже безусловно
+	// подставляло 630 мм: пользовательский шаг комфорта (600 или 640) до
+	// вариаций не доходил никогда, и вариант A «чуть круче» считался от
+	// дефолта, а не от того, что пользователь реально выбрал.
+	comfort := cfg.TreadDepth.Millimeters() + 2*cfg.StepHeight.Millimeters()
 	if comfort < solver.ComfortStepMin || comfort > solver.ComfortStepMax {
+		// Конфигурация могла прийти извне (импорт, ручной расчёт) с
+		// нестандартной проступью/высотой — тогда шаг комфорта
+		// восстанавливается дефолтом.
 		comfort = solver.DefaultComfortStep
 	}
 	height := cfg.Height
@@ -712,8 +724,14 @@ func formFromConfig(cfg *engineering.StairConfiguration) map[string]string {
 		ld = clamp(ld, minLanding, 5000)
 	}
 	m := map[string]string{
-		"flight":              string(cfg.Flight),
-		"heightMm":            ff(cfg.Height.Millimeters()),
+		"flight": string(cfg.Flight),
+		// DOM-002 (2026-09-26): имена ключей ДОЛЖНЫ совпадать с полями
+		// ConfigForm фронтенда. Раньше здесь было heightMm / clearanceMm /
+		// railingMm / stringerThicknessMm / stepThicknessMm / winderCount —
+		// таких полей в форме нет, поэтому высота, просвет, высота перил,
+		// толщины и число поворотных ступеней из вариации не применялись
+		// НИ В ОДНОЙ форме (в админке они попадали как посторонние ключи).
+		"heightMM":            ff(cfg.Height.Millimeters()),
 		"stepHeightMM":        ff(stepH),
 		"comfortStepMM":       ff(comfort),
 		"widthMM":             ff(cfg.Width.Millimeters()),
@@ -722,12 +740,12 @@ func formFromConfig(cfg *engineering.StairConfiguration) map[string]string {
 		"roomWidthMM":         ff(cfg.RoomWidth.Millimeters()),
 		"roomLengthMM":        ff(cfg.RoomLength.Millimeters()),
 		"lowerStepCountMM":    strconv.Itoa(cfg.LowerStepCount),
-		"clearanceMm":         ff(cfg.Clearance.Millimeters()),
-		"railingMm":           ff(cfg.RailingHeight.Millimeters()),
-		"stringerThicknessMm": ff(cfg.StringerThickness.Millimeters()),
-		"stepThicknessMm":     ff(cfg.StepThickness.Millimeters()),
+		"clearanceMM":         ff(cfg.Clearance.Millimeters()),
+		"railingHeightMM":     ff(cfg.RailingHeight.Millimeters()),
+		"stringerThicknessMM": ff(cfg.StringerThickness.Millimeters()),
+		"stepThicknessMM":     ff(cfg.StepThickness.Millimeters()),
 		"turnKind":            string(cfg.TurnKind),
-		"winderCount":         strconv.Itoa(cfg.WinderCount),
+		"winderCountMM":       strconv.Itoa(cfg.WinderCount),
 		"outerRadiusMM":       ff(cfg.OuterRadius.Millimeters()),
 		"direction":           string(cfg.Direction),
 		"railingLower":        string(cfg.RailingLower),

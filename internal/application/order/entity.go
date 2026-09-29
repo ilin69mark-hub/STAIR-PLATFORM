@@ -45,6 +45,30 @@ func (k Kind) IsValid() bool {
 // AllStatuses — допустимые статусы для валидации переходов.
 var AllStatuses = []Status{StatusNew, StatusPriced, StatusConfirmed, StatusInProgress, StatusCompleted, StatusCancelled}
 
+// TerminalStatuses — статусы, из которых заказ не возвращается в работу.
+//
+// DB-8 (forensic 2026-09-27): оба терминальны, и раньше это нигде не было
+// отражено. `OrderRepository.UpdateStatus` шёл без гарда, поэтому
+// `completed → new` проходил: отменённый или выполненный заказ возвращался
+// в «новый», агрегаты по воронке считали его активным, а повторный триггер
+// на `completed` переоткрывал заказ. Платёжный аналог (payment_intents)
+// такой гард имел — расхождение в одной кодовой базе и стало источником
+// регрессии.
+//
+// Повтор того же терминального статуса («статус в статус») разрешён:
+// это идемпотентная повторная доставка, а не переход.
+var TerminalStatuses = []Status{StatusCompleted, StatusCancelled}
+
+// IsTerminal — терминальный ли статус.
+func (s Status) IsTerminal() bool {
+	for _, t := range TerminalStatuses {
+		if s == t {
+			return true
+		}
+	}
+	return false
+}
+
 // IsValid возвращает true, если статус допустим.
 func (s Status) IsValid() bool {
 	for _, st := range AllStatuses {
@@ -88,6 +112,11 @@ var (
 	ErrInvalid = errors.New("order: invalid input")
 	// ErrForbidden — недостаточно прав (чужой заказ клиенту).
 	ErrForbidden = errors.New("order: forbidden")
+	// ErrTerminalStatus — попытка вывести заказ из терминального статуса
+	// (DB-8, 2026-09-27). Отдельная ошибка, а не ErrNotFound: заказ существует
+	// и найден, но переход запрещён — вызывающий должен сказать «статус уже
+	// терминальный», а не «заказа нет».
+	ErrTerminalStatus = errors.New("order: terminal status")
 )
 
 // Repository — порт доступа к данным заказов.

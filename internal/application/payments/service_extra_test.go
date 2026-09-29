@@ -262,6 +262,18 @@ func (f *guardRepo) GetIntent(_ context.Context, tenantID, id string) (*PaymentI
 	return nil, ErrNotFound
 }
 
+// GetIntentByUser — user-скоупная выборка (SEC-004).
+func (f *guardRepo) GetIntentByUser(_ context.Context, tenantID, userID, id string) (*PaymentIntent, error) {
+	p, err := f.GetIntent(context.Background(), tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if p.UserID != "" && p.UserID != userID {
+		return nil, ErrNotFound
+	}
+	return p, nil
+}
+
 func (f *guardRepo) GetIntentByProviderCheckout(_ context.Context, provider, checkoutID string) (*PaymentIntent, error) {
 	for _, p := range f.intents {
 		if p.Provider == provider && p.ProviderCheckoutID == checkoutID {

@@ -15,7 +15,7 @@ import (
 // internal/infrastructure/storage.ObjectStore).
 type ObjectStore interface {
 	Put(ctx context.Context, key string, data []byte, contentType string) error
-	Get(ctx context.Context, key string) ([]byte, error)
+	Get(ctx context.Context, key string) ([]byte, string, error)
 	Delete(ctx context.Context, key string) error
 }
 
@@ -65,15 +65,28 @@ func (s *Service) SaveExport(ctx context.Context, tenantID, category, filename s
 
 // Load возвращает данные и content-type по ключу. Ключ должен принадлежать
 // tenantID (префикс), иначе — ошибка скоупа.
+//
+// DOM-006 (2026-09-26):
+//   - ошибки хранилища (S3 500/403, таймаут, отказ прав ФС) больше НЕ
+//     маскируются под «объект не найдено»: раньше транспорт на ЛЮБУЮ ошибку
+//     отдавал 404, и инцидент хранилища был неотличим от отсутствия объекта
+//     (и нигде не логировался). Теперь ErrNotFound пробрасывается как есть,
+//     прочие ошибки оборачиваются и дают 500 через writeServiceError;
+//   - content-type больше не выбрасывается: ObjectStore.Get возвращает его, и
+//     handleGetObject отдаёт правильный MIME вместо application/octet-stream
+//     (ExportRef.ContentType в DTO обещал больше, чем отдавал GET).
 func (s *Service) Load(ctx context.Context, tenantID, key string) ([]byte, string, error) {
 	if !strings.HasPrefix(key, tenantID+"/") {
 		return nil, "", fmt.Errorf("storage: object outside tenant scope")
 	}
-	data, err := s.store.Get(ctx, key)
+	data, contentType, err := s.store.Get(ctx, key)
 	if err != nil {
 		return nil, "", err
 	}
-	return data, "", nil
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	return data, contentType, nil
 }
 
 // Delete удаляет объект tenant'а по ключу (скоуп как у Load).

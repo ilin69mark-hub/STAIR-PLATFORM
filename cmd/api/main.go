@@ -32,6 +32,7 @@ import (
 	"stairplatform/internal/application/stair"
 	appstorage "stairplatform/internal/application/storage"
 	"stairplatform/internal/infrastructure/database"
+	"stairplatform/internal/infrastructure/database/migguard"
 	"stairplatform/internal/infrastructure/events"
 	"stairplatform/internal/infrastructure/health"
 	"stairplatform/internal/infrastructure/oidc"
@@ -123,10 +124,23 @@ func main() {
 	}()
 
 	// Применяем миграции при старте (идемпотентно).
+	//
+	// DB-001 (forensic 2026-09-27): отказ здесь не означает «сбой БД» —
+	// часто это dirty-состояние, в которое схема попала из-за ПРОШЛОЙ
+	// неудачной миграции, и которое оператор обязан снять явно. Раньше
+	// выводилось общее «database migrate failed», и единственным известным
+	// способом выйти было писать SQL руками (флага -force в CLI не было).
+	// Теперь сообщение называет конкретные команды.
 	migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer migrateCancel()
 	if err := database.Migrate(migrateCtx, pool, "migrations", "up"); err != nil {
-		slog.Error("database migrate failed", "error", err)
+		if errors.Is(err, migguard.ErrDirtyState) {
+			slog.Error("database migration blocked: dirty schema version",
+				"error", err,
+				"action", "см. сообщение: preflight → устранить нарушения → -force <version> -yes")
+		} else {
+			slog.Error("database migrate failed", "error", err)
+		}
 		os.Exit(1)
 	}
 
@@ -140,7 +154,16 @@ func main() {
 	// интеграциям (ERP quote, EDR-0023) и воркеру.
 	queueBackend := newAPIQueueBackend(os.Getenv("STAIR_REDIS_ADDR"))
 
-	stairSvc := stair.NewService()
+	// Store (волна 0 «store admin»): настройки магазина и прайс материалов в ₽/кг.
+	// Отсюда берут ставки И витрина, И расчёт — цена на сайте и в расчёте не
+	// расходится (CRITICAL-03: раньше подкладывал ставки только публичный путь,
+	// а девять авторизованных маршрутов падали в engprc.DefaultRates()).
+	storeSvc := storeapp.NewService(database.NewStoreRepository(pool))
+
+	// Ставки магазина подключены к сервису расчёта: transport больше не решает,
+	// откуда брать цены, — источник выбирает stair.Service.resolveRates по
+	// Options.TenantID.
+	stairSvc := stair.NewServiceWithRates(storeSvc)
 	projectSvc := project.NewService(
 		database.NewProjectRepository(pool),
 		stairSvc,
@@ -338,11 +361,6 @@ func main() {
 	}
 	paymentWebhookSecret := os.Getenv("STAIR_PAYMENT_WEBHOOK_SECRET")
 
-	// Store (волна 0 «store admin»): настройки магазина и прайс материалов в ₽/кг.
-	// Публичный расчёт и каталог витрины берут ставки отсюда, поэтому цена на
-	// сайте и в расчёте не расходится.
-	storeSvc := storeapp.NewService(database.NewStoreRepository(pool))
-
 	// WebSocket + EventBridge для real-time updates
 	hub := ws.NewHub()
 	go hub.Run()
@@ -378,8 +396,19 @@ func main() {
 	corsOrigins := envStringSlice("STAIR_CORS_ORIGINS", []string{"http://localhost:3000"})
 	wsOrigins := wsAllowedOrigins(corsOrigins)
 
+	// SEC-006 (2026-09-26): сессионная cookie без флага Secure передаётся по
+	// любому HTTP-участку пути, поэтому в проде это обязательный параметр.
+	// Гард по образцу STAIR_SECRETS_KEY / STAIR_STRIPE_SECRET_KEY: в проде
+	// отсутствие переменной — повод не стартовать, а не предупреждение.
+	cookieSecure := envBool("STAIR_COOKIE_SECURE", false)
+	if isProduction && !cookieSecure {
+		slog.Error("STAIR_COOKIE_SECURE must be true in production " +
+			"(session cookie without Secure flag is sent over plain HTTP)")
+		os.Exit(1)
+	}
+
 	cfg := transporthttp.Config{
-		CookieSecure:       envBool("STAIR_COOKIE_SECURE", false),
+		CookieSecure:       cookieSecure,
 		LoginRateLimit:     envInt("STAIR_LOGIN_RATE_LIMIT", 10),
 		LoginRateWindow:    time.Minute,
 		RegisterRateLimit:  envInt("STAIR_REGISTER_RATE_LIMIT", 5),

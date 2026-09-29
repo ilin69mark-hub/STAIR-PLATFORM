@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -133,12 +134,17 @@ func (s *Service) SsoCallback(ctx context.Context, code, state string) (*User, s
 	}
 	raw, err := s.sso.Exchange(ctx, code, st.PKCEVerifier)
 	if err != nil {
-		s.record(ctx, "", "", audit.ActionSsoLoginDenied, audit.ResultDenied, "token exchange failed: "+err.Error())
+		// OBS (2026-09-26): сырая цепочка ошибок OIDC-провайдера (endpoint,
+		// код, иногда фрагменты ответа с токенами) остаётся в slog; в
+		// долговременный журнал аудита попадает только факт.
+		slog.Warn("sso token exchange failed", "provider", s.sso.Name(), "error", err)
+		s.record(ctx, "", "", audit.ActionSsoLoginDenied, audit.ResultDenied, "token exchange failed")
 		return nil, "", ErrSsoDenied
 	}
 	claims, err := s.sso.VerifyIDToken(ctx, raw, st.Nonce)
 	if err != nil {
-		s.record(ctx, "", "", audit.ActionSsoLoginDenied, audit.ResultDenied, "id_token rejected: "+err.Error())
+		slog.Warn("sso id_token rejected", "provider", s.sso.Name(), "error", err)
+		s.record(ctx, "", "", audit.ActionSsoLoginDenied, audit.ResultDenied, "id_token rejected")
 		return nil, "", ErrSsoDenied
 	}
 	if claims.Email == "" {
@@ -193,7 +199,8 @@ func (s *Service) SsoCallback(ctx context.Context, code, state string) (*User, s
 			}
 			return nil, "", err
 		}
-		s.record(ctx, u.ID, u.TenantID, audit.ActionSsoLinked, audit.ResultOK, "linked "+s.sso.Name()+" to "+claims.Email)
+		// OBS (2026-09-26): без email в detail — журнал выгружается в CSV.
+		s.record(ctx, u.ID, u.TenantID, audit.ActionSsoLinked, audit.ResultOK, "linked "+s.sso.Name())
 		return s.loginAfterSso(ctx, u)
 	}
 	if !errors.Is(err, ErrNotFound) {

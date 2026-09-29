@@ -25,6 +25,7 @@ import (
 
 	"stairplatform/internal/application/jobs"
 	"stairplatform/internal/application/stair"
+	storeapp "stairplatform/internal/application/store"
 	"stairplatform/internal/infrastructure/database"
 	"stairplatform/internal/infrastructure/envguard"
 	infintegrations "stairplatform/internal/infrastructure/integrations"
@@ -180,8 +181,17 @@ func main() {
 
 // newJobsService создаёт сервис фоновых заданий (EDR-0035) для воркера:
 // только выполнение (calc не nil), очередь не нужна.
+//
+// CRITICAL-03 (2026-09-27): воркер тоже обязан считать по ставкам магазина
+// tenant'а. Без resolver'а асинхронный расчёт (`/stairs:calculate/async`)
+// посчитал бы по встроенным ставкам движка, тогда как синхронный путь — по
+// ставкам магазина: один и тот же расчёт давал бы два разных цены в
+// зависимости от того, синхронный он или фоновый. Tenant приезжает в
+// jobs.Payload.Options.TenantID, который проставляет optionsOrReject.
 func newJobsService(pool *pgxpool.Pool) *jobs.Service {
-	return jobs.NewService(database.NewCalcJobRepository(pool), nil, stair.NewService().Calculate)
+	storeSvc := storeapp.NewService(database.NewStoreRepository(pool))
+	return jobs.NewService(database.NewCalcJobRepository(pool), nil,
+		stair.NewServiceWithRates(storeSvc).Calculate)
 }
 
 // queueBackend оборачивает выбранный бэкенд очереди и его Redis-клиент для

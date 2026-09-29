@@ -49,8 +49,30 @@ type StairConfiguration struct {
 	ApproachSpaceMM     float64
 	LowerStepCount      int
 	OuterRadiusMM       float64
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	// DOM-003 (2026-09-26): девять параметров, которых здесь НЕ БЫЛО, хотя
+	// они были в stair.Config. Из-за этого они молча терялись при сохранении
+	// ревизии, при restore и при экспорте CAD (project.ExportCAD строит
+	// конфигурацию из этой сущности). Колонки добавлены миграцией
+	// 000030_config_full_persistence.
+	//
+	// Пустое значение = «не задано» и трактуется как дефолт, поэтому все
+	// строковые поля — string, а не enum-типы домена: так Historical-строки
+	// после миграции (NULL) читаются без специальной обработки.
+	TurnKind        string // "" | platform | winder
+	WinderCount     int    // nw, >= 3 при TurnKind == winder
+	Railing         string // none | left | right | both (прямой марш)
+	RailingLower    string // L/U: первый марш
+	RailingLanding  string // L/U: площадка
+	RailingUpper    string // L/U: второй марш
+	Direction       string // left | right (поворот площадки)
+	SpiralDirection string // cw | ccw (закрутка спирали)
+	MaterialCode    string // материал каркаса, код каталога MFG-0005, "" = автоназначение
+	// TreadMaterialCode — материал ступеней, "" = наследуется от MaterialCode.
+	TreadMaterialCode string
+	// RiserThicknessMM — толщина подступенка; 0 = наследуется от StepThicknessMM.
+	RiserThicknessMM float64
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // Calculation — сохранённый результат конвейера (снапшот). Result —

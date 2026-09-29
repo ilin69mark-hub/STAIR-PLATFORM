@@ -24,13 +24,11 @@ func DefaultMachineRates() MachineRates {
 		// древесина — по мягкости: орех и ясень режутся чуть медленнее дуба,
 		// сосна — быстрее. Этап 1 добавил эти коды в каталог материалов.
 		CutSpeed: map[dommfg.MaterialCode]float64{
-			"STEEL-S235":   2000,
-			"STEEL-CORTEN": 1800,
-			"ALUM-5083":    4000,
-			"WOOD-OAK":     10000,
-			"WOOD-WALNUT":  8500,
-			"WOOD-ASH":     9500,
-			"WOOD-SOFT":    12000,
+			"STEEL-S235":  2000,
+			"WOOD-OAK":    10000,
+			"WOOD-WALNUT": 8500,
+			"WOOD-ASH":    9500,
+			"WOOD-SOFT":   12000,
 		},
 		SetupCutMin: 2,
 		FinishMin:   3,

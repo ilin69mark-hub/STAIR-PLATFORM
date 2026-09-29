@@ -107,8 +107,12 @@ func (s *Service) SetMaterialPrice(ctx context.Context, tenantID, code string, p
 	if _, ok := engprc.DefaultRates().Material[dommfg.MaterialCode(code)]; !ok {
 		return fmt.Errorf("%w: unknown material %q", ErrInvalid, code)
 	}
-	if pricePerKgRub < 0 {
-		return ErrInvalid
+	// DOM-007 (2026-09-26): принималась нулевая цена, и этого достаточно для
+	// «бесплатного материала»: ResolveRates подставляет 0 во все котировки, а
+	// upsert отвечает 200 — то есть опечатка в имени поля (price_per_kg_rub
+	// вместо pricePerKgRub) давала PricePerKgRub = 0 и проходила валидацию.
+	if pricePerKgRub <= 0 {
+		return fmt.Errorf("%w: цена материала должна быть положительной (получено %d)", ErrInvalid, pricePerKgRub)
 	}
 	return s.repo.SetMaterialPrice(ctx, tenantID, code, pricePerKgRub, updatedBy)
 }

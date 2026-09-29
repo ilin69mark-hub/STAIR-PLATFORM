@@ -66,7 +66,7 @@ func TestExtraBalusterAtSlopedZeroHeight(t *testing.T) {
 }
 
 func TestExtraLandingRailingNoHeight(t *testing.T) {
-	if sols := landingRailingSolids(900, 1000, 0, 1080, 270, 0, false, false, engineering.RailingBoth); sols != nil {
+	if sols := landingRailingSolids(900, 1000, 900, 0, 1080, 270, 0, false, false, engineering.RailingBoth); sols != nil {
 		t.Fatalf("zero rail height must yield nil, got %d", len(sols))
 	}
 }

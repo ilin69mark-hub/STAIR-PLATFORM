@@ -230,8 +230,14 @@ func TestPaymentUpdateStatus(t *testing.T) {
 
 	// Поздний expired → failed: переход отклонён guard'ом (терминальный paid
 	// не перезаписывается), статус и paid_at не трогаются.
-	if err := prRepo.UpdateStatus(ctx, tenant, p.ID, payments.StatusFailed, nil); err != nil {
-		t.Fatalf("UpdateStatus failed: %v", err)
+	//
+	// CRITICAL-04 (2026-09-27): отказ теперь ВИДИМ — UpdateStatus возвращает
+	// payments.ErrStatusConflict. Раньше он делал warn-лог и `return nil`, и
+	// вызывающий не мог отличить успех от отказа (а значит мог проставить
+	// новый статус в своём объекте и записать в журнал несуществующее
+	// событие).
+	if err := prRepo.UpdateStatus(ctx, tenant, p.ID, payments.StatusFailed, nil); !errors.Is(err, payments.ErrStatusConflict) {
+		t.Fatalf("UpdateStatus must report ErrStatusConflict, got %v", err)
 	}
 	got, _ = prRepo.GetIntent(ctx, tenant, p.ID)
 	if got.Status != payments.StatusPaid {
@@ -287,9 +293,9 @@ func TestPaymentUpdateStatusTerminalGuard(t *testing.T) {
 	if err := prRepo.UpdateStatus(ctx, tenant, failed.ID, payments.StatusFailed, nil); err != nil {
 		t.Fatalf("pending→failed must be allowed: %v", err)
 	}
-	// failed → paid отклонён.
-	if err := prRepo.UpdateStatus(ctx, tenant, failed.ID, payments.StatusPaid, &paidAt); err != nil {
-		t.Fatalf("UpdateStatus failed→paid: %v", err)
+	// failed → paid отклонён (CRITICAL-04: отказ возвращается вызывающему).
+	if err := prRepo.UpdateStatus(ctx, tenant, failed.ID, payments.StatusPaid, &paidAt); !errors.Is(err, payments.ErrStatusConflict) {
+		t.Fatalf("failed→paid must report ErrStatusConflict, got %v", err)
 	}
 	gotF, err := prRepo.GetIntent(ctx, tenant, failed.ID)
 	if err != nil {

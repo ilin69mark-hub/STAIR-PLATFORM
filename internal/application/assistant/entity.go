@@ -60,7 +60,16 @@ func (k Kind) Valid() bool {
 }
 
 // Action возвращает audit.Action для запроса ассистента.
+//
+// SEC-002: для невалидного kind возвращается ActionAiAssistDesign, а НЕ
+// строка "ai.assist."+kind. Иначе неизвестный вид ассистента породил бы
+// действие вне реестра, и запись события отклонила бы доменная валидация —
+// то есть событие безопасности потерялось бы молча. Валидный kind в любом
+// случае отсекается раньше (expert() возвращает ErrInvalid).
 func (k Kind) Action() audit.Action {
+	if !k.Valid() {
+		return audit.ActionAiAssistDesign
+	}
 	return audit.Action("ai.assist." + string(k))
 }
 
@@ -453,13 +462,20 @@ func (s *Service) auditMemory(ctx context.Context, tenantID, userID string, resu
 	e := &audit.Event{
 		ActorID:      userID,
 		TenantID:     tenantID,
-		Action:       "ai.assist.memory.purged",
+		Action:       audit.ActionAiAssistMemoryPurged,
 		ResourceType: "assistant.memory",
 		Result:       result,
 		Detail:       detail,
 		CreatedAt:    s.now().UTC(),
 	}
-	_ = s.audit.Record(ctx, e)
+	// AUDIT-002 (2026-09-27): отказ записи логируется. Стирание памяти —
+	// операция, которую пользователь не может повторить «по журналу»: если
+	// запись потерялась, доказать, что память была стёрта, уже нечем.
+	if err := s.audit.Record(ctx, e); err != nil {
+		slog.Error("audit: event not recorded",
+			"action", string(e.Action), "tenant_id", e.TenantID,
+			"actor_id", e.ActorID, "error", err)
+	}
 }
 
 // remember дописывает user+assistant сообщения диалога в хранилище

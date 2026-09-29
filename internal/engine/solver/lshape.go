@@ -246,12 +246,24 @@ func SolveCheckedLShape(cfg *engineering.StairConfiguration, set *constraint.Con
 		return LShapeResult{}, validation.Result{}, landingNarrowError(
 			res.LandingWidth.Millimeters(), cfg.Width.Millimeters())
 	}
-	res.Apply(cfg)
-	// Эффективная глубина площадки (при 0 — равна ширине марша).
+	// SOLVER-03 (forensic 2026-09-27): эффективная глубина площадки должна
+	// читаться ДО res.Apply(cfg), а не после.
+	//
+	// res.Apply пишет `cfg.LandingDepth = r.LandingDepth`, где r.LandingDepth
+	// решателем не заполняется (SolveLShape его не вычисляет) и равен нулю.
+	// Прежний порядок «сначала Apply, потом читать cfg.LandingDepth» обнулял
+	// пользовательское значение, и `ld` всегда становился шириной марша:
+	// landing_depth_mm = 1200/1600/2000 давал в ответе 900. Запрос принимал
+	// параметр, DTO клал его в конфиг — и он молча исчезал.
 	ld := cfg.LandingDepth
 	if ld.Millimeters() <= 0 {
 		ld = cfg.Width
 	}
+	// Apply переносит вычисленные решателем величины в конфигурацию.
+	// LandingDepth ставим ПОСЛЕ Apply, чтобы в конфиг ушла эффективная
+	// величина, а не ноль из результата решателя.
+	res.Apply(cfg)
+	cfg.LandingDepth = ld
 	res.LandingDepth = ld
 	res.RoomWidth = cfg.RoomWidth
 	res.RoomLength = cfg.RoomLength

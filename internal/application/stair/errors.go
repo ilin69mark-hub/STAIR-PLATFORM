@@ -129,6 +129,95 @@ func configInputError(err error) *solver.InputError {
 			Guide:   "Выберите тип марша (прямой, L-образный, П-образный или спиральный).",
 			Fix:     "Выберите тип марша",
 		}
+	// DOM-005 (2026-09-26): следующие доменные ошибки НЕ имели кейса и
+	// уезжали пользователю английским текстом с меткой «Параметры лестницы»,
+	// которую фронт не умеет подсвечивать (liveValidate.ts PARAM_TO_KEY).
+	// Теперь у каждой — русский текст, Guide/Fix и метка поля, по которой
+	// форма подсвечивает нужный инпут.
+	case strings.Contains(msg, "unknown flight type"):
+		return &solver.InputError{
+			Code: constraint.GEO_HEIGHT, Field: "Тип лестницы",
+			Message: "Неизвестный тип лестницы",
+			Guide:   "Допустимые типы марша: straight (прямой), l_shape (L-образный), u_shape (П-образный), spiral (спираль).",
+			Fix:     "Выберите тип марша из списка",
+		}
+	case strings.Contains(msg, "step count must be positive"):
+		return &solver.InputError{
+			Code: constraint.GEO_STEP_HEIGHT, Field: "Высота ступени",
+			Message: "Число ступеней должно быть положительным",
+			Guide:   "Число ступеней вычисляется из высоты подъёма и высоты ступени. Укажите высоту подъёма и высоту ступени.",
+			Fix:     "Задайте высоту подъёма и высоту ступени",
+		}
+	case strings.Contains(msg, "tread depth must not be negative"):
+		return &solver.InputError{
+			Code: constraint.GEO_TREAD_DEPTH, Field: "Шаг комфорта",
+			Message: "Проступь не может быть отрицательной",
+			Guide:   "Проступь вычисляется как «шаг комфорта − 2·высота ступени». Уменьшите высоту ступени или увеличьте шаг комфорта (норма 600–640 мм).",
+			Fix:     "Уменьшите высоту ступени",
+		}
+	case strings.Contains(msg, "stringer length must not be negative"):
+		return &solver.InputError{
+			Code: constraint.GEO_STRINGER_THICKNESS, Field: "Толщина косоура",
+			Message: "Длина косоура не может быть отрицательной",
+			Guide:   "Длина косоура вычисляется из длины марша и высоты подъёма. Проверьте высоту и ширину марша.",
+			Fix:     "Проверьте габариты марша",
+		}
+	case strings.Contains(msg, "landing depth must not be negative"):
+		return &solver.InputError{
+			Code: constraint.GEO_HEIGHT, Field: "Глубина площадки",
+			Message: "Глубина площадки не может быть отрицательной",
+			Guide:   "Задайте глубину площадки (норма 600–5000 мм).",
+			Fix:     "Задайте глубину площадки",
+		}
+	case strings.Contains(msg, "landing depth must be at least"):
+		return &solver.InputError{
+			Code: constraint.GEO_HEIGHT, Field: "Глубина площадки",
+			Message: "Глубина площадки меньше ширины марша",
+			Guide:   "Площадка должна быть не уже марша. Увеличьте глубину площадки или уменьшите ширину марша.",
+			Fix:     "Увеличьте глубину площадки",
+		}
+	case strings.Contains(msg, "room width must not be negative"):
+		return &solver.InputError{
+			Code: constraint.GEO_HEIGHT, Field: "Ширина помещения",
+			Message: "Ширина помещения не может быть отрицательной",
+			Guide:   "Задайте ширину помещения (0 — отключить проверку вписывания).",
+			Fix:     "Задайте ширину помещения или 0",
+		}
+	case strings.Contains(msg, "room length must not be negative"):
+		return &solver.InputError{
+			Code: constraint.GEO_HEIGHT, Field: "Длина помещения",
+			Message: "Длина помещения не может быть отрицательной",
+			Guide:   "Задайте длину помещения (0 — отключить проверку вписывания).",
+			Fix:     "Задайте длину помещения или 0",
+		}
+	case strings.Contains(msg, "approach space must not be negative"):
+		return &solver.InputError{
+			Code: constraint.GEO_CLEARANCE, Field: "Свободное пространство",
+			Message: "Свободное пространство перед маршем не может быть отрицательным",
+			Guide:   "Норма свободного пространства перед первой ступенью — 1000–1200 мм.",
+			Fix:     "Задайте свободное пространство 1000–1200 мм",
+		}
+	case strings.Contains(msg, "approach space must be within"):
+		return &solver.InputError{
+			Code: constraint.GEO_CLEARANCE, Field: "Свободное пространство",
+			Message: "Свободное пространство вне нормы 1000–1200 мм",
+			Guide:   "Перед первой ступенью должно быть 1000–1200 мм свободного места (EDR-0023).",
+			Fix:     "Задайте свободное пространство 1000–1200 мм",
+		}
+	case strings.Contains(msg, "invalid turn kind"):
+		return &solver.InputError{
+			Code: constraint.GEO_HEIGHT, Field: "Поворот марша",
+			Message: "Неизвестный тип поворота",
+			Guide:   "Допустимые значения: platform (площадка) или winder (поворотные ступени).",
+			Fix:     "Выберите площадку или поворотные ступени",
+		}
+	case strings.Contains(msg, "winder count must be at least"):
+		return &solver.InputError{
+			Code: constraint.GEO_HEIGHT, Field: "Поворотных ступеней",
+			Message: "Слишком мало поворотных ступеней",
+			Guide:   "На разворот марша на 180° нужно не менее 3 поворотных ступеней.",
+			Fix:     "Задайте не менее 3 поворотных ступеней",
+		}
 	case strings.Contains(msg, "stringer thickness must not be negative"):
 		return &solver.InputError{
 			Code: constraint.GEO_STRINGER_THICKNESS, Field: "Толщина косоура",
@@ -199,8 +288,11 @@ func configInputError(err error) *solver.InputError {
 		return &solver.InputError{
 			Code: constraint.MFG_MATERIAL, Field: "Материал",
 			Message: "Материал не найден в каталоге",
-			Guide:   fmt.Sprintf("Материал “%s” отсутствует в каталоге материалов (сталь, алюминий, дуб). Выберите материал из списка.", mat),
-			Fix:     "Выберите материал из списка",
+			// Список берётся из реестра, а не вписывается строкой. Снимок
+			// каталога в тексте ошибки устарел молча: при удалении алюминия
+			// вариант, которого уже нет.
+			Guide: fmt.Sprintf("Материал “%s” отсутствует в каталоге материалов (%s). Выберите материал из списка.", mat, materialCatalogHint()),
+			Fix:   "Выберите материал из списка",
 		}
 	case strings.Contains(msg, "does not support thickness"):
 		mat := materialCodeFromError(msg)
@@ -317,6 +409,30 @@ func capitalizeFirst(s string) string {
 
 // materialCodeFromError извлекает код материала из ошибки вида
 // "stair: material \"WOOD-OAK\" does not support thickness 70 mm of косоура".
+// materialCatalogHint — перечисление витринных названий материалов из
+// реестра MFG-0005 для текста ошибки. Падает на «доступные материалы»,
+// если реестр недоступен: подсказка не должна ронять расчёт.
+func materialCatalogHint() string {
+	reg, err := engmfg.DefaultMaterialRegistry()
+	if err != nil || reg == nil {
+		return "доступные материалы — см. список в конструкторе"
+	}
+	names := make([]string, 0, 8)
+	for _, m := range reg.Materials() {
+		name := m.NameRu
+		if name == "" {
+			name = m.Name
+		}
+		if name != "" {
+			names = append(names, strings.ToLower(name))
+		}
+	}
+	if len(names) == 0 {
+		return "доступные материалы — см. список в конструкторе"
+	}
+	return strings.Join(names, ", ")
+}
+
 func materialCodeFromError(msg string) string {
 	i := strings.Index(msg, "material \"")
 	if i < 0 {

@@ -281,7 +281,21 @@ func straightRailingSolids(n int, b, h, rh, w float64, side engineering.RailingS
 // а участок Y∈[w,wp] (если wp>w) — внешний и тоже огораживается. Проход к
 // нижнему маршу (Y∈[0,w] на пристеночной вертикали) и к верхнему (Y=wp)
 // остаются открытыми при любом выборе стороны.
-func landingRailingSolids(w, wp, rh, h1, b float64, x0 float64, left, closeFar bool, side engineering.RailingSide) []*kerngeo.Solid {
+// landingRailingSolids строит перила площадки.
+//
+// ПАРАМЕТРЫ (GEOM-02, forensic 2026-09-27). Здесь принципиально разведены
+// ТРИ разные величины, которые раньше смешивались:
+//
+//	w       — X-пролёт площадки (её глубина вдоль нижнего марша);
+//	wp      — Y-размер площадки (Wp для L-марша, 2W для П-марша);
+//	flightW — ширина ПРОХОДА, то есть ширина нижнего марша (Width).
+//
+// Раньше третьего не было вовсе, и проход вычислялся как `y0 = w`, то есть
+// по глубине площадки. Пока LandingDepth всегда обнулялся решателем
+// (SOLVER-03) и равен��я Width, подмена была незаметна. С починкой
+// SOLVER-03 она стала бы живой: при ld > Width ограждение исчезало бы
+// полностью, а при Width < ld < Wp оставалась бы неогороженная полоса.
+func landingRailingSolids(w, wp, flightW, rh, h1, b float64, x0 float64, left, closeFar bool, side engineering.RailingSide) []*kerngeo.Solid {
 	if rh <= 0 {
 		return nil
 	}
@@ -325,7 +339,11 @@ func landingRailingSolids(w, wp, rh, h1, b float64, x0 float64, left, closeFar b
 	railEdge := func(cx float64) {
 		y0 := 0.0
 		if cx == flightSideX {
-			y0 = w // пропускаем проход к нижнему маршу
+			// Проход к нижнему маршу — по ШИРИНЕ марша (flightW), а не по
+			// глубине площадки. flightW = 0 допускается (значение не задано):
+			// тогда кромка огораживается целиком, что безопаснее, чем
+			// неоговороженный участок.
+			y0 = flightW
 		}
 		if wp > y0 {
 			add(cx, wp, cx, y0)
@@ -564,18 +582,38 @@ func buildLURNailing(cfg *engineering.StairConfiguration, rh float64) ([]*kernge
 	} else if railingEnabled(rh, cfg.RailingLanding) {
 		x0 := l1
 		landingXExt := ld
+		if cfg.Flight == engineering.FlightUShape {
+			// GEOM-07: площадка П-марша строится с X-пролётом = ширина
+			// марша (builder.go:359 — buildLanding(w, landingY, …)), а не
+			// ld. Раньше перила получали ld и при ld ≠ W контур перил не
+			// совпадал с контуром площадки.
+			landingXExt = w
+		}
 		if left {
 			if cfg.Flight == engineering.FlightLShape {
 				x0 = w - ld
+			} else {
+				// GEOM-03 (forensic 2026-09-27): П-образный марш при левом
+				// повороте строит площадку с landingX0 = 0 (см. builder.go
+				// buildUShapePlatform: `if left { landingX0 = 0 }`), то есть
+				// площадка лежит [0, W]×[0, 2W]. Код здесь оставлял x0 = l1
+				// (= n1·b, до 1890 мм), из-за чего перила площадки уезжали на
+				// l1 в сторону от самой площадки: площадка X[0..900], перила
+				// X[1865..2790] — смещение 1865 мм при марше 900 мм.
+				//
+				// Комментарий в коде утверждал именно это («x0 остаётся 0»), но
+				// условие проверяло только L-марш. Комментарий описывал
+				// намерение, а не поведение — сильный признак регрессии.
+				x0 = 0
 			}
-			// для U-образного x0 остаётся 0 (площадка [0, W]×[0, 2W])
 		}
 		// Платформенная площадка L-марша: дальняя кромка Y=wp открыта
 		// (верхний марш отходит от неё), поэтому контур «Г», а не «П»,
 		// чтобы перила не перекрывали проход ко второму маршу. X-пролёт
 		// площадки = ld (глубина), Y-размер = landingY (ширина Wp / 2W).
 		closeFar := cfg.Flight == engineering.FlightUShape
-		sols = append(sols, landingRailingSolids(landingXExt, landingY, rh, h1, b, x0, left, closeFar, cfg.RailingLanding)...)
+		// GEOM-02: проход по ширине марша, а не по глубине площадки.
+		sols = append(sols, landingRailingSolids(landingXExt, landingY, w, rh, h1, b, x0, left, closeFar, cfg.RailingLanding)...)
 	}
 
 	// Верхний марш.

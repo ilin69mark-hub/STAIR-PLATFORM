@@ -95,6 +95,22 @@ var ErrInvalidSignature = errors.New("payments: invalid webhook signature")
 // ErrForbidden — недостаточно прав.
 var ErrForbidden = errors.New("payments: forbidden")
 
+// ErrStatusConflict — терминальный статус интента не переопределён: событие
+// PSP пришло на уже завершённый платёж (поздний checkout.session.expired,
+// повторная доставка webhook). Переход отброшен SQL-гардом, интент сохранил
+// прежний статус.
+//
+// Журнал payment_events при этом НЕ пополняется: событие, которого не было,
+// не должно в нём появляться (CRITICAL-04, 2026-09-27). Раньше репозиторий
+// логировал предупреждение и всё равно писал событие, а вызывающий получал
+// успех и `intent.Status = <новый статус>` — то есть и БД, и ответ, и
+// возвращённый объект расходились между собой.
+//
+// Отдельная ошибка (а не общий конфликт) нужна обработчику webhook: это
+// ШТАТНАЯ ситуация при неупорядоченной доставке, её надо подтвердить (2xx),
+// а не заставлять PSP слать ретраи.
+var ErrStatusConflict = errors.New("payments: terminal status conflict")
+
 // Provider — абстракция платёжного провайдера (внешний PSP или mock).
 type Provider interface {
 	// Name — идентификатор провайдера (напр. "mock"); хранится в интенте
@@ -119,6 +135,9 @@ type Repository interface {
 	CreateIntent(ctx context.Context, p *PaymentIntent) error
 	// GetIntent возвращает интент по ID внутри tenant.
 	GetIntent(ctx context.Context, tenantID, id string) (*PaymentIntent, error)
+	// GetIntentByUser возвращает интент в скоупе tenant'а И плательщика
+	// (SEC-004); ErrNotFound — нет или чужой.
+	GetIntentByUser(ctx context.Context, tenantID, userID, id string) (*PaymentIntent, error)
 	// GetIntentByProviderCheckout возвращает интент по
 	// (provider, provider_checkout_id) для обработки webhook.
 	// ErrNotFound — нет такого.

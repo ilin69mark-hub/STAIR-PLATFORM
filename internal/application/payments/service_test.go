@@ -23,6 +23,16 @@ func (f *fakeRepo) CreateIntent(_ context.Context, p *PaymentIntent) error {
 	return nil
 }
 
+// GetIntentByUser — user-скоупная выборка (SEC-004).
+func (f *fakeRepo) GetIntentByUser(_ context.Context, tenantID, userID, id string) (*PaymentIntent, error) {
+	for _, p := range f.intents {
+		if p.ID == id && p.TenantID == tenantID && (p.UserID == "" || p.UserID == userID) {
+			return p, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
 func (f *fakeRepo) GetIntent(_ context.Context, tenantID, id string) (*PaymentIntent, error) {
 	for _, p := range f.intents {
 		if p.ID == id && p.TenantID == tenantID {

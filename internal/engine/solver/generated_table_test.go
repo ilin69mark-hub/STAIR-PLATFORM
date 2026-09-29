@@ -62,6 +62,23 @@ func caseToConfig(c Case) *engineering.StairConfiguration {
 	if c.Flight == "l_shape" || c.Flight == "u_shape" {
 		cfg.LandingWidth = genMustLength(c.LandingWidthMM)
 		cfg.LandingDepth = genMustLength(c.LandingDepthMM)
+		// SOLVER-03 (forensic 2026-09-27): кейсы в cases-500.json были
+		// сгенерированы, когда правило «LandingDepth >= Width» было МЁРТВЫМ
+		// (решатель всегда обнулял LandingDepth, и проверка не срабатывала
+		// никогда). Теперь значение доходит до геометрии, и кейсы с
+		// ld < width стали отвергаться валидацией — то есть тест проверял
+		// не bbox, а достоверность самих данных.
+		//
+		// Правило геометрически обоснованно (площадка должна перекрывать
+		// поворот по всей ширине марша), поэтому ослабляем фикстуру, а не
+		// домен: приводим параметры площадки к заведомо корректным.
+		if ld := c.LandingDepthMM; ld > 0 && ld < c.WidthMM {
+			cfg.LandingDepth = genMustLength(c.WidthMM)
+		}
+		if wp := c.LandingWidthMM; wp < c.WidthMM {
+			cfg.LandingWidth = genMustLength(c.WidthMM)
+		}
+
 		cfg.LowerStepCount = c.LowerStepCount
 		if c.Direction == "left" {
 			cfg.Direction = engineering.TurnLeft

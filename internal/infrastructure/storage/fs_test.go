@@ -17,9 +17,14 @@ func TestFileStorePutGetDelete(t *testing.T) {
 	if err := s.Put(ctx, "t-1/exports/cad/project-1.dxf", []byte("x0"), "application/dxf"); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
-	got, err := s.Get(ctx, "t-1/exports/cad/project-1.dxf")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
+	got, ct, err2 := s.Get(ctx, "t-1/exports/cad/project-1.dxf")
+	if err2 != nil {
+		t.Fatalf("Get: %v", err2)
+	}
+	// DOM-006: content-type обязан пережить Put/Get (иначе GET отдавал
+	// application/octet-stream вместо application/dxf).
+	if ct != "application/dxf" {
+		t.Errorf("content-type = %q, want application/dxf", ct)
 	}
 	if string(got) != "x0" {
 		t.Fatalf("data mismatch: %q", got)
@@ -27,7 +32,7 @@ func TestFileStorePutGetDelete(t *testing.T) {
 	if err := s.Delete(ctx, "t-1/exports/cad/project-1.dxf"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if _, err := s.Get(ctx, "t-1/exports/cad/project-1.dxf"); !errors.Is(err, ErrNotFound) {
+	if _, _, err := s.Get(ctx, "t-1/exports/cad/project-1.dxf"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("after delete: err = %v, want ErrNotFound", err)
 	}
 }

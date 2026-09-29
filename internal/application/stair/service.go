@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"stairplatform/internal/domain/engineering"
@@ -59,9 +60,16 @@ type Config struct {
 	// OuterRadius — специфичен для спиральной лестницы (EDR-0007):
 	// наружный радиус марша R (радиус колонны r = R − W).
 	OuterRadius engineering.Length
-	// Material — выбранный материал (код каталога MFG-0005); пустое
-	// значение — автоназначение по толщине (текущая политика).
+	// Material — материал КАРКАСА: косоуры, подступенки, колонна
+	// (код каталога MFG-0005); пустое значение — автоназначение по толщине.
 	Material dommfg.MaterialCode
+	// TreadMaterial — материал СТУПЕНЕЙ: проступи, площадки, поворотные
+	// ступени. Пустое значение → наследуется от Material. Задаёт и толщину:
+	// у проступи из дерева минимум 20 мм, у стальной — от 2 мм.
+	TreadMaterial dommfg.MaterialCode
+	// RiserThickness — толщина подступенка. Ноль → равно толщине ступени
+	// (поведение до разделения материалов).
+	RiserThickness engineering.Length
 	// Перила и направления (CONF-RAILING/DIRECTION/SPIRAL).
 	Railing        engineering.RailingSide     // прямой марш
 	RailingLower   engineering.RailingSide     // L/U: первый марш
@@ -75,10 +83,43 @@ type Config struct {
 type Options struct {
 	// ComfortStep — шаг комфорта S (600–640); 0 → solver.DefaultComfortStep.
 	ComfortStep float64
-	// Rates — ставки цены; nil → engprc.DefaultRates().
+	// Rates — ставки цены. ЯВНО заданные ставки имеют приоритет; иначе
+	// источник выбирает сервис (см. RatesResolver), и nil → engprc.DefaultRates().
 	Rates *engprc.Rates
+	// TenantID — контекст, для которого сервис разрешает ставки (CRITICAL-03).
+	//
+	// Раньше выбор источника ставок делал транспорт: публичная витрина
+	// подкладывала ставки магазина (publicStoreRates), а девять
+	// авторизованных маршрутов — нет, и те падали в engprc.DefaultRates().
+	// Одна и та же лестница стоила по-разному в зависимости от маршрута.
+	// Теперь транспорт только ОБОЗНАЧАЕТ контекст (tenant), а политику
+	// выбора источника применяет единственный код в application-слое.
+	//
+	// Пусто → ставки магазина не запрашиваются, действуют встроенные ставки
+	// движка. Так остаются внутренние вызовы без tenant-контекста
+	// (graphql, ассистент, перебор оптимизации).
+	TenantID string
 	// MachineRates — ставки машинных операций; nil → engmfg.DefaultMachineRates().
 	MachineRates *engmfg.MachineRates
+
+	// skipVariations — не генерировать интерактивные вариации A/B/C
+	// (variation.ForRoomFit / attachVariations).
+	//
+	// Поле НЕЭКСПОРТИРУЕМОЕ намеренно: его может установить только внутренний
+	// перебор оптимизации, и никакой внешний вызывающий.
+	//
+	// SEC-003/PERF (2026-09-26): генерация вариаций — самая дорогая часть
+	// конвейера, когда лестница не вписывается в помещение. Замер: Calculate
+	// L-образной лестницы, не вписывающейся в комнату, — 138 мс против
+	// 0.6 мс у вписывающейся (в 230 раз). Причина: variation.ForRoomFit
+	// перебирает тройной вложенный цикл (высота ступени × ширина марша ×
+	// радиус спирали) и для каждой комбинации прогоняет полный конвейер.
+	//
+	// Для РАНЖИРОВАНИЯ кандидатов вариации не нужны: оценщику достаточно
+	// res.Validation.Blocking и res.Price. Поэтому перебор Optimize
+	// пропускает их, а лучший кандидат пересчитывается полностью
+	// (optimize.go, финальный Calculate) — и вариации в ответе остаются.
+	skipVariations bool
 }
 
 // Result — сквозной результат расчёта проекта (все этапы конвейера).
@@ -99,8 +140,13 @@ type Result struct {
 	// Эхо производственных параметров конфигурации (для 2D-рендера и
 	// публичного ответа): толщина проступи, высота перил, наличие
 	// подступенков (BC-002 — рендер рисует «как посчитано»).
-	StepThickness     engineering.Length
-	RailingHeight     engineering.Length
+	StepThickness engineering.Length
+	RailingHeight engineering.Length
+	// Width — ширина марша для 2D-схем. DOM-005 (2026-09-26): её не было ни в
+	// Result, ни в Snapshot, поэтому админские чертежи рисовались при
+	// зашитой ширине 900 мм, тогда как объём/цена/BOM считались для
+	// фактической. Витрина при этом рисовала план по реальной width_mm.
+	Width             engineering.Length
 	Riser             bool
 	StringerThickness engineering.Length
 	// Эхо перил/направлений (CONF-RAILING/DIRECTION/SPIRAL): для спирали
@@ -116,10 +162,28 @@ type Result struct {
 	WinderCount int
 }
 
+// RatesResolver — источник ставок расчёта магазина для конкретного tenant'а
+// (CRITICAL-03, 2026-09-27).
+//
+// Интерфейс объявлен ЗДЕСЬ, на стороне потребителя, а не в application/store:
+// application-слой расчёта не должен зависеть от сервиса магазина целиком.
+// Наличие интерфейса означает, что store.Service удовлетворяет ему
+// структурно — без импорта и без цикла.
+//
+// Контракт: nil-ставки и ошибка НЕ являются фатальными для расчёта —
+// вызывающий (Service.resolveRates) логирует и откатывается на встроенные
+// ставки движка, чтобы сбой прайса не ронял геометрию.
+type RatesResolver interface {
+	ResolveRates(ctx context.Context, tenantID string) (*engprc.Rates, error)
+}
+
 // Service — прикладной сервис расчёта лестницы. Является единственной
 // точкой входа сквозного конвейера для любых транспортов.
 type Service struct {
 	constraints *constraint.ConstraintSet
+	// rates — источник ставок магазина; nil → встроенные ставки движка для
+	// всех tenant'ов (поведение до CRITICAL-03).
+	rates RatesResolver
 }
 
 // NewService создаёт сервис со стандартным профилем правил (EDR-0002).
@@ -127,6 +191,43 @@ func NewService() *Service {
 	return &Service{
 		constraints: constraint.StandardProfile("STANDARD"),
 	}
+}
+
+// NewServiceWithRates создаёт сервис, разрешающий ставки магазина через rs.
+// rs может быть nil — тогда поведение совпадает с NewService.
+func NewServiceWithRates(rs RatesResolver) *Service {
+	return &Service{
+		constraints: constraint.StandardProfile("STANDARD"),
+		rates:       rs,
+	}
+}
+
+// resolveRates применяет ПРИЕДИНУЮЮ политику выбора источника ставок.
+//
+// Порядок приоритета:
+//  1. opts.Rates != nil — явно заданные ставки (внутренние переборы,
+//     тесты, специальные сценарии). Транспорт сюда не попадает: клиентские
+//     ставки отвергаются на входе (SEC-001, rates_guard.go).
+//  2. s.rates == nil или opts.TenantID == "" — встроенные ставки движка.
+//  3. иначе — ставки магазина tenant'а из opts.TenantID.
+//
+// Сбой шага 3 НЕ превращается в ошибку расчёта: сбой прайса не должен
+// отменять геометрию. Факт отката логируется — иначе расхождение цен
+// между маршрутами станет невидимым.
+func (s *Service) resolveRates(ctx context.Context, opts Options) *engprc.Rates {
+	if opts.Rates != nil {
+		return opts.Rates
+	}
+	if s.rates == nil || opts.TenantID == "" {
+		return nil
+	}
+	rates, err := s.rates.ResolveRates(ctx, opts.TenantID)
+	if err != nil {
+		slog.Error("stair: store rates unavailable, using engine defaults",
+			"tenant_id", opts.TenantID, "error", err)
+		return nil
+	}
+	return rates
 }
 
 // Calculate выполняет полный конвейер: Solver → Validation → Geometry →
@@ -244,8 +345,8 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	}
 
 	priceRates := engprc.DefaultRates()
-	if opts.Rates != nil {
-		priceRates = *opts.Rates
+	if r := s.resolveRates(ctx, opts); r != nil {
+		priceRates = *r
 	}
 	price, err := engprc.Price(ds, priceRates)
 	if err != nil {
@@ -259,7 +360,7 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	// вариациями A/B/C (пакет variation), чтобы фронтенд мог показать
 	// интерактивные варианты выбора, а не только текст предупреждения.
 	for _, gi := range gen.Issues {
-		if gi.Code == "room_fit" {
+		if gi.Code == "room_fit" && !opts.skipVariations {
 			rw := c.RoomWidth.Millimeters()
 			rl := c.RoomLength.Millimeters()
 			res.Validation.Issues = append(res.Validation.Issues, validation.Issue{
@@ -281,7 +382,12 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	// Интерактивные вариации для остальных issue (угол наклона и готовые
 	// Suggestions советника) — поверх room_fit, чтобы охватить и случай,
 	// когда расчёт не заблокирован.
-	attachVariations(ctx, &res.Validation, c, s.constraints)
+	//
+	// SEC-003/PERF: внутри перебора оптимизации вариации не строятся
+	// (см. Options.skipVariations) — они нужны только в ответе.
+	if !opts.skipVariations {
+		attachVariations(ctx, &res.Validation, c, s.constraints)
+	}
 	res.Mesh = gen.Mesh
 	res.RailingMesh = gen.RailingMesh
 	res.RoomMesh = gen.RoomMesh
@@ -290,6 +396,7 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	res.Price = price
 	res.StepThickness = c.StepThickness
 	res.RailingHeight = c.RailingHeight
+	res.Width = c.Width
 	res.Riser = c.Riser
 	res.StringerThickness = c.StringerThickness
 	res.Railing = c.Railing
@@ -580,6 +687,19 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 	c.WinderCount = cfg.WinderCount
 	c.OuterRadius = cfg.OuterRadius
 	c.Material = string(cfg.Material)
+	// Материал ступеней и толщина подступенка. Разрешение наследования
+	// (TreadMaterial → Material, RiserThickness → StepThickness) делается
+	// ОДИН раз здесь, а не в потребителях: геометрия, производство и расчёт
+	// получают уже явные значения, и «кто что inherits» не надо помнить в
+	// каждом месте.
+	c.TreadMaterial = string(cfg.TreadMaterial)
+	if c.TreadMaterial == "" {
+		c.TreadMaterial = c.Material
+	}
+	c.RiserThickness = cfg.RiserThickness
+	if c.RiserThickness <= 0 {
+		c.RiserThickness = c.StepThickness
+	}
 	c.Railing = cfg.Railing
 	c.RailingLower = cfg.RailingLower
 	c.RailingLanding = cfg.RailingLanding
@@ -592,46 +712,71 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 	if cfg.Flight == engineering.FlightSpiral {
 		c.Railing = cfg.SpiralDir.DefaultRailing()
 	}
-	// Выбранный материал (MFG-0005): должен быть в каталоге и поддерживать
-	// толщины косоура и ступени. Пустой материал — автоназначение по толщине.
-	if cfg.Material != "" {
+	// Разрешение материалов (MFG-0005). Каркас и ступени проверяются
+	// РАЗДЕЛЬНО: раньше один материал должен был поддерживать и толщину
+	// косоура, и толщину ступени, из-за чего стальной косоур 8 мм с деревянной
+	// проступью отвергался (у дерева MinThickness = 20 мм).
+	//
+	// Проверяем: материал каркаса ↔ толщины косоура и подступенка;
+	//           материал ступеней ↔ толщина ступени.
+	treadCode := cfg.TreadMaterial
+	if treadCode == "" {
+		treadCode = cfg.Material
+	}
+	riserTh := cfg.RiserThickness.Millimeters()
+	if riserTh <= 0 {
+		riserTh = cfg.StepThickness.Millimeters()
+	}
+	if cfg.Material != "" || treadCode != "" {
 		reg, err := engmfg.DefaultMaterialRegistry()
 		if err != nil {
 			return nil, configInputError(fmt.Errorf(
 				"stair: catalog unavailable: %w", err))
 		}
-		mat, ok := reg.Find(cfg.Material)
-		if !ok {
-			return nil, configInputError(fmt.Errorf(
-				"stair: material %q not found in catalog", cfg.Material))
-		}
-		for _, tk := range []struct {
+		// Толщина детали проверяется по материтету ЭТОЙ детали: каркасная
+		// толщина — против каркасного материала, ступенная — против
+		// материала ступеней.
+		checks := []struct {
+			code dommfg.MaterialCode
 			t    float64
 			name string
 		}{
-			{cfg.StringerThickness.Millimeters(), "косоура"},
-			{cfg.StepThickness.Millimeters(), "ступени"},
-		} {
-			if !mat.SupportsThickness(tk.t) {
+			{cfg.Material, cfg.StringerThickness.Millimeters(), "косоура"},
+			{cfg.Material, riserTh, "подступенка"},
+			{treadCode, cfg.StepThickness.Millimeters(), "ступени"},
+		}
+		for _, ck := range checks {
+			if ck.code == "" {
+				continue
+			}
+			mat, ok := reg.Find(ck.code)
+			if !ok {
+				return nil, configInputError(fmt.Errorf(
+					"stair: material %q not found in catalog", ck.code))
+			}
+			if !mat.SupportsThickness(ck.t) {
 				return nil, configInputError(fmt.Errorf(
 					"stair: material %q does not support thickness %v mm of %s",
-					cfg.Material, tk.t, tk.name))
+					ck.code, ck.t, ck.name))
+			}
+			// Габариты, гарантируемые изготовлением в этом материале
+			// (MFG-0012): превышение обращается в понятную ошибку, чтобы
+			// пользователь видел предел каждого материала, а не прогон
+			// конвейера. Проверяем по обоим материалам: по ширине марша и по
+			// высоте подъёма ограничен каждый из выпускаемых листов.
+			if float64(c.Width.Millimeters()) > mat.MaxWidthMm {
+				return nil, configInputError(fmt.Errorf(
+					"stair: width %v mm exceeds maximum %v mm for material %q",
+					c.Width.Millimeters(), int(mat.MaxWidthMm), ck.code))
+			}
+			if float64(c.Height.Millimeters()) > mat.MaxHeightMm {
+				return nil, configInputError(fmt.Errorf(
+					"stair: rise height %v mm exceeds maximum %v mm for material %q",
+					c.Height.Millimeters(), int(mat.MaxHeightMm), ck.code))
 			}
 		}
-		// Габариты, гарантируемые изготовлением в выбранном материале
-		// (MFG-0012): превышение обращается в понятную ошибку, чтобы
-		// пользователь видел предел каждого материала, а не прогон конвейера.
-		if float64(c.Width.Millimeters()) > mat.MaxWidthMm {
-			return nil, configInputError(fmt.Errorf(
-				"stair: width %v mm exceeds maximum %v mm for material %q",
-				c.Width.Millimeters(), int(mat.MaxWidthMm), cfg.Material))
-		}
-		if float64(c.Height.Millimeters()) > mat.MaxHeightMm {
-			return nil, configInputError(fmt.Errorf(
-				"stair: rise height %v mm exceeds maximum %v mm for material %q",
-				c.Height.Millimeters(), int(mat.MaxHeightMm), cfg.Material))
-		}
 	}
+
 	// Энвелоп платформы (MFG-0012): гарантия изготовления только до этих
 	// пределов (совпадают с лимитами конструкторов). Вход сверх них
 	// отклоняется понятной ошибкой вместо прогона конвейера.

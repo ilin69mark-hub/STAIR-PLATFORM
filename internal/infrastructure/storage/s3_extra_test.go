@@ -124,7 +124,7 @@ func TestS3GetInvalidKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Get(context.Background(), "../evil"); !errors.Is(err, ErrInvalid) {
+	if _, _, err := store.Get(context.Background(), "../evil"); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("Get = %v, want ErrInvalid", err)
 	}
 }
@@ -136,7 +136,7 @@ func TestS3GetInvalidEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Get(context.Background(), "k"); err == nil {
+	if _, _, err := store.Get(context.Background(), "k"); err == nil {
 		t.Fatal("expected parse url error")
 	}
 }
@@ -149,7 +149,7 @@ func TestS3GetConnectionError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Get(context.Background(), "k"); err == nil {
+	if _, _, err := store.Get(context.Background(), "k"); err == nil {
 		t.Fatal("expected request error")
 	}
 }
@@ -164,7 +164,7 @@ func TestS3GetServerError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Get(context.Background(), "k"); err == nil {
+	if _, _, err := store.Get(context.Background(), "k"); err == nil {
 		t.Fatal("expected generic error")
 	}
 }
@@ -179,7 +179,7 @@ func TestS3GetTruncatedBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Get(context.Background(), "k"); err == nil {
+	if _, _, err := store.Get(context.Background(), "k"); err == nil {
 		t.Fatal("expected read body error")
 	}
 }

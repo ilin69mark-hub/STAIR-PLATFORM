@@ -46,11 +46,18 @@ func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResu
 		return nil, fmt.Errorf("manufacturing: default registry: %w", err)
 	}
 	for i := range parts {
-		// Выбранный материал (MFG-0005, конструктор): применяется ко всем
-		// деталям, пока поддерживает их толщину; иначе — автоназначение по
-		// толщине (первый материал каталога, поддерживающий толщину).
-		if cfg.Material != "" {
-			if m, ok := registry.Find(dommfg.MaterialCode(cfg.Material)); ok && m.SupportsThickness(parts[i].Thickness.Millimeters()) {
+		// Материал детали берётся из материала ЕЁ РОЛИ, а не «один материал
+		// на всю лестницу». Каркас (косоуры, подступенки, колонна) идёт по
+		// cfg.Material, ступени (проступи, площадки, поворотные ступени) — по
+		// cfg.TreadMaterial. decompose сводит площадку и поворотные ступени к
+		// PartTread, поэтому отдельных PartKind для них не нужно.
+		preferred := dommfg.MaterialCode(cfg.Material)
+		switch parts[i].Kind {
+		case dommfg.PartTread:
+			preferred = dommfg.MaterialCode(cfg.TreadMaterial)
+		}
+		if preferred != "" {
+			if m, ok := registry.Find(preferred); ok && m.SupportsThickness(parts[i].Thickness.Millimeters()) {
 				parts[i].Material = m.Code
 				continue
 			}

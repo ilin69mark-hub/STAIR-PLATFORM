@@ -112,9 +112,16 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 	if !cfg.Riser {
 		return buildCompound(builds)
 	}
+	// Толщина подступенка — своя: деталь каркасная, а не часть проступи.
+	// При 0 наследуется толщина ступени (поведение до разделения материалов
+	// не меняется). Раньше здесь стояла st напрямую.
+	rt := cfg.RiserThickness.Millimeters()
+	if rt <= kerngeo.Precision {
+		rt = st
+	}
 	for k := 0; k < n; k++ {
 		k := k
-		x0 := float64(k)*b - st
+		x0 := float64(k)*b - rt
 		z0, z1 := float64(k)*h, float64(k+1)*h-st
 		builds = append(builds, func() (*kerngeo.Solid, error) {
 			profile := []kerngeo.Point3{
@@ -123,7 +130,7 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 				kerngeo.NewPoint3(x0, w, z1),
 				kerngeo.NewPoint3(x0, w, z0),
 			}
-			solid, err := kerngeo.Extrude(profile, kerngeo.NewVector3(1, 0, 0), st)
+			solid, err := kerngeo.Extrude(profile, kerngeo.NewVector3(1, 0, 0), rt)
 			if err != nil {
 				return nil, fmt.Errorf("geometry: riser %d: %w", k, err)
 			}
@@ -256,7 +263,11 @@ func subFlight(cfg *engineering.StairConfiguration, height float64, steps int) *
 		StringerLength:    engineering.Length(float64(steps) * cfg.TreadDepth.Millimeters()),
 		StringerThickness: cfg.StringerThickness,
 		StepThickness:     cfg.StepThickness,
-		Riser:             cfg.Riser,
+		// Толщина подступенка наследуется: секция марша — та же деталь из
+		// того же материала, что и весь марш. Без этой строки L/U-марш молча
+		// получил бы 0 и откатился на толщину ступени.
+		RiserThickness: cfg.RiserThickness,
+		Riser:          cfg.Riser,
 	}
 }
 

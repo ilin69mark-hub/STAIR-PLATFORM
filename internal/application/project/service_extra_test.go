@@ -220,11 +220,11 @@ func (a *auditRepo) Insert(_ context.Context, e *audit.Event) error {
 	return nil
 }
 
-func (a *auditRepo) ListByProject(_ context.Context, _, _ string) ([]*audit.Event, error) {
+func (a *auditRepo) ListByProject(_ context.Context, _, _ string, _ int) ([]*audit.Event, error) {
 	return nil, a.err
 }
 
-func (a *auditRepo) ListByTenant(_ context.Context, _ string) ([]*audit.Event, error) {
+func (a *auditRepo) ListByTenant(_ context.Context, _ string, _ int) ([]*audit.Event, error) {
 	return nil, a.err
 }
 

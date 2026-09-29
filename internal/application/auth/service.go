@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -96,8 +97,21 @@ func (s *Service) record(ctx context.Context, actorID, tenantID string, action a
 	if s.audit == nil {
 		return
 	}
+	// tenant_id в БД NOT NULL (migrations/000011). События, tenant которых
+	// неизвестен (например «вход с несуществующим email» — email принадлежит
+	// ни одному пользователю, tenant определить нельзя), раньше уходили в
+	// INSERT с пустым tenant, БД отклоняла их по NOT NULL, а ошибка
+	// проглатывалась здесь — то есть запись об отказе входа ТЕРЯЛАСЬ, а
+	// именно такие события нужнее всего для безопасности.
+	//
+	// Фикс (2026-09-26): подставляем дефолтный tenant — регистрация всегда
+	// идёт в него (auth.Service.Register), поэтому событие попадает в
+	// правильный журнал, а не исчезает.
+	if tenantID == "" {
+		tenantID = s.auditTenantOrDefault(ctx)
+	}
 	m := audit.MetaFrom(ctx)
-	_ = s.audit.Record(ctx, &audit.Event{
+	if err := s.audit.Record(ctx, &audit.Event{
 		ActorID:   actorID,
 		TenantID:  tenantID,
 		Action:    action,
@@ -105,7 +119,27 @@ func (s *Service) record(ctx context.Context, actorID, tenantID string, action a
 		Detail:    detail,
 		RequestID: m.RequestID,
 		IP:        m.IP,
-	})
+	}); err != nil {
+		// OBS-001: ошибка записи аудита больше не проглатывается молча.
+		// Лог, чтобы потеря события безопасности была видна.
+		slog.Error("auth: audit record failed",
+			"action", string(action), "result", string(result), "err", err.Error())
+	}
+}
+
+// auditTenantOrDefault возвращает дефолтный tenant для системных событий.
+// Если и он недоступен (БД недоступна) — возвращает пустую строку; тогда
+// запись отклонит доменная валидация, и потеря события будет залогирована
+// вызывающим (см. выше), а не произойдёт молча.
+func (s *Service) auditTenantOrDefault(ctx context.Context) string {
+	if s.repo == nil {
+		return ""
+	}
+	t, err := s.repo.DefaultTenant(ctx)
+	if err != nil || t == nil {
+		return ""
+	}
+	return t.ID
 }
 
 // sessionTTLFor возвращает TTL сессии по политике tenant (EDR-0016 §3.2).
@@ -224,7 +258,14 @@ func (s *Service) Login(ctx context.Context, email, password string) (*User, str
 			// тайминг-энумерации: раньше неизвестный email отвечал за ~0.16 мкс
 			// против ~50 мс у известного).
 			s.dummyBcryptCompare(password)
-			s.record(ctx, "", "", audit.ActionAuthLoginDenied, audit.ResultDenied, "unknown email: "+email)
+			// OBS (2026-09-26): в audit detail больше не пишется email —
+			// журнал читается админом и выгружается в CSV, то есть это
+			// долговременный экспортируемый PII. Детали — в slog оператора.
+			// OBS (2026-09-26): в audit detail больше не пишется email —
+			// журнал читается админом и выгружается в CSV, то есть это
+			// долговременный экспортируемый PII. Детали — в slog оператора.
+			slog.Warn("login denied: unknown email", "event", "auth.login_denied")
+			s.record(ctx, "", "", audit.ActionAuthLoginDenied, audit.ResultDenied, "unknown email")
 			return nil, "", ErrInvalidCreds
 		}
 		return nil, "", err
@@ -384,11 +425,22 @@ func (s *Service) UpdateUser(ctx context.Context, tenantID, actorID, userID stri
 		s.record(ctx, actorID, tenantID, audit.ActionUserRoleChanged, audit.ResultOK, "user role changed to "+string(*role))
 	}
 	if status != nil {
-		if err := s.repo.UpdateUserStatus(ctx, tenantID, userID, *status); err != nil {
-			return err
-		}
+		// CRITICAL-05 (2026-09-27): блокировка — ОДИН атомарный шаг
+		// (DisableUser: статус + сессии + API-ключи в одной транзакции).
+		// Раньше это были три вызова с проглоченными ошибками, из-за чего
+		// сбой отзыва ключей оставлял «заблокированного» пользователя с
+		// работающим Bearer-ключом, и это было видно только по логам.
+		//
+		// Ошибка отзыва теперь пробрасывается: вызывающий получает отказ и
+		// может повторить, а не считает блокировку выполненной.
 		if *status == StatusDisabled {
-			_ = s.repo.DeleteUserSessions(ctx, userID)
+			if err := s.repo.DisableUser(ctx, tenantID, userID); err != nil {
+				s.record(ctx, actorID, tenantID, audit.ActionUserStatusChanged, audit.ResultDenied,
+					"disable user failed: "+err.Error())
+				return err
+			}
+		} else if err := s.repo.UpdateUserStatus(ctx, tenantID, userID, *status); err != nil {
+			return err
 		}
 		s.record(ctx, actorID, tenantID, audit.ActionUserStatusChanged, audit.ResultOK, "user status changed to "+string(*status))
 	}
@@ -465,9 +517,22 @@ func (s *Service) RevokeApiKey(ctx context.Context, tenantID, actorID, keyID str
 	return nil
 }
 
-// AuthenticateApiKey проверяет service-токен: хеширует, ищет ключ,
-// проверяет отзыв. Возвращает ключ (без token_hash). Используется
+// AuthenticateApiKey проверяет service-токен: хеширует, ищет ключ, проверяет
+// отзыв и статус владельца. Возвращает ключ (без token_hash). Используется
 // транспортом для Bearer-аутентификации (EDR-0016 §7).
+//
+// CRITICAL-05 (2026-09-27): добавлена проверка статуса владельца, ровно как в
+// Authenticate (строка 326). Раньше Bearer-ключ заблокированного пользователя
+// продолжал работать с полным набором scopes: disable учётной записи закрывал
+// только сессии, а ключ — второй, независимый способ входа. Для внешнего
+// наблюдателя это выглядело как «пользователь заблокирован, а доступ есть».
+//
+// Ключ без владельца (created_by IS NULL) не аутентифицирует: колонка
+// nullable, NULL означает удалённого создателя (ON DELETE SET NULL) либо
+// ключ, созданный вне user-аккаунта. Проверить статус некого, а доверять
+// без проверки — значит оставить «мёртвый» доступ работающим (fail-closed).
+// Ошибка та же, что у отозванного ключа, иначе ответ аутентификации сам
+// становится источником информации о внутреннем состоянии ключей.
 func (s *Service) AuthenticateApiKey(ctx context.Context, token string) (*ApiKey, error) {
 	if token == "" {
 		return nil, ErrSessionExpired
@@ -478,6 +543,21 @@ func (s *Service) AuthenticateApiKey(ctx context.Context, token string) (*ApiKey
 	}
 	if !key.Active() {
 		return nil, ErrKeyRevoked
+	}
+	if key.CreatedBy == "" {
+		return nil, ErrKeyRevoked
+	}
+	owner, err := s.repo.GetUserByID(ctx, key.CreatedBy)
+	if err != nil {
+		// Владелец не найден (удалён) — ключ осиротел, доступ не даём.
+		if errors.Is(err, ErrNotFound) {
+			return nil, ErrKeyRevoked
+		}
+		// Сбой БД — не повод пропустить ключ.
+		return nil, err
+	}
+	if owner.Status != StatusActive {
+		return nil, ErrUserDisabled
 	}
 	_ = s.repo.TouchApiKey(ctx, key.ID)
 	return key, nil

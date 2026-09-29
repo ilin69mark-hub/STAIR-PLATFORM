@@ -2,8 +2,6 @@ package manufacturing
 
 import (
 	"testing"
-
-	dommfg "stairplatform/internal/domain/manufacturing"
 )
 
 // TestEveryCatalogMaterialIsManufacturable — инвариант каталога: у КАЖДОГО
@@ -46,7 +44,14 @@ func TestLargestStockSheetReturnsRealSheet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stock sheet registry: %v", err)
 	}
-	for _, code := range []dommfg.MaterialCode{"STEEL-S235", "ALUM-5083", "WOOD-OAK"} {
+	// Перебираем ВЕСЬ реестр, а не список из трёх кодов: жёстко прописанный
+	// перечень молча переставал проверять новые материалы (и устаревал при
+	reg, err := DefaultMaterialRegistry()
+	if err != nil {
+		t.Fatalf("material registry: %v", err)
+	}
+	for _, m := range reg.Materials() {
+		code := m.Code
 		l, w, ok := LargestStockSheet(sheets, code)
 		if !ok {
 			t.Fatalf("материал %s: LargestStockSheet не нашёл лист", code)

@@ -319,11 +319,6 @@ func TestManufactureFeasibleRespectsMaterial(t *testing.T) {
 	if manufactureFeasible(in, worst) {
 		t.Fatal("oak must not fit 8660×5050 stringer")
 	}
-	// Алюминий: макс. лист 9000×4600 — ширина 5050 не влезает.
-	in.Material = "ALUM-5083"
-	if manufactureFeasible(in, worst) {
-		t.Fatal("aluminum must not fit 8660×5050 stringer")
-	}
 }
 
 func TestManufacturingIssueMaterialGuide(t *testing.T) {

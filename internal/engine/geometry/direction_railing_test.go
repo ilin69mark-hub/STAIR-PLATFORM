@@ -361,7 +361,7 @@ func TestBuildLShapeLandingRailingOpensPassage(t *testing.T) {
 			x0 = 0
 		}
 		// closeFar=false — L-образный марш: дальняя кромка Y=wp открыта.
-		sols := landingRailingSolids(w, wp, rh, h1, b, x0, left, false, engineering.RailingBoth)
+		sols := landingRailingSolids(w, wp, w, rh, h1, b, x0, left, false, engineering.RailingBoth)
 
 		rails := 0
 		for _, s := range sols {
@@ -444,7 +444,7 @@ func TestBuildLShapeLandingRailingFullPerimeter(t *testing.T) {
 		if left {
 			x0 = 0
 		}
-		sols := landingRailingSolids(w, wp, rh, h1, b, x0, left, false, engineering.RailingBoth)
+		sols := landingRailingSolids(w, wp, w, rh, h1, b, x0, left, false, engineering.RailingBoth)
 
 		flightX := x0
 		if left {
@@ -502,7 +502,7 @@ func TestBuildLShapeLandingRailingSides(t *testing.T) {
 		const tol = railThickness / 2
 
 		checkOneSide := func(side engineering.RailingSide, expectX float64) {
-			sols := landingRailingSolids(w, wp, rh, h1, b, l1, left, false, side)
+			sols := landingRailingSolids(w, wp, w, rh, h1, b, l1, left, false, side)
 			rails := 0
 			for _, s := range sols {
 				if s.Role() == roleRailing {
@@ -534,7 +534,7 @@ func TestBuildLShapeLandingRailingSides(t *testing.T) {
 
 		// RailingBoth — полный периметр (низ + 2 вертикали; для Wp>W
 		// левая/правая вертикали могут быть короче из-за проходов).
-		both := landingRailingSolids(w, wp, rh, h1, b, l1, left, false, engineering.RailingBoth)
+		both := landingRailingSolids(w, wp, w, rh, h1, b, l1, left, false, engineering.RailingBoth)
 		bothRails := 0
 		for _, s := range both {
 			if s.Role() == roleRailing {

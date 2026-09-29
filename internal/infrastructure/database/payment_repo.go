@@ -88,6 +88,33 @@ func (r *PaymentRepository) GetIntent(ctx context.Context, tenantID, id string) 
 	return p, nil
 }
 
+// GetIntentByUser возвращает интент в скоупе tenant'а И плательщика.
+//
+// SEC-004 (2026-09-26): GET /api/v1/payments/{id} был скоуплен только по
+// tenant'у, поэтому любой пользователь дефолтного tenant'а мог читать чужие
+// платежи (сумма, валюта, статус, project_id, provider checkout id).
+// Чужой интент выглядит как отсутствующий — без утечки существования.
+// Интенты без user_id (оплата проекта по инвойсу) остаются видимыми.
+//
+// GetIntent остаётся tenant-only намеренно: его вызывают админские пути
+// (payments/admin.go — возврат и сверка состояния), где пользователь-владелец
+// не имеет отношения к операции.
+func (r *PaymentRepository) GetIntentByUser(ctx context.Context, tenantID, userID, id string) (*payments.PaymentIntent, error) {
+	row := r.pool.QueryRow(ctx,
+		`SELECT `+intentCols+` FROM payment_intents
+		 WHERE tenant_id = $1 AND id = $2
+		   AND (user_id = $3 OR user_id IS NULL)`,
+		tenantID, id, userID)
+	p, err := scanIntent(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, payments.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("payments: get intent for user: %w", err)
+	}
+	return p, nil
+}
+
 // GetIntentByProviderCheckout возвращает интент по (provider, checkout_id).
 func (r *PaymentRepository) GetIntentByProviderCheckout(ctx context.Context, provider, checkoutID string) (*payments.PaymentIntent, error) {
 	row := r.pool.QueryRow(ctx,
@@ -195,8 +222,14 @@ var terminalStatusGuardSQL = func() string {
 
 // UpdateStatus обновляет статус и paid_at (nil — не менять). Терминальный
 // статус нельзя перезаписать другим статусом: при отклонённом переходе
-// (RowsAffected == 0) статус и paid_at не трогаются — только warn-лог
-// (intent_id, from → to); метрик для этого случая нет (не выдумываем).
+// (RowsAffected == 0) статус и paid_at НЕ трогаются, пишется warn-лог
+// (intent_id, from → to) и возвращается payments.ErrStatusConflict.
+//
+// CRITICAL-04 (2026-09-27): раньше отклонение было только warn-логом и
+// `return nil`. Для вызывающего это выглядело как успех, поэтому он
+// проставлял новый статус в своём объекте и писал в журнал событие, которого
+// не произошло. Отказ должен быть виден наружу, иначе защита от перехода
+// `paid → failed` существует только в логах.
 func (r *PaymentRepository) UpdateStatus(ctx context.Context, tenantID, id string, s payments.Status, paidAt *time.Time) error {
 	tag, err := r.pool.Exec(ctx,
 		`UPDATE payment_intents SET status = $1, paid_at = COALESCE($2, paid_at), updated_at = now()
@@ -207,9 +240,31 @@ func (r *PaymentRepository) UpdateStatus(ctx context.Context, tenantID, id strin
 		return fmt.Errorf("payments: update intent status: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		warnRejectedStatusUpdate(ctx, r.pool, tenantID, id, s)
+		return r.rejectedStatusPool(ctx, tenantID, id, s)
 	}
 	return nil
+}
+
+// rejectedStatusPool — диагностика отклонённого перехода вне транзакции.
+func (r *PaymentRepository) rejectedStatusPool(ctx context.Context, tenantID, id string, to payments.Status) error {
+	var from string
+	err := r.pool.QueryRow(ctx,
+		`SELECT status FROM payment_intents WHERE tenant_id = $1 AND id = $2`, tenantID, id).Scan(&from)
+	switch {
+	case err == nil:
+		slog.Warn("payments: intent status transition rejected (terminal status)",
+			"intent_id", id, "from", from, "to", string(to))
+		return fmt.Errorf("%w: intent %s is %s, cannot move to %s",
+			payments.ErrStatusConflict, id, from, to)
+	case errors.Is(err, pgx.ErrNoRows):
+		slog.Warn("payments: intent not found for status update",
+			"intent_id", id, "to", string(to))
+		return fmt.Errorf("%w: intent %s", payments.ErrNotFound, id)
+	default:
+		slog.Warn("payments: failed to read intent status for rejected transition",
+			"intent_id", id, "to", string(to), "error", err)
+		return fmt.Errorf("payments: read intent status after rejected transition: %w", err)
+	}
 }
 
 // MarkRefunded атомарно переводит paid -> refunded и записывает одно событие
@@ -264,6 +319,19 @@ func (r *PaymentRepository) MarkRefunded(ctx context.Context, tenantID, intentID
 // падение на AppendEvent откатывает и статус — «оплачено, но без следа» в
 // финансовом аудите больше невозможно. SQL-guard терминальных статусов тот
 // же, что в UpdateStatus.
+//
+// CRITICAL-04 (2026-09-27): RowsAffected == 0 больше НЕ является «успехом с
+// предупреждением». Раньше в этой ветке код логировал warn и всё равно писал
+// событие в журнал, из-за чего поздний checkout.session.expired оставлял в
+// payment_events запись payment.failed для интента, остающегося в статусе
+// paid, а вызывающий получал `err == nil` и `intent.Status = failed`.
+// Три источника правды расходились между собой. Теперь отклонённый переход:
+//   - не пишет событие в журнал (несуществующее событие не журналируется);
+//   - возвращает payments.ErrStatusConflict, чтобы вызывающий не подменил
+//     фактический статус интента;
+//   - ErrNotFound — если интента нет вовсе (отличаем «отклонён переход» от
+//     «нет такого платежа»: обработчик webhook подтверждает первое и 404-ит
+//     второе).
 func (r *PaymentRepository) ApplyVerifiedEventTx(ctx context.Context, tenantID, intentID string, s payments.Status, paidAt *time.Time, e *payments.PaymentEvent) error {
 	return WithTx(ctx, r.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx,
@@ -275,10 +343,34 @@ func (r *PaymentRepository) ApplyVerifiedEventTx(ctx context.Context, tenantID, 
 			return fmt.Errorf("payments: update intent status: %w", err)
 		}
 		if tag.RowsAffected() == 0 {
-			warnRejectedStatusUpdate(ctx, r.pool, tenantID, intentID, s)
+			return r.rejectedStatusTx(ctx, tx, tenantID, intentID, s)
 		}
 		return appendEventTx(ctx, tx, e)
 	})
+}
+
+// rejectedStatusTx различает «интента нет» и «переход отклонён» и НЕ пишет
+// событие в журнал. Диагностический лог делается на том же соединении, что и
+// транзакция: отдельный pool.Query здесь означал бы чтение данных, которых
+// ещё не видно в этой транзакции, и лишнее соединение в горячем пути.
+func (r *PaymentRepository) rejectedStatusTx(ctx context.Context, tx pgx.Tx, tenantID, intentID string, to payments.Status) error {
+	var from string
+	err := tx.QueryRow(ctx,
+		`SELECT status FROM payment_intents WHERE tenant_id = $1 AND id = $2`, tenantID, intentID).Scan(&from)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		// Потеряли предупреждение об отсутствующем интенте: раньше его давал
+		// warnRejectedStatusUpdate на pool, теперь пишем прямо здесь.
+		slog.Warn("payments: intent not found for status update",
+			"intent_id", intentID, "to", string(to))
+		return payments.ErrNotFound
+	case err != nil:
+		return fmt.Errorf("payments: read intent status after rejected transition: %w", err)
+	}
+	slog.Warn("payments: intent status transition rejected (terminal status)",
+		"intent_id", intentID, "from", from, "to", string(to))
+	return fmt.Errorf("%w: intent %s is %s, cannot move to %s",
+		payments.ErrStatusConflict, intentID, from, to)
 }
 
 // appendEventTx пишет событие в журнал в рамках уже открытой транзакции.
@@ -294,24 +386,10 @@ func appendEventTx(ctx context.Context, tx pgx.Tx, e *payments.PaymentEvent) err
 	return nil
 }
 
-// warnRejectedStatusUpdate логирует отклонённый переход статуса: интент не
-// найден либо терминальный статус не может быть перезаписан другим статусом.
-func warnRejectedStatusUpdate(ctx context.Context, pool *pgxpool.Pool, tenantID, id string, to payments.Status) {
-	var from string
-	err := pool.QueryRow(ctx,
-		`SELECT status FROM payment_intents WHERE tenant_id = $1 AND id = $2`, tenantID, id).Scan(&from)
-	switch {
-	case err == nil:
-		slog.Warn("payments: intent status transition rejected (terminal status)",
-			"intent_id", id, "from", from, "to", string(to))
-	case errors.Is(err, pgx.ErrNoRows):
-		slog.Warn("payments: intent not found for status update",
-			"intent_id", id, "to", string(to))
-	default:
-		slog.Warn("payments: failed to read intent status for rejected transition",
-			"intent_id", id, "to", string(to), "error", err)
-	}
-}
+// warnRejectedStatusUpdate больше не используется: CRITICAL-04 (2026-09-27)
+// заменил «тихий» отказ на возвращаемую ошибку (rejectedStatusTx /
+// rejectedStatusPool). Лог теперь пишется рядом с решением об отказе, чтобы
+// диагностика и результат не могли разойтись.
 
 // AppendEvent пишет событие в журнал payment_events.
 func (r *PaymentRepository) AppendEvent(ctx context.Context, e *payments.PaymentEvent) error {

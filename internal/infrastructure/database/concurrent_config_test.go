@@ -36,10 +36,13 @@ func TestConcurrentConfigurationRevision(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			<-start // максимально одновременный старт
-			cfg := &project.StairConfiguration{
-				ProjectID: p.ID, WidthMM: 900, HeightMM: 2700, Flight: "straight",
-				StepHeightMM: 180, ComfortStepMM: 630,
-			}
+			// geometryConfig заполняет обязательную геометрию так же, как это
+			// делает реальный путь (application/project/persist.go:toConfigEntity),
+			// где все поля приходят из stair.Config. Раньше фикстура оставляла
+			// stringer/step thickness, clearance и railing на нуле, и падала на
+			// stair_configurations_positive_geometry (CRITICAL-01) — то есть тест
+			// охранял не гонку ревизий, а падение на CHECK.
+			cfg := geometryConfig(p.ID)
 			_, errs[i] = pr.SaveCalculationWithConfig(ctx, tenant, cfg,
 				project.Snapshot{Validation: validation.Result{Valid: true}})
 			ids[i] = cfg.ID

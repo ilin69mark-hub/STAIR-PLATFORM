@@ -19,7 +19,7 @@ type ObjectStore interface {
 	// Put сохраняет объект; при необходимости создаёт промежуточные пути.
 	Put(ctx context.Context, key string, data []byte, contentType string) error
 	// Get возвращает данные объекта.
-	Get(ctx context.Context, key string) ([]byte, error)
+	Get(ctx context.Context, key string) ([]byte, string, error)
 	// Delete удаляет объект; отсутствующий объект — ErrNotFound.
 	Delete(ctx context.Context, key string) error
 }

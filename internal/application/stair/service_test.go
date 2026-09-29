@@ -217,12 +217,13 @@ func TestCalculateExceedsMaxHeight(t *testing.T) {
 }
 
 // TestCalculateExceedsMaterialMaxHeight — высота в пределах глобального
-// энелопа (6000 мм), но выше предела конкретного алюминия (4550 мм),
-// возвращается как блокирующая подсказка по материалу.
+// энелопа (6000 мм), но выше предела конкретного материала (у древесины
+// 4550 мм), возвращается как блокирующая подсказка по материалу.
+// Предел ниже глобального энелопа есть только у древесины.
 func TestCalculateExceedsMaterialMaxHeight(t *testing.T) {
 	s := NewService()
 	cfg := referenceConfig()
-	cfg.Material = dommfg.MaterialCode("ALUM-5083")
+	cfg.Material = dommfg.MaterialCode("WOOD-OAK")
 	cfg.Height = mustLengthHelper(5000)
 	res, err := s.Calculate(context.Background(), cfg, Options{})
 	if err != nil {
@@ -354,8 +355,8 @@ func TestCalculateWithinMaterialLimits(t *testing.T) {
 	s := NewService()
 	limits := map[dommfg.MaterialCode]struct{ height, width int }{
 		"STEEL-S235": {6000, 3000},
-		"ALUM-5083":  {4550, 3000},
 		"WOOD-OAK":   {4550, 3000},
+		"WOOD-SOFT":  {4550, 3000},
 	}
 	for code, lim := range limits {
 		cfgH := referenceConfig()
@@ -724,7 +725,7 @@ func TestCalculateCancelled(t *testing.T) {
 
 func TestCalculateMaterialSelection(t *testing.T) {
 	s := NewService()
-	materials := []dommfg.MaterialCode{"STEEL-S235", "ALUM-5083", "WOOD-OAK"}
+	materials := []dommfg.MaterialCode{"STEEL-S235", "WOOD-OAK", "WOOD-SOFT"}
 	prices := make(map[dommfg.MaterialCode]int64)
 	for _, m := range materials {
 		cfg := referenceConfig()
@@ -754,7 +755,7 @@ func TestCalculateMaterialSelection(t *testing.T) {
 			t.Fatalf("%s: nesting missing", m)
 		}
 	}
-	if prices["STEEL-S235"] == prices["ALUM-5083"] || prices["STEEL-S235"] == prices["WOOD-OAK"] {
+	if prices["STEEL-S235"] == prices["WOOD-SOFT"] || prices["STEEL-S235"] == prices["WOOD-OAK"] {
 		t.Fatalf("prices must differ across materials, got %v", prices)
 	}
 }

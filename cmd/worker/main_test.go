@@ -152,6 +152,19 @@ func (m *memCalcJobRepo) Create(_ context.Context, j *jobs.Job) error {
 	m.jobs[j.ID] = j
 	return nil
 }
+
+// GetByIDForUser — user-скоупная выборка (SEC-004).
+func (m *memCalcJobRepo) GetByIDForUser(_ context.Context, tenantID, userID, id string) (*jobs.Job, error) {
+	j, err := m.GetByID(context.Background(), tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if j.UserID != "" && j.UserID != userID {
+		return nil, jobs.ErrNotFound
+	}
+	return j, nil
+}
+
 func (m *memCalcJobRepo) GetByID(_ context.Context, tenantID, id string) (*jobs.Job, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

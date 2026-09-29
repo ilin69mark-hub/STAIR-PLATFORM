@@ -121,10 +121,12 @@ func (a *auditSpy) Insert(_ context.Context, e *audit.Event) error {
 	a.events = append(a.events, e)
 	return nil
 }
-func (a *auditSpy) ListByProject(context.Context, string, string) ([]*audit.Event, error) {
+func (a *auditSpy) ListByProject(context.Context, string, string, int) ([]*audit.Event, error) {
 	return nil, nil
 }
-func (a *auditSpy) ListByTenant(context.Context, string) ([]*audit.Event, error) { return nil, nil }
+func (a *auditSpy) ListByTenant(context.Context, string, int) ([]*audit.Event, error) {
+	return nil, nil
+}
 
 func (a *auditSpy) last() *audit.Event {
 	a.mu.Lock()
