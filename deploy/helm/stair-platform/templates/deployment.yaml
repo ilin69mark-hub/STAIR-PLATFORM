@@ -92,6 +92,15 @@ spec:
                   name: {{ include "stair-platform.fullname" . }}-secrets
                   key: sso-client-secret
             {{- end }}
+            {{- if .Values.funnel.visitorSalt }}
+            # Соль псевдонима посетителя: без неё уникальные посетители не
+            # считаются (api предупредит в логе).
+            - name: STAIR_ANALYTICS_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "stair-platform.fullname" . }}-secrets
+                  key: funnel-visitor-salt
+            {{- end }}
             {{- if .Values.payments.stripeSecretKey }}
             - name: STAIR_STRIPE_SECRET_KEY
               valueFrom:
