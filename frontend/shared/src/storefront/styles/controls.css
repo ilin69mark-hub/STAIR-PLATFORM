@@ -33,18 +33,27 @@
   flex: 0 0 auto;
 }
 
-.slider__number {
-  /* 40px при 12px. Всё считается от фактической ширины контента:
-     border-box отнимает padding 3+3 и рамку 1+1, то есть доступно 32px.
-     Все пределы каталога четырёхзначные (высота 6000, помещение 8000,
-     глубина площадки 5000), цифра при 12px — ~6.7px: 4 цифры это 27px,
-     2px на курсор при правке, и 32px хватает. */
-  width: 40px;
-  padding: 0 3px;
+/* Селектор с .field — не избыточность: в index.css витрины есть
+   `.field input` (0,1,1) с border-radius 8px, и он перебивал бы
+   .slider__number (0,1,0), то есть чип рисовался бы скруглённым на 8px
+   вместо своих 5px. `.field .slider__number` (0,2,0) выигрывает. */
+.field .slider__number {
+  /* 54px, а не 40px. Замерено в Chromium на реальных метриках шрифта
+     (system-ui/SF, 12px, tabular-nums): цифра 7.56px, четыре цифры 30.2px,
+     курсор в конце 3.1px — нужно 33.3px. При width 40px в content-box
+     попадало 32px, и стоило поставить курсор, как старшая цифра уезжала
+     за левый край: четырёхзначные пределы (высота 6000, ширина марша 3000,
+     глубина площадки 5000, помещение 8000) обрезались, трёхзначные — нет.
+     Теперь content-box 44px: запас 8.7px (26%), пять цифр (40.9px)
+     тоже помещаются. */
+  width: 54px;
+  padding: 0 4px;
   text-align: right;
   font: inherit;
   font-size: 12px;
-  line-height: 1.35;
+  /* 1.2 вместо 1.35: высота чипа 18.2px → 16.4px. Число влезает в строку
+     целиком, а строка не давит на подпись ползунка. */
+  line-height: 1.2;
   font-variant-numeric: tabular-nums;
   color: var(--sp-text);
   background: var(--sp-card);
@@ -52,7 +61,7 @@
   border-radius: 5px;
 }
 
-.slider__number:focus-visible {
+.field .slider__number:focus-visible {
   outline: 2px solid var(--sp-primary);
   outline-offset: 1px;
   border-color: transparent;

@@ -141,13 +141,19 @@
 }
 
 /* Базовые отступы — ТОЛЬКО для обычных текстовых полей.
-   Селекторы :not() здесь не косметика: правило с specificity (0,1,1)
-   перебивало .slider__number (0,1,0) и .slider__range, из-за чего оба
+   Селекторы :not() здесь не косметика: правило с specificity (0,2,3)
+   перебивает .slider__number (0,1,0) и .slider__range, из-за чего оба
    получали padding 10px 12px и унаследованный шрифт 14px. В боксе 42px
    оставалось 16px контента, и четырёхзначные числа обрезались; у
    ползунка padding съедал всю высоту дорожки, а у галочки 14px — больше,
-   чем сумма отступов. */
-.field input:not([type='checkbox']):not([type='range']),
+   чем сумма отступов.
+   :not(.slider__number) обязателен отдельно: числовой чип ползунка — это
+   type="text", а не checkbox и не range, так что два первых :not() его НЕ
+   исключали. На живой странице чип получал padding 10px 12px и font:
+   inherit (16px) — 54×46.8px вместо расчётных 54×16.4px, content-box 28px,
+   и четырёхзначные значения обрезались. Специфичность, порядок правил и
+   правки самого controls.css от этого не спасали. */
+.field input:not([type='checkbox']):not([type='range']):not(.slider__number),
 .field select {
   padding: 10px 12px;
   border: 1px solid var(--sp-border);

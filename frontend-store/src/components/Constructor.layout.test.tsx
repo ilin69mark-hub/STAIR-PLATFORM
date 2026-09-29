@@ -43,27 +43,51 @@ describe('компоновка панели конструктора', () => {
     expect(compactH).toBeLessThan(normalH)
   })
 
-  it('числовой чип ползунка ужат, чтобы подписи хватало места', () => {
+  // Регрессия: чип был width 40px, то есть content-box 32px, а четыре цифры с
+  // курсором занимают 33.3px (замерено в Chromium: цифра 7.56px при 12px,
+  // system-ui + tabular-nums). Как только курсор вставал в конец, старшая цифра
+  // уезжала за левый край — обрезались все четырёхзначные пределы каталога
+  // (высота 6000, ширина марша 3000, глубина площадки 5000, помещение 8000).
+  // Закрепляем саму арифметику, а не конкретные пиксели: сколько бы CSS ни
+  // менялся, content-box обязан перекрывать 4 цифры + курсор, а сам чип —
+  // оставаться ниже 17px, чтобы не давить на подпись ползунка.
+  it('числовой чип ползунка вмещает четыре цифры и остаётся низким', () => {
     const block = css('controls.css').match(/\.slider__number\s*\{[^}]*\}/)?.[0] ?? ''
-    const w = Number(block.match(/width:\s*(\d+)px/)?.[1] ?? 999)
-    expect(w).toBeLessThanOrEqual(40)
-    expect(block).toMatch(/font-size: 1[12]px/)
+    const width = Number(block.match(/(?<!-)width:\s*(\d+)px/)?.[1] ?? 0)
+    const padX = Number(block.match(/padding:\s*0\s+(\d+)px/)?.[1] ?? 0)
+    const contentBox = width - 2 * padX - 2 // border 1px с каждой стороны
+    // 4 × 7.56px + курсор 3.1px = 33.3px → округляем вверх до 34.
+    expect(contentBox).toBeGreaterThanOrEqual(34)
+    const fontSize = Number(block.match(/font-size:\s*(\d+)px/)?.[1] ?? 99)
+    const lineHeight = Number(block.match(/line-height:\s*([\d.]+)/)?.[1] ?? 99)
+    expect(lineHeight * fontSize + 2).toBeLessThanOrEqual(17)
+    // Подпись ползунка по-прежнему сжимается многоточием, а не выталкивает чип.
+    expect(css('constructor.css')).toMatch(/\.field-label\s*\{[^}]*min-width: 0/)
   })
 
-  // Регрессия: .field input (specificity 0,1,1) перебивал .slider__number
-  // (0,1,0), поэтому поле получало padding 10px 12px и шрифт 14px. В боксе
-  // 42px оставалось 16px контента, и числа обрезались; у ползунка padding
-  // съедал высоту дорожки, у галочки 14px — больше суммы отступов.
+  // Регрессия: .field input:not([type=checkbox]):not([type=range])
+  // (specificity 0,2,3) перебивал .slider__number (0,1,0) — причём всегда,
+  // независимо от порядка правил. Чип — type="text", так что два этих
+  // :not() его не исключали: он получал padding 10px 12px и font: inherit
+  // (16px), то есть 54×46.8px вместо 54×16.4px и content-box 28px вместо
+  // 44px. Четырёхзначные значения обрезались. Проверяем, что базовое
+  // правило теперь исключает чип явным :not(.slider__number).
   it('базовые отступы поля не применяются к ползунку и галочке', () => {
     const base = css('constructor.css').match(
       /\.field input:not\(\[type='checkbox'\]\):not\(\[type='range'\]\)[^{]*\{[^}]*\}/,
     )
     expect(base).toBeTruthy()
-    // Ни у .slider__number, ни у .slider__range, ни у input[type=checkbox]
-    // собственных отступов нет — им нечего перебивать.
+    expect(base![0]).toMatch(/:not\(\.slider__number\)/)
+    // Ни у .slider__range, ни у input[type=checkbox] собственных отступов
+    // нет — им нечего перебивать. Собственный отступ числового поля нужен
+    // ещё и для контента: при padding 0 ободок рамки съедал бы его.
     const controls = css('controls.css')
-    expect(controls).toMatch(/\.slider__number\s*\{[^}]*padding: 0 3px/)
+    expect(controls).toMatch(/\.slider__number\s*\{[^}]*padding: 0 4px/)
     expect(controls).toMatch(/\.slider__range\s*\{[^}]*height: 14px/)
+    // Плюс в index.css витрины есть `.field input` (0,1,1) с border-radius
+    // 8px — он перебил бы (0,1,0), поэтому чип объявлен как
+    // `.field .slider__number` (0,2,0).
+    expect(controls).toMatch(/\.field \.slider__number\s*\{/)
   })
 
   it('дорожка ползунка и блок «Подступень» ниже, чем были', () => {
