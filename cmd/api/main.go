@@ -154,6 +154,14 @@ func main() {
 	// Отдельный сервис, а не часть business-аналитики: там источник — БД, тут
 	// — события, которые присылает посетитель после согласия.
 	funnelSvc := funnel.NewService(database.NewFunnelRepository(pool), nil)
+	// Соль псевдонима посетителя. Без неё уникальных посетителей посчитать
+	// нечем (у всех visitor=''), и это осознанный режим приватности, а не
+	// поломка: соль живёт в окружении, а не в коде.
+	funnelVisitorSalt := os.Getenv("STAIR_ANALYTICS_SALT")
+	funnelSvc.SetVisitorIdentity(funnelVisitorSalt != "")
+	if funnelVisitorSalt == "" {
+		slog.Warn("api: STAIR_ANALYTICS_SALT не задан — уникальные посетители не считаются")
+	}
 
 	// Readyness/честная очередь заданий (EDR-0020): Redis-бэкенд при наличии
 	// STAIR_REDIS_ADDR, иначе in-memory (single-instance). Queue нужна
@@ -453,7 +461,7 @@ func main() {
 		// Соль псевдонима посетителя. Пусто — посетитель не идентифицируется
 		// (visitor=''), остаются только session_id. Задаётся переменной
 		// окружения, а не константой: секрет не должен попадать в репозиторий.
-		FunnelVisitorSalt: os.Getenv("STAIR_ANALYTICS_SALT"),
+		FunnelVisitorSalt: funnelVisitorSalt,
 		Jobs:              jobsSvc,
 		Assistant:         assistantSvc,
 		Orders:            ordersSvc,

@@ -81,6 +81,23 @@ func (r *FunnelRepository) SessionCount(ctx context.Context, from, to time.Time)
 	return n, nil
 }
 
+// VisitorCount — число уникальных посетителей в окне. Считается по visitor
+// (хеш IP+UA, сам IP не хранится). NULLIF нужен, чтобы пустая соль давала 0,
+// а не «одного и того же анонимного посетителя»: без соли все строки имеют
+// visitor=” и COUNT(DISTINCT) вернул бы 1 на любом трафике.
+func (r *FunnelRepository) VisitorCount(ctx context.Context, from, to time.Time) (int, error) {
+	var n int
+	err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(DISTINCT NULLIF(visitor, '')) FROM web_events
+		  WHERE created_at BETWEEN $1 AND $2`,
+		from, to,
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("funnel: visitor count: %w", err)
+	}
+	return n, nil
+}
+
 // EventCount — число событий в окне.
 func (r *FunnelRepository) EventCount(ctx context.Context, from, to time.Time) (int, error) {
 	var n int
@@ -102,6 +119,7 @@ func (r *FunnelRepository) StepCounts(ctx context.Context, from, to time.Time) (
 	rows, err := r.pool.Query(ctx,
 		`SELECT name,
 		        COUNT(DISTINCT session_id) AS sessions,
+		        COUNT(DISTINCT NULLIF(visitor, '')) AS visitors,
 		        COALESCE(AVG(NULLIF(props->>'session_seconds', '')::double precision), 0) AS avg_sec
 		   FROM web_events
 		  WHERE created_at BETWEEN $1 AND $2
@@ -117,7 +135,7 @@ func (r *FunnelRepository) StepCounts(ctx context.Context, from, to time.Time) (
 	for rows.Next() {
 		var name string
 		var st funnel.StepStat
-		if err := rows.Scan(&name, &st.Sessions, &st.AvgSecond); err != nil {
+		if err := rows.Scan(&name, &st.Sessions, &st.Visitors, &st.AvgSecond); err != nil {
 			return nil, fmt.Errorf("funnel: scan step counts: %w", err)
 		}
 		out[name] = st

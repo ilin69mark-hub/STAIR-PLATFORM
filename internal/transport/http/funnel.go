@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -30,6 +31,10 @@ import (
 type FunnelService interface {
 	Ingest(ctx context.Context, sessionID string, events []funnel.Event, consentVersion int) (funnel.IngestResult, error)
 	Report(ctx context.Context, from, to time.Time) (*funnel.FunnelReport, error)
+	// SetVisitorIdentity сообщает, задана ли соль HMAC. Без неё уникальных
+	// посетителей посчитать нечем, и отчёт обязан это признать, а не
+	// показывать «посетителей: 0».
+	SetVisitorIdentity(enabled bool)
 }
 
 // ---- DTO ----
@@ -54,6 +59,7 @@ type ingestRequest struct {
 type funnelStepDTO struct {
 	Name      string  `json:"name"`
 	Sessions  int     `json:"sessions"`
+	Visitors  int     `json:"visitors"`
 	Share     float64 `json:"share"`
 	StepShare float64 `json:"step_share"`
 }
@@ -75,39 +81,53 @@ type abandonPointDTO struct {
 
 // funnelReportDTO — ответ админского отчёта.
 type funnelReportDTO struct {
-	From      string            `json:"from"`
-	To        string            `json:"to"`
-	Sessions  int               `json:"sessions"`
-	Events    int               `json:"events"`
-	Steps     []funnelStepDTO   `json:"steps"`
-	Blockers  []blockerDTO      `json:"blockers"`
-	Abandons  []abandonPointDTO `json:"abandons"`
-	AvgSecAll float64           `json:"avg_seconds"`
+	From     string `json:"from"`
+	To       string `json:"to"`
+	Visitors int    `json:"visitors"`
+	// VisitorIdentityEnabled — считается ли вообще уникальный посетитель.
+	VisitorIdentityEnabled bool              `json:"visitor_identity_enabled"`
+	Sessions               int               `json:"sessions"`
+	Events                 int               `json:"events"`
+	Steps                  []funnelStepDTO   `json:"steps"`
+	Blockers               []blockerDTO      `json:"blockers"`
+	Abandons               []abandonPointDTO `json:"abandons"`
+	AvgSecAll              float64           `json:"avg_seconds"`
 }
 
 func toFunnelReportDTO(rep *funnel.FunnelReport) funnelReportDTO {
 	d := funnelReportDTO{
-		From:      rep.From.Format("2006-01-02"),
-		To:        rep.To.Format("2006-01-02"),
-		Sessions:  rep.Sessions,
-		Events:    rep.Events,
-		Steps:     make([]funnelStepDTO, 0, len(rep.Steps)),
-		Blockers:  make([]blockerDTO, 0, len(rep.Blockers)),
-		Abandons:  make([]abandonPointDTO, 0, len(rep.Abandons)),
-		AvgSecAll: rep.AvgSecAll,
+		From:                   rep.From.Format("2006-01-02"),
+		To:                     rep.To.Format("2006-01-02"),
+		Visitors:               rep.Visitors,
+		VisitorIdentityEnabled: rep.VisitorIdentityEnabled,
+		Sessions:               rep.Sessions,
+		Events:                 rep.Events,
+		Steps:                  make([]funnelStepDTO, 0, len(rep.Steps)),
+		Blockers:               make([]blockerDTO, 0, len(rep.Blockers)),
+		Abandons:               make([]abandonPointDTO, 0, len(rep.Abandons)),
+		AvgSecAll:              rep.AvgSecAll,
 	}
 	for _, s := range rep.Steps {
 		d.Steps = append(d.Steps, funnelStepDTO{
-			Name: s.Name, Sessions: s.Sessions, Share: s.Share, StepShare: s.StepShare,
+			Name: s.Name, Sessions: s.Sessions, Visitors: s.Visitors,
+			Share: s.Share, StepShare: s.StepShare,
 		})
 	}
 	for _, b := range rep.Blockers {
 		d.Blockers = append(d.Blockers, blockerDTO{Event: b.Event, Reason: b.Reason, Count: b.Count})
 	}
+	// Доля уходов считается от ВСЕХ уходов, а не от посетителей или визитов.
+	// Уходы — это визиты, и их знаменатель другой: на стенде «6 уходов из
+	// 3 посетителей» давало 200%, то есть бессмысленное число. Вопрос «какой
+	// процент уходов приходится на этот шаг» отвечает на вопрос «что чинить».
+	base := 0
+	for _, a := range rep.Abandons {
+		base += a.Sessions
+	}
 	for _, a := range rep.Abandons {
 		share := 0.0
-		if rep.Sessions > 0 {
-			share = float64(a.Sessions) / float64(rep.Sessions)
+		if base > 0 {
+			share = float64(a.Sessions) / float64(base)
 		}
 		d.Abandons = append(d.Abandons, abandonPointDTO{
 			LastEvent: a.LastEvent, Sessions: a.Sessions, Share: share, AvgSec: a.AvgSec,
@@ -121,21 +141,66 @@ func toFunnelReportDTO(rep *funnel.FunnelReport) funnelReportDTO {
 // visitorHasher считает псевдоним посетителя. Пустая соль — посетитель не
 // идентифицируется вовсе, и это штатный режим: соль живёт в переменной
 // окружения, и её можно не задавать.
-type visitorHasher struct{ key []byte }
-
-func newVisitorHasher(salt string) visitorHasher {
-	return visitorHasher{key: []byte(salt)}
+type visitorHasher struct {
+	key []byte
+	// trusted — список сетей доверенных прокси (STAIR_TRUSTED_PROXIES).
+	trusted []*net.IPNet
 }
 
-// hash возвращает 16 hex-символов HMAC(ip+ua) или "" без соли.
-func (h visitorHasher) hash(ip, ua string) string {
+func newVisitorHasher(salt string, trusted []*net.IPNet) visitorHasher {
+	return visitorHasher{key: []byte(salt), trusted: trusted}
+}
+
+// visitorIP — адрес ПОСЕТИТЕЛЯ, а не прокси.
+//
+// Это не копия clientIP: тот намеренно берёт только RemoteAddr (SEC: иначе
+// rate-limit обходится поддельным X-Forwarded-For). Но за обратным прокси
+// RemoteAddr — это адрес прокси, и без XFF все посетители сайта получили бы
+// один и тот же хеш: за nginx это ровно один «посетитель» на весь трафик.
+// Реальная беда, измеренная на стенде: nginx ходит к api то по IPv4, то по
+// IPv6, поэтому RemoteAddr чередовался, и ОДИН человек давал два разных
+// visitor — уникальных посетителей оказывалось больше, чем визитов.
+//
+// Правило то же, что у rateLimitIP: XFF берётся ТОЛЬКО если прямой пир сам
+// входит в список доверенных прокси. Иначе (спуффинг) — RemoteAddr.
+func visitorIP(r *http.Request, trusted []*net.IPNet) string {
+	if len(trusted) > 0 {
+		if peer := net.ParseIP(clientIP(r)); peer != nil {
+			for _, n := range trusted {
+				if n.Contains(peer) {
+					if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+						// Правый-most недоверенный: список XFF дописывают
+						// прокси слева направо, и доверять первому элементу
+						// нельзя — его может подставить сам клиент.
+						first := strings.TrimSpace(strings.Split(xff, ",")[0])
+						if net.ParseIP(first) != nil {
+							return first
+						}
+					}
+					break
+				}
+			}
+		}
+	}
+	return clientIP(r)
+}
+
+// hash возвращает 16 hex-символов HMAC(ip) или "" без соли.
+//
+// ТОЛЬКО по IP, без User-Agent. User-Agent — заголовок, который клиент сам
+// присылает, и на стенде он разошёлся между двумя запросами ОДНОГО визита:
+// обычные fetch несли подменённый Playwright'ом UA, а beacon на уход со
+// страницы — настоящий. С User-Agent в хеше один человек превращался в двух
+// «уникальных посетителя», и счётчик посетителей становился больше счётчика
+// визитов. Кроме того, UA подделывается в один вызов, то есть как признак
+// личности он ничего не стоит. Семейство браузера при этом остаётся в
+// отдельной колонке browser — там UA полезен и не влияет на идентичность.
+func (h visitorHasher) hash(ip string) string {
 	if len(h.key) == 0 {
 		return ""
 	}
 	mac := hmac.New(sha256.New, h.key)
 	mac.Write([]byte(ip))
-	mac.Write([]byte("|"))
-	mac.Write([]byte(ua))
 	return hex.EncodeToString(mac.Sum(nil))[:16]
 }
 
@@ -182,7 +247,7 @@ func handleIngestAnalytics(svc FunnelService, hasher visitorHasher) http.Handler
 			return
 		}
 		ua := r.Header.Get("User-Agent")
-		visitor := hasher.hash(clientIP(r), ua)
+		visitor := hasher.hash(visitorIP(r, hasher.trusted))
 
 		events := make([]funnel.Event, 0, len(req.Events))
 		family := browserFamily(ua)

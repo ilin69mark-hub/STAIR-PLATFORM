@@ -152,7 +152,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	// сами IP и UA не сохраняются.
 	if cfg.Funnel != nil {
 		mux.Handle("POST /api/v1/public/analytics:events", limitRate(funnelLimiter, trusted,
-			handleIngestAnalytics(cfg.Funnel, newVisitorHasher(cfg.FunnelVisitorSalt))))
+			handleIngestAnalytics(cfg.Funnel, newVisitorHasher(cfg.FunnelVisitorSalt, trusted))))
 	}
 
 	authProtected := func(next http.Handler) http.Handler {

@@ -13,6 +13,10 @@ import (
 type Service struct {
 	repo Repository
 	now  func() time.Time
+	// visitorIdentity — задана ли соль на сервере. Пустая соль означает, что
+	// посетители не идентифицируются (visitor='' у всех), и отчёт обязан
+	// сказать об этом прямо, а не показывать «уникальных посетителей: 0».
+	visitorIdentity bool
 }
 
 // NewService создаёт сервис. now внедряется, чтобы тесты не зависели от
@@ -21,8 +25,13 @@ func NewService(repo Repository, now func() time.Time) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{repo: repo, now: now}
+	return &Service{repo: repo, now: now, visitorIdentity: true}
 }
+
+// SetVisitorIdentity сообщает сервису, задана ли соль HMAC. Её читает
+// транспорт из окружения и передаёт сюда, чтобы отчёт различал «посетителей
+// нет» и «считать нечем».
+func (s *Service) SetVisitorIdentity(enabled bool) { s.visitorIdentity = enabled }
 
 // Ingest проверяет и сохраняет пачку событий.
 //
@@ -190,13 +199,23 @@ func (s *Service) Report(ctx context.Context, from, to time.Time) (*FunnelReport
 	if to.Before(from) {
 		return nil, fmt.Errorf("%w: to < from", ErrInvalidRange)
 	}
-	rep := &FunnelReport{From: from.UTC(), To: to.UTC(), Steps: []FunnelStep{}, Blockers: []Blocker{}, Abandons: []AbandonPoint{}}
+	rep := &FunnelReport{
+		From: from.UTC(), To: to.UTC(),
+		Steps: []FunnelStep{}, Blockers: []Blocker{}, Abandons: []AbandonPoint{},
+		VisitorIdentityEnabled: s.visitorIdentity,
+	}
 
 	sessions, err := s.repo.SessionCount(ctx, from, to)
 	if err != nil {
 		return nil, err
 	}
 	rep.Sessions = sessions
+
+	visitors, err := s.repo.VisitorCount(ctx, from, to)
+	if err != nil {
+		return nil, err
+	}
+	rep.Visitors = visitors
 
 	events, err := s.repo.EventCount(ctx, from, to)
 	if err != nil {
@@ -208,6 +227,13 @@ func (s *Service) Report(ctx context.Context, from, to time.Time) (*FunnelReport
 	if err != nil {
 		return nil, err
 	}
+	// Доли считаем от посетителей, а не от сессий: уникальный посетитель —
+	// это и есть «сколько людей нас посетило». Сессий в шаге может быть
+	// больше, чем людей, и тогда доля шага вышла бы за 100%.
+	base := sessions
+	if rep.Visitors > 0 {
+		base = rep.Visitors
+	}
 	prev := 0
 	for _, name := range StepOrder() {
 		st, ok := stats[name]
@@ -216,19 +242,24 @@ func (s *Service) Report(ctx context.Context, from, to time.Time) (*FunnelReport
 		}
 		share := 0.0
 		stepShare := 0.0
-		if sessions > 0 {
-			share = float64(st.Sessions) / float64(sessions)
+		people := st.Sessions
+		if s.visitorIdentity && st.Visitors > 0 {
+			people = st.Visitors
+		}
+		if base > 0 {
+			share = float64(people) / float64(base)
 		}
 		if prev > 0 {
-			stepShare = float64(st.Sessions) / float64(prev)
+			stepShare = float64(people) / float64(prev)
 		}
 		rep.Steps = append(rep.Steps, FunnelStep{
 			Name:      name,
 			Sessions:  st.Sessions,
+			Visitors:  st.Visitors,
 			Share:     share3(share),
 			StepShare: share3(stepShare),
 		})
-		prev = st.Sessions
+		prev = people
 	}
 
 	blockers, err := s.repo.TopBlockers(ctx, from, to, 10)

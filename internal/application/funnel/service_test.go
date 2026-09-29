@@ -19,6 +19,7 @@ type memRepo struct {
 	fail     error
 	// ответы на отчёт
 	sessions int
+	visitors int
 	events   int
 	steps    map[string]StepStat
 	blockers []Blocker
@@ -36,6 +37,9 @@ func (m *memRepo) InsertEvents(_ context.Context, events []Event) error {
 }
 func (m *memRepo) SessionCount(context.Context, time.Time, time.Time) (int, error) {
 	return m.sessions, nil
+}
+func (m *memRepo) VisitorCount(context.Context, time.Time, time.Time) (int, error) {
+	return m.visitors, nil
 }
 func (m *memRepo) EventCount(context.Context, time.Time, time.Time) (int, error) {
 	return m.events, nil
@@ -425,4 +429,86 @@ func strconvAtoi(s string) (int, error) {
 		n = n*10 + int(r-'0')
 	}
 	return n, nil
+}
+
+// Уникальные посетители — то, ради чего вообще нужна соль. Проверяем, что доли
+// воронки считаются ОТ НИХ, а не от сессий: один человек может открыть
+// конструктор пять раз, и доля шага вышла бы за 100%.
+func TestReport_SharesAreFromVisitors(t *testing.T) {
+	repo := &memRepo{
+		sessions: 200,
+		visitors: 40,
+		events:   900,
+		steps: map[string]StepStat{
+			EventSessionStart: {Sessions: 200, Visitors: 40},
+			EventFunnelOpen:   {Sessions: 90, Visitors: 22},
+		},
+	}
+	svc := NewService(repo, nil)
+	from := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	rep, err := svc.Report(context.Background(), from, from.AddDate(0, 0, 30))
+	if err != nil {
+		t.Fatalf("Report: %v", err)
+	}
+	if rep.Visitors != 40 {
+		t.Errorf("посетителей %d, хочу 40", rep.Visitors)
+	}
+	if rep.Steps[0].Share != 1 {
+		t.Errorf("доля первого шага %v, хочу 1 (40 из 40)", rep.Steps[0].Share)
+	}
+	// 22 посетителя из 40 = 0.55. От сессий вышло бы 90/200 = 0.45.
+	if rep.Steps[1].Share != 0.55 {
+		t.Errorf("доля второго шага %v, хочу 0.55 (22 из 40 посетителей)", rep.Steps[1].Share)
+	}
+	// Переход шаг→шаг тоже по людям: 22/40 = 0.55.
+	if rep.Steps[1].StepShare != 0.55 {
+		t.Errorf("переход %v, хочу 0.55", rep.Steps[1].StepShare)
+	}
+	if rep.Steps[1].Sessions != 90 || rep.Steps[1].Visitors != 22 {
+		t.Errorf("в шаге потерялись числа: %+v", rep.Steps[1])
+	}
+}
+
+// Без соли посетителей посчитать нечем: visitor=” у всех строк. Отчёт обязан
+// сказать это флагом, а не молча показать «посетителей: 0».
+func TestReport_VisitorIdentityFlag(t *testing.T) {
+	repo := &memRepo{sessions: 10, visitors: 0}
+	svc := NewService(repo, nil)
+	from := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+
+	rep, err := svc.Report(context.Background(), from, from.AddDate(0, 0, 30))
+	if err != nil {
+		t.Fatalf("Report: %v", err)
+	}
+	if !rep.VisitorIdentityEnabled {
+		t.Error("по умолчанию идентификация должна считаться включённой")
+	}
+
+	svc.SetVisitorIdentity(false)
+	rep, err = svc.Report(context.Background(), from, from.AddDate(0, 0, 30))
+	if err != nil {
+		t.Fatalf("Report: %v", err)
+	}
+	if rep.VisitorIdentityEnabled {
+		t.Error("после SetVisitorIdentity(false) флаг должен сняться")
+	}
+}
+
+// Без идентификации доли считаются от сессий — иначе были бы нули.
+func TestReport_FallsBackToSessions(t *testing.T) {
+	repo := &memRepo{
+		sessions: 100,
+		visitors: 0,
+		steps:    map[string]StepStat{EventSessionStart: {Sessions: 100}, EventFunnelOpen: {Sessions: 50}},
+	}
+	svc := NewService(repo, nil)
+	svc.SetVisitorIdentity(false)
+	from := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	rep, err := svc.Report(context.Background(), from, from.AddDate(0, 0, 30))
+	if err != nil {
+		t.Fatalf("Report: %v", err)
+	}
+	if rep.Steps[1].Share != 0.5 {
+		t.Errorf("доля шага %v, хочу 0.5 (50 сессий из 100)", rep.Steps[1].Share)
+	}
 }

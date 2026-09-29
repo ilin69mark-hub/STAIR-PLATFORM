@@ -132,10 +132,12 @@ type IngestResult struct {
 	Dropped  int `json:"dropped"`
 }
 
-// FunnelStep — шаг воронки: сколько сессий его дошло.
+// FunnelStep — шаг воронки: сколько сессий и уникальных посетителей его
+// дошло. Share — доля от всех посетителей окна.
 type FunnelStep struct {
 	Name      string  `json:"name"`
 	Sessions  int     `json:"sessions"`
+	Visitors  int     `json:"visitors"`
 	Share     float64 `json:"share"`
 	StepShare float64 `json:"step_share"`
 }
@@ -157,19 +159,27 @@ type AbandonPoint struct {
 
 // FunnelReport — ответ «где идёт трафик, где затык, где бросает».
 type FunnelReport struct {
-	From      time.Time      `json:"from"`
-	To        time.Time      `json:"to"`
-	Sessions  int            `json:"sessions"`
-	Events    int            `json:"events"`
-	Steps     []FunnelStep   `json:"steps"`
-	Blockers  []Blocker      `json:"blockers"`
-	Abandons  []AbandonPoint `json:"abandons"`
-	AvgSecAll float64        `json:"avg_seconds"`
+	From time.Time `json:"from"`
+	To   time.Time `json:"to"`
+	// Visitors — уникальные посетители окна; 0 при выключенной
+	// идентификации, тогда смотрим VisitorIdentityEnabled.
+	Visitors               int            `json:"visitors"`
+	VisitorIdentityEnabled bool           `json:"visitor_identity_enabled"`
+	Sessions               int            `json:"sessions"`
+	Events                 int            `json:"events"`
+	Steps                  []FunnelStep   `json:"steps"`
+	Blockers               []Blocker      `json:"blockers"`
+	Abandons               []AbandonPoint `json:"abandons"`
+	AvgSecAll              float64        `json:"avg_seconds"`
 }
 
-// StepOrder — порядок шагов, в котором строится воронка. Не алфавитный: по
-// алфавиту «blocker.*» и «cta.*» разъезжаются с реальным движением по
-// конструктору, и отчёт перестаёт читаться.
+// StepOrder — порядок шагов воронки: только ДВИЖЕНИЕ вперёд.
+//
+// Блокировок (blocker.*) здесь нет намеренно. Это не шаг пути, а препятствие
+// на нём, и в таблице шагов он ломал переходы: на живых данных «Дошёл до
+// конструктора» показывал 150% от предыдущего шага, потому что шагом шёл
+// затык, у которого другая природа счёта. У блокировок своя таблица
+// («Где спотыкаются»).
 func StepOrder() []string {
 	return []string{
 		EventSessionStart,
@@ -177,8 +187,6 @@ func StepOrder() []string {
 		EventFunnelOpen,
 		EventFunnelStep,
 		EventCTAQuote,
-		EventBlockerField,
-		EventBlockerAPI,
 		EventCTAOrder,
 	}
 }
@@ -191,10 +199,15 @@ type Repository interface {
 	InsertEvents(ctx context.Context, events []Event) error
 	// SessionCount — число сессий с любым событием в окне.
 	SessionCount(ctx context.Context, from, to time.Time) (int, error)
+	// VisitorCount — число УНИКАЛЬНЫХ посетителей в окне. Считается по
+	// visitor (хеш IP+UA). Без соли на сервере все хеши пустые и число равно
+	// нулю, поэтому вместе с ним отдаётся VisitorIdentityEnabled: «0
+	// посетителей» и «считать нечем» — разные вещи, и путать их нельзя.
+	VisitorCount(ctx context.Context, from, to time.Time) (int, error)
 	// EventCount — число событий в окне.
 	EventCount(ctx context.Context, from, to time.Time) (int, error)
-	// StepCounts — число СЕССИЙ, дошедших до каждого имени события, и
-	// средняя длительность сессии в секундах по этому шагу.
+	// StepCounts — число СЕССИЙ и УНИКАЛЬНЫХ ПОСЕТИТЕЛЕЙ, дошедших до каждого
+	// имени события, и средняя длительность сессии в секундах по шагу.
 	StepCounts(ctx context.Context, from, to time.Time) (map[string]StepStat, error)
 	// TopBlockers — самые частые блокировки, сгруппированные по событию и
 	// пропу reason (для blocker.field_invalid это имя поля).
@@ -207,8 +220,11 @@ type Repository interface {
 	Cleanup(ctx context.Context, before time.Time) (int64, error)
 }
 
-// StepStat — агрегат по шагу воронки.
+// StepStat — агрегат по шагу воронки. Сессии и посетители расходятся: один
+// человек может открыть конструктор пять раз за месяц, и для оценки объёма
+// трафика нужны оба числа.
 type StepStat struct {
 	Sessions  int
+	Visitors  int
 	AvgSecond float64
 }
