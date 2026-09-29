@@ -1,6 +1,7 @@
 import React from 'react'
 import type {
   CostReport,
+  FunnelReport,
   ManufacturingReport,
   ProjectReport,
   UsageGranularity,
@@ -358,6 +359,215 @@ export const CostAnalyticsPanel = React.memo(function CostAnalyticsPanel({
           </table>
         </>
       ) : null}
+    </section>
+  )
+})
+
+// ---- Воронка витрины --------------------------------------------------------
+//
+// Три вопроса, ради которых панель и делается: где идёт трафик (шаги),
+// где спотыкаются (blockers) и где уходят (abandons). Числа подписаны словами
+// по-человечески: «какое поле оставили пустым» читается сразу, а
+// «blocker.field_invalid × 25» пришлось бы расшифровывать каждый раз.
+
+const STEP_LABELS: Record<string, string> = {
+  'session.start': 'Открыл сайт',
+  'page.view': 'Смотрел страницы',
+  'funnel.constructor_open': 'Дошёл до конструктора',
+  'funnel.step_done': 'Получил расчёт',
+  'cta.quote_clicked': 'Нажал «Рассчитать»',
+  'blocker.field_invalid': 'Затык: поля не прошли проверку',
+  'blocker.api_error': 'Затык: сервер отверг',
+  'cta.order_clicked': 'Отправил заявку',
+}
+
+const EVENT_LABELS: Record<string, string> = {
+  'session.start': 'открытие сайта',
+  'page.view': 'просмотр страницы',
+  'funnel.constructor_open': 'открытие конструктора',
+  'funnel.step_done': 'расчёт получен',
+  'cta.quote_clicked': 'нажатие «Рассчитать»',
+  'blocker.field_invalid': 'поле не прошло проверку',
+  'blocker.api_error': 'отказ сервера',
+  'cta.order_clicked': 'отправка заявки',
+}
+
+const REASON_LABELS: Record<string, string> = {
+  widthMM: 'ширина марша',
+  heightMM: 'высота',
+  stepThicknessMM: 'толщина ступени',
+  stringerThicknessMM: 'толщина косоура',
+  approachSpaceMM: 'просвет',
+  clearanceMM: 'просвет',
+  roomWidthMM: 'ширина помещения',
+  roomLengthMM: 'длина помещения',
+  railingHeightMM: 'высота перил',
+  landingWidthMM: 'ширина площадки',
+  landingDepthMM: 'глубина площадки',
+  winderCountMM: 'поворотные ступени',
+  network: 'сеть недоступна',
+}
+
+function stepLabel(name: string): string {
+  return STEP_LABELS[name] ?? name
+}
+
+function eventLabel(name: string): string {
+  return EVENT_LABELS[name] ?? name
+}
+
+function reasonLabel(reason: string): string {
+  if (reason === '') return 'без кода'
+  if (REASON_LABELS[reason]) return REASON_LABELS[reason]
+  // Идентификаторы полей приходят из формы верблюжьим регистром; серверные
+  // коды — заглавными буквами. Разворачиваем оба случая в подпись.
+  return reason.replace(/MM$/, '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase()
+}
+
+function pct(v: number): string {
+  return `${(v * 100).toFixed(1)}%`
+}
+
+function humanSeconds(v: number): string {
+  if (!Number.isFinite(v) || v <= 0) return '—'
+  if (v < 90) return `${Math.round(v)} с`
+  return `${Math.round(v / 60)} мин`
+}
+
+interface FunnelProps {
+  funnel: FunnelReport | null
+  loading: boolean
+}
+
+export const FunnelAnalyticsPanel = React.memo(function FunnelAnalyticsPanel({
+  funnel,
+  loading,
+}: FunnelProps) {
+  if (loading) {
+    return (
+      <section className="panel">
+        <h2 className="panel__title">Воронка витрины</h2>
+        <p className="muted">Загрузка…</p>
+      </section>
+    )
+  }
+  if (!funnel) {
+    return (
+      <section className="panel">
+        <h2 className="panel__title">Воронка витрины</h2>
+        <p className="muted">Нет данных. События появляются после того, как посетитель согласится на сбор статистики.</p>
+      </section>
+    )
+  }
+
+  const hasData = funnel.sessions > 0
+
+  return (
+    <section className="panel">
+      <h2 className="panel__title">Воронка витрины</h2>
+      <p className="muted">
+        Поведение посетителей сайта: {funnel.from} — {funnel.to}. Данные собираются
+        только у тех, кто дал согласие, поэтому счётчики меньше реального трафика.
+      </p>
+
+      {!hasData ? (
+        <p className="muted">За выбранное окно согласий не было — собрать нечего.</p>
+      ) : (
+        <>
+          <dl className="kv">
+            <div>
+              <dt>Визитов</dt>
+              <dd>{funnel.sessions}</dd>
+            </div>
+            <div>
+              <dt>Событий</dt>
+              <dd>{funnel.events}</dd>
+            </div>
+            <div>
+              <dt>Средняя длительность визита</dt>
+              <dd>{humanSeconds(funnel.avg_seconds)}</dd>
+            </div>
+          </dl>
+
+          <p className="panel__sub">Где идёт трафик</p>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Шаг</th>
+                <th className="num">Визитов</th>
+                <th className="num">Доля</th>
+                <th className="num">От предыдущего</th>
+              </tr>
+            </thead>
+            <tbody>
+              {funnel.steps.map((s) => (
+                <tr key={s.name}>
+                  <td>{stepLabel(s.name)}</td>
+                  <td className="num">{s.sessions}</td>
+                  <td className="num">{pct(s.share)}</td>
+                  <td className="num row--total">
+                    {s.step_share > 0 ? pct(s.step_share) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <p className="panel__sub">Где спотыкаются</p>
+          {funnel.blockers.length === 0 ? (
+            <p className="muted">Затыков не зафиксировано.</p>
+          ) : (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Причина</th>
+                  <th>Что не так</th>
+                  <th className="num">Раз</th>
+                </tr>
+              </thead>
+              <tbody>
+                {funnel.blockers.map((b) => (
+                  <tr key={`${b.event}:${b.reason}`}>
+                    <td>{eventLabel(b.event)}</td>
+                    <td>{reasonLabel(b.reason)}</td>
+                    <td className="num">{b.count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <p className="panel__sub">Где бросают</p>
+          <p className="muted">
+            Последнее действие перед уходом со страницы. Это и есть ответ на
+            вопрос, что чинить в первую очередь.
+          </p>
+          {funnel.abandons.length === 0 ? (
+            <p className="muted">Данных об уходах нет (нужно время на визит).</p>
+          ) : (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>На чём бросили</th>
+                  <th className="num">Визитов</th>
+                  <th className="num">Доля уходов</th>
+                  <th className="num">Сколько пробыли</th>
+                </tr>
+              </thead>
+              <tbody>
+                {funnel.abandons.map((a) => (
+                  <tr key={a.last_event}>
+                    <td>{eventLabel(a.last_event)}</td>
+                    <td className="num">{a.sessions}</td>
+                    <td className="num">{pct(a.share)}</td>
+                    <td className="num">{humanSeconds(a.avg_seconds)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      )}
     </section>
   )
 })

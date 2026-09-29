@@ -930,3 +930,39 @@ export interface CreateConsultationRequest {
   contact: OrderContact
   question: string
 }
+
+// ---- Воронка витрины (миграция 000035) ----
+//
+// Отдельный набор от *Report: те отвечают на вопрос «что делают
+// сотрудники» (проекты, производство, деньги), этот — на вопрос «что делают
+// посетители и где уходят».
+export interface FunnelStep {
+  name: string
+  sessions: number
+  share: number
+  step_share: number
+}
+
+export interface FunnelBlocker {
+  event: string
+  reason: string
+  count: number
+}
+
+export interface FunnelAbandonPoint {
+  last_event: string
+  sessions: number
+  share: number
+  avg_seconds: number
+}
+
+export interface FunnelReport {
+  from: string
+  to: string
+  sessions: number
+  events: number
+  steps: FunnelStep[]
+  blockers: FunnelBlocker[]
+  abandons: FunnelAbandonPoint[]
+  avg_seconds: number
+}

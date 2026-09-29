@@ -10,6 +10,7 @@ import {
   type AdminUser,
   type ApiKey,
   type CostReport,
+  type FunnelReport,
   type ManufacturingReport,
   type OrderDTO,
   type ProjectReport,
@@ -157,6 +158,29 @@ const cost: CostReport = {
   ],
 }
 
+// Воронка витрины: три вопроса (где идёт трафик, где затык, где бросают) —
+// в одной фикстуре, чтобы тесты панели проверяли именно разбор ответа.
+const funnel: FunnelReport = {
+  from: '2026-08-15',
+  to: '2026-09-15',
+  sessions: 120,
+  events: 640,
+  avg_seconds: 95,
+  steps: [
+    { name: 'session.start', sessions: 120, share: 1, step_share: 0 },
+    { name: 'page.view', sessions: 110, share: 0.917, step_share: 0.917 },
+    { name: 'funnel.constructor_open', sessions: 70, share: 0.583, step_share: 0.636 },
+    { name: 'cta.quote_clicked', sessions: 40, share: 0.333, step_share: 0.571 },
+  ],
+  blockers: [
+    { event: 'blocker.field_invalid', reason: 'widthMM', count: 18 },
+    { event: 'blocker.api_error', reason: '422', count: 6 },
+  ],
+  abandons: [
+    { last_event: 'funnel.constructor_open', sessions: 30, share: 0.25, avg_seconds: 42 },
+  ],
+}
+
 const orders: OrderDTO[] = [
   {
     id: 'order-1',
@@ -201,6 +225,7 @@ function mockApi() {
   vi.spyOn(analyticsApi, 'projects').mockResolvedValue(projects)
   vi.spyOn(analyticsApi, 'manufacturing').mockResolvedValue(manufacturing)
   vi.spyOn(analyticsApi, 'cost').mockResolvedValue(cost)
+  vi.spyOn(analyticsApi, 'funnel').mockResolvedValue(funnel)
 }
 
 afterEach(() => {
@@ -353,10 +378,41 @@ describe('AdminPanel', () => {
     vi.spyOn(analyticsApi, 'projects').mockResolvedValue(projects)
     vi.spyOn(analyticsApi, 'manufacturing').mockResolvedValue(manufacturing)
     vi.spyOn(analyticsApi, 'cost').mockResolvedValue(cost)
+    // Без этого мока реальный запрос за воронкой бьётся и затирает то самое
+    // сообщение, ради которого тест написан.
+    vi.spyOn(analyticsApi, 'funnel').mockResolvedValue(funnel)
     render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
 
     expect(await screen.findByText('Нет права analytics.read')).toBeInTheDocument()
   })
+  // Панель воронки: подписи по-человечески, а не «blocker.field_invalid × 18»,
+  // потому что читать отчёт должен владелец, а не разработчик.
+  it('показывает воронку: шаги, затыки и точки оттока', async () => {
+    mockApi()
+    render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
+    expect(await screen.findByText('Дошёл до конструктора')).toBeInTheDocument()
+    expect(screen.getByText('ширина марша')).toBeInTheDocument()
+    expect(screen.getByText('На чём бросили')).toBeInTheDocument()
+    // Название шага расшифровано, а не показано кодом.
+    expect(screen.queryByText('blocker.field_invalid')).not.toBeInTheDocument()
+  })
+
+  it('пустая воронка объясняет, почему данных нет', async () => {
+    mockApi()
+    vi.spyOn(analyticsApi, 'funnel').mockResolvedValue({
+      from: '2026-08-15',
+      to: '2026-09-15',
+      sessions: 0,
+      events: 0,
+      avg_seconds: 0,
+      steps: [],
+      blockers: [],
+      abandons: [],
+    })
+    render(<AdminPanel currentUserId="u-admin" onBack={vi.fn()} />)
+    expect(await screen.findByText(/согласий не было/)).toBeInTheDocument()
+  })
+
   it('показывает сводку по проектам', async () => {
     mockApi()
     const projectsMock = vi.spyOn(analyticsApi, 'projects').mockResolvedValue(projects)

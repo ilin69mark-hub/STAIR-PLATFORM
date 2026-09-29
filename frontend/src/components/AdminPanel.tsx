@@ -7,6 +7,7 @@ import type {
   AdminUser,
   ApiKey,
   CostReport,
+  FunnelReport,
   ManufacturingReport,
   OrderDTO,
   ProjectReport,
@@ -20,7 +21,13 @@ import { OverviewPanel } from './admin/OverviewPanel'
 import { UsersPanel } from './admin/UsersPanel'
 import { PolicyPanel } from './admin/PolicyPanel'
 import { ExportPanel } from './admin/ExportPanel'
-import { UsageAnalyticsPanel, ProjectsAnalyticsPanel, ManufacturingPanel, CostAnalyticsPanel } from './admin/AnalyticsPanel'
+import {
+  UsageAnalyticsPanel,
+  ProjectsAnalyticsPanel,
+  ManufacturingPanel,
+  CostAnalyticsPanel,
+  FunnelAnalyticsPanel,
+} from './admin/AnalyticsPanel'
 import { OrdersPanel } from './admin/OrdersPanel'
 import { ApiKeysPanel } from './admin/ApiKeysPanel'
 import { TestimonialsPanel } from './admin/TestimonialsPanel'
@@ -38,6 +45,7 @@ const ADMIN_SECTIONS = [
   { id: 'orders', label: 'Заказы' },
   { id: 'manufacturing', label: 'Производство' },
   { id: 'cost', label: 'Стоимость' },
+  { id: 'funnel', label: 'Воронка' },
   { id: 'api-keys', label: 'API-ключи' },
   { id: 'testimonials', label: 'Отзывы' },
 ]
@@ -79,6 +87,9 @@ export function AdminPanel({ currentUserId, onBack, onExport }: Props) {
   const [mfg, setMfg] = useState<ManufacturingReport | null>(null)
   const [mfgGranularity, setMfgGranularity] = useState<UsageGranularity>('day')
   const [mfgLoading, setMfgLoading] = useState(false)
+
+  const [funnel, setFunnel] = useState<FunnelReport | null>(null)
+  const [funnelLoading, setFunnelLoading] = useState(false)
 
   const [cost, setCost] = useState<CostReport | null>(null)
   const [costGranularity, setCostGranularity] = useState<UsageGranularity>('day')
@@ -134,6 +145,23 @@ export function AdminPanel({ currentUserId, onBack, onExport }: Props) {
       setError(e instanceof ApiError ? e.message : 'Не удалось загрузить аналитику производства')
     } finally {
       setMfgLoading(false)
+    }
+  }, [])
+
+  const loadFunnel = useCallback(async () => {
+    setFunnelLoading(true)
+    try {
+      const now = new Date()
+      const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+      const rep = await analyticsApi.funnel({
+        from: from.toISOString().slice(0, 10),
+        to: now.toISOString().slice(0, 10),
+      })
+      setFunnel(rep)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Не удалось загрузить воронку')
+    } finally {
+      setFunnelLoading(false)
     }
   }, [])
 
@@ -310,6 +338,11 @@ export function AdminPanel({ currentUserId, onBack, onExport }: Props) {
                   granularity={costGranularity}
                   onChangeGranularity={(g) => { setCostGranularity(g); void loadCost(g) }}
                 />
+              </LazySection>
+            </section>
+            <section id="funnel" className="section">
+              <LazySection onLoad={() => void loadFunnel()}>
+                <FunnelAnalyticsPanel funnel={funnel} loading={funnelLoading} />
               </LazySection>
             </section>
             <section id="api-keys" className="section">
