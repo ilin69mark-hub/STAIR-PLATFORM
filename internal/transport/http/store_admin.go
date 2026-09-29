@@ -57,7 +57,7 @@ func handleGetStoreSettings(svc StoreService) http.HandlerFunc {
 		}
 		got, err := svc.Settings(r.Context(), tenantID(r.Context()))
 		if err != nil {
-			mapStoreError(w, err)
+			mapStoreError(w, r, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, got)
@@ -71,14 +71,16 @@ func handleUpdateStoreSettings(svc StoreService, invalidate CacheInvalidator) ht
 			return
 		}
 		var in store.Settings
-		if err := decodeJSON(w, r, &in); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
+		// DOM-007: строгий разбор — опечатка в имени секции настроек не должна
+		// молча сбрасывать ВСЕ настройки магазина на дефолты (ответ 200).
+		if err := decodeJSONStrict(w, r, &in); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", jsonErrorMessage(err))
 			return
 		}
 		in.UpdatedBy = userID(r.Context())
 		got, err := svc.UpdateSettings(r.Context(), tenantID(r.Context()), in)
 		if err != nil {
-			mapStoreError(w, err)
+			mapStoreError(w, r, err)
 			return
 		}
 		purgePublicStoreCache(invalidate)
@@ -105,7 +107,7 @@ func handleListMaterialPrices(svc StoreService) http.HandlerFunc {
 		}
 		prices, err := svc.MaterialPrices(r.Context(), tenantID(r.Context()))
 		if err != nil {
-			mapStoreError(w, err)
+			mapStoreError(w, r, err)
 			return
 		}
 		out := make([]materialPriceDTO, 0, len(prices))
@@ -128,22 +130,24 @@ func handleSetMaterialPrice(svc StoreService, invalidate CacheInvalidator) http.
 		if !requireStorePermission(w, r, auth.PermissionStorePricesWrite) {
 			return
 		}
+		// DOM-007: строгий разбор — опечатка в имени поля цены давала
+		// price_per_kg_rub = 0 и ответ 200 «успешно сохранено».
 		var req setMaterialPriceRequest
-		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
+		if err := decodeJSONStrict(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", jsonErrorMessage(err))
 			return
 		}
 		tenant := tenantID(r.Context())
 		err := svc.SetMaterialPrice(r.Context(), tenant, req.Code, req.PricePerKgRub, userID(r.Context()))
 		if err != nil {
-			mapStoreError(w, err)
+			mapStoreError(w, r, err)
 			return
 		}
 		purgePublicStoreCache(invalidate)
 		// Возвращаем актуальную строку прайса, чтобы админка не гадала.
 		prices, err := svc.MaterialPrices(r.Context(), tenant)
 		if err != nil {
-			mapStoreError(w, err)
+			mapStoreError(w, r, err)
 			return
 		}
 		for _, p := range prices {
@@ -166,7 +170,7 @@ func handleDeleteMaterialPrice(svc StoreService, invalidate CacheInvalidator) ht
 			return
 		}
 		if err := svc.DeleteMaterialPrice(r.Context(), tenantID(r.Context()), r.PathValue("code")); err != nil {
-			mapStoreError(w, err)
+			mapStoreError(w, r, err)
 			return
 		}
 		purgePublicStoreCache(invalidate)
@@ -187,12 +191,14 @@ func handlePublicStoreSettings(svc StoreService, authSvc AuthService) http.Handl
 		// станет host-резолвером.
 		tenant, err := authSvc.DefaultTenant(r.Context())
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		got, err := svc.PublicSettings(r.Context(), tenant.ID)
 		if err != nil {
-			mapStoreError(w, err)
+			mapStoreError(w, r, err)
 			return
 		}
 		w.Header().Set("Cache-Control", "public, max-age=60")
@@ -200,30 +206,61 @@ func handlePublicStoreSettings(svc StoreService, authSvc AuthService) http.Handl
 	}
 }
 
-func mapStoreError(w http.ResponseWriter, err error) {
+func mapStoreError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, store.ErrInvalid):
 		writeInputError(w, "invalid_input", err)
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "Настройки магазина не найдены")
 	default:
-		writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+		writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 	}
 }
 
-// publicStoreRates — ставки расчёта магазина для публичного ручки. ok=false,
-// если сервис настроек не подключён или его не удалось прочитать: тогда
-// действуют встроенные ставки движка (витрина не отдаёт 500 из-за прайса).
+// publicStoreTenant — tenant витрины для публичных (неаутентифицированных)
+// маршрутов. Витрина однопринадлежна: это дефолтный tenant платформы. Пустая
+// строка означает «контекст неизвестен» — считаем встроенными ставками движка
+// (витрина не отдаёт 500 из-за недоступности tenant'а).
+//
+// CRITICAL-03 (2026-09-27): функция только НАЗЫВАЕТ контекст. Разрешение
+// ставок делает stair.Service.resolveRates — иначе политика выбора источника
+// расходилась бы между витриной и авторизованными маршрутами.
+func publicStoreTenant(r *http.Request, authSvc AuthService) string {
+	if authSvc == nil {
+		return ""
+	}
+	tenant, err := authSvc.DefaultTenant(r.Context())
+	// nil-tenant при nil-ошибке — не нарушение контракта репозитория
+	// (auth_repo.go всегда возвращает ErrNotFound), но интерфейс AuthService
+	// этого не запрещает, а разыменование nil здесь давало 500 на публичной
+	// витрине. Пустой tenant = встроенные ставки движка, как и при ошибке.
+	if err != nil || tenant == nil {
+		if err != nil {
+			slog.Error("store: default tenant unavailable, using engine defaults", "error", err)
+		} else {
+			slog.Error("store: default tenant is nil, using engine defaults")
+		}
+		return ""
+	}
+	return tenant.ID
+}
+
+// publicStoreRates — ставки расчёта магазина для СПРАВОЧНЫХ публичных ручек,
+// которым ставки нужны как данные, а не как вход в конвейер (сейчас — каталог
+// материалов, которому надо показать ₽/кг). ok=false, если сервис настроек не
+// подключён или его не удалось прочитать: тогда действуют встроенные ставки
+// движка (витрина не отдаёт 500 из-за прайса).
+//
+// В расчёте лестницы эта функция НЕ используется — см. CRITICAL-03.
 func publicStoreRates(r *http.Request, storeSvc StoreService, authSvc AuthService) (*engprc.Rates, bool) {
 	if storeSvc == nil {
 		return nil, false
 	}
-	tenant, err := authSvc.DefaultTenant(r.Context())
-	if err != nil {
-		slog.Error("store: default tenant unavailable, using engine defaults", "error", err)
+	tenantID := publicStoreTenant(r, authSvc)
+	if tenantID == "" {
 		return nil, false
 	}
-	rates, err := storeSvc.ResolveRates(r.Context(), tenant.ID)
+	rates, err := storeSvc.ResolveRates(r.Context(), tenantID)
 	if err != nil {
 		slog.Error("store: rates unavailable, using engine defaults", "error", err)
 		return nil, false

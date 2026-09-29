@@ -2,8 +2,10 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"stairplatform/internal/application/stair"
@@ -278,55 +280,74 @@ func TestCalculateInvalidInput(t *testing.T) {
 	}
 }
 
-// TestCalculateCustomRateNewMaterial — переопределение ставки материала,
-// добавленного в каталог на этапе 1 (орех/ясень/сосна/кортен). Раньше DTO
-// знал только 3 кода, ставки новых материалов нельзя было переопределить.
-func TestCalculateCustomRateNewMaterial(t *testing.T) {
-	cases := []struct {
-		code  string
-		field string
-	}{
-		{"WOOD-WALNUT", "WOOD_WALNUT"},
-		{"WOOD-ASH", "WOOD_ASH"},
-		{"WOOD-SOFT", "WOOD_SOFT"},
-		{"STEEL-CORTEN", "STEEL_CORTEN"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.code, func(t *testing.T) {
-			body := `{
+// TestSEC001_RateOverrideRejected_NewMaterial (бывший TestCalculateCustomRateNewMaterial).
+//
+// ИСТОРИЯ: до 2026-09-26 этот тест требовал, чтобы `rates` в теле запроса
+// ПОВЫШАЛ цену для любого кода материала каталога, и падал бы, если бы
+// переопределение не срабатывало. То есть уязвимость SEC-001 была закреплена
+// в тесте как требование: «клиент управляет ценой» считалось фичей.
+//
+// Теперь переопределение ставок из тела запрещено (см. rates_guard.go).
+// Материал по-прежнему выбирается клиентом полем `material` — это выбор
+// позиции каталога, а не подмена цены, и он остаётся рабочим. Ставку для
+// материала задаёт сервер (DefaultRates либо store_rates).
+func TestSEC001_RateOverrideRejected_NewMaterial(t *testing.T) {
+	codes := []string{"WOOD-WALNUT", "WOOD-ASH", "WOOD-SOFT", "STEEL-S235"}
+	base := `{
 				"width_mm": 900, "height_mm": 2700, "flight": "straight",
-				"material": "` + tc.code + `",
+				"material": "%s",
 				"step_height_mm": 180, "stringer_thickness_mm": 50,
-				"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 1000,
-				"rates": {"material_per_kg_rub": {"` + tc.code + `": 9999}}
-			}`
-			req := authedRequest(http.MethodPost, "/api/v1/stairs:calculate", body)
+				"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 1000`
+	for _, code := range codes {
+		t.Run(code, func(t *testing.T) {
+			// 1. Без rates — 200, цена серверная и положительная.
+			plain := fmt.Sprintf(base, code) + "}"
 			rec := httptest.NewRecorder()
-			testRouter().ServeHTTP(rec, req)
+			testRouter().ServeHTTP(rec, authedRequest(http.MethodPost, "/api/v1/stairs:calculate", plain))
 			if rec.Code != http.StatusOK {
-				t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+				t.Fatalf("plain status %d: %s", rec.Code, rec.Body.String())
 			}
-			var resp calculateResponse
-			if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+			var okResp calculateResponse
+			if err := json.NewDecoder(rec.Body).Decode(&okResp); err != nil {
 				t.Fatalf("invalid response: %v", err)
 			}
-			if resp.Pricing.MaterialRub <= 0 {
-				t.Fatalf("override for %s must affect price, got %v", tc.code, resp.Pricing.MaterialRub)
+			if okResp.Pricing.MaterialRub <= 0 {
+				t.Fatalf("server price for %s must be > 0, got %+v", code, okResp.Pricing)
+			}
+
+			// 2. С попыткой подменить ставку — 422, цена не применяется.
+			evil := fmt.Sprintf(base, code) +
+				`, "rates": {"material_per_kg_rub": {"` + code + `": 9999}}}`
+			rec2 := httptest.NewRecorder()
+			testRouter().ServeHTTP(rec2, authedRequest(http.MethodPost, "/api/v1/stairs:calculate", evil))
+			if rec2.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("rate override must be rejected, got %d: %s", rec2.Code, rec2.Body.String())
+			}
+			if !strings.Contains(rec2.Body.String(), "rates_not_allowed") {
+				t.Fatalf("want rates_not_allowed, got %s", rec2.Body.String())
 			}
 		})
 	}
 }
 
-func TestCalculateCustomRates(t *testing.T) {
-	body := `{
-		"width_mm": 900,
-		"height_mm": 2700,
-		"flight": "straight",
-		"step_height_mm": 180,
-		"stringer_thickness_mm": 50,
-		"step_thickness_mm": 40,
-		"clearance_mm": 2500,
-		"railing_height_mm": 1000,
+// TestSEC001_RateOverrideRejected_AllRates (бывший TestCalculateCustomRates).
+//
+// ИСТОРИЯ: тест требовал, чтобы полный набор клиентских ставок
+// (material/machine/labor/overhead/margin/discount/tax) ПОМЕНЯЛ цену вверх,
+// и падал бы при их игнорировании.
+//
+// Теперь любое непустое поле `rates` отклоняется 422, а цена авторизованного
+// расчёта побайтно равна цене того же расчёта без этого поля.
+func TestSEC001_RateOverrideRejected_AllRates(t *testing.T) {
+	plain := `{
+		"width_mm": 900, "height_mm": 2700, "flight": "straight",
+		"step_height_mm": 180, "stringer_thickness_mm": 50,
+		"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 1000
+	}`
+	evil := `{
+		"width_mm": 900, "height_mm": 2700, "flight": "straight",
+		"step_height_mm": 180, "stringer_thickness_mm": 50,
+		"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 1000,
 		"rates": {
 			"material_per_kg_rub": {"STEEL-S235": 200},
 			"machine_per_hour_rub": 8000,
@@ -337,25 +358,48 @@ func TestCalculateCustomRates(t *testing.T) {
 			"tax_percent": 20
 		}
 	}`
-	req := authedRequest(http.MethodPost, "/api/v1/stairs:calculate",
-		body)
-	rec := httptest.NewRecorder()
-	testRouter().ServeHTTP(rec, req)
+	// Обнуляющая атака из аудита 2026-09-26.
+	zero := `{
+		"width_mm": 900, "height_mm": 2700, "flight": "straight",
+		"step_height_mm": 180, "stringer_thickness_mm": 50,
+		"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 1000,
+		"rates": {
+			"material_per_kg_rub": {"STEEL-S235": 0.01, "WOOD-OAK": 0.01,
+				"WOOD-WALNUT": 0.01, "WOOD-ASH": 0.01, "WOOD-SOFT": 0.01},
+			"machine_per_hour_rub": 0.01, "labor_per_hour_rub": 0.01,
+			"overhead_percent": 0.0001, "margin_percent": 0.0001,
+			"discount_percent": 99.999, "tax_percent": 0.0001
+		}
+	}`
 
+	rec := httptest.NewRecorder()
+	testRouter().ServeHTTP(rec, authedRequest(http.MethodPost, "/api/v1/stairs:calculate", plain))
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("plain status %d: %s", rec.Code, rec.Body.String())
 	}
-	var resp calculateResponse
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+	var base calculateResponse
+	if err := json.NewDecoder(rec.Body).Decode(&base); err != nil {
 		t.Fatalf("invalid response: %v", err)
 	}
-	// Удвоенная цена стали → материал и финальная цена выше дефолта.
-	if resp.Pricing.MaterialRub <= 1820332.77 {
-		t.Fatalf("material with doubled rate must exceed default, got %v", resp.Pricing.MaterialRub)
+	if base.Pricing.FinalPriceRub <= 0 {
+		t.Fatalf("base price must be > 0, got %v", base.Pricing.FinalPriceRub)
 	}
-	if resp.Pricing.FinalPriceRub <= 3271385.47 {
-		t.Fatalf("final price with doubled steel must exceed default, got %v", resp.Pricing.FinalPriceRub)
+
+	for name, body := range map[string]string{"raise": evil, "zero-out": zero} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			testRouter().ServeHTTP(rec, authedRequest(http.MethodPost, "/api/v1/stairs:calculate", body))
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status %d (want 422): %s", rec.Code, rec.Body.String())
+			}
+			// Проверяем, что цена вообще не была посчитана по клиентским ставкам.
+			if strings.Contains(rec.Body.String(), "final_price") {
+				t.Fatalf("rejected request must not contain a price: %s", rec.Body.String())
+			}
+		})
 	}
+
+	t.Logf("server price (authoritative, both public and auth): %v", base.Pricing.FinalPriceRub)
 }
 
 func TestOptimizeReference(t *testing.T) {

@@ -91,6 +91,17 @@ func (f *fakePaymentService) ListByProject(ctx context.Context, tenantID, projec
 	return out, nil
 }
 
+// GetByUser — user-скоупная выборка (SEC-004): интент виден только
+// плательщику (или любому, если user_id пуст — системная оплата).
+func (f *fakePaymentService) GetByUser(_ context.Context, tenantID, userID, id string) (*payments.PaymentIntent, error) {
+	for _, p := range f.intents {
+		if p.TenantID == tenantID && p.ID == id && (p.UserID == "" || p.UserID == userID) {
+			return p, nil
+		}
+	}
+	return nil, payments.ErrNotFound
+}
+
 func (f *fakePaymentService) Get(ctx context.Context, tenantID, id string) (*payments.PaymentIntent, error) {
 	for _, p := range f.intents {
 		if p.TenantID == tenantID && p.ID == id {
@@ -347,5 +358,56 @@ func TestPaymentWebhookInvalidBody(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d", rec.Code)
+	}
+}
+
+// TestPaymentWebhookTerminalStatusConflictIsAcknowledged (CRITICAL-04,
+// 2026-09-27) — поздний webhook на уже терминальный интент это штатная
+// ситуация при неупорядоченной доставке (поздний checkout.session.expired,
+// ретрай PSP). Обработчик обязан ПОДТВЕРДИТЬ доставку (200), а не отвечать
+// ошибкой: иначе PSP будет ретраить до бесконечности, и на каждый ретрай мы
+// снова отвергали бы тот же переход.
+//
+// Отличать этот случай от 404 («платёжа нет») обязательно: разные ответы
+// означают разные вещи для PSP и для расследования.
+func TestPaymentWebhookTerminalStatusConflictIsAcknowledged(t *testing.T) {
+	s, projects := paymentsTestSetup()
+	s.webhookErr = payments.ErrStatusConflict
+	router := testRouterWithPayments(projects, s)
+	p := paymentsinfra.NewMockProvider("https://pay.example.com")
+	req := signedWebhookRequest(p, paymentsinfra.WebhookEvent{
+		EventType: "checkout.session.expired", Provider: "mock", CheckoutID: "chk-1",
+		Status: "failed", AmountMinor: 5000, Currency: "USD",
+	})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("terminal-status conflict must be acknowledged with 200, got %d: %s",
+			rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "ignored_terminal_status") {
+		t.Errorf("body should mark the event as ignored, got: %s", rec.Body.String())
+	}
+	if len(s.events) != 0 {
+		t.Errorf("no event must be journaled, got %d", len(s.events))
+	}
+}
+
+// TestPaymentWebhookTerminalStatusConflictNotInternalError — конфликт статуса
+// не должен проваливаться в общий 500-ветку writeServiceError: он известный
+// доменный исход, а не внутренний сбой.
+func TestPaymentWebhookTerminalStatusConflictNotInternalError(t *testing.T) {
+	s, projects := paymentsTestSetup()
+	s.webhookErr = payments.ErrStatusConflict
+	router := testRouterWithPayments(projects, s)
+	p := paymentsinfra.NewMockProvider("https://pay.example.com")
+	req := signedWebhookRequest(p, paymentsinfra.WebhookEvent{
+		EventType: "payment.failed", Provider: "mock", CheckoutID: "chk-1",
+		Status: "failed", AmountMinor: 5000, Currency: "USD",
+	})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code >= 400 {
+		t.Fatalf("must not be a 4xx/5xx, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

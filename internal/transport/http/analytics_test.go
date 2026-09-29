@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -178,13 +179,16 @@ func TestUsageAnalyticsRangeError(t *testing.T) {
 }
 
 func TestUsageAnalyticsServerError(t *testing.T) {
+	// API-002: context.DeadlineExceeded больше не маскируется под 500 —
+	// unified error contract отдаёт 504 timeout, иначе нормальная отмена/таймаут
+	// считалась бы аварией сервиса в мониторинге.
 	svc := &fakeAnalyticsService{err: context.DeadlineExceeded}
 	req := authedRequest(http.MethodGet, "/api/v1/admin/analytics/usage", "")
 	rec := httptest.NewRecorder()
 	testRouterWithAnalytics(svc).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected 504 for deadline, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -258,8 +262,8 @@ func TestProjectsAnalyticsServerError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	testRouterWithAnalytics(svc).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected 504 for deadline, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -330,8 +334,8 @@ func TestManufacturingAnalyticsServerError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	testRouterWithAnalytics(svc).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected 504 for deadline, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -402,8 +406,8 @@ func TestCostAnalyticsServerError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	testRouterWithAnalytics(svc).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected 504 for deadline, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -423,5 +427,36 @@ func TestAnalyticsNotRegisteredWhenNil(t *testing.T) {
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("%s: expected 404, got %d", path, rec.Code)
 		}
+	}
+}
+
+// TestAnalyticsRealInternalErrorStill500 — не-контекстная ошибка обязана
+// оставаться 500 (и содержать request_id), чтобы unified error contract
+// не стал «всё подряд 504».
+func TestAnalyticsRealInternalErrorStill500(t *testing.T) {
+	svc := &fakeAnalyticsService{err: errors.New("pq: connection reset by peer")}
+	req := authedRequest(http.MethodGet, "/api/v1/admin/analytics/usage", "")
+	rec := httptest.NewRecorder()
+	testRouterWithAnalytics(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+	// Внутренний текст ошибки БД наружу не отдаётся.
+	if strings.Contains(rec.Body.String(), "connection reset") {
+		t.Fatalf("internal error text leaked: %s", rec.Body.String())
+	}
+	// request_id обязателен: по нему инцидент связывается со строкой лога.
+	var body struct {
+		Error struct {
+			Code      string `json:"code"`
+			RequestID string `json:"request_id"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Error.RequestID == "" {
+		t.Error("500 must carry a non-empty request_id (API-002/API-004)")
 	}
 }

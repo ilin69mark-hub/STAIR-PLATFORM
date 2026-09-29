@@ -46,7 +46,9 @@ func handleListUsers(svc AuthService) http.HandlerFunc {
 		}
 		users, err := svc.ListUsers(r.Context(), tenantID(r.Context()))
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		out := make([]userListDTO, 0, len(users))
@@ -67,8 +69,11 @@ func handleUpdateUser(svc AuthService) http.HandlerFunc {
 			return
 		}
 		var req updateUserRequest
-		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
+		// DOM-007: строгий разбор — {"sttus":"disabled"} раньше молча
+		// терял status, менял только role и отвечал 200, а пользователя НЕ
+		// отключал (сессии живы).
+		if err := decodeJSONStrict(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", jsonErrorMessage(err))
 			return
 		}
 		if req.Role == nil && req.Status == nil {
@@ -100,7 +105,7 @@ func handleUpdateUser(svc AuthService) http.HandlerFunc {
 			case errors.Is(err, auth.ErrNotFound):
 				writeError(w, http.StatusNotFound, "not_found", "Пользователь не найден.")
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+				writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			}
 			return
 		}
@@ -119,17 +124,23 @@ func handleAdminOverview(svc AuthService, projects ProjectService) http.HandlerF
 		tenant := tenantID(r.Context())
 		users, err := svc.ListUsers(r.Context(), tenant)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		projectsList, err := projects.ListTenantProjects(r.Context(), tenant)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		keys, err := svc.ListApiKeys(r.Context(), tenant)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		var activeUsers, disabledUsers, admins int

@@ -13,16 +13,16 @@ import (
 // клиент получает только геометрию, валидацию, предварительную цену,
 // габаритную ширину и preview-сетку (mesh) для 3D-визуализации.
 type publicQuoteDTO struct {
-	Validation  validationDTO `json:"validation"`
-	Flight      flightDTO     `json:"flight"`
-	LShape      *lshapeDTO    `json:"lshape,omitempty"`
-	UShape      *ushapeDTO    `json:"ushape,omitempty"`
-	Spiral      *spiralDTO    `json:"spiral,omitempty"`
-	Geometry    geometryDTO   `json:"geometry"`
-	Pricing     *pricingDTO   `json:"pricing,omitempty"`
-	Mesh        *kerngeo.Mesh `json:"mesh,omitempty"`
-	RailingMesh *kerngeo.Mesh `json:"railing_mesh,omitempty"`
-	RoomMesh    *kerngeo.Mesh `json:"room_mesh,omitempty"`
+	Validation  validationDTO     `json:"validation"`
+	Flight      flightDTO         `json:"flight"`
+	LShape      *lshapeDTO        `json:"lshape,omitempty"`
+	UShape      *ushapeDTO        `json:"ushape,omitempty"`
+	Spiral      *spiralDTO        `json:"spiral,omitempty"`
+	Geometry    geometryDTO       `json:"geometry"`
+	Pricing     *publicPricingDTO `json:"pricing,omitempty"`
+	Mesh        *kerngeo.Mesh     `json:"mesh,omitempty"`
+	RailingMesh *kerngeo.Mesh     `json:"railing_mesh,omitempty"`
+	RoomMesh    *kerngeo.Mesh     `json:"room_mesh,omitempty"`
 }
 
 // handlePublicQuote — POST /api/v1/public/stairs:quote.
@@ -44,12 +44,14 @@ func handlePublicQuote(svc StairService, storeSvc StoreService, authSvc AuthServ
 			return
 		}
 
-		// Ставки цены задаёт магазин (волна 0): анонимный клиент не может
-		// прислать rates и занизить предварительную цену. Переопределение
-		// ставок остаётся только у авторизованного расчёта.
-		if req.Rates != nil {
-			writeError(w, http.StatusUnprocessableEntity, "rates_not_allowed",
-				"Ставки цены задаются магазином; переопределять их в запросе нельзя.")
+		// Ставки цены задаёт магазин (волна 0): клиент не может прислать
+		// rates и занизить предварительную цену.
+		//
+		// SEC-001 (2026-09-26): до этого фикса защита была ТОЛЬКО здесь, на
+		// публичном пути, а девять авторизованных маршрутов принимали любые
+		// ставки из тела — аутентифицированный клиент обнулял цену. Теперь
+		// отказ единый для всех маршрутов (rejectClientRates).
+		if rejectClientRates(w, req) {
 			return
 		}
 
@@ -58,18 +60,24 @@ func handlePublicQuote(svc StairService, storeSvc StoreService, authSvc AuthServ
 		}
 
 		cfg := toConfig(req)
-		opts, err := toOptions(req)
-		if err != nil {
-			writeInputError(w, "invalid_rates", err)
+		opts, ok := toOptions(req)
+		if !ok {
+			// unreachable: rejectClientRates выше уже отсек непустой rates.
+			// Оставлено как защита от будущего изменения порядка.
+			writeError(w, http.StatusUnprocessableEntity, "rates_not_allowed",
+				clientRatesNotAllowedMessage)
 			return
 		}
-		if rates, ok := publicStoreRates(r, storeSvc, authSvc); ok {
-			opts.Rates = rates
-		}
+		// CRITICAL-03 (2026-09-27): выбор источника ставок больше не
+		// решается транспортом. Раньше здесь подкладывались ставки
+		// магазина (publicStoreRates), а девять авторизованных маршрутов —
+		// нет, и те падали в engprc.DefaultRates(). Теперь транспорт только
+		// называет контекст, а источник выбирает stair.Service.resolveRates.
+		opts.TenantID = publicStoreTenant(r, authSvc)
 
 		res, err := svc.Calculate(r.Context(), cfg, opts)
 		if err != nil {
-			mapStairError(w, err)
+			mapStairError(w, r, err)
 			return
 		}
 
@@ -106,7 +114,9 @@ func toPublicQuote(res *stair.Result, cfg stair.Config) publicQuoteDTO {
 		out.Spiral.WidthMm = w
 	}
 	out.Geometry = toGeometry(*res)
-	price := toPricing(res.Price)
+	// Только валюта и итог: маржа/накладные/себестоимость — не для
+	// анонимного посетителя (см. publicPricingDTO).
+	price := toPublicPricing(res.Price)
 	out.Pricing = &price
 	out.Mesh = res.Mesh
 	out.RailingMesh = res.RailingMesh

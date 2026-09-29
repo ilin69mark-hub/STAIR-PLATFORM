@@ -73,9 +73,8 @@ func handleAssistantAsk(svc AssistantService) http.HandlerFunc {
 				HistoryLimit: historyLimit,
 			}
 		case appast.KindEngineering, appast.KindManufacturing, appast.KindPricing:
-			opts, oerr := toOptions(req.calculateRequest)
-			if oerr != nil {
-				writeInputError(w, "invalid_rates", oerr)
+			opts, ok := optionsOrReject(r, w, req.calculateRequest)
+			if !ok {
 				return
 			}
 			areq = appast.AnalysisRequest{
@@ -107,7 +106,7 @@ func handleAssistantAsk(svc AssistantService) http.HandlerFunc {
 				// внутренней цепочки (URL провайдера, имена сервисов — CWE-209);
 				// детали — только в slog.
 				slog.Error("assistant request failed", "kind", kind, "error", err)
-				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка. Попробуйте позже.")
+				writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Внутренняя ошибка. Попробуйте позже.")
 			}
 			return
 		}
@@ -138,7 +137,7 @@ func handleAssistantForget(svc AssistantService) http.HandlerFunc {
 				return
 			}
 			slog.Error("assistant memory purge failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка. Попробуйте позже.")
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Внутренняя ошибка. Попробуйте позже.")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"deleted": n})

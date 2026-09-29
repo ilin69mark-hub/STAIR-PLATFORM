@@ -13,7 +13,10 @@ import (
 // ожидаемый транспортным слоем.
 type JobsService interface {
 	SubmitCalculate(ctx context.Context, tenantID, userID string, payload jobs.Payload) (*jobs.Job, error)
-	GetJob(ctx context.Context, tenantID, id string) (*jobs.Job, error)
+	// GetJobForUser возвращает задание в скоупе tenant'а И владельца.
+	// SEC-004: userID обязателен — tenant-only доступ означал бы, что любой
+	// пользователь дефолтного tenant'а читает чужой расчёт.
+	GetJobForUser(ctx context.Context, tenantID, userID, id string) (*jobs.Job, error)
 }
 
 // jobStatusResponse — ответ GET /api/v1/jobs/{id}: статус и, при успехе,
@@ -37,9 +40,8 @@ func handleCalculateAsync(svc JobsService) http.HandlerFunc {
 			return
 		}
 		cfg := toConfig(req)
-		opts, err := toOptions(req)
-		if err != nil {
-			writeInputError(w, "invalid_rates", err)
+		opts, ok := optionsOrReject(r, w, req)
+		if !ok {
 			return
 		}
 		// Дешёвая синхронная валидация (EDR-0035 §3.4): заведомо невалидный
@@ -52,7 +54,7 @@ func handleCalculateAsync(svc JobsService) http.HandlerFunc {
 
 		j, err := svc.SubmitCalculate(r.Context(), tenantID(r.Context()), userID(r.Context()), jobs.Payload{Config: cfg, Options: opts})
 		if err != nil {
-			mapStairError(w, err)
+			mapStairError(w, r, err)
 			return
 		}
 		writeJSON(w, http.StatusAccepted, map[string]string{
@@ -65,16 +67,20 @@ func handleCalculateAsync(svc JobsService) http.HandlerFunc {
 
 // handleGetJob — GET /api/v1/jobs/{id} (EDR-0035). Детерминированная
 // отдача статуса; при succeeded — результат в формате calculateResponse.
+//
+// SEC-004: доступ ограничен владельцем задания. Чужое задание отдаёт 404
+// (не 403), чтобы не раскрывать факт его существования.
 func handleGetJob(svc JobsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		j, err := svc.GetJob(r.Context(), tenantID(r.Context()), id)
+		// SEC-004: userID из контекста — скоуп по владельцу.
+		j, err := svc.GetJobForUser(r.Context(), tenantID(r.Context()), userID(r.Context()), id)
 		if err != nil {
 			if errors.Is(err, jobs.ErrNotFound) {
 				writeError(w, http.StatusNotFound, "not_found", "Задание не найдено")
 				return
 			}
-			mapStairError(w, err)
+			mapStairError(w, r, err)
 			return
 		}
 		resp := jobStatusResponse{ID: j.ID, Type: j.Type, Status: string(j.Status), Error: j.Error}

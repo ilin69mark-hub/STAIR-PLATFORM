@@ -324,7 +324,21 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	secMiddleware := SecurityMiddleware(cfg.SecurityConfig)
 
 	// Middleware-конвейер: строится изнутри наружу (inner → outer).
-	h := withLogging(mux)
+	//
+	// SEC-005b (2026-09-26): порядок PanicRecoveryMiddleware и withLogging
+	// был переставлен. Раньше recover стоял ВНЕ withLogging, поэтому
+	// PanicRecoveryMiddleware получал запрос до того, как withLogging
+	// вложил в контекст request id (middleware.go:54), и поле
+	// `request_id` в теле 500 всегда было пустым:
+	//   -> 500 {"error":{"code":"internal",...,"request_id":""}}
+	// То есть инцидент в 03:00 невозможно было связать с его строкой лога
+	// по ответу клиенту. Теперь recover innermost — он видит уже
+	// обогащённый контекст, поэтому request_id в 500 всегда заполнен.
+	//
+	// Взаимодействие с withLogging: withLogging больше НЕ re-pаникует
+	// (единственный recover — здесь), а просто логирует факт паники
+	// в status/логи/метрики и отдаёт управление сюда.
+	h := withLogging(PanicRecoveryMiddleware(mux))
 	h = secMiddleware(h)
 	h = dedup(h)
 	h = respCacheMW(h)
@@ -332,7 +346,6 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	h = BodySizeLimit(cfg.MaxBodyBytes)(h)
 	h = CompressionMiddleware(h)
 	h = RouteTimeoutMiddleware(DefaultAPIRouteTimeouts())(h)
-	h = PanicRecoveryMiddleware(h)
 	h = VersionMiddleware(h)
 	return TraceMiddleware(h)
 }
@@ -351,10 +364,15 @@ func handleHealth(region string) http.HandlerFunc {
 	}
 }
 
-func handleNotFound(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusNotFound, map[string]string{
-		"error": "not_found",
-	})
+// handleNotFound — единый 404 для неизвестного пути.
+//
+// API-003: здесь раньше отдавалось `{"error": "not_found"}` — строка вместо
+// объекта, тогда как writeError/writeServiceError отдают
+// `{"error": {"code": ..., "message": ...}}`. Один клиентский парсер получал
+// два несовместимых формата ошибки, а схема OpenAPI описывала объект.
+func handleNotFound(w http.ResponseWriter, r *http.Request) {
+	writeErrorWithRequestID(w, r, http.StatusNotFound, "not_found",
+		"Метод не найден. Проверьте путь и версию API (/api/v1).")
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

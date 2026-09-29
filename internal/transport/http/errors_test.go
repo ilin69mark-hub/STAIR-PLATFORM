@@ -174,57 +174,6 @@ func TestMapDomainError_AppError(t *testing.T) {
 	}
 }
 
-func TestMapDomainError_NotFound(t *testing.T) {
-	tests := []struct {
-		errMsg string
-		code   string
-	}{
-		{"project not found", "not_found"},
-		{"user not found", "not_found"},
-		{"stair not found", "not_found"},
-		{"config not found", "not_found"},
-		{"payment not found", "not_found"},
-		{"order not found", "not_found"},
-	}
-	for _, tt := range tests {
-		err := errors.New(tt.errMsg)
-		mapped := MapDomainError(err)
-		if mapped.Code != tt.code {
-			t.Errorf("MapDomainError(%q).Code = %q, want %q", tt.errMsg, mapped.Code, tt.code)
-		}
-	}
-}
-
-func TestMapDomainError_AlreadyExists(t *testing.T) {
-	err := errors.New("email already exists")
-	mapped := MapDomainError(err)
-	if mapped.Status != 409 {
-		t.Errorf("expected status 409, got %d", mapped.Status)
-	}
-}
-
-func TestMapDomainError_Validation(t *testing.T) {
-	tests := []string{"validation failed", "invalid input"}
-	for _, msg := range tests {
-		err := errors.New(msg)
-		mapped := MapDomainError(err)
-		if mapped.Status != 422 {
-			t.Errorf("MapDomainError(%q).Status = %d, want 422", msg, mapped.Status)
-		}
-	}
-}
-
-func TestMapDomainError_Forbidden(t *testing.T) {
-	tests := []string{"forbidden", "insufficient permissions"}
-	for _, msg := range tests {
-		err := errors.New(msg)
-		mapped := MapDomainError(err)
-		if mapped.Status != 403 {
-			t.Errorf("MapDomainError(%q).Status = %d, want 403", msg, mapped.Status)
-		}
-	}
-}
-
 func TestMapDomainError_Unknown(t *testing.T) {
 	err := errors.New("something completely unknown")
 	mapped := MapDomainError(err)
@@ -239,10 +188,29 @@ func TestMapDomainError_Nil(t *testing.T) {
 	}
 }
 
-func TestMapDomainError_CaseInsensitive(t *testing.T) {
-	err := errors.New("Project Not Found")
-	mapped := MapDomainError(err)
-	if mapped.Status != 404 {
-		t.Errorf("expected status 404 for case-insensitive match, got %d", mapped.Status)
+// TestMapDomainError_DoesNotGuessByMessage — регрессия API-002.
+//
+// Раньше MapDomainError определял HTTP-статус ПО ПОДСТРОКЕ текста ошибки.
+// Это давало неверные ответы и утечку внутренних деталей: сообщение драйвера
+// БД «relation "users" does not exist» превращалось в 422 «invalid», а
+// «duplicate key value violates unique constraint» — в 409 клиентский ответ.
+// Теперь маппинг только по sentinel: неизвестная ошибка → 500.
+func TestMapDomainError_DoesNotGuessByMessage(t *testing.T) {
+	for _, msg := range []string{
+		"project not found",
+		"user not found",
+		"Project Not Found",
+		"email already exists",
+		"validation failed",
+		"invalid input",
+		"forbidden",
+		"insufficient permissions",
+		`relation "users" does not exist`,
+		"duplicate key value violates unique constraint",
+	} {
+		mapped := MapDomainError(errors.New(msg))
+		if mapped.Status != http.StatusInternalServerError {
+			t.Errorf("MapDomainError(%q).Status = %d, want 500 (no text matching)", msg, mapped.Status)
+		}
 	}
 }

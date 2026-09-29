@@ -12,7 +12,7 @@ import (
 // Код движка и внутренний расчёт не тронуты — это фича-флаг на границе API.
 func TestPublicSpiralTemporarilyDisabled(t *testing.T) {
 	body := `{
-		"width_mm": 900, "height_mm": 2800, "flight": "spiral", "material": "ALUM-5083",
+		"width_mm": 900, "height_mm": 2800, "flight": "spiral", "material": "STEEL-S235",
 		"step_height_mm": 175, "step_thickness_mm": 6, "stringer_thickness_mm": 50,
 		"clearance_mm": 2000, "railing_height_mm": 900, "outer_radius_mm": 1200
 	}`
@@ -34,7 +34,7 @@ func TestPublicSpiralTemporarilyDisabled(t *testing.T) {
 // проектов, тесты движка) продолжает считать спираль: флаг только публичный.
 func TestInternalCalculateStillAcceptsSpiral(t *testing.T) {
 	body := `{
-		"width_mm": 900, "height_mm": 2800, "flight": "spiral", "material": "ALUM-5083",
+		"width_mm": 900, "height_mm": 2800, "flight": "spiral", "material": "STEEL-S235",
 		"step_height_mm": 175, "step_thickness_mm": 6, "stringer_thickness_mm": 50,
 		"clearance_mm": 2000, "railing_height_mm": 900, "outer_radius_mm": 1200
 	}`

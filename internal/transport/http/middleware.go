@@ -57,9 +57,15 @@ func withLogging(next http.Handler) http.Handler {
 
 		defer func() {
 			if rec := recover(); rec != nil {
-				// Единственный recover — в PanicRecoveryMiddleware (см. recovery.go).
+				// Единственный recover — в PanicRecoveryMiddleware, который
+				// с 2026-09-26 стоит ВНУТРИ withLogging (router.go), чтобы
+				// видеть request id из контекста.
+				//
 				// Здесь паника только фиксируется в статусе/логах/метриках и
-				// пробрасывается дальше, чтобы ответ 500 написал recovery-обёртка.
+				// пробрасывается дальше, чтобы тело 500 с request_id написала
+				// recovery-обёртка. Если recover ниже по цепочке почему-то нет
+				// (например, обработчик вызван напрямую в тесте), паника
+				// продолжит подниматься, а не будет проглочена молча.
 				sw.status = http.StatusInternalServerError
 				recordHTTPMetrics(r.Method, r.URL.Path, sw.status, time.Since(start))
 				logAttrs := slogAttrs(rid, r, sw, start)

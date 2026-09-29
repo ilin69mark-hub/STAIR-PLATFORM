@@ -29,6 +29,7 @@ type fakeProjectService struct {
 	configs          []*project.StairConfiguration
 	calc             *project.Calculation
 	cadMesh          *kerngeo.Mesh
+	cadRailings      *kerngeo.Mesh // сетка перил (DOM-003)
 	createErr        error
 	calculateErr     error
 	getErr           error
@@ -298,6 +299,20 @@ func (f *fakeProjectService) Preview(ctx context.Context, tenantID, userID, proj
 	}
 	snap := project.NewSnapshot(projectID, &stair.Result{})
 	return &snap, nil
+}
+
+// ExportCADWithRailings — экспорт с перилами (DOM-003). Перила возвращаются
+// отдельной сеткой, как это делает application-слой (RailingMesh).
+func (f *fakeProjectService) ExportCADWithRailings(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, *kerngeo.Mesh, error) {
+	mesh, err := f.ExportCAD(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return nil, nil, err
+	}
+	railings := f.cadRailings
+	if railings == nil {
+		railings = &kerngeo.Mesh{Vertices: []kerngeo.Point3{}, Triangles: [][3]int{}}
+	}
+	return mesh, railings, nil
 }
 
 func (f *fakeProjectService) ExportCAD(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, error) {

@@ -179,39 +179,39 @@ func CollectDBPoolMetrics(pool *pgxpool.Pool) {
 // Публичный: не требует auth/CSRF/rate-limit (мониторинг не должен
 // блокироваться). Пишет HTTP-реестр, реестр прикладного слоя расчёта,
 // circuit breaker и rate limiter метрики.
-func handleMetrics(w http.ResponseWriter, _ *http.Request) {
+func handleMetrics(w http.ResponseWriter, r *http.Request) {
 	refreshRuntimeMetrics()
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	if err := httpMetricsReg.Write(w); err != nil {
-		writeError(w, http.StatusInternalServerError, "metrics", "Не удалось сохранить метрики.")
+		writeErrorWithRequestID(w, r, http.StatusInternalServerError, "metrics", "Не удалось сохранить метрики.")
 		return
 	}
 	if err := stair.ServiceMetricsReg.Write(w); err != nil {
-		writeError(w, http.StatusInternalServerError, "metrics", "Не удалось сохранить метрики.")
+		writeErrorWithRequestID(w, r, http.StatusInternalServerError, "metrics", "Не удалось сохранить метрики.")
 		return
 	}
 	// Circuit breaker metrics
 	if err := circuitbreaker.CBRegistry.Write(w); err != nil {
-		writeError(w, http.StatusInternalServerError, "metrics", "Не удалось сохранить CB метрики.")
+		writeErrorWithRequestID(w, r, http.StatusInternalServerError, "metrics", "Не удалось сохранить CB метрики.")
 		return
 	}
 	// Rate limiter metrics
 	if err := security.RateLimitRegistry.Write(w); err != nil {
-		writeError(w, http.StatusInternalServerError, "metrics", "Не удалось сохранить rate limit метрики.")
+		writeErrorWithRequestID(w, r, http.StatusInternalServerError, "metrics", "Не удалось сохранить rate limit метрики.")
 		return
 	}
 	// Compression metrics
 	if err := compressionRegistry.Write(w); err != nil {
-		writeError(w, http.StatusInternalServerError, "metrics", "Не удалось сохранить compression метрики.")
+		writeErrorWithRequestID(w, r, http.StatusInternalServerError, "metrics", "Не удалось сохранить compression метрики.")
 		return
 	}
 	// Response cache metrics
 	if err := cacheRegistry.Write(w); err != nil {
-		writeError(w, http.StatusInternalServerError, "metrics", "Не удалось сохранить cache метрики.")
+		writeErrorWithRequestID(w, r, http.StatusInternalServerError, "metrics", "Не удалось сохранить cache метрики.")
 		return
 	}
 	// AI assistant metrics (S-148: отказы дневного LLM-бюджета)
 	if err := appast.ServiceMetricsReg.Write(w); err != nil {
-		writeError(w, http.StatusInternalServerError, "metrics", "Не удалось сохранить assistant метрики.")
+		writeErrorWithRequestID(w, r, http.StatusInternalServerError, "metrics", "Не удалось сохранить assistant метрики.")
 	}
 }

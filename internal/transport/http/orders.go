@@ -110,7 +110,7 @@ func handleCreateOrder(svc OrderService) http.HandlerFunc {
 				writeInputError(w, "invalid_input", err)
 				return
 			}
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusCreated, toOrderDTO(o))
@@ -128,7 +128,9 @@ func handleListMyOrders(svc OrderService) http.HandlerFunc {
 		}
 		orders, err := svc.ListByUser(r.Context(), tenantID(r.Context()), uid)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		out := make([]orderDTO, 0, len(orders))
@@ -149,7 +151,9 @@ func handleAdminListOrders(svc OrderService) http.HandlerFunc {
 		}
 		orders, err := svc.ListAll(r.Context(), tenantID(r.Context()))
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		out := make([]orderDTO, 0, len(orders))
@@ -193,23 +197,23 @@ func handleAdminUpdateOrderStatus(svc OrderService, auditSvc AuditService) http.
 				writeInputError(w, "invalid_status", err)
 				return
 			}
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
-		// Audit: order status changed
-		if auditSvc != nil {
-			_ = auditSvc.Record(r.Context(), &audit.Event{
-				ActorID:    userID(r.Context()),
-				TenantID:   tenantID(r.Context()),
-				Action:     audit.ActionOrderStatusChanged,
-				ResourceID: id,
-				Result:     audit.ResultOK,
-				Detail:     fmt.Sprintf("status=%s", req.Status),
-			})
-		}
+		// Audit: order status changed (AUDIT-002: recordAudit логирует отказ)
+		recordAudit(r.Context(), auditSvc, &audit.Event{
+			ActorID:    userID(r.Context()),
+			TenantID:   tenantID(r.Context()),
+			Action:     audit.ActionOrderStatusChanged,
+			ResourceID: id,
+			Result:     audit.ResultOK,
+			Detail:     fmt.Sprintf("status=%s", req.Status),
+		})
 		o, err := svc.Get(r.Context(), tenantID(r.Context()), id)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusOK, toOrderDTO(o))
@@ -255,7 +259,9 @@ func handleCreateConsultation(svc OrderService, authSvc AuthService) http.Handle
 		}
 		tenant, err := authSvc.DefaultTenant(r.Context())
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		o, err := svc.CreateConsultation(r.Context(), tenant.ID,
@@ -266,7 +272,7 @@ func handleCreateConsultation(svc OrderService, authSvc AuthService) http.Handle
 				writeInputError(w, "invalid_input", err)
 				return
 			}
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusCreated, toOrderDTO(o))

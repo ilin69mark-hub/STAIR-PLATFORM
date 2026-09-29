@@ -49,12 +49,16 @@ func handlePublicListTestimonials(svc TestimonialService, authSvc AuthService) h
 	return func(w http.ResponseWriter, r *http.Request) {
 		tenant, err := authSvc.DefaultTenant(r.Context())
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		items, err := svc.ListPublished(r.Context(), tenant.ID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		out := make([]testimonialDTO, 0, len(items))
@@ -75,7 +79,9 @@ func handleAdminListTestimonials(svc TestimonialService) http.HandlerFunc {
 		}
 		items, err := svc.ListAll(r.Context(), tenantID(r.Context()))
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		out := make([]testimonialDTO, 0, len(items))
@@ -114,19 +120,17 @@ func handleAdminCreateTestimonial(svc TestimonialService, auditSvc AuditService)
 				writeInputError(w, "invalid_input", err)
 				return
 			}
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
-		// Audit: testimonial created
-		if auditSvc != nil {
-			_ = auditSvc.Record(r.Context(), &audit.Event{
-				ActorID:    userID(r.Context()),
-				TenantID:   tenantID(r.Context()),
-				Action:     audit.ActionTestimonialCreated,
-				ResourceID: t.ID,
-				Result:     audit.ResultOK,
-			})
-		}
+		// Audit: testimonial created (AUDIT-002: recordAudit логирует отказ)
+		recordAudit(r.Context(), auditSvc, &audit.Event{
+			ActorID:    userID(r.Context()),
+			TenantID:   tenantID(r.Context()),
+			Action:     audit.ActionTestimonialCreated,
+			ResourceID: t.ID,
+			Result:     audit.ResultOK,
+		})
 		writeJSON(w, http.StatusCreated, toTestimonialDTO(t))
 	}
 }
@@ -157,19 +161,17 @@ func handleAdminUpdateTestimonial(svc TestimonialService, auditSvc AuditService)
 				writeInputError(w, "invalid_input", err)
 				return
 			}
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
-		// Audit: testimonial updated
-		if auditSvc != nil {
-			_ = auditSvc.Record(r.Context(), &audit.Event{
-				ActorID:    userID(r.Context()),
-				TenantID:   tenantID(r.Context()),
-				Action:     audit.ActionTestimonialUpdated,
-				ResourceID: r.PathValue("id"),
-				Result:     audit.ResultOK,
-			})
-		}
+		// Audit: testimonial updated (AUDIT-002: recordAudit логирует отказ)
+		recordAudit(r.Context(), auditSvc, &audit.Event{
+			ActorID:    userID(r.Context()),
+			TenantID:   tenantID(r.Context()),
+			Action:     audit.ActionTestimonialUpdated,
+			ResourceID: r.PathValue("id"),
+			Result:     audit.ResultOK,
+		})
 		writeJSON(w, http.StatusOK, toTestimonialDTO(t))
 	}
 }
@@ -190,19 +192,17 @@ func handleAdminDeleteTestimonial(svc TestimonialService, auditSvc AuditService)
 				writeError(w, http.StatusNotFound, "not_found", "Отзыв не найден.")
 				return
 			}
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
-		// Audit: testimonial deleted
-		if auditSvc != nil {
-			_ = auditSvc.Record(r.Context(), &audit.Event{
-				ActorID:    userID(r.Context()),
-				TenantID:   tenantID(r.Context()),
-				Action:     audit.ActionTestimonialDeleted,
-				ResourceID: id,
-				Result:     audit.ResultOK,
-			})
-		}
+		// Audit: testimonial deleted (AUDIT-002: recordAudit логирует отказ)
+		recordAudit(r.Context(), auditSvc, &audit.Event{
+			ActorID:    userID(r.Context()),
+			TenantID:   tenantID(r.Context()),
+			Action:     audit.ActionTestimonialDeleted,
+			ResourceID: id,
+			Result:     audit.ResultOK,
+		})
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

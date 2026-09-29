@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	engmfg "stairplatform/internal/engine/manufacturing"
 )
 
 // TestPublicMaterials — витрина (этап 3) читает каталог материалов с API:
@@ -20,17 +22,22 @@ func TestPublicMaterials(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(got) != 7 {
-		t.Fatalf("want 7 материалов каталога, got %d", len(got))
+	// Сверка с реестром, а не с константой: публичный каталог обязан отдавать
+	// ровно то, что умеет изготовить движок, и меняться вместе с ним.
+	reg, err := engmfg.DefaultMaterialRegistry()
+	if err != nil {
+		t.Fatalf("material registry: %v", err)
+	}
+	if len(got) != len(reg.Materials()) {
+		t.Fatalf("want %d материалов каталога, got %d", len(reg.Materials()), len(got))
 	}
 	byCode := map[string]materialDTO{}
 	for _, m := range got {
 		byCode[m.Code] = m
 	}
-	for _, code := range []string{
-		"STEEL-S235", "STEEL-CORTEN", "ALUM-5083",
-		"WOOD-OAK", "WOOD-WALNUT", "WOOD-ASH", "WOOD-SOFT",
-	} {
+	// Перечень берём из реестра MFG-0005, а не прописываем строкой.
+	for _, mat := range reg.Materials() {
+		code := string(mat.Code)
 		m, ok := byCode[code]
 		if !ok {
 			t.Fatalf("материал %s отсутствует в публичном каталоге", code)

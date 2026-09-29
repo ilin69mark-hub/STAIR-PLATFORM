@@ -323,7 +323,7 @@ func handleUsageAnalytics(svc AnalyticsService) http.HandlerFunc {
 			case errors.Is(err, analytics.ErrInvalidRange):
 				writeError(w, http.StatusUnprocessableEntity, "invalid_range", "Параметр from не может быть позже to.")
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+				writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			}
 			return
 		}
@@ -358,7 +358,7 @@ func handleProjectsAnalytics(svc AnalyticsService) http.HandlerFunc {
 			case errors.Is(err, analytics.ErrInvalidRange):
 				writeError(w, http.StatusUnprocessableEntity, "invalid_range", "Параметр from не может быть позже to.")
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+				writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			}
 			return
 		}
@@ -401,7 +401,7 @@ func handleManufacturingAnalytics(svc AnalyticsService) http.HandlerFunc {
 			case errors.Is(err, analytics.ErrInvalidRange):
 				writeError(w, http.StatusUnprocessableEntity, "invalid_range", "Параметр from не может быть позже to.")
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+				writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			}
 			return
 		}
@@ -444,7 +444,7 @@ func handleCostAnalytics(svc AnalyticsService) http.HandlerFunc {
 			case errors.Is(err, analytics.ErrInvalidRange):
 				writeError(w, http.StatusUnprocessableEntity, "invalid_range", "Параметр from не может быть позже to.")
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+				writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			}
 			return
 		}

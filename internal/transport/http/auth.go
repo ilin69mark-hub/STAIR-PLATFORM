@@ -181,7 +181,7 @@ func handleRegister(svc AuthService, secure bool) http.HandlerFunc {
 			case errors.Is(err, auth.ErrInvalidEmail), errors.Is(err, auth.ErrWeakPassword):
 				writeInputError(w, "invalid_input", err)
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+				writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			}
 			return
 		}
@@ -211,7 +211,7 @@ func handleLogin(svc AuthService, secure bool) http.HandlerFunc {
 			// «Аккаунт отключён» сообщается только аутентифицированным
 			// пользователям (Authenticate → middleware).
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+				writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			}
 			return
 		}
@@ -225,7 +225,7 @@ func handleLogout(svc AuthService, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := sessionToken(r)
 		if err := svc.Logout(r.Context(), token); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		clearSessionCookies(w, appOrigin(r), secure)
@@ -233,10 +233,43 @@ func handleLogout(svc AuthService, secure bool) http.HandlerFunc {
 	}
 }
 
-// handleMe — GET /api/v1/auth/me (auth). 200 — текущий пользователь.
+// handleMe — GET /api/v1/auth/me (auth).
+// 200 — текущий субъект: пользователь (сессия) или API-ключ (Bearer).
+//
+// SEC-005 (2026-09-26): обработчик вызывался как toUserDTO(authUser(ctx)),
+// а requireAuth в ветке Bearer кладёт в контекст ТОЛЬКО ключ, не пользователя
+// (middleware_auth.go:173). Поэтому запрос с валидным API-ключом приводил к
+// nil-pointer разыменованию в toUserDTO -> паника -> 500. Воспроизведено:
+//
+//	GET /api/v1/auth/me  Authorization: Bearer <валидный ключ>
+//	-> 500 {"error":{"code":"internal",...,"request_id":""}}
+//
+// Теперь оба вида субъекта обрабатываются: сессия -> userDTO,
+// API-ключ -> apiKeyDTO (переиспользуется каноническое представление из
+// admin.go, в нём намеренно нет token_hash). Ответ помечен subject_type,
+// чтобы клиент однозначно различал форму ответа.
 func handleMe() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, toUserDTO(authUser(r.Context())))
+		ctx := r.Context()
+		if k := apiKey(ctx); k != nil {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"subject_type": "api_key",
+				"api_key":      toApiKeyDTO(k),
+			})
+			return
+		}
+		u := authUser(ctx)
+		if u == nil {
+			// Обязательно fail-closed: раньше здесь был nil-pointer (SEC-005).
+			// requireAuth гарантирует одного из двух субъектов, но если
+			// будущий middleware изменит правила — лучше 401, чем паника.
+			writeError(w, http.StatusUnauthorized, "unauthorized", "Требуется авторизация")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"subject_type": "user",
+			"user":         toUserDTO(u),
+		})
 	}
 }
 

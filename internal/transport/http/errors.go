@@ -3,7 +3,6 @@ package http
 import (
 	"errors"
 	"net/http"
-	"strings"
 )
 
 // AppError — структурированная ошибка приложения.
@@ -172,44 +171,8 @@ func AlreadyExistsError(msg string, err error) *AppError {
 	return &AppError{Status: 409, Code: "already_exists", Message: msg, Err: err}
 }
 
-// MapDomainError маппит ошибку из domain/application слоя на AppError.
-// Если ошибка уже AppError — возвращает как есть.
-// Если ошибка является sentinel error — маппит на соответствующий AppError.
-// Иначе — InternalError.
-func MapDomainError(err error) *AppError {
-	if err == nil {
-		return nil
-	}
-
-	// Если уже AppError
-	var appErr *AppError
-	if errors.As(err, &appErr) {
-		return appErr
-	}
-
-	// Проверяем sentinel errors из domain слоя
-	errMsg := err.Error()
-	errLower := strings.ToLower(errMsg)
-
-	switch {
-	case strings.Contains(errLower, "not found"):
-		return NotFoundError(errMsg, err)
-	case strings.Contains(errLower, "already exists"):
-		return AlreadyExistsError(errMsg, err)
-	case strings.Contains(errLower, "conflict"):
-		return ConflictError(errMsg, err)
-	case strings.Contains(errLower, "validation") || strings.Contains(errLower, "invalid"):
-		return ValidationErrorResponse(errMsg, err)
-	case strings.Contains(errLower, "unauthorized") || strings.Contains(errLower, "authentication"):
-		return UnauthorizedError(errMsg, err)
-	case strings.Contains(errLower, "forbidden") || strings.Contains(errLower, "permission"):
-		return ForbiddenError(errMsg, err)
-	case strings.Contains(errLower, "rate limit"):
-		return RateLimitedError(errMsg, err)
-	default:
-		return InternalError(errMsg, err)
-	}
-}
+// MapDomainError перенесён в error_contract.go: статус определяется по
+// sentinel-ошибкам (errors.Is), а не по подстроке текста ошибки.
 
 // FromError маппит произвольную ошибку на AppError.
 func FromError(err error) *AppError {

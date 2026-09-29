@@ -78,7 +78,11 @@ func testRouterWithStore(s StoreService, admin bool) http.Handler {
 	if admin {
 		auth = adminAuth{}
 	}
-	return NewRouter(stair.NewService(), nil, auth, cfg)
+	// CRITICAL-03: сервис расчёта подключён к магазину через RatesResolver.
+	// Ставки магазина выбирает application-слой (stair.Service.resolveRates),
+	// а не транспорт, поэтому тестовый роутер обязан собираться так же, как
+	// прод (cmd/api/main.go: stair.NewServiceWithRates(storeSvc)).
+	return NewRouter(stair.NewServiceWithRates(s), nil, auth, cfg)
 }
 
 // TestAdminStoreSettingsRequiresAdmin — прайс и настройки магазина доступны
@@ -229,6 +233,10 @@ func TestPublicQuoteUsesStoreRates(t *testing.T) {
 	                 "stringer_thickness_mm":40,"step_thickness_mm":40,"riser":true,
 	                 "clearance_mm":2200,"railing_height_mm":900,"material":"WOOD-OAK"}`
 
+	// Проба — ИТОГОВАЯ цена, а не material_rub: публичный ответ не содержит
+	// разбивки себестоимости (SEC-PRICING-PUB), и проверять применение прайса
+	// магазина нужно по тому, что реально видит покупатель. Если прайс влияет
+	// на расчёт, он обязан поднять итог.
 	quote := func() float64 {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, publicJSONRequest(http.MethodPost, "/api/v1/public/stairs:quote", quoteBody))
@@ -242,7 +250,7 @@ func TestPublicQuoteUsesStoreRates(t *testing.T) {
 		if out.Pricing == nil {
 			t.Fatal("в ответе нет цены")
 		}
-		return out.Pricing.MaterialRub
+		return out.Pricing.FinalPriceRub
 	}
 
 	before := quote()
@@ -251,7 +259,7 @@ func TestPublicQuoteUsesStoreRates(t *testing.T) {
 	}
 	after := quote()
 	if after <= before {
-		t.Fatalf("прайс магазина не поднял стоимость материала: было %.2f, стало %.2f", before, after)
+		t.Fatalf("прайс магазина не поднял итоговую стоимость: было %.2f, стало %.2f", before, after)
 	}
 }
 

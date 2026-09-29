@@ -36,13 +36,11 @@ type materialDTO struct {
 // materialFinishes — финиши по коду материала. Держим рядом с каталогом на
 // бэкенде, чтобы витрина и калькулятор показывали один и тот же список.
 var materialFinishes = map[dommfg.MaterialCode][]string{
-	"STEEL-S235":   {"raw", "black", "white"},
-	"STEEL-CORTEN": {"raw"},
-	"ALUM-5083":    {"natural", "black"},
-	"WOOD-OAK":     {"oil", "matte", "toned"},
-	"WOOD-WALNUT":  {"oil", "matte"},
-	"WOOD-ASH":     {"oil", "matte"},
-	"WOOD-SOFT":    {"oil", "matte"},
+	"STEEL-S235":  {"raw", "black", "white"},
+	"WOOD-OAK":    {"oil", "matte", "toned"},
+	"WOOD-WALNUT": {"oil", "matte"},
+	"WOOD-ASH":    {"oil", "matte"},
+	"WOOD-SOFT":   {"oil", "matte"},
 }
 
 // handlePublicMaterials — GET /api/v1/public/materials.
@@ -55,7 +53,9 @@ func handlePublicMaterials(storeSvc StoreService, authSvc AuthService) http.Hand
 	return func(w http.ResponseWriter, r *http.Request) {
 		registry, err := engmfg.DefaultMaterialRegistry()
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		rates := engprc.DefaultRates()

@@ -54,7 +54,9 @@ func handleAdminListPayments(svc PaymentAdminService) http.HandlerFunc {
 		}
 		list, err := svc.ListAll(r.Context(), tenantID(r.Context()))
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		out := make([]adminPaymentDTO, 0, len(list))
@@ -73,27 +75,29 @@ func handleAdminRefundPayment(svc PaymentAdminService, auditSvc AuditService) ht
 		}
 		p, err := svc.Refund(r.Context(), tenantID(r.Context()), r.PathValue("id"))
 		if err != nil {
-			writePaymentAdminError(w, err)
+			writePaymentAdminError(w, r, err)
 			return
 		}
-		if auditSvc != nil {
-			_ = auditSvc.Record(r.Context(), &audit.Event{
-				ActorID:      userID(r.Context()),
-				TenantID:     tenantID(r.Context()),
-				Action:       audit.ActionPaymentRefunded,
-				ResourceType: "payment",
-				ResourceID:   p.ID,
-				Result:       audit.ResultOK,
-				Detail:       "status=refunded",
-				RequestID:    auditRequestID(r.Context()),
-				IP:           clientIP(r),
-			})
-		}
+		// AUDIT-002 (2026-09-27): возврат денег обязан быть в журнале. Отказ
+		// записи не отменяет уже выполненный возврат, но логируется с
+		// request_id — иначе «вернули, а следов нет» обнаруживается только
+		// при сверке с банком.
+		recordAudit(r.Context(), auditSvc, &audit.Event{
+			ActorID:      userID(r.Context()),
+			TenantID:     tenantID(r.Context()),
+			Action:       audit.ActionPaymentRefunded,
+			ResourceType: "payment",
+			ResourceID:   p.ID,
+			Result:       audit.ResultOK,
+			Detail:       "status=refunded",
+			RequestID:    auditRequestID(r.Context()),
+			IP:           clientIP(r),
+		})
 		writeJSON(w, http.StatusOK, toAdminPaymentDTO(p))
 	}
 }
 
-func writePaymentAdminError(w http.ResponseWriter, err error) {
+func writePaymentAdminError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, payments.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "Платёж не найден")
@@ -106,6 +110,6 @@ func writePaymentAdminError(w http.ResponseWriter, err error) {
 	case errors.Is(err, payments.ErrProviderUnavailable):
 		writeError(w, http.StatusServiceUnavailable, "provider_unavailable", "Платёжный провайдер временно недоступен")
 	default:
-		writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+		writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 	}
 }
