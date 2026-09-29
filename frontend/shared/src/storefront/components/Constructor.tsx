@@ -862,6 +862,12 @@ export function Constructor() {
   // Тумблер «Дерево / Металл» показывает ВИД материала, а не конкретный код:
   // покупатель выбирает «дерево» и дальше — породу, а не оба решения сразу.
   const isMetalTread = !treadCode.startsWith('WOOD-')
+  // Подступенок идёт по материалу ступеней: переключатель заблокирован, он
+  // лишь показывает, из чего будут подступенки. Отделка — своими руками только
+  // для дерева; для металла подступенок того же цвета, что и ступени, и
+  // riserFinishId в 3D не уходит вовсе (см. GeometryViewer).
+  const riserFinish = isMetalTread ? treadFinishId : riserFinishId
+  const riserFinishOptions = finishOptions(treadCode)
   // Изделие определяет набор материалов каркаса: в металлокаркасе — металлы,
   // в деревянной лестнице — породы дерева. Это не фильтр для удобства:
   // пределы толщины, вес, цена и раскрой у них разные.
@@ -926,6 +932,9 @@ export function Constructor() {
       next.stepThicknessMM = String(limit.max)
     }
     setTreadFinish(FINISHES[code]?.[0]?.id ?? '')
+    // Отделка подступенков меняет материал вместе с материалом ступеней:
+    // иначе после «сталь → дуб» у подступенков осталась бы стальная палитра.
+    setRiserFinish(FINISHES[code]?.[0]?.id ?? '')
     setConfig(next)
   }
 
@@ -1072,6 +1081,41 @@ export function Constructor() {
               onChange={setTreadFinish}
             />
           )}
+          {/* Подступенки. Блок есть только когда подступенки включены
+              («Подступень: Да») — выбирать нечего, если их нет. Материал
+              заблокирован: он следует за материалом ступеней, и это же
+              правило режет подступенки на бэке. Отделка — своим рядом только
+              для дерева; для металла подступенок того же цвета, что ступени. */}
+          {config.riser && (
+            <Segmented
+              legend="Подступенки (материал)"
+              value={isMetalTread ? 'metal' : 'wood'}
+              columns={2}
+              locked
+              lockedHint="Следует за материалом ступеней"
+              options={[
+                {
+                  value: 'wood',
+                  // Активная кнопка показывает НАСТОЯЩИЙ материал ступеней
+                  // (для дерева — породу), а не обобщённое «Дерево».
+                  label: isMetalTread
+                    ? 'Дерево'
+                    : (materialOptions.find((m) => m.value === treadCode)?.label ?? 'Дерево'),
+                  disabled: isMetalTread,
+                },
+                { value: 'metal', label: 'Металл', disabled: !isMetalTread },
+              ]}
+              onChange={() => {}}
+            />
+          )}
+          {config.riser && !isMetalTread && riserFinishOptions.length > 0 && (
+            <SwatchGroup
+              legend="Отделка подступенков"
+              value={riserFinishId}
+              options={riserFinishOptions}
+              onChange={setRiserFinish}
+            />
+          )}
         </>
       ),
     },
@@ -1100,6 +1144,7 @@ export function Constructor() {
             treadMaterial={treadCode}
             finishId={finishId}
             treadFinishId={treadFinishId}
+            riserFinishId={riserFinish}
             onAdjustStepHeight={adjustStepHeight}
             onFlipDirection={flipDirection}
             onAdjustHeight={adjustHeight}

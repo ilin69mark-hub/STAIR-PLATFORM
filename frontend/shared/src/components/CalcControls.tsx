@@ -130,6 +130,8 @@ export interface SegmentedOption {
   value: string
   label: string
   hint?: string
+  /** Кнопка заблокирована: значение показано, но выбрать его нельзя. */
+  disabled?: boolean
 }
 
 export interface SegmentedProps {
@@ -143,29 +145,71 @@ export interface SegmentedProps {
    *  кнопке 38px занимают две строки и съедают высоту панели. */
   compact?: boolean
   hint?: string
+  /** Весь переключатель заблокирован: значение показано, но не меняется.
+   *  Так выглядит производное поле — например, материал подступенков,
+   *  который обязан следовать за материалом ступеней. */
+  locked?: boolean
+  lockedHint?: string
 }
 
-export function Segmented({ legend, value, options, onChange, columns = 3, hint, compact }: SegmentedProps) {
+export function Segmented({
+  legend,
+  value,
+  options,
+  onChange,
+  columns = 3,
+  hint,
+  compact,
+  locked,
+  lockedHint,
+}: SegmentedProps) {
   return (
-    <fieldset className="segmented" data-cols={columns} data-compact={compact || undefined}>
+    <fieldset
+      className="segmented"
+      data-cols={columns}
+      data-compact={compact || undefined}
+      data-locked={locked || undefined}
+    >
       <legend className="segmented__legend">{legend}</legend>
       <div className="segmented__grid">
-        {options.map((o) => (
-          <button
-            key={o.value}
-            type="button"
-            role="radio"
-            aria-checked={value === o.value}
-            className={`segmented__item${value === o.value ? ' is-active' : ''}`}
-            onClick={() => onChange(o.value)}
-            title={o.hint}
-          >
-            <span className="segmented__label">{o.label}</span>
-            {o.hint && <span className="segmented__hint">{o.hint}</span>}
-          </button>
-        ))}
+        {options.map((o) =>
+          locked ? (
+            // Заблокированный переключатель — это ПОКАЗАТЕЛЬ, а не ввод.
+            // role="radio" здесь был бы враньём: получилось бы две группы
+            // радиокнопок с одинаковыми именами («Металл» — у ступеней и у
+            // подступенков), и скринридер читал бы заблокированное поле как
+            // рабочее. aria-disabled оставляет кнопку в порядке обхода и
+            // объявляет «недоступно», нативный disabled — убрал бы и то, и
+            // другое: поле нельзя было бы даже прочитать с клавиатуры.
+            <button
+              key={o.value}
+              type="button"
+              aria-disabled="true"
+              className={`segmented__item${value === o.value ? ' is-active' : ''}`}
+              onClick={() => {}}
+              title={o.hint}
+            >
+              <span className="segmented__label">{o.label}</span>
+              {o.hint && <span className="segmented__hint">{o.hint}</span>}
+            </button>
+          ) : (
+            <button
+              key={o.value}
+              type="button"
+              role="radio"
+              aria-checked={value === o.value}
+              disabled={o.disabled}
+              className={`segmented__item${value === o.value ? ' is-active' : ''}`}
+              onClick={() => onChange(o.value)}
+              title={o.hint}
+            >
+              <span className="segmented__label">{o.label}</span>
+              {o.hint && <span className="segmented__hint">{o.hint}</span>}
+            </button>
+          ),
+        )}
       </div>
-      {hint && <span className="segmented__hint-line">{hint}</span>}
+      {(lockedHint || hint) && <span className="segmented__hint-line">{lockedHint ?? hint}</span>}
     </fieldset>
   )
 }

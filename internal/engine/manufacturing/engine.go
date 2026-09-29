@@ -47,13 +47,21 @@ func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResu
 	}
 	for i := range parts {
 		// Материал детали берётся из материала ЕЁ РОЛИ, а не «один материал
-		// на всю лестницу». Каркас (косоуры, подступенки, колонна) идёт по
-		// cfg.Material, ступени (проступи, площадки, поворотные ступени) — по
+		// на всю лестницу». Каркас (косоуры, колонна) идёт по cfg.Material,
+		// ступени (проступи, площадки, поворотные ступени) — по
 		// cfg.TreadMaterial. decompose сводит площадку и поворотные ступени к
 		// PartTread, поэтому отдельных PartKind для них не нужно.
+		//
+		// Подступенок идёт по cfg.TreadMaterial ВМЕСТЕ со ступенями: он
+		// примыкает к проступи и виден вместе с ней, поэтому «деревянные
+		// ступени на стальном каркасе» означают деревянные подступенки, а не
+		// стальные. Раньше подступенок попадал в ветку каркаса и резался из
+		// cfg.Material — это давало деревянные ступени со стальными
+		// подступенками и не совпадало с тем, что человек выбирает в
+		// конструкторе.
 		preferred := dommfg.MaterialCode(cfg.Material)
 		switch parts[i].Kind {
-		case dommfg.PartTread:
+		case dommfg.PartTread, dommfg.PartRiser:
 			preferred = dommfg.MaterialCode(cfg.TreadMaterial)
 		}
 		if preferred != "" {

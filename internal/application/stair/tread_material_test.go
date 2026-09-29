@@ -53,10 +53,12 @@ func TestMetalFrameWoodTread_Accepted(t *testing.T) {
 	}
 }
 
-// TestTreadMaterialRouting — детали разводятся по материалам: косоур и
-// подступенок из каркаса, проступь из материала ступеней. Это и есть смысл
-// разделения; если маршрутизация сломается, цена станет неверной (дерево
-// посчитается по ставке стали или наоборот).
+// TestTreadMaterialRouting — детали разводятся по материалам: косоур из
+// каркаса, проступь И ПОДСТУПЕНОК — из материала ступеней. Подступенок
+// примыкает к проступи и виден вместе с ней, поэтому «деревянные ступени на
+// стальном каркасе» это деревянные подступенки. Если маршрутизация
+// сломается, цена станет неверной (дерево посчитается по ставке стали или
+// наоборот).
 func TestTreadMaterialRouting(t *testing.T) {
 	svc := NewService()
 	res, err := svc.Calculate(context.Background(), metalFrameWoodTreadConfig(t), Options{})
@@ -67,7 +69,7 @@ func TestTreadMaterialRouting(t *testing.T) {
 		t.Fatal("нет производственного пакета")
 	}
 
-	var treadWood, stringerSteel, riserSteel int
+	var treadWood, riserWood, stringerSteel, riserSteel int
 	for _, p := range res.Package.Parts {
 		switch string(p.Kind) {
 		case "tread":
@@ -79,6 +81,9 @@ func TestTreadMaterialRouting(t *testing.T) {
 				stringerSteel++
 			}
 		case "riser":
+			if p.Material == "WOOD-OAK" {
+				riserWood++
+			}
 			if p.Material == "STEEL-S235" {
 				riserSteel++
 			}
@@ -90,8 +95,11 @@ func TestTreadMaterialRouting(t *testing.T) {
 	if stringerSteel == 0 {
 		t.Errorf("ни один косоур не изготовлен из STEEL-S235 — материал каркаса не применяется")
 	}
-	if riserSteel == 0 {
-		t.Errorf("ни один подступенок не изготовлен из STEEL-S235 — подступенок должен идти по каркасу")
+	if riserWood == 0 {
+		t.Errorf("ни один подступенок не изготовлен из WOOD-OAK — подступенок должен идти по материалу ступеней")
+	}
+	if riserSteel != 0 {
+		t.Errorf("%d подступенков изготовлено из STEEL-S235, хотя ступени деревянные: подступенок идёт по материалу ступеней", riserSteel)
 	}
 
 	// Ни одна стальная деталь не должна получить минимальную толщину дуба.
@@ -180,5 +188,55 @@ func TestWoodFrameWithWoodTreadStillBlocked(t *testing.T) {
 	}
 	if res.Package != nil {
 		t.Error("производственный пакет не должен собираться для заблокированной конфигурации")
+	}
+}
+
+// TestRiserFollowsTreadMaterial — подступенок идёт по материалу ступеней
+// (решение владельца): стальной каркас + дубовые ступени → деревянные
+// подступенки. Проверяем и симметричный случай (всё стальное), и то, что
+// сохранённая конфигурация со стальным riser_thickness_mm НЕ падает с 422:
+// сервер отбрасывает недопустимую для материала ступеней толщину в пользу
+// толщины ступени. Иначе все накопленные конфигурации, созданные до смены
+// правила, сломались бы разом.
+func TestRiserFollowsTreadMaterial(t *testing.T) {
+	svc := NewService()
+
+	riserMaterials := func(res *Result) map[string]int {
+		out := map[string]int{}
+		for _, p := range res.Package.Parts {
+			if string(p.Kind) == "riser" {
+				out[string(p.Material)]++
+			}
+		}
+		return out
+	}
+
+	// Стальной каркас + дубовые ступени, riser_thickness_mm = 6 (сталь) —
+	// значение из старых конфигураций. Не должно быть ни 422, ни стальных
+	// подступенков.
+	cfg := metalFrameWoodTreadConfig(t)
+	cfg.RiserThickness = engineering.Length(6)
+	res, err := svc.Calculate(context.Background(), cfg, Options{})
+	if err != nil {
+		t.Fatalf("старое riser_thickness_mm=6 не должно отвергаться: %v", err)
+	}
+	if got := riserMaterials(res); got["STEEL-S235"] != 0 {
+		t.Errorf("стальных подступенков %d, хотя ступени деревянные: %v", got["STEEL-S235"], got)
+	}
+	if got := riserMaterials(res); got["WOOD-OAK"] == 0 {
+		t.Errorf("нет деревянных подступенков: %v", got)
+	}
+
+	// Всё стальное: подступенки стальные, толщина ступени.
+	steel := metalFrameWoodTreadConfig(t)
+	steel.TreadMaterial = "STEEL-S235"
+	steel.StepThickness = engineering.Length(6)
+	steel.RiserThickness = engineering.Length(0) // 0 → наследует толщину ступени
+	res, err = svc.Calculate(context.Background(), steel, Options{})
+	if err != nil {
+		t.Fatalf("стальная лестница не посчиталась: %v", err)
+	}
+	if got := riserMaterials(res); got["STEEL-S235"] == 0 {
+		t.Errorf("стальных подступенков нет, хотя всё из стали: %v", got)
 	}
 }

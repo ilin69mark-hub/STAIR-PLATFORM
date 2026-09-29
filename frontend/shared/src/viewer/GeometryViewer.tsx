@@ -74,6 +74,11 @@ interface Props {
   // treadFinishId — финиш материала СТУПЕНЕЙ. Отдельный от finishId, потому
   // что каркас и ступени могут быть из разных материалов с разной палитрой.
   treadFinishId?: string
+  // riserFinishId — финиш ПОДСТУПЕНКОВ. Подступенок идёт по материалу
+  // ступеней, но отделить его по цвету можно: для дерева отделка выбирается
+  // своим рядом, для металла подступенок красится в цвет ступеней и
+  // riserFinishId не передаётся. Пусто → отделка ступеней.
+  riserFinishId?: string
   // railingMetal — ограждение металлом вместо стекла.
   railingMetal?: boolean
   // Этап 2 «конструктор»: выбор детали марша в 3D. interactive включает
@@ -179,6 +184,7 @@ function buildRoleGroups(
     treadMaterialCode?: string
     finishId?: string
     treadFinishId?: string
+    riserFinishId?: string
     castShadow: boolean
   },
 ): THREE.Mesh[] {
@@ -203,15 +209,23 @@ function buildRoleGroups(
   for (const g of groups) {
     geo.addGroup(g.start, g.count, materials.length)
     const isTread = treadRole(g.role)
+    // Подступенок идёт по материалу ступеней (так его и режет бэк:
+    // PartRiser в ветке cfg.TreadMaterial), иначе деревянные ступени на
+    // стальном каркасе выглядели бы со стальными подступенками.
+    const isRiser = g.role === 'riser'
     materials.push(
       createStairMaterial({
-        // Материал детали — по её роли. Каркас (косоуры, подступенки,
-        // колонна) идёт по materialCode, ступени (проступи, площадка,
-        // поворотные ступени) — по treadMaterialCode. Роли приходят из
-        // backend PartRanges, поэтому разделение здесь не расходится с тем,
-        // по чему детали реально изготовлены и посчитаны в цене.
-        code: isTread ? (opts.treadMaterialCode ?? opts.materialCode) : opts.materialCode,
-        finishId: isTread ? (opts.treadFinishId ?? opts.finishId) : opts.finishId,
+        // Материал детали — по её роли. Каркас (косоуры, колонна) идёт по
+        // materialCode, ступени (проступи, площадка, поворотные ступени) и
+        // подступенки — по treadMaterialCode. Роли приходят из backend
+        // PartRanges, поэтому разделение здесь не расходится с тем, по чему
+        // детали реально изготовлены и посчитаны в цене.
+        code: isTread || isRiser ? (opts.treadMaterialCode ?? opts.materialCode) : opts.materialCode,
+        finishId: isTread
+          ? (opts.treadFinishId ?? opts.finishId)
+          : isRiser
+            ? (opts.riserFinishId ?? opts.treadFinishId ?? opts.finishId)
+            : opts.finishId,
         role: g.role,
         sizeMM,
       }),
@@ -254,6 +268,7 @@ export function GeometryViewer({
   treadMaterialCode,
   finishId,
   treadFinishId,
+  riserFinishId,
   railingMetal = false,
   interactive = false,
   selectedPart = null,
@@ -529,6 +544,7 @@ export function GeometryViewer({
       treadMaterialCode,
       finishId,
       treadFinishId,
+      riserFinishId,
       castShadow,
     })
     if (roleGroups.length > 0) {
@@ -1263,7 +1279,7 @@ export function GeometryViewer({
     // материала не пересобираются — пользователь выбирал бы цвет, а картинка
     // молчала бы. Материал меняется по клику, а не каждый кадр, поэтому
     // лишняя пересборка незаметна.
-  }, [mesh, roomMesh, railingMesh, approachSpace, roomWidth, roomLength, direction, stairTop, flight, stepThickness, secondFloorDepth, heightMM, materialCode, treadMaterialCode, finishId, treadFinishId])
+  }, [mesh, roomMesh, railingMesh, approachSpace, roomWidth, roomLength, direction, stairTop, flight, stepThickness, secondFloorDepth, heightMM, materialCode, treadMaterialCode, finishId, treadFinishId, riserFinishId])
 
   const SIDES: WallSide[] = ['top', 'bottom', 'right', 'left']
   const WALL_LABELS: Record<WallSide, string> = {

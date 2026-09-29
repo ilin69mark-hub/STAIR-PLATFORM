@@ -180,15 +180,19 @@ describe('validateForm', () => {
     expect(validateForm(thinWood).stepThicknessMM).toBe('Не менее 20')
   })
 
-  it('толщина подступенка считается по каркасу, а не по ступеням', () => {
-    // Стальной каркас + дубовая ступень: подступенок стальной, 40 мм дуба
-    // в каталоге для стали недопустимы, и без этого поля расчёт блокируется.
+  it('толщина подступенка равна толщине ступени: подступенок идёт по материалу ступеней', () => {
+    // Стальной каркас + дубовая ступень: подступенок ДЕРЕВЯННЫЙ (бэк режет
+    // PartRiser из cfg.TreadMaterial), поэтому его толщина обязана быть
+    // допустимой для дуба, то есть 40 мм, а не 6 мм стали.
     const base = { ...defaultConfig, stepThicknessMM: '40' }
     const mixed = { ...base, material: 'STEEL-S235' as const, treadMaterial: 'WOOD-OAK' }
-    expect(toRequest(mixed).riser_thickness_mm).toBe(6)
+    expect(toRequest(mixed).riser_thickness_mm).toBe(40)
 
-    // Деревянная лестница: подступенок и проступь из одного материала,
-    // наследование толщины ступени остаётся верным.
+    // Металлические ступени: подступенок стальной, толщина ступени та же.
+    const allSteel = { ...base, material: 'STEEL-S235' as const, treadMaterial: 'STEEL-S235', stepThicknessMM: '6' }
+    expect(toRequest(allSteel).riser_thickness_mm).toBe(6)
+
+    // Деревянная лестница: подступенок и проступь из одного материала.
     const wood = { ...base, material: 'WOOD-OAK' as const, treadMaterial: '', stepThicknessMM: '40' }
     expect(toRequest(wood).riser_thickness_mm).toBe(40)
   })

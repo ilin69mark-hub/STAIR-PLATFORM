@@ -717,8 +717,8 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 	// косоура, и толщину ступени, из-за чего стальной косоур 8 мм с деревянной
 	// проступью отвергался (у дерева MinThickness = 20 мм).
 	//
-	// Проверяем: материал каркаса ↔ толщины косоура и подступенка;
-	//           материал ступеней ↔ толщина ступени.
+	// Проверяем: материал каркаса ↔ толщина косоура;
+	//           материал ступеней ↔ толщины ступени И ПОДСТУПЕНКА.
 	treadCode := cfg.TreadMaterial
 	if treadCode == "" {
 		treadCode = cfg.Material
@@ -734,17 +734,30 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 				"stair: catalog unavailable: %w", err))
 		}
 		// Толщина детали проверяется по материтету ЭТОЙ детали: каркасная
-		// толщина — против каркасного материала, ступенная — против
-		// материала ступеней.
-		checks := []struct {
+		// толщина — против каркасного материала, ступенная и подступенковая —
+		// против материала ступеней. Подступенок режется из материала ступеней
+		// (engine/manufacturing: PartRiser идёт в ветку cfg.TreadMaterial), и
+		// клиентское riser_thickness_mm, если оно недопустимо для материала
+		// ступеней, отбрасывается в пользу толщины ступени. Иначе сохранённые
+		// конфигурации «стальной подступенок 6 мм + дубовые ступени» (их
+		// полно накопилось до смены правила) падали бы с 422.
+		type thicknessCheck struct {
 			code dommfg.MaterialCode
 			t    float64
 			name string
-		}{
+		}
+		checks := []thicknessCheck{
 			{cfg.Material, cfg.StringerThickness.Millimeters(), "косоура"},
-			{cfg.Material, riserTh, "подступенка"},
 			{treadCode, cfg.StepThickness.Millimeters(), "ступени"},
 		}
+		if mat, ok := reg.Find(treadCode); ok && !mat.SupportsThickness(riserTh) {
+			riserTh = cfg.StepThickness.Millimeters()
+		}
+		// Толщина подступенка уходит дальше и в геометрию (builder.go читает
+		// cfg.RiserThickness), поэтому нормализованное значение обязано
+		// попасть в c, а не остаться в локальной переменной.
+		c.RiserThickness = engineering.Length(riserTh)
+		checks = append(checks, thicknessCheck{treadCode, riserTh, "подступенка"})
 		for _, ck := range checks {
 			if ck.code == "" {
 				continue

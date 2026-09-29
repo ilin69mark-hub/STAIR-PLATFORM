@@ -490,20 +490,19 @@ export function validateForm(f: ConfigForm): FieldErrors {
 }
 
 /**
- * Толщина подступенка по материалу каркаса.
+ * Толщина подступенка = толщина ступени.
  *
- * Подступенок изготавливается из материала каркаса (см. маршрутизацию
- * деталей в сервисе), поэтому его толщина обязана быть допустимой для
- * каркаса, а не для материала ступеней. Если материалы совпадают,
- * наследование толщины ступени корректно и поведение прежнее.
+ * Подступенок изготавливается из материала СТУПЕНЕЙ (engine/manufacturing:
+ * PartRiser идёт в ветку cfg.TreadMaterial), поэтому его толщина обязана быть
+ * допустимой для материала ступеней, а не каркаса. Отдельного параметра
+ * толщины подступенка в панели больше нет — решение владельца «как у ступени».
+ * Сервер при этом принимает клиентское riser_thickness_mm и отбрасывает его в
+ * пользу толщины ступени, если оно недопустимо для материала ступеней, —
+ * иначе накопленные конфигурации «стальной подступенок 6 мм + дубовые
+ * ступени» падали бы с 422.
  */
 function riserThicknessFor(f: ConfigForm): number {
-  const sameMaterial = !f.treadMaterial || f.treadMaterial === f.material
-  if (sameMaterial) return Number(f.stepThicknessMM)
-  return Math.min(
-    materialThicknessMM(f.material),
-    thicknessRangeMM(f.material).max,
-  )
+  return Number(f.stepThicknessMM)
 }
 
 // toRequest преобразует форму в формат API (snake_case, числа в мм).

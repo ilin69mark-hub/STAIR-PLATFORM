@@ -38,6 +38,7 @@ export interface Stage3DProps {
   environmentHDRI?: string
   finishId?: string
   treadFinishId?: string
+  riserFinishId?: string
   railingMetal?: boolean
   onAdjustStepHeight?: (stepHeightMM: number) => void
   onFlipDirection?: () => void
@@ -59,6 +60,7 @@ export function Stage3D({
   environmentHDRI = '/static-assets/hdri/studio_small_08_1k.hdr',
   finishId,
   treadFinishId,
+  riserFinishId,
   railingMetal = true,
   onAdjustStepHeight,
   onFlipDirection,
@@ -128,6 +130,7 @@ export function Stage3D({
             environmentHDRI={environmentHDRI}
             finishId={finishId}
             treadFinishId={treadFinishId}
+            riserFinishId={riserFinishId}
             railingMetal={railingMetal}
             interactive={!!onAdjustStepHeight || !!onAdjustHeight || !!onAdjustComfortStep}
             onDragPreview={setDragValue}
