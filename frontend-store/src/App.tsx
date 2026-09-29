@@ -64,8 +64,10 @@ function App() {
     })
   }
 
+  const isCalc = route === 'constructor' && legal === null
+
   return (
-    <div className="store">
+    <div className={`store${isCalc ? ' store--calc' : ''}`}>
       <header className="store-header">
         <div className="store-brand" onClick={() => open('landing')} role="button">
           STAIR PLATFORM <small>лестницы на заказ</small>
@@ -97,7 +99,7 @@ function App() {
         </nav>
       </header>
 
-      <main className="store-main">
+      <main className={`store-main${isCalc ? ' store-main--calc' : ''}`}>
         {legal !== null ? (
           <InfoPage kind={legal} onBack={closeLegal} />
         ) : (

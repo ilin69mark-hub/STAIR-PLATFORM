@@ -2,8 +2,10 @@
    Базовые токены, стили конструктора и 3D живут в общем пакете
    (@shared/storefront/styles) — их использует и витрина на Next.js. */
 @import '@shared/storefront/styles/base.css';
+@import '@shared/storefront/styles/calc.css';
 @import './styles/landing.css';
 @import '@shared/storefront/styles/constructor.css';
+@import '@shared/storefront/styles/controls.css';
 @import './styles/auth.css';
 @import './styles/cabinet.css';
 @import '@shared/storefront/styles/viewer.css';

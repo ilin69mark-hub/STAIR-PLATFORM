@@ -4,7 +4,9 @@
   background: var(--sp-card);
   border: 1px solid var(--sp-border);
   border-radius: 14px;
-  padding: 22px;
+  /* 16px вместо 22px: панель держит пять секций, и каждый лишний сантиметр
+     отступов съедал высоту тела открытой секции. */
+  padding: 16px;
 }
 
 .panel + .panel {
@@ -12,14 +14,14 @@
 }
 
 .panel h2 {
-  margin: 0 0 6px;
-  font-size: 20px;
+  margin: 0 0 4px;
+  font-size: 18px;
 }
 
 .panel .sub {
-  margin: 0 0 16px;
+  margin: 0 0 12px;
   color: var(--sp-muted);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .form-grid {
@@ -61,7 +63,10 @@
 .field {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  /* min-width: 0 — иначе .field не сжимается и длинная подпись ползунка
+     распирает секцию (см. .field-label). */
+  gap: 4px;
+  min-width: 0;
 }
 
 /* Атрибут hidden (скрытие нерелевантных полей марша) не должен
@@ -79,6 +84,12 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  /* min-width: 0 обязателен. Флекс-потомок по умолчанию имеет min-width: auto,
+     то есть не сжимается уже своего контента. В шапке ползунка .slider__label
+     — nowrap, поэтому длинная подпись («Свободное место перед маршем»)
+     распирала .field-label, тот — .slider__head, и тело секции получало
+     горизонтальную полосу прокрутки. */
+  min-width: 0;
 }
 
 .field-help {
@@ -129,7 +140,14 @@
   visibility: visible;
 }
 
-.field input,
+/* Базовые отступы — ТОЛЬКО для обычных текстовых полей.
+   Селекторы :not() здесь не косметика: правило с specificity (0,1,1)
+   перебивало .slider__number (0,1,0) и .slider__range, из-за чего оба
+   получали padding 10px 12px и унаследованный шрифт 14px. В боксе 42px
+   оставалось 16px контента, и четырёхзначные числа обрезались; у
+   ползунка padding съедал всю высоту дорожки, а у галочки 14px — больше,
+   чем сумма отступов. */
+.field input:not([type='checkbox']):not([type='range']),
 .field select {
   padding: 10px 12px;
   border: 1px solid var(--sp-border);
@@ -145,20 +163,32 @@
 .field .checkbox {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 6px;
+  /* 3px 8px вместо 10px 12px: блок в 38px высотой съедал строку ради
+     одного слова «Да». */
+  padding: 3px 8px;
   border: 1px solid var(--sp-border);
-  border-radius: 8px;
+  border-radius: 6px;
   background: #fff;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .field .checkbox input[type='checkbox'] {
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   accent-color: var(--sp-primary);
   cursor: pointer;
+}
+
+/* Подпись и переключатель в одну строку — для «Подступень» это экономит
+   ~20px высоты панели. */
+.field--inline {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .field input:focus,
@@ -246,44 +276,6 @@
 }
 
 /* ---- Готовые решения (пресеты) ---- */
-
-.presets {
-  display: flex;
-  gap: var(--sp-gap-sm);
-  flex-wrap: wrap;
-  margin-bottom: var(--sp-gap);
-}
-
-.preset {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 6px 10px;
-  border: 1px solid var(--sp-border, #d8dde3);
-  border-radius: var(--sp-radius, 8px);
-  background: var(--sp-surface, #fff);
-  cursor: pointer;
-  text-align: left;
-}
-
-.preset:hover {
-  border-color: var(--sp-primary, #2f6fd0);
-}
-
-.preset.is-active {
-  border-color: var(--sp-primary, #2f6fd0);
-  box-shadow: 0 0 0 2px rgba(47, 111, 208, 0.18);
-}
-
-.preset__label {
-  font-size: 0.86rem;
-  font-weight: 600;
-}
-
-.preset__hint {
-  font-size: 0.7rem;
-  opacity: 0.6;
-}
 
 /* ---- Выбор материала (реальные PBR-текстуры) ---- */
 

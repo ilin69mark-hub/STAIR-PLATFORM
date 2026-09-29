@@ -29,8 +29,6 @@ export const allFlightTypes = allFlightOptions.map((o) => o.value) as Flight[]
 // с материалами DefaultMaterialRegistry и ставками RatesForm.
 export const materialOptions = [
   { value: 'STEEL-S235', label: 'Сталь S235', minThicknessMM: 2, maxThicknessMM: 60, density: 7850 },
-  { value: 'STEEL-CORTEN', label: 'Кортэн', minThicknessMM: 2, maxThicknessMM: 60, density: 7850 },
-  { value: 'ALUM-5083', label: 'Алюминий 5083', minThicknessMM: 2, maxThicknessMM: 60, density: 2700 },
   { value: 'WOOD-OAK', label: 'Дуб', minThicknessMM: 20, maxThicknessMM: 60, density: 700 },
   { value: 'WOOD-WALNUT', label: 'Орех', minThicknessMM: 20, maxThicknessMM: 60, density: 640 },
   { value: 'WOOD-ASH', label: 'Ясень', minThicknessMM: 20, maxThicknessMM: 60, density: 690 },
@@ -82,46 +80,6 @@ export function fitThicknessMM(code: string, current: string): string {
   return String(Math.min(max, Math.max(min, preset)))
 }
 
-export interface StylePreset {
-  id: string
-  label: string
-  hint: string
-  values: Partial<ConfigForm>
-}
-
-export const stylePresets: StylePreset[] = [
-  {
-    id: 'nordic-oak',
-    label: 'Скандинавский дуб',
-    hint: 'Дуб 40 мм · перила с двух сторон',
-    values: { material: 'WOOD-OAK', stepThicknessMM: '40', railing: 'both' },
-  },
-  {
-    id: 'walnut-loft',
-    label: 'Орех в лофте',
-    hint: 'Орех 40 мм · перила слева',
-    values: { material: 'WOOD-WALNUT', stepThicknessMM: '40', railing: 'left' },
-  },
-  {
-    id: 'steel-studio',
-    label: 'Сталь',
-    hint: 'Сталь 6 мм · перила с двух сторон',
-    values: { material: 'STEEL-S235', stepThicknessMM: '6', railing: 'both' },
-  },
-  {
-    id: 'corten',
-    label: 'Кортэн',
-    hint: 'Кортэн 6 мм · без перил',
-    values: { material: 'STEEL-CORTEN', stepThicknessMM: '6', railing: 'none' },
-  },
-  {
-    id: 'aluminium-glass',
-    label: 'Алюминий',
-    hint: 'Алюминий 6 мм · перила с двух сторон',
-    values: { material: 'ALUM-5083', stepThicknessMM: '6', railing: 'both' },
-  },
-]
-
 // ---- Перила (CONF-RAILING) ----
 // Сторона отсчитывается от первой ступени по ходу подъёма: слева от
 // смотрящего вперёд — левые перила, справа — правые. Для маршей с
@@ -141,6 +99,14 @@ export function railingLabel(code: string): string {
 }
 
 // ---- Направление (CONF-DIRECTION / CONF-SPIRAL-DIRECTION) ----
+// DOM-001: тип поворота площадки. «Площадка» — прямоугольная промежуточная
+// площадка (поведение по умолчанию). «Поворотные ступени» — вместо площадки
+// nw треугольных ступеней, разворачивающих марш на 180°.
+export const turnKindOptions = [
+  { value: 'platform', label: 'Площадка' },
+  { value: 'winder', label: 'Поворотные ступени' },
+] as const
+
 export const directionOptions = [
   { value: 'left', label: 'Влево' },
   { value: 'right', label: 'Вправо' },
@@ -184,6 +150,18 @@ export interface ConfigForm {
   railingUpper: RailingSide
   direction: (typeof directionOptions)[number]['value']
   spiralDirection: SpiralDirection
+  // DOM-001 (2026-09-26): тип поворота площадки и число поворотных ступеней.
+  // Раньше бэкенд умел принимать turn_kind/winder_count (см. calculateRequest),
+  // но форма их не могла задать — функциональность поворотных ступеней была
+  // недостижима из интерфейса, а после расчёта параметры терялись при
+  // сохранении ревизии (DOM-003).
+  turnKind: (typeof turnKindOptions)[number]['value']
+  winderCountMM: string
+  // TreadMaterial — материал СТУПЕНЕЙ, отдельно от каркаса (material).
+  // Нужно, потому что у дерева минимальная толщина 20 мм, а стальной косоур
+  // бывает 6–10 мм: одним полем материал оба случая не описать. Пустая
+  // строка → наследуется от material (вся лестница из одного материала).
+  treadMaterial: string
 }
 
 export const defaultConfig: ConfigForm = {
@@ -211,6 +189,13 @@ export const defaultConfig: ConfigForm = {
   railingUpper: 'both',
   direction: 'left',
   spiralDirection: 'ccw',
+  turnKind: 'platform',
+  winderCountMM: '',
+  // Пусто = материал ступеней наследуется от material. Дефолт нейтральный
+  // СОЗНАТЕЛЬНО: он используется админкой и как база для тестов, и
+  // «лестница из одного материала» не должна ломаться. Продуктовое
+  // значение (металлокаркас + дуб) задаёт конструктор витрины в emptyConfig.
+  treadMaterial: '',
 }
 
 // ---- Поля формы по типу марша (BC-002) ----
@@ -226,6 +211,9 @@ const commonFields: Array<keyof ConfigForm> = [
   'stepThicknessMM',
   'clearanceMM',
   'railingHeightMM',
+  // Материал ступеней нужен любому типу марша: ступени есть везде. Стоит
+  // рядом с толщиной ступени, потому что ограничен именно ей.
+  'treadMaterial',
   'comfortStepMM',
 ]
 
@@ -241,6 +229,9 @@ export const flightFields: Record<Flight, Array<keyof ConfigForm>> = {
     'stepThicknessMM',
     'clearanceMM',
     'railingHeightMM',
+    // Материал ступеней у спирали тоже свой: винтовые марши делают и в стали,
+    // и с деревянными ступенями.
+    'treadMaterial',
     'outerRadiusMM',
     'roomWidthMM',
     'roomLengthMM',
@@ -253,8 +244,6 @@ export const flightFields: Record<Flight, Array<keyof ConfigForm>> = {
 
 export interface RatesForm {
   steel: string
-  corten: string
-  alum: string
   wood: string
   walnut: string
   ash: string
@@ -269,8 +258,6 @@ export interface RatesForm {
 
 export const defaultRates: RatesForm = {
   steel: '',
-  corten: '',
-  alum: '',
   wood: '',
   walnut: '',
   ash: '',
@@ -288,8 +275,6 @@ export function toRatesRequest(f: RatesForm): Rates | undefined {
   const out: Rates = {}
   const mats: Record<string, number | undefined> = {
     'STEEL-S235': num(f.steel),
-    'STEEL-CORTEN': num(f.corten),
-    'ALUM-5083': num(f.alum),
     'WOOD-OAK': num(f.wood),
     'WOOD-WALNUT': num(f.walnut),
     'WOOD-ASH': num(f.ash),
@@ -352,11 +337,19 @@ export const fieldRules: Record<keyof ConfigForm, FieldRule> = {
   railingUpper: {},
   direction: {},
   spiralDirection: {},
+  // DOM-001: минимум 3 поворотные ступени на 180° поворота (устойчивость
+  // марша, EDR-0006 §7); верхняя граница — как у lowerStepCountMM.
+  turnKind: {},
+  winderCountMM: { min: 3, max: 100, hint: 'поворотных ступеней (шт)' },
+  // Материал ступеней ограничений не имеет сам по себе: пределы толщины
+  // берутся из materialForField('stepThicknessMM'), то есть из кода
+  // материала ступеней. Запись нужна, чтобы ключ был в Record.
+  treadMaterial: {},
 }
 
 // Материал-зависимые пределы (синхронизированы с каталогом MFG-0005 и
 // эневлопом листов MFG-0012 на бэкенде):
-// - толщина ступени: выпуск материала (сталь 3–8, алюминий 2–60, дуб 20–60);
+// - толщина ступени: выпуск материала (сталь 3–8, дуб 20–60);
 // - косоур — толщины выпуска материала (до 60 мм);
 // - ширина марша — лист для проступей (3000 мм для всех материалов);
 // - высота подъёма — крупнейший лист для косоура (сталь 6000, алюм/дуб 4550).
@@ -365,18 +358,6 @@ export const materialLimits: Record<
   Partial<Record<keyof ConfigForm, FieldRule>>
 > = {
   'STEEL-S235': {
-    widthMM: { max: 3000 },
-    heightMM: { max: 6000 },
-    stepThicknessMM: { min: 3, max: 8 },
-    stringerThicknessMM: { max: 60 },
-  },
-  'ALUM-5083': {
-    widthMM: { max: 3000 },
-    heightMM: { max: 4550 },
-    stepThicknessMM: { min: 2, max: 60 },
-    stringerThicknessMM: { max: 60 },
-  },
-  'STEEL-CORTEN': {
     widthMM: { max: 3000 },
     heightMM: { max: 6000 },
     stepThicknessMM: { min: 3, max: 8 },
@@ -415,6 +396,27 @@ export function rulesFor(key: keyof ConfigForm, material: MaterialCode): FieldRu
   return { ...fieldRules[key], ...materialLimits[material]?.[key] }
 }
 
+/**
+ * Материал, которым ограничивается поле. Толщина ступени принадлежит
+ * МАТЕРИАЛУ СТУПЕНЕЙ, а не каркаса: у дуба минимум 20 мм, у стали — от 2 мм.
+ * Если брать пределы по одному material, то либо пришлось бы ставить стальной
+ * косоур 20 мм (не делают), либо нельзя было бы выбрать деревянную ступень.
+ *
+ * Остальные поля (ширина/высота/толщина косоура) ограничены каркасом —
+ * именно из него режут косоуры и площадки.
+ */
+export function materialForField(key: keyof ConfigForm, cfg: ConfigForm): MaterialCode {
+  if (key === 'stepThicknessMM') {
+    return (cfg.treadMaterial || cfg.material) as MaterialCode
+  }
+  return cfg.material
+}
+
+/** rulesFor с учётом роли поля: толщина ступени — по материалу ступеней. */
+export function fieldRulesFor(key: keyof ConfigForm, cfg: ConfigForm): FieldRule {
+  return rulesFor(key, materialForField(key, cfg))
+}
+
 export type FieldErrors = Partial<Record<keyof ConfigForm, string>>
 
 export function validateForm(f: ConfigForm): FieldErrors {
@@ -422,7 +424,7 @@ export function validateForm(f: ConfigForm): FieldErrors {
   for (const [key] of Object.entries(fieldRules) as Array<
     [keyof ConfigForm, FieldRule]
   >) {
-    const rule = rulesFor(key, f.material)
+    const rule = fieldRulesFor(key, f)
     if (rule.min === undefined && rule.max === undefined) continue
     // Поля маршей с площадкой значимы только для l_shape/u_shape (EDR-0005/0006).
     if (
@@ -447,6 +449,13 @@ export function validateForm(f: ConfigForm): FieldErrors {
     }
     // Шаг комфорта и габариты помещения — необязательные (пустое = не задано).
     if (key === 'comfortStepMM' && f.flight === 'spiral') continue
+    // DOM-001: число поворотных ступеней значимо только при типе поворота
+    // «поворотные ступени». При «площадке» поле пустое и не отправляется,
+    // поэтому пустое значение допустимо (иначе форма была бы всегда invalid).
+    if (key === 'winderCountMM') {
+      if (f.flight !== 'l_shape' && f.flight !== 'u_shape') continue
+      if (f.turnKind !== 'winder') continue
+    }
     const optional =
       key === 'comfortStepMM' || key === 'roomWidthMM' || key === 'roomLengthMM'
     const raw = f[key]
@@ -468,6 +477,23 @@ export function validateForm(f: ConfigForm): FieldErrors {
   return errors
 }
 
+/**
+ * Толщина подступенка по материалу каркаса.
+ *
+ * Подступенок изготавливается из материала каркаса (см. маршрутизацию
+ * деталей в сервисе), поэтому его толщина обязана быть допустимой для
+ * каркаса, а не для материала ступеней. Если материалы совпадают,
+ * наследование толщины ступени корректно и поведение прежнее.
+ */
+function riserThicknessFor(f: ConfigForm): number {
+  const sameMaterial = !f.treadMaterial || f.treadMaterial === f.material
+  if (sameMaterial) return Number(f.stepThicknessMM)
+  return Math.min(
+    materialThicknessMM(f.material),
+    thicknessRangeMM(f.material).max,
+  )
+}
+
 // toRequest преобразует форму в формат API (snake_case, числа в мм).
 export function toRequest(f: ConfigForm): Record<string, unknown> {
   const req: Record<string, unknown> = {
@@ -479,6 +505,16 @@ export function toRequest(f: ConfigForm): Record<string, unknown> {
     stringer_thickness_mm: Number(f.stringerThicknessMM),
     step_thickness_mm: Number(f.stepThicknessMM),
     riser: f.riser,
+    // Толщина подступенка идёт по материалу КАРКАСА, а подступенок при
+    // раздельных материалах стальной. Без этого поля бэкенд наследует
+    // толщину ступени (40 мм у дуба) и отклоняет расчёт: стальной
+    // подступенок 40 мм вне каталога MFG-0005, конфигурация блокируется.
+    riser_thickness_mm: riserThicknessFor(f),
+    // Материал ступеней. Пустая строка НЕ отправляется: бэкенд наследует
+    // material, и лишнее поле только раздувало бы запрос.
+    ...(f.treadMaterial && f.treadMaterial !== f.material
+      ? { tread_material: f.treadMaterial }
+      : {}),
     clearance_mm: Number(f.clearanceMM),
     railing_height_mm: Number(f.railingHeightMM),
   }
@@ -522,6 +558,15 @@ export function toRequest(f: ConfigForm): Record<string, unknown> {
   }
   if (f.flight === 'spiral') {
     req.spiral_direction = f.spiralDirection
+  }
+  // DOM-001: тип поворота и число поворотных ступеней (только L/П-марш).
+  // Для площадки winder_count не передаётся: он не имеет смысла вместе с
+  // turn_kind='platform' (в БД это CHECK-ограничение).
+  if (f.flight === 'l_shape' || f.flight === 'u_shape') {
+    req.turn_kind = f.turnKind
+    if (f.turnKind === 'winder' && f.winderCountMM.trim() !== '') {
+      req.winder_count = Number(f.winderCountMM)
+    }
   }
   return req
 }

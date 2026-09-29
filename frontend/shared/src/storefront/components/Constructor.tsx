@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ConfigForm } from '@shared/config'
-import { defaultConfig, directionOptions, flightOptions, materialOptions, materialSwatch, fitThicknessMM, railingForSpiral, railingLabel, railingOptions, rulesFor, spiralDirectionOptions, SPIRAL_ENABLED, stylePresets, toRequest, validateForm, type FieldErrors, type FieldRule, type StylePreset } from '@shared/config'
+import { defaultConfig, directionOptions, flightOptions, materialOptions, fitThicknessMM, fieldRulesFor, railingOptions, rulesFor, spiralDirectionOptions, toRequest, turnKindOptions, validateForm, type FieldErrors, type FieldRule } from '@shared/config'
 import type { QuoteResult, QuoteSuggestion, Variation } from '@shared/types'
 import {
   LiveValidator,
@@ -15,29 +15,70 @@ import {
 import { quoteApi } from '../api/store'
 import { apiErrorMessage } from '../auth/errors'
 import { elementLabel } from '@shared/validationText'
-import { QuoteResult as QuoteResultView } from './QuoteResult'
+import { QuoteResult as QuoteResultView, Stage3D } from './QuoteResult'
+import { solverOf } from './quoteView'
+import { Slider, Segmented, SwatchGroup, ProductTabs, type ProductTab } from '@shared/components/CalcControls'
+import { Accordion, type AccordionSection } from '@shared/components/Accordion'
+import { FINISHES } from '@shared/viewer/materials'
 import { OrderForm } from './OrderForm'
 import { logAction } from '@shared/api/audit'
 
 // Поля формы сгруппированы в смысловые блоки (секции). Шаг комфорта и высота
 // ступени из формы убраны: высота ступени подставляется целевую (180 мм) и
 // фактически рассчитывается геометрией, шаг комфорта — дефолт 630 (EDR-0001).
-const fieldSections: Array<{ title: string; fields: Array<keyof ConfigForm> }> = [
-  { title: 'Основные размеры', fields: ['widthMM', 'heightMM', 'flight', 'material'] },
-  { title: 'Ступени', fields: ['stepThicknessMM', 'clearanceMM'] },
-  { title: 'Перила', fields: ['railingHeightMM', 'railing', 'railingLower', 'railingLanding', 'railingUpper'] },
-  { title: 'Поворот и площадка', fields: ['direction', 'landingWidthMM', 'landingDepthMM', 'lowerStepCountMM'] },
-  { title: 'Помещение', fields: ['roomWidthMM', 'roomLengthMM', 'approachSpaceMM'] },
-  ...(SPIRAL_ENABLED
-    ? [{ title: 'Спираль', fields: ['outerRadiusMM', 'spiralDirection'] as Array<keyof ConfigForm> }]
-    : []),
+
+// Изделия конструктора. Переключение меняет набор параметров и материал, а не
+// только набор вкладок: у металлокаркаса и деревянной лестницы разные
+// ограничения по толщинам (см. materialLimits в config.ts), и подставлять
+// дерево в «металлокаркас» нельзя — расчёт и цена поедут.
+const PRODUCTS: ProductTab[] = [
+  { id: 'metal', label: 'Металлокаркас' },
+  { id: 'wood', label: 'Деревянные' },
 ]
 
+// Материалы каркаса по изделиям. Полный список (со всеми кодами) живёт в
+// config.materialOptions — он нужен админке. Здесь только то, что осмысленно
+// в конкретной конструкции: в металлокаркасе каркас металлический, в
+// деревянной лестнице — деревянный.
+//
+// Это не косметика. Пределы по толщине разные (materialLimits в config.ts),
+// и косоур 6 мм из стали в деревянной лестнице означал бы 20 мм дуба: иной
+// вес, иная цена, иной раскрой.
+// Калькулятор витрины предлагает ТОЛЬКО сталь: в ассортименте материалов
+// MFG-0005 других металлов нет, и вторая ось выбора — порода ступеней
+// (Деревянные изделия) либо металл/дерево у ступеней металлокаркаса.
+//
+// Список здесь, а не в config.materialOptions, потому что тот общий:
+// админка и showcase должны видеть все материалы, которые мы в состоянии
+// изготовить.
+const METAL_MATERIALS = ['STEEL-S235'] as const
+const WOOD_MATERIALS = ['WOOD-OAK', 'WOOD-WALNUT', 'WOOD-ASH', 'WOOD-SOFT'] as const
+
+// Стартовый материал изделия. Металлокаркас — стальной каркас с дубовыми
+// ступенями (самая частая комплектация), деревянная лестница — дуб целиком.
+const PRODUCT_DEFAULT: Record<string, { frame: string; tread: string }> = {
+  metal: { frame: 'STEEL-S235', tread: 'WOOD-OAK' },
+  wood: { frame: 'WOOD-OAK', tread: 'WOOD-OAK' },
+}
+
+// Цвет покрытия берётся из FINISHES (viewer/materials.ts) — источник истины
+// по видам отделки один на витрину и на админку. Менять палитру здесь нельзя:
+// finishFor() не найдёт финиш и молча отдаст «без финиша».
+const FINISH_SWATCH: Record<string, { color: string }> = {
+  raw: { color: '#9aa3ad' },
+  natural: { color: '#c8ccd2' },
+  black: { color: '#24262a' },
+  white: { color: '#e8e8e6' },
+  oil: { color: '#c9a678' },
+  matte: { color: '#c9a678' },
+  toned: { color: '#9a7448' },
+}
 const labels: Record<keyof ConfigForm, string> = {
   widthMM: 'Ширина марша (мм)',
   heightMM: 'Высота (мм)',
   flight: 'Тип лестницы',
-  material: 'Материал',
+  material: 'Материал каркаса',
+  treadMaterial: 'Материал ступеней',
   stepHeightMM: 'Высота ступени (мм)',
   stringerThicknessMM: 'Толщина косоура (мм)',
   stepThicknessMM: 'Толщина ступени (мм)',
@@ -49,7 +90,7 @@ const labels: Record<keyof ConfigForm, string> = {
   landingDepthMM: 'Глубина площадки (мм)',
   roomWidthMM: 'Ширина помещения (мм)',
   roomLengthMM: 'Длина помещения (мм)',
-  approachSpaceMM: 'Свободное пространство перед маршем (мм)',
+  approachSpaceMM: 'Свободное место перед маршем',
   lowerStepCountMM: 'Нижних ступеней (шт)',
   outerRadiusMM: 'Радиус (мм)',
   railing: 'Перила',
@@ -58,30 +99,18 @@ const labels: Record<keyof ConfigForm, string> = {
   railingUpper: 'Перила: второй марш',
   direction: 'Направление поворота',
   spiralDirection: 'Направление спирали',
+  turnKind: 'Поворот марша',
+  winderCountMM: 'Поворотных ступеней (шт)',
 }
 
 const hints: Partial<Record<keyof ConfigForm, string>> = {
   flight: 'Выберите тип марша',
-  riser: 'Подступенок — вертикальная грань под ступенью. Его высота равна высоте ступени и рассчитывается автоматически.',
   clearanceMM: 'Рекомендуем ≥ 2000 мм',
   railingHeightMM: 'Рекомендуем 900–1100 мм',
-  outerRadiusMM: 'Только для спирали',
-  landingDepthMM: 'Глубина площадки вдоль нижнего марша (X в плане). Должна быть ≥ ширины марша.',
-  roomWidthMM: 'Ширина помещения (X) — направление марша: длина забега + свободное место (1000–1200 мм). 0 — без проверки вписываемости.',
-  roomLengthMM: 'Длина помещения (Y) — ширина марша. 0 — без проверки вписываемости.',
-  approachSpaceMM: 'Свободная зона перед первой ступенью (норма 1000–1200 мм).',
-}
-
-// rangeHint — текст подсказки диапазона поля: «Мин X / макс Y мм», «Мин X мм»
-// или «Макс X мм». Для материал-зависимых полей пересчитывается rulesFor.
-function rangeHint(r: FieldRule): string {
-  if (r.min !== undefined && r.max !== undefined) return `Мин ${r.min} / макс ${r.max} мм`
-  if (r.min !== undefined) return `Мин ${r.min} мм`
-  if (r.max !== undefined) return `Макс ${r.max} мм`
-  return ''
 }
 
 const tooltips: Partial<Record<keyof ConfigForm, string>> = {
+  approachSpaceMM: 'Свободная зона перед первой ступенью (норма 1000–1200 мм).',
   clearanceMM:
     'Просвет — вертикальное расстояние от ступени до перекрытия. Рекомендуемый проход — от 2000 мм.',
   railing:
@@ -100,7 +129,12 @@ const emptyConfig: ConfigForm = {
   ...defaultConfig,
   widthMM: '',
   heightMM: '',
-  stepThicknessMM: '',
+  // Металлокаркас с деревянными ступенями — стартовая комплектация
+  // витрины: стальной косоур, дубовая проступь. Толщина ступени обязана быть
+  // в диапазоне ДЕРЕВА (20–60 мм), поэтому 6 мм из стальных пределов здесь
+  // не подходит.
+  treadMaterial: 'WOOD-OAK',
+  stepThicknessMM: '40',
   clearanceMM: '',
   railingHeightMM: '',
   comfortStepMM: '',
@@ -144,6 +178,8 @@ function versionContentKey(cfg: Record<string, unknown>): string {
     cfg.landingWidthMM,
     cfg.landingDepthMM,
     cfg.lowerStepCountMM,
+    cfg.turnKind,
+    cfg.winderCountMM,
     cfg.outerRadiusMM,
     cfg.roomWidthMM,
     cfg.roomLengthMM,
@@ -153,7 +189,11 @@ function versionContentKey(cfg: Record<string, unknown>): string {
 function versionSummary(cfg: ConfigForm): string {
   const parts = [`Высота ${cfg.heightMM} мм`, `марш ${cfg.widthMM} мм`]
   if (cfg.flight === 'l_shape' || cfg.flight === 'u_shape') {
-    parts.push(`площадка ${cfg.landingWidthMM}×${cfg.landingDepthMM}`)
+    if (cfg.turnKind === 'winder') {
+      parts.push(`поворот ${cfg.winderCountMM || '—'} ступ.`)
+    } else {
+      parts.push(`площадка ${cfg.landingWidthMM}×${cfg.landingDepthMM}`)
+    }
   }
   if (cfg.flight === 'spiral') parts.push(`радиус ${cfg.outerRadiusMM}`)
   return parts.join(' · ')
@@ -174,6 +214,16 @@ function toVariation(v: StairVersion): Variation {
 // Конструктор: параметры лестницы → предварительный расчёт (анонимно).
 export function Constructor() {
   const [config, setConfig] = useState<ConfigForm>(emptyConfig)
+  // Тип изделия: металлокаркас / деревянные. Сейчас доступен только
+  // металлокаркас — переключатель виден, чтобы набор изделий был понятен, но
+  // деревянный помечен как «скоро» и не принимает кликов.
+  const [product, setProduct] = useState('metal')
+  // Цвета покрытия каркаса и ступеней. Локальное состояние витрины, НЕ часть
+  // конфига: finishId не уходит в расчёт и в цену, он меняет только вид в 3D.
+  // Два отдельных значения, потому что металлокаркас с чёрным каркасом и
+  // дубовой ступенью — обычная комплектация, а не исключение.
+  const [finishId, setFinishId] = useState('raw')
+  const [treadFinishId, setTreadFinish] = useState('oil')
   // Ошибки не показываем до первого взаимодействия пользователя.
   const [errors, setErrors] = useState<FieldErrors>({})
   const [touched, setTouched] = useState(false)
@@ -243,8 +293,16 @@ export function Constructor() {
   const visible = (k: keyof ConfigForm): boolean => {
     if (k === 'stringerThicknessMM') return false // скрыт: единый косоур по умолчанию
     if (k === 'stepHeightMM' || k === 'comfortStepMM') return false // скрыты: рассчитываются автоматически
-    if ((k === 'landingWidthMM' || k === 'landingDepthMM' || k === 'lowerStepCountMM') &&
+    if ((k === 'landingWidthMM' || k === 'landingDepthMM' || k === 'lowerStepCountMM' ||
+      k === 'turnKind' || k === 'winderCountMM') &&
       config.flight !== 'l_shape' && config.flight !== 'u_shape') {
+      return false
+    }
+    // DOM-001: число поворотных ступеней — только при turnKind='winder'.
+    if (k === 'winderCountMM' && config.turnKind !== 'winder') return false
+    // При turnKind='winder' площадка не нужна: поворот выполняют ступени.
+    if (config.turnKind === 'winder' &&
+      (k === 'landingWidthMM' || k === 'landingDepthMM')) {
       return false
     }
     // approachSpaceMM показывается для всех типов марша (EDR-0023).
@@ -276,6 +334,8 @@ export function Constructor() {
         return directionOptions
       case 'spiralDirection':
         return spiralDirectionOptions
+      case 'turnKind':
+        return turnKindOptions
       default:
         return null
     }
@@ -330,15 +390,22 @@ export function Constructor() {
   // (rulesFor → materialLimits), остальные поля — статический текст.
   // Для ширины/высоты показываем материал-зависимый максимум («Макс … мм»),
   // для толщины ступени — полный диапазон материала.
-  const hintOf = (k: keyof ConfigForm): string | undefined => {
-    if (k === 'widthMM' || k === 'heightMM') {
-      return rangeHint({ max: rulesFor(k, config.material).max })
-    }
-    if (k === 'stepThicknessMM') {
-      return rangeHint(rulesFor(k, config.material))
-    }
-    return hints[k]
-  }
+  // Поле подсвечиваем красным в трёх случаях: пользователь уже трогал
+  // форму и поле не прошло проверку, пришёл live-ответ сервера, либо
+  // нажата «Внести данные площади» и комнатное поле ещё пустое.
+  // Условие обязано быть общим и для ползунка (prop invalid), и для
+  // обычного input (className) — иначе комнатные поля не краснеют.
+  const isInvalid = (k: keyof ConfigForm) =>
+    !!(touched && errors[k]) ||
+    liveFieldErrors[k] != null ||
+    !!(roomHighlight && (k === 'roomWidthMM' || k === 'roomLengthMM') && (config[k] as string).trim() === '')
+
+  // Под ползунком остаётся только полезная подсказка (рекомендация), а не
+  // пределы: минимум и максимум ползунок показывает шкалой .slider__scale.
+  // Дубли «Мин 3 / макс 8 мм» и «Макс 6000 мм» съедали по строке на каждое
+  // поле и ровно они вводили в заблуждение у дубовых ступеней, где пределы
+  // считаются по материалу ступеней, а не каркаса.
+  const hintOf = (k: keyof ConfigForm): string | undefined => hints[k]
 
   const setRiser = (v: boolean) => {
     const next = { ...config, riser: v }
@@ -588,18 +655,6 @@ export function Constructor() {
     void calculate(next)
   }
 
-  const applyPreset = (pr: StylePreset) => {
-    const next = { ...emptyConfig, ...pr.values }
-    setConfig(next)
-    setErrors(validateForm(next))
-    setTouched(true)
-    setQuote(null)
-    setVariations(null)
-    setActiveVariationId(null)
-    setStatus(null)
-    logAction({ action: 'stair.preset_applied', resource_type: 'stair', detail: pr.id })
-  }
-
   const reset = () => {
     setConfig(emptyConfig)
     setErrors(validateForm(emptyConfig))
@@ -647,141 +702,432 @@ export function Constructor() {
     ),
   ]
 
+  // Сцена слева, панель справа. Меш берём из расчёта; до первого расчёта
+  // (или при блокирующем ответе, когда геометрии нет) показываем пустое
+  // состояние с подсказкой — сцена не должна мигать пустым канвасом.
+  const hasMesh =
+    !!quote && !quote.validation.blocking && !!quote.mesh?.Vertices?.length && !!quote.mesh?.Triangles
+  const stageSolver = quote
+    ? solverOf(
+        quote,
+        config.approachSpaceMM.trim() !== '' ? Number(config.approachSpaceMM) : undefined,
+      )
+    : null
+
+  // ВНИМАНИЕ: блок объявлен ПОСЛЕ всех хелперов (visible, selectOptions,
+  // update, hintOf, setRiser) не по вкусу, а потому что renderField и
+  // calcSections вызывают их В МОМЕНТЕ СОЗДАНИЯ массива секций: JSX в
+  // content: (<>…</>) вычисляется сразу, а не лениво. Объявленный выше
+  // const попадает в temporal dead zone и рендер падает с ReferenceError
+  // "Cannot access 'visible' before initialization". Перенос блока выше
+  // ломал конструктор целиком (ErrorBoundary на витрине).
+
+  // --- Выбор контрола по полю -------------------------------------------
+  // Ползунок требует осмысленной шкалы (min < max), поэтому числовые поля без
+  // верхней границы остаются текстовыми. Сегментированные кнопки ставим там,
+  // где вариантов мало и они взаимно исключающие.
+
+  // Пределы поля берём из fieldRulesFor, а НЕ из rulesFor по материалу
+  // каркаса: у толщины ступени «свой» материал (treadMaterial), и валидация
+  // смотрит именно на него. С правилом по каркасу слайдер показывал 3–8 мм
+  // при деревянных ступенях, а любое значение ниже 20 отвергалось — то
+  // есть ползунок предлагал заведомо невалидные значения.
+  const fieldLimit = (k: keyof ConfigForm, bound: 'min' | 'max' | 'step'): number | undefined => {
+    const rule = fieldRulesFor(k, config) as FieldRule & { step?: number }
+    return bound === 'step' ? rule.step : rule[bound]
+  }
+
+  const sliderFor = (k: keyof ConfigForm): boolean => {
+    if (typeof config[k] !== 'string') return false
+    const rule = rulesFor(k, config.material)
+    return rule.min !== undefined && rule.max !== undefined && rule.max > rule.min
+  }
+
+  // Шаг ползунка: для дискретных величин (сантиметры) — 5 мм, остальное 1 мм.
+  const sliderStep = (k: keyof ConfigForm): number =>
+    k === 'roomWidthMM' || k === 'roomLengthMM' || k === 'approachSpaceMM' ? 5 : 1
+
+  const segmentedKeys: ReadonlySet<keyof ConfigForm> = new Set([
+    'flight',
+    'turnKind',
+    'direction',
+    'spiralDirection',
+    'railing',
+    'railingLower',
+    'railingLanding',
+    'railingUpper',
+  ])
+
+  const segmentedFor = (k: keyof ConfigForm): boolean =>
+    segmentedKeys.has(k) && selectOptions(k) != null
+
+  const segmentedCols = (k: keyof ConfigForm): 2 | 3 | 4 =>
+    k === 'flight' ? 3 : k === 'turnKind' || k === 'direction' || k === 'spiralDirection' ? 2 : 2
+
+  // Один контрол на поле. Вынесен в функцию, потому что секции аккордеона
+  // собирают разные наборы полей, и копировать разметку в каждую секцию —
+  // гарантированный способ разъехаться с валидацией.
+  // Чипы ограждения делаем ниже остальных: «Перила: первый марш» в кнопке
+  // 38px занимает две строки и съедает высоту панели плюс-одной.
+  const isRailingField = (k: keyof ConfigForm) =>
+    k === 'railing' || k === 'railingLower' || k === 'railingLanding' || k === 'railingUpper'
+
+  const renderField = (k: keyof ConfigForm) => {
+    if (!visible(k)) return null
+    return (
+      <div className="field" key={k}>
+        {!segmentedFor(k) && !sliderFor(k) && (
+          <FieldLabel label={labels[k]} tooltip={tooltips[k]} htmlFor={`cfg-${k}`} />
+        )}
+        {segmentedFor(k) ? (
+          <Segmented
+            legend={labels[k]}
+            value={config[k] as string}
+            options={selectOptions(k)! as Array<{ value: string; label: string }>}
+            columns={segmentedCols(k)}
+            compact={isRailingField(k)}
+            onChange={(v) => update(k, v)}
+          />
+        ) : sliderFor(k) ? (
+          <Slider
+            id={`cfg-${k}`}
+            label={labels[k]}
+            tooltip={tooltips[k]}
+            value={config[k] as string}
+            min={fieldLimit(k, 'min')}
+            max={fieldLimit(k, 'max')}
+            step={fieldLimit(k, 'step') ?? sliderStep(k)}
+            hint={hintOf(k)}
+            invalid={isInvalid(k)}
+            onChange={(v) => update(k, v)}
+          />
+        ) : (
+          <input
+            id={`cfg-${k}`}
+            ref={
+              k === 'roomWidthMM' ? roomWidthRef : k === 'roomLengthMM' ? roomLengthRef : undefined
+            }
+            type="text"
+            inputMode="decimal"
+            className={isInvalid(k) ? 'field-invalid' : undefined}
+            value={config[k] as string}
+            onChange={(e) => update(k, e.target.value)}
+          />
+        )}
+        {hintOf(k) && sliderFor(k) ? null : hintOf(k) && <span className="sub">{hintOf(k)}</span>}
+        {touched && errors[k] && <span className="error">{errors[k]}</span>}
+        {touched && !errors[k] && liveFieldErrors[k] && (
+          <span className="error">{liveFieldErrors[k]}</span>
+        )}
+        {renderRoomFieldError(k)}
+      </div>
+    )
+  }
+
+  // Степпера «Количество ступеней» в панели больше нет: по требованию
+  // владельца он считался лишним, а число ступеней и так меняется
+  // перетаскиванием ступени в 3D. Высота ступени — производная от высоты
+  // марша, поэтому отдельного поля для неё в форме тоже нет.
+
+  // Цвет покрытия — только витрина: finishId не уходит в расчёт, он меняет
+  // материал в 3D. Прайс не зависит, поэтому подменять им материал нельзя.
+  // У каркаса и у ступеней цвета СВОИ: у металлокаркаса чёрный каркас с
+  // дубовой ступенью — норма, и одним полем это не выразить.
+  const finishOptions = (code: string) =>
+    (FINISHES[code] ?? []).map((f) => ({
+      value: f.id,
+      label: f.label,
+      color: (FINISH_SWATCH[f.id] ?? { color: '#b0b0b0' }).color,
+    }))
+  const frameFinishOptions = finishOptions(config.material)
+  const treadCode = config.treadMaterial || config.material
+  const treadFinishOptions = finishOptions(treadCode)
+  // Тумблер «Дерево / Металл» показывает ВИД материала, а не конкретный код:
+  // покупатель выбирает «дерево» и дальше — породу, а не оба решения сразу.
+  const isMetalTread = !treadCode.startsWith('WOOD-')
+  // Изделие определяет набор материалов каркаса: в металлокаркасе — металлы,
+  // в деревянной лестнице — породы дерева. Это не фильтр для удобства:
+  // пределы толщины, вес, цена и раскрой у них разные.
+  const isWoodProduct = product === 'wood'
+  const frameCodes: readonly string[] = isWoodProduct ? WOOD_MATERIALS : METAL_MATERIALS
+
+  // Переключение материала ступеней обязано подтянуть ТОЛЩИНУ под новый
+  // материал: у дуба минимум 20 мм, у стали — от 2 мм. Оставить прежнюю
+  // толщину — значит отправить расчёт, который сервер отвергнет.
+  // Толщина детали обязана лежать в диапазоне ЕЁ материала: 6 мм у стали и
+  // 6 мм у дуба — разные детали с разным весом и ценой. Помещая значение
+  // вне диапазона, получаем расчёт, который сервер отвергнет.
+  const clampThickness = (target: ConfigForm, key: 'stepThicknessMM' | 'stringerThicknessMM', code: string) => {
+    const rule = rulesFor(key, code as never)
+    const cur = Number(target[key])
+    if (!Number.isFinite(cur)) return
+    if (rule.min !== undefined && cur < rule.min) target[key] = String(rule.min)
+    if (rule.max !== undefined && cur > rule.max) target[key] = String(rule.max)
+  }
+
+  // Смена изделия приводит конфигурацию в порядок: материалы переезжают в
+  // допустимые для нового изделия, толщины подтягиваются под их пределы.
+  // Без этого переключение оставляло бы, например, стальной каркас 6 мм в
+  // деревянной лестнице — и первый же расчёт уходил бы с MFG-MATERIAL.
+  const switchProduct = (id: string) => {
+    if (id === product) return
+    const d = PRODUCT_DEFAULT[id] ?? PRODUCT_DEFAULT.metal
+    const allowed = id === 'wood' ? WOOD_MATERIALS : METAL_MATERIALS
+    const isAllowed = (c: string) => (allowed as readonly string[]).includes(c)
+
+    const next: ConfigForm = {
+      ...config,
+      material: isAllowed(config.material)
+        ? config.material
+        : (d.frame as ConfigForm['material']),
+      treadMaterial: isAllowed(config.treadMaterial) ? config.treadMaterial : d.tread,
+      flight: config.flight,
+    }
+    // Толщина косоура — по материалу каркаса, толщина ступени — по
+    // материалу ступеней: это разные детали с разными пределами.
+    clampThickness(next, 'stringerThicknessMM', next.material)
+    clampThickness(next, 'stepThicknessMM', next.treadMaterial)
+    setProduct(id)
+    setConfig(next)
+    setFinishId(FINISHES[next.material]?.[0]?.id ?? '')
+    setTreadFinish(FINISHES[next.treadMaterial]?.[0]?.id ?? '')
+    setErrors(validateForm(next))
+    setQuote(null)
+    setVariations(null)
+    setActiveVariationId(null)
+    setStatus(null)
+  }
+
+  const setTreadMaterial = (code: string) => {
+    const next = { ...config, treadMaterial: code }
+    const limit = fieldRulesFor('stepThicknessMM', next)
+    const cur = Number(config.stepThicknessMM)
+    if (Number.isFinite(cur) && (limit.min !== undefined && cur < limit.min)) {
+      next.stepThicknessMM = String(limit.min)
+    }
+    if (Number.isFinite(cur) && limit.max !== undefined && cur > limit.max) {
+      next.stepThicknessMM = String(limit.max)
+    }
+    setTreadFinish(FINISHES[code]?.[0]?.id ?? '')
+    setConfig(next)
+  }
+
+
+  const isTurned = config.flight === 'l_shape' || config.flight === 'u_shape'
+
+  const calcSections: AccordionSection[] = [
+    {
+      id: 'main',
+      title: 'Основные настройки',
+      content: (
+        <>
+          {renderField('flight')}
+          {renderField('heightMM')}
+          {renderField('widthMM')}
+          {renderField('stepThicknessMM')}
+          {/* Подступень — единственный переключатель на «Да/Нет», поэтому
+              подпись и сам переключатель стоят в одну строку: отдельная
+              строка под подписью была пустой высотой ради одного слова. */}
+          <div className="field field--inline">
+            <FieldLabel label={labels.riser} htmlFor="cfg-riser" />
+            <label className="checkbox">
+              <input
+                id="cfg-riser"
+                type="checkbox"
+                checked={config.riser}
+                onChange={(e) => setRiser(e.target.checked)}
+              />
+              <span>{config.riser ? 'Да' : 'Нет'}</span>
+            </label>
+          </div>
+        </>
+      ),
+    },
+    {
+      id: 'turn',
+      title: 'Настройки поворота',
+      hidden: !isTurned,
+      content: (
+        <>
+          {renderField('turnKind')}
+          {config.turnKind === 'winder' ? renderField('winderCountMM') : null}
+          {renderField('direction')}
+          {renderField('lowerStepCountMM')}
+          {config.turnKind === 'winder' ? null : renderField('landingWidthMM')}
+          {config.turnKind === 'winder' ? null : renderField('landingDepthMM')}
+        </>
+      ),
+    },
+    {
+      id: 'railings',
+      title: 'Ограждение',
+      content: (
+        <>
+          {config.flight === 'straight' ? renderField('railing') : null}
+          {isTurned ? (
+            <>
+              {renderField('railingLower')}
+              {renderField('railingLanding')}
+              {renderField('railingUpper')}
+            </>
+          ) : null}
+          {renderField('railingHeightMM')}
+        </>
+      ),
+    },
+    {
+      id: 'color',
+      title: 'Цвет и материал',
+      content: (
+        <>
+          {/* Материал каркаса: кнопка-сегмент, если вариантов больше одного.
+              При одном варианте (сейчас сталь) сегмент из одной кнопки —
+              это ложный выбор: кажется, что можно переключить. */}
+          {frameCodes.length > 1 ? (
+          <Segmented
+            legend={isWoodProduct ? 'Материал лестницы' : 'Каркас (косоуры и площадка)'}
+            value={config.material}
+            columns={isWoodProduct ? 4 : 3}
+            options={frameCodes.map((code) => {
+              const o = materialOptions.find((m) => m.value === code)
+              return { value: code, label: o?.label ?? code }
+            })}
+            onChange={(v) => {
+              // material в ConfigForm — литеральный union кодов каталога,
+              // а Segmented отдаёт string: сужаем явно, иначе пришлось бы
+              // размазывать ConfigForm['material'] по всем обработчикам.
+              const code = v as ConfigForm['material']
+              const next: ConfigForm = { ...config, material: code }
+              // Толщина косоура привязана к материалу каркаса.
+              clampThickness(next, 'stringerThicknessMM', code)
+              setConfig(next)
+              setFinishId(FINISHES[code]?.[0]?.id ?? '')
+            }}
+          />
+          ) : (
+            <div className="field">
+              <span className="segmented__legend">
+                {isWoodProduct ? 'Материал лестницы' : 'Каркас (косоуры и площадка)'}
+              </span>
+              <p className="readonly-value">
+                {materialOptions.find((m) => m.value === config.material)?.label ?? config.material}
+              </p>
+            </div>
+          )}
+
+          {isWoodProduct ? (
+            <Segmented
+              legend="Порода ступеней"
+              value={treadCode}
+              columns={4}
+              options={WOOD_MATERIALS.map((code) => {
+                const o = materialOptions.find((m) => m.value === code)
+                return { value: code, label: o?.label ?? code }
+              })}
+              onChange={(v) => setTreadMaterial(v)}
+            />
+          ) : (
+            <Segmented
+              legend="Ступени (проступи и площадка)"
+              value={isMetalTread ? 'metal' : 'wood'}
+              columns={2}
+              options={[
+                { value: 'wood', label: 'Дерево' },
+                { value: 'metal', label: 'Металл' },
+              ]}
+              onChange={(v) => setTreadMaterial(v === 'wood' ? 'WOOD-OAK' : 'STEEL-S235')}
+            />
+          )}
+
+          {frameFinishOptions.length > 0 && (
+            <SwatchGroup
+              legend={isWoodProduct ? 'Цвет покрытия' : 'Цвет каркаса'}
+              value={finishId}
+              options={frameFinishOptions}
+              onChange={setFinishId}
+            />
+          )}
+          {treadFinishOptions.length > 0 && (
+            <SwatchGroup
+              legend={isMetalTread ? 'Цвет ступеней' : 'Отделка ступеней'}
+              value={treadFinishId}
+              options={treadFinishOptions}
+              onChange={setTreadFinish}
+            />
+          )}
+        </>
+      ),
+    },
+    {
+      id: 'room',
+      title: 'Помещение',
+      content: (
+        <>
+          {renderField('roomWidthMM')}
+          {renderField('roomLengthMM')}
+          {renderField('approachSpaceMM')}
+          {renderField('clearanceMM')}
+        </>
+      ),
+    },
+  ]
+
   return (
-    <div>
+    <div className="calc">
+      <div className="calc__stage">
+        {hasMesh && quote && stageSolver ? (
+          <Stage3D
+            quote={quote}
+            solver={stageSolver}
+            material={config.material}
+            treadMaterial={treadCode}
+            finishId={finishId}
+            treadFinishId={treadFinishId}
+            onAdjustStepHeight={adjustStepHeight}
+            onFlipDirection={flipDirection}
+            onAdjustHeight={adjustHeight}
+            onAdjustComfortStep={adjustComfortStep}
+            comfortStepMM={Number(config.comfortStepMM) || undefined}
+            onAdjustLandingWidth={(mm) => adjustLanding('landingWidthMM', mm)}
+            onAdjustLandingDepth={(mm) => adjustLanding('landingDepthMM', mm)}
+            landingWidthMM={Number(config.landingWidthMM) || undefined}
+            landingDepthMM={Number(config.landingDepthMM) || undefined}
+            heightMM={Number(config.heightMM) || undefined}
+          />
+        ) : (
+          <div className="calc__stage-empty">
+            <h2>3D-модель лестницы</h2>
+            <p>
+              {quote && quote.validation.blocking
+                ? 'Расчёт остановлен: устраните блокирующие замечания в панели справа — и модель появится здесь.'
+                : 'Задайте параметры в панели справа и нажмите «Рассчитать» — здесь появится объёмная модель лестницы.'}
+            </p>
+          </div>
+        )}
+      </div>
+
+      <aside className="calc__rail">
       <section className="panel">
         <h2>Конструктор лестницы</h2>
-        <p className="sub">Задайте параметры — мы рассчитаем геометрию и предварительную цену.</p>
+        <p className="sub">Задайте параметры — посчитаем геометрию и цену.</p>
         <form onSubmit={handleSubmit}>
-          <div className="presets" role="group" aria-label="Готовые решения">
-            {stylePresets.map((pr) => (
-              <button
-                type="button"
-                key={pr.id}
-                className={`preset${config.material === pr.values.material ? ' is-active' : ''}`}
-                onClick={() => applyPreset(pr)}
-                title={pr.hint}
-              >
-                <span className="preset__label">{pr.label}</span>
-                <span className="preset__hint">{pr.hint}</span>
-              </button>
-            ))}
-          </div>
-          <div className="form-sections">
-            {fieldSections.map((section) => (
-              <section className="form-section" key={section.title}>
-                <h3 className="form-section__title">{section.title}</h3>
-                <div className="form-grid">
-                  {section.fields.map((k) =>
-                    k === 'stepHeightMM' || k === 'comfortStepMM' ? null : (
-                      <div className="field" key={k} hidden={!visible(k)}>
-                        <FieldLabel label={labels[k]} tooltip={tooltips[k]} htmlFor={`cfg-${k}`} />
-                        {k === 'material' ? (
-                          <div className="material-picker" id="cfg-material" role="radiogroup" aria-label="Материал">
-                            {materialOptions.map((o) => (
-                              <button
-                                type="button"
-                                key={o.value}
-                                role="radio"
-                                data-material-code={o.value}
-                                aria-checked={config.material === o.value}
-                                className={`material-picker__item${config.material === o.value ? ' is-active' : ''}`}
-                                onClick={() => update('material', o.value)}
-                              >
-                                <img
-                                  className="material-picker__swatch"
-                                  src={materialSwatch(o.value)}
-                                  alt=""
-                                  loading="lazy"
-                                  width={56}
-                                  height={56}
-                                />
-                                <span className="material-picker__label">{o.label}</span>
-                                <span className="material-picker__hint">
-                                  {o.minThicknessMM}–{o.maxThicknessMM} мм
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        ) : selectOptions(k) ? (
-                          <select
-                            id={`cfg-${k}`}
-                            value={config[k] as string}
-                            onChange={(e) => update(k, e.target.value)}
-                          >
-                            {selectOptions(k)!.map((o) => (
-                              <option key={o.value} value={o.value}>
-                                {o.label}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <input
-                            id={`cfg-${k}`}
-                            ref={
-                              k === 'roomWidthMM'
-                                ? roomWidthRef
-                                : k === 'roomLengthMM'
-                                  ? roomLengthRef
-                                  : undefined
-                            }
-                            type="text"
-                            inputMode="decimal"
-                            className={
-                              (touched && errors[k]) ||
-                              liveFieldErrors[k] != null ||
-                              (roomHighlight &&
-                                (k === 'roomWidthMM' || k === 'roomLengthMM') &&
-                                (config[k] as string).trim() === '')
-                                ? 'field-invalid'
-                                : undefined
-                            }
-                            value={config[k] as string}
-                            onChange={(e) => update(k, e.target.value)}
-                          />
-                        )}
-                        {hintOf(k) && <span className="sub">{hintOf(k)}</span>}
-                        {touched && errors[k] && <span className="error">{errors[k]}</span>}
-                        {touched && !errors[k] && liveFieldErrors[k] && (
-                          <span className="error">{liveFieldErrors[k]}</span>
-                        )}
-                        {renderRoomFieldError(k)}
-                      </div>
-                    ),
-                  )}
-                  {section.title === 'Ступени' && (
-                    <div className="field" hidden={SPIRAL_ENABLED && config.flight === 'spiral'}>
-                      <FieldLabel label={labels.riser} htmlFor="cfg-riser" />
-                      <label className="checkbox">
-                        <input
-                          id="cfg-riser"
-                          type="checkbox"
-                          checked={config.riser}
-                          onChange={(e) => setRiser(e.target.checked)}
-                        />
-                        <span>{config.riser ? 'Да' : 'Нет'}</span>
-                      </label>
-                      {hints.riser && <span className="sub">{hints.riser}</span>}
-                    </div>
-                  )}
-                  {SPIRAL_ENABLED && section.title === 'Перила' && config.flight === 'spiral' && (
-                    <div className="field">
-                      <FieldLabel label={labels.railing} tooltip={tooltips.railing} htmlFor="cfg-railing-auto" />
-                      {/* Спираль: перила всегда с одной стороны, сторона автоматически
-                          от направления закрутки (CONF-SPIRAL-RAILING). */}
-                      <input
-                        id="cfg-railing-auto"
-                        type="text"
-                        readOnly
-                        value={railingLabel(railingForSpiral(config.spiralDirection))}
-                      />
-                      <span className="sub">Авто: по направлению спирали</span>
-                    </div>
-                  )}
-                </div>
-              </section>
-            ))}
-          </div>
+          {/* Блок «Готовые решения» УДАЛЁН намеренно. Он был в конструкторе
+              до редизайна, в референсе niora его нет, и после разделения
+              материалов он стал actively harmful: пресеты задавали поле
+              material (материал ВСЕЙ лестницы), поэтому «Скандинавский дуб»
+              в калькуляторе металлокаркаса давал деревянный каркас, а
+              «Сталь» ставила толщину ступени 6 мм
+              при деревянных ступенях (минимум 20 мм) — то есть оставляла
+              конфигурацию заведомо невалидной. Всё, что пресеты задавали,
+              теперь выбирается явно в секции «Цвет и материал». */}
+          <ProductTabs
+            products={PRODUCTS}
+            value={product}
+            onChange={switchProduct}
+          />
+
+          <Accordion sections={calcSections} defaultOpen="main" />
+
 
           {roomPrompt && (
             <div className="alert alert--warn room-prompt" role="alert">
@@ -864,6 +1210,7 @@ export function Constructor() {
           )}
           <QuoteResultView
             quote={quote}
+            split
             onApplySuggestion={applySuggestion}
             onApplyVariation={applyGalleryVariation}
             variations={galleryVariations.length > 0 ? galleryVariations : undefined}
@@ -890,6 +1237,7 @@ export function Constructor() {
           )}
         </>
       )}
+      </aside>
     </div>
   )
 }

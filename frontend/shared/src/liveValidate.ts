@@ -127,6 +127,16 @@ const PARAM_TO_KEY: Record<string, keyof ConfigForm> = {
   'Перила': 'railing',
   'Направление поворота': 'direction',
   'Направление спирали': 'spiralDirection',
+  // DOM-005 (2026-09-26): метки полей, добавленные при локализации
+  // доменных ошибок (internal/application/stair/errors.go). Без них форма
+  // подсвечивала «Параметры лестницы» целиком и не указывала, что чинить.
+  'Глубина площадки': 'landingDepthMM',
+  'Ширина помещения': 'roomWidthMM',
+  'Длина помещения': 'roomLengthMM',
+  'Свободное пространство': 'approachSpaceMM',
+  'Шаг комфорта': 'comfortStepMM',
+  'Поворот марша': 'turnKind',
+  'Поворотных ступеней': 'winderCountMM',
 }
 
 // Вписываемость в помещение (geometry room_fit) подсвечивает оба габарита.
@@ -228,14 +238,17 @@ export function applySuggestion(prev: ConfigForm, s: LiveSuggestion): ConfigForm
 
 // applyVariation сливает конфиг варианта в форму. Пустые значения НЕ
 // перезаписывают выбор пользователя (иначе форма становится невалидной,
-// clobbering); шаг комфорта из варианта не применяем — он дефолтный и
-// прокрутку пользователь не редактирует (см. Constructor). Подстраховка:
-// свободное пространство перед первой ступенью обязательно (норма 1000–1200).
+// clobbering). Подстраховка: свободное пространство перед первой ступенью
+// обязательно (норма 1000–1200 мм).
+//
+// DOM-002 (2026-09-26): comfortStepMM применяется. Раньше он отбрасывался с
+// ложным комментарием «он дефолтный», но variation.ForAngle меняет шаг
+// комфорта намеренно (600/620/640) и считает проступь от него, поэтому без
+// него вариация «исправить угол» не снимала блокировку GEO-ANGLE.
 export function applyVariation(prev: ConfigForm, v: LiveVariation): ConfigForm {
   const merged = { ...prev } as unknown as Record<string, string>
   for (const [k, val] of Object.entries(v.config)) {
     if (typeof val !== 'string' || val.trim() === '') continue
-    if (k === 'comfortStepMM') continue
     merged[k] = val
   }
   if (merged.approachSpaceMM?.trim() === '') merged.approachSpaceMM = '1000'

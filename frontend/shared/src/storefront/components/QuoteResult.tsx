@@ -5,7 +5,7 @@ import { materialLabel } from '@shared/config'
 import { VariationPicker } from '@shared/components/VariationPicker'
 import { elementLabel, severityLabel } from '@shared/validationText'
 import { partLabel } from '@shared/viewer/picking'
-import { solverOf } from './quoteView'
+import { solverOf, type SolverView } from './quoteView'
 import { ErrorBoundary } from '@shared/sentry/ErrorBoundary'
 
 // Результат публичного расчёта: марш, геометрия и предварительная цена.
@@ -16,6 +16,213 @@ import { ErrorBoundary } from '@shared/sentry/ErrorBoundary'
 const GeometryViewer = lazy(() =>
   import('@shared/viewer/GeometryViewer').then((m) => ({ default: m.GeometryViewer })),
 )
+
+// ---------------------------------------------------------------------------
+// Stage3D — сцена вместе со всем её состоянием.
+//
+// Вынесено из QuoteResult отдельным компонентом по двум причинам:
+//  1) раскладка «3D слева, панель справа» — сцену рендерит Конструктор в
+//     левой колонке, а не в потоке панели;
+//  2) состояние выбранной детали и перетаскивания относится только к сцене,
+//     и держать его в компоненте панели было бы лишней связностью.
+//
+// Сервер авторитетен: HUD ничего не меняет в геометрии сам, а просит
+// Конструктор пересчитать с новой высотой ступени / направлением.
+// ---------------------------------------------------------------------------
+
+export interface Stage3DProps {
+  quote: QuoteResultType
+  solver: SolverView
+  material?: string
+  treadMaterial?: string
+  environmentHDRI?: string
+  finishId?: string
+  treadFinishId?: string
+  railingMetal?: boolean
+  onAdjustStepHeight?: (stepHeightMM: number) => void
+  onFlipDirection?: () => void
+  onAdjustHeight?: (heightMM: number) => void
+  onAdjustComfortStep?: (comfortStepMM: number) => void
+  comfortStepMM?: number
+  onAdjustLandingWidth?: (widthMM: number) => void
+  onAdjustLandingDepth?: (depthMM: number) => void
+  landingWidthMM?: number
+  landingDepthMM?: number
+  heightMM?: number
+}
+
+export function Stage3D({
+  quote,
+  solver,
+  material,
+  treadMaterial,
+  environmentHDRI = '/static-assets/hdri/studio_small_08_1k.hdr',
+  finishId,
+  treadFinishId,
+  railingMetal = true,
+  onAdjustStepHeight,
+  onFlipDirection,
+  onAdjustHeight,
+  onAdjustComfortStep,
+  comfortStepMM,
+  onAdjustLandingWidth,
+  onAdjustLandingDepth,
+  landingWidthMM,
+  landingDepthMM,
+  heightMM,
+}: Stage3DProps) {
+  const [selectedPart, setSelectedPart] = useState<{ solid: number; role: string } | null>(null)
+  // Живые значения при перетаскивании ступени (null — перетаскивания нет):
+  // по вертикали меняется высота марша, по горизонтали — шаг комфорта.
+  const [dragValue, setDragValue] = useState<{
+    heightMM: number
+    comfortStepMM: number
+    landingWidthMM?: number
+    landingDepthMM?: number
+  } | null>(null)
+  const stepCount = solver.flight?.StepCount ?? 0
+  // Поворот марша есть только у L/П-маршей: у прямого марша API не принимает
+  // направление (вид зеркалит 3D), поэтому кнопку там не показываем.
+  const hasDirection = solver.kind === 'l_shape' || solver.kind === 'u_shape' || solver.kind === 'spiral'
+  const canAdjust = stepCount > 0 && !!heightMM
+  const nudgeStepCount = (delta: number) => {
+    if (!canAdjust || !onAdjustStepHeight) return
+    const target = stepCount + delta
+    if (target < 2 || target > 60) return
+    onAdjustStepHeight(Math.round(((heightMM as number) / target) * 10) / 10)
+  }
+  // Фиолетовая линия верха марша на 3D: суммарный подъём марша.
+  const stairTop =
+    solver.flight && solver.kind !== 'spiral'
+      ? { rise: solver.flight.StepHeight * solver.flight.StepCount }
+      : undefined
+  // Меш обязателен для сцены; вызывающий (Конструктор) рендерит Stage3D
+  // только когда меш есть, а поле в типе остаётся опциональным (блокирующий
+  // ответ геометрии не содержит).
+  const mesh = quote.mesh
+  if (!mesh) return null
+
+  return (
+    <div className="scheme-3d scheme-3d--stage">
+      <ErrorBoundary
+        fallback={
+          <div className="alert alert--error" role="alert">
+            <p>Не удалось загрузить 3D-модель. Попробуйте перезагрузить страницу.</p>
+          </div>
+        }
+      >
+        <Suspense fallback={<p className="muted">Загрузка 3D…</p>}>
+          <GeometryViewer
+            mesh={mesh}
+            roomMesh={quote.room_mesh}
+            railingMesh={quote.railing_mesh}
+            stairTop={stairTop}
+            flight={solver.kind}
+            direction={solver.direction}
+            roomWidth={solver.roomWidth}
+            roomLength={solver.roomLength}
+            approachSpace={solver.approachSpace}
+            heightMM={heightMM}
+            materialCode={material}
+            treadMaterialCode={treadMaterial}
+            environmentHDRI={environmentHDRI}
+            finishId={finishId}
+            treadFinishId={treadFinishId}
+            railingMetal={railingMetal}
+            interactive={!!onAdjustStepHeight || !!onAdjustHeight || !!onAdjustComfortStep}
+            onDragPreview={setDragValue}
+            onDragHeight={onAdjustHeight}
+            onDragComfortStep={onAdjustComfortStep}
+            comfortStepMM={comfortStepMM}
+            onDragLandingWidth={onAdjustLandingWidth}
+            onDragLandingDepth={onAdjustLandingDepth}
+            landingWidthMM={landingWidthMM}
+            landingDepthMM={landingDepthMM}
+            selectedPart={selectedPart}
+            onSelectPart={setSelectedPart}
+            overlay={
+              selectedPart || dragValue != null ? (
+                <div className="viewer-hud">
+                  <span className="viewer-hud__title">
+                    {selectedPart
+                      ? partLabel(selectedPart.solid, selectedPart.role)
+                      : 'Правка марша'}
+                  </span>
+                  <span className="viewer-hud__meta">
+                    {dragValue ? (
+                      <>
+                        {dragValue.landingWidthMM != null && (
+                          <>
+                            Ширина площадки: {dragValue.landingWidthMM} мм — отпустите, чтобы применить
+                          </>
+                        )}
+                        {dragValue.landingDepthMM != null && (
+                          <>
+                            Глубина площадки: {dragValue.landingDepthMM} мм — отпустите, чтобы применить
+                          </>
+                        )}
+                        {dragValue.landingWidthMM == null &&
+                          dragValue.landingDepthMM == null &&
+                          (dragValue.heightMM !== heightMM ? (
+                            <>
+                              Высота марша: {dragValue.heightMM} мм — отпустите, чтобы применить
+                            </>
+                          ) : (
+                            <>
+                              Шаг комфорта: {dragValue.comfortStepMM} мм — отпустите, чтобы применить
+                            </>
+                          ))}
+                      </>
+                    ) : (
+                      <>
+                        Ступеней: {stepCount} · высота ступени{' '}
+                        {solver.flight ? Math.round(solver.flight.StepHeight) : 0} мм · тяните ступень
+                        вверх/вниз (высота) или вбок (проступь)
+                      </>
+                    )}
+                  </span>
+                  <div className="viewer-hud__actions">
+                    <button
+                      type="button"
+                      className="sp-btn"
+                      onClick={() => nudgeStepCount(-1)}
+                      disabled={!canAdjust || stepCount <= 2 || dragValue != null}
+                    >
+                      − ступень
+                    </button>
+                    <button
+                      type="button"
+                      className="sp-btn"
+                      onClick={() => nudgeStepCount(1)}
+                      disabled={!canAdjust || stepCount >= 60 || dragValue != null}
+                    >
+                      + ступень
+                    </button>
+                    {onFlipDirection && hasDirection && (
+                      <button type="button" className="sp-btn" onClick={onFlipDirection}>
+                        Развернуть
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="sp-btn"
+                      onClick={() => {
+                        setSelectedPart(null)
+                        setDragValue(null)
+                      }}
+                    >
+                      Закрыть
+                    </button>
+                  </div>
+                </div>
+              ) : null
+            }
+          />
+        </Suspense>
+      </ErrorBoundary>
+    </div>
+  )
+}
 
 interface Props {
   quote: QuoteResultType
@@ -51,6 +258,9 @@ interface Props {
   // Высота марша из ввода пользователя (поле «Высота», мм): задаёт высоту
   // стен периметра в 3D-вьювере.
   heightMM?: number
+  // Раскладка «3D слева, панель справа»: сцену рендерит Конструктор в
+  // левой колонке, а этот компонент отдаёт только содержимое панели.
+  split?: boolean
 }
 
 export function QuoteResult({
@@ -74,49 +284,22 @@ export function QuoteResult({
   variations,
   activeVariationId,
   heightMM,
+  split = false,
 }: Props) {
   const solver = solverOf(quote, approachSpaceMM != null && approachSpaceMM.trim() !== '' ? Number(approachSpaceMM) : undefined)
   const geometry = quote.geometry
   const pricing = quote.pricing
   const issues = quote.validation.issues ?? []
   const spiral = quote.spiral !== undefined
-  // Вариации (A/B/C, напр. невписываемость в помещение) могут относиться к
-  // нескольким issue с одинаковым набором — показываем только для первого,
-  // если Конструктор не передал персистентный список.
-  // Этап 2: выбранная в 3D деталь и действия над ней.
-  const [selectedPart, setSelectedPart] = useState<{ solid: number; role: string } | null>(null)
-  // Живые значения при перетаскивании ступени (null — перетаскивания нет):
-  // по вертикали меняется высота марша, по горизонтали — шаг комфорта.
-  const [dragValue, setDragValue] = useState<{
-    heightMM: number
-    comfortStepMM: number
-    landingWidthMM?: number
-    landingDepthMM?: number
-  } | null>(null)
-  const stepCount = solver.flight?.StepCount ?? 0
-  // Поворот марша есть только у L/П-маршей: у прямого марша API не принимает
-  // направление (вид зеркалит 3D), поэтому кнопку там не показываем.
-  const hasDirection = solver.kind === 'l_shape' || solver.kind === 'u_shape' || solver.kind === 'spiral'
-  const canAdjust = stepCount > 0 && !!heightMM
-  const nudgeStepCount = (delta: number) => {
-    if (!canAdjust || !onAdjustStepHeight) return
-    const target = stepCount + delta
-    if (target < 2 || target > 60) return
-    onAdjustStepHeight(Math.round(((heightMM as number) / target) * 10) / 10)
-  }
   const firstVar = issues.find((i) => i.variations && i.variations.length > 0)
-  // Фиолетовая линия верха марша на 3D: суммарный подъём марша.
-  const stairTop =
-    solver.flight && solver.kind !== 'spiral'
-      ? { rise: solver.flight.StepHeight * solver.flight.StepCount }
-      : undefined
 
   return (
     <>
       <section className="panel">
-        <h2>
-          Результат расчёта {quote.validation.valid ? '✅' : '⚠️'}
-        </h2>
+        {/* Статус расчёта виден в обеих раскладках: блок был под `split`,
+            из-за чего в standalone-режиме заголовок и фраза «Расчёт
+            остановлен» просто исчезали. */}
+        <h2>Результат расчёта {quote.validation.valid ? '✅' : '⚠️'}</h2>
         <p className="sub">
           {quote.validation.blocking
             ? 'Расчёт остановлен: обнаружены блокирующие нарушения.'
@@ -177,127 +360,25 @@ export function QuoteResult({
           </div>
         )}
 
-        {!quote.validation.blocking && quote.mesh?.Vertices?.length && quote.mesh?.Triangles && (
-          <div className="scheme-3d">
-            <h3 className="scheme-3d__title">3D-модель</h3>
-            <ErrorBoundary
-              fallback={
-                <div className="alert alert--error" role="alert">
-                  <p>Не удалось загрузить 3D-модель. Попробуйте перезагрузить страницу.</p>
-                </div>
-              }
-            >
-              <Suspense fallback={<p className="muted">Загрузка 3D…</p>}>
-                <GeometryViewer
-                mesh={quote.mesh}
-                roomMesh={quote.room_mesh}
-                railingMesh={quote.railing_mesh}
-                stairTop={stairTop}
-                flight={solver.kind}
-                direction={solver.direction}
-                roomWidth={solver.roomWidth}
-                roomLength={solver.roomLength}
-                approachSpace={solver.approachSpace}
-                heightMM={heightMM}
-                materialCode={material}
-                environmentHDRI={environmentHDRI}
-                finishId={finishId}
-                railingMetal={railingMetal}
-                interactive={!!onAdjustStepHeight || !!onAdjustHeight || !!onAdjustComfortStep}
-                onDragPreview={setDragValue}
-                onDragHeight={onAdjustHeight}
-                onDragComfortStep={onAdjustComfortStep}
-                comfortStepMM={comfortStepMM}
-                onDragLandingWidth={onAdjustLandingWidth}
-                onDragLandingDepth={onAdjustLandingDepth}
-                landingWidthMM={landingWidthMM}
-                landingDepthMM={landingDepthMM}
-                selectedPart={selectedPart}
-                onSelectPart={setSelectedPart}
-                overlay={
-                  selectedPart || dragValue != null ? (
-                    <div className="viewer-hud">
-                      <span className="viewer-hud__title">
-                        {selectedPart
-                          ? partLabel(selectedPart.solid, selectedPart.role)
-                          : 'Правка марша'}
-                      </span>
-                      <span className="viewer-hud__meta">
-                        {dragValue ? (
-                          <>
-                            {dragValue.landingWidthMM != null && (
-                              <>
-                                Ширина площадки: {dragValue.landingWidthMM} мм — отпустите, чтобы
-                                применить
-                              </>
-                            )}
-                            {dragValue.landingDepthMM != null && (
-                              <>
-                                Глубина площадки: {dragValue.landingDepthMM} мм — отпустите, чтобы
-                                применить
-                              </>
-                            )}
-                            {dragValue.landingWidthMM == null &&
-                              dragValue.landingDepthMM == null &&
-                              (dragValue.heightMM !== heightMM ? (
-                                <>
-                                  Высота марша: {dragValue.heightMM} мм — отпустите, чтобы применить
-                                </>
-                              ) : (
-                                <>
-                                  Шаг комфорта: {dragValue.comfortStepMM} мм — отпустите, чтобы
-                                  применить
-                                </>
-                              ))}
-                          </>
-                        ) : (
-                          <>
-                            Ступеней: {stepCount} · высота ступени{' '}
-                            {solver.flight ? Math.round(solver.flight.StepHeight) : 0} мм · тяните
-                            ступень вверх/вниз (высота) или вбок (проступь)
-                          </>
-                        )}
-                      </span>
-                      <div className="viewer-hud__actions">
-                        <button
-                          type="button"
-                          className="sp-btn"
-                          onClick={() => nudgeStepCount(-1)}
-                          disabled={!canAdjust || stepCount <= 2 || dragValue != null}
-                        >
-                          − ступень
-                        </button>
-                        <button
-                          type="button"
-                          className="sp-btn"
-                          onClick={() => nudgeStepCount(1)}
-                          disabled={!canAdjust || stepCount >= 60 || dragValue != null}
-                        >
-                          + ступень
-                        </button>
-                        {onFlipDirection && hasDirection && (
-                          <button type="button" className="sp-btn" onClick={onFlipDirection}>
-                            Развернуть
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          className="sp-btn"
-                          onClick={() => {
-                            setSelectedPart(null)
-                            setDragValue(null)
-                          }}
-                        >
-                          Закрыть
-                        </button>
-                      </div>
-                    </div>
-                  ) : null
-                }
-              />
-              </Suspense>
-            </ErrorBoundary>
-          </div>
+        {!split && !quote.validation.blocking && quote.mesh?.Vertices?.length && quote.mesh?.Triangles && (
+          <Stage3D
+            quote={quote}
+            solver={solver}
+            material={material}
+            environmentHDRI={environmentHDRI}
+            finishId={finishId}
+            railingMetal={railingMetal}
+            onAdjustStepHeight={onAdjustStepHeight}
+            onFlipDirection={onFlipDirection}
+            onAdjustHeight={onAdjustHeight}
+            onAdjustComfortStep={onAdjustComfortStep}
+            comfortStepMM={comfortStepMM}
+            onAdjustLandingWidth={onAdjustLandingWidth}
+            onAdjustLandingDepth={onAdjustLandingDepth}
+            landingWidthMM={landingWidthMM}
+            landingDepthMM={landingDepthMM}
+            heightMM={heightMM}
+          />
         )}
       </section>
 
@@ -377,11 +458,17 @@ export function QuoteResult({
             <span className="price-label">Предварительная цена</span>
             <span className="price-value">{fmt.rubMajor(pricing.final_price_rub)}</span>
           </div>
-          {material && <p className="sub">Материал: {materialLabel(material)}</p>}
+          {/* Материал ступеней выбирается отдельно от каркаса, поэтому
+              подпись «Материал» вводила в заблуждение: показываем, что
+              это именно каркас. */}
+          {material && <p className="sub">Материал каркаса: {materialLabel(material)}</p>}
           <p className="sub">
             Точная стоимость зависит от согласования проекта. Цена включает материалы, обработку
             и монтаж; финальный расчёт подтвердит менеджер. Доставка рассчитывается индивидуально.
           </p>
+          {/* Структуру себестоимости покупателю не показываем: материалы,
+              обработка, накладные, маржа и скидка — внутренние данные.
+              Полная разбивка живёт в админке (ResultPanel → PricingPanel). */}
         </section>
       )}
     </>

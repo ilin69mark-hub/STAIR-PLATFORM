@@ -82,3 +82,39 @@ describe('Cabinet', () => {
     expect(await screen.findByText('Не удалось загрузить заказы')).toBeInTheDocument()
   })
 })
+// FE-18a (forensic 2026-09-27): суммы платежей в «Моих покупках» не должны
+// терять копейки.
+//
+// БЫЛО: локальная копия formatRub использовала maximumFractionDigits: 0, и
+// amount_minor = 123456 (1 234,56 ₽) показывался как «1 235 ₽». Рубля имеет
+// два знака (domain/pricing: CurrencyRUB{Decimals: 2}), так что копейки —
+// часть суммы, а не оформление. Клиент, сверивший выписку с экраном, получал
+// расхождение в десятки копеек на каждом платеже.
+//
+// Отдельная локальная копия форматтера вообще была источником расхождения:
+// соседний экран использует fmt.rubMajor с двумя знаками.
+describe('FE-18a: суммы платежей с копейками', () => {
+  const formatLikeCabinet = (minor: number): string =>
+    new Intl.NumberFormat('ru-RU', {
+      style: 'currency',
+      currency: 'RUB',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(minor / 100)
+
+  it.each([
+    [123456, '1\u00a0234,56'],
+    [180000, '1\u00a0800,00'],
+    [1, '0,01'],
+    [99, '0,99'],
+    [1234567, '12\u00a0345,67'],
+  ])('amount_minor=%i отображается как %s', (minor, expected) => {
+    // Непространённое округление до целых: 1 234,56 ₽ превращалось в 1 235 ₽.
+    expect(formatLikeCabinet(minor)).toContain(expected)
+  })
+
+  it('не округляет сумму до целых рублей', () => {
+    // Именно этот случай ловил старый maximumFractionDigits: 0.
+    expect(formatLikeCabinet(123456)).not.toMatch(/1\s?235\s?₽$/)
+  })
+})

@@ -1,0 +1,513 @@
+/* Ползунок и сегментированные кнопки калькулятора. */
+
+.slider {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.slider__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.slider__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--sp-text);
+  cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slider__value {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  flex: 0 0 auto;
+}
+
+.slider__number {
+  /* 40px при 12px. Всё считается от фактической ширины контента:
+     border-box отнимает padding 3+3 и рамку 1+1, то есть доступно 32px.
+     Все пределы каталога четырёхзначные (высота 6000, помещение 8000,
+     глубина площадки 5000), цифра при 12px — ~6.7px: 4 цифры это 27px,
+     2px на курсор при правке, и 32px хватает. */
+  width: 40px;
+  padding: 0 3px;
+  text-align: right;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  color: var(--sp-text);
+  background: var(--sp-card);
+  border: 1px solid var(--sp-border);
+  border-radius: 5px;
+}
+
+.slider__number:focus-visible {
+  outline: 2px solid var(--sp-primary);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+.slider[data-empty] .slider__number {
+  border-style: dashed;
+  color: var(--sp-muted);
+}
+
+.slider__unit {
+  font-size: 10px;
+  color: var(--sp-muted);
+}
+
+/* Ползунок: нативный range с оформленной дорожкой. accent-color даёт
+   цвет без единой картинки и без вендорных префиксов. */
+.slider__range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  /* 14px вместо 18px: пять полей в секции давали минус 20px высоты панели. */
+  height: 14px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  accent-color: var(--sp-primary);
+}
+
+.slider__range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: #dbe4e0;
+}
+
+.slider__range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: var(--sp-primary);
+  border: 2px solid var(--sp-card);
+  box-shadow: 0 1px 3px rgba(11, 110, 79, 0.35);
+}
+
+.slider__range::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: #dbe4e0;
+}
+
+.slider__range::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--sp-primary);
+  border: 2px solid var(--sp-card);
+  box-shadow: 0 1px 3px rgba(11, 110, 79, 0.35);
+}
+
+.slider__range:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.slider__scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  line-height: 1.2;
+  color: #9aa7a2;
+  font-variant-numeric: tabular-nums;
+  margin-top: -3px;
+}
+
+.slider__hint {
+  font-size: 12px;
+  color: var(--sp-muted);
+}
+
+/* --- Сегментированные кнопки --- */
+
+.segmented {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.segmented__legend {
+  padding: 0;
+  margin-bottom: 3px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--sp-text);
+}
+
+.segmented__grid {
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.segmented[data-cols='3'] .segmented__grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.segmented[data-cols='4'] .segmented__grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.segmented__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  /* 32px. Было 38px: пять секций по 2–3 чипа давали лишние ~20px на секцию.
+     Высота 32px = 6px отступа + строка 15px при 12.5px + 2px рамки. */
+  min-height: 32px;
+  padding: 4px 5px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--sp-text);
+  background: var(--sp-card);
+  border: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius-sm, 8px);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+/* Чипы ограждения: подписи «Перила: первый марш» в кнопке 38px занимали две
+   строки. Здесь 28px и одна строка с многоточием — три группы сегментов
+   помещаются в панель без прокрутки. */
+.segmented[data-compact] .segmented__item {
+  min-height: 26px;
+  padding: 2px 4px;
+  font-size: 11.5px;
+}
+
+.segmented[data-compact] .segmented__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.segmented__item:hover {
+  border-color: #c3d2cc;
+}
+
+.segmented__item.is-active {
+  color: var(--sp-primary);
+  background: rgba(11, 110, 79, 0.07);
+  border-color: var(--sp-primary);
+  font-weight: 600;
+}
+
+.segmented__item:focus-visible {
+  outline: 2px solid var(--sp-primary);
+  outline-offset: 1px;
+}
+
+.segmented__label {
+  text-align: center;
+  line-height: 1.2;
+}
+
+.segmented__hint {
+  font-size: 11px;
+  color: var(--sp-muted);
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.segmented__hint-line {
+  display: block;
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--sp-muted);
+}
+
+/* --- Переключатель изделий --- */
+
+.product-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  background: #eef2f0;
+  border-radius: 10px;
+}
+
+.product-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--sp-muted);
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.product-tab:hover:not(:disabled) {
+  color: var(--sp-text);
+}
+
+.product-tab.is-active {
+  color: var(--sp-primary);
+  background: var(--sp-card);
+  box-shadow: 0 1px 3px rgba(11, 110, 79, 0.14);
+}
+
+.product-tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.product-tab__badge {
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #8a6d3b;
+  background: #fdf3e0;
+  border-radius: 999px;
+}
+
+/* --- Аккордеон секций --- */
+
+.accordion {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 10px;
+}
+
+/* Заголовки секций — компактная сетка в две колонки. Раньше каждая секция
+   была отдельной карточкой в свой ряд, и пять рядов по 38px съедали высоту,
+   из-за чего тело открытой секции сжималось до ~280px: данные приходилось
+   вводить в узкое окошко. Три ряда по 30px дают телу всю оставшуюся
+   высоту панели, при этом все пять разделов по-прежнему видны. */
+.accordion__heads {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+/* Обводка ВНУТРИ, а не рамка снаружи: рамка двигала бы всю сетку панели и
+   ломала бы вертикальный ритм; inset-обводка держит ту же границу, не
+   сдвигая ни одного элемента. */
+.acc__head {
+  background: var(--sp-card);
+  border-radius: var(--sp-radius-sm, 8px);
+  box-shadow: inset 0 0 0 1px rgba(11, 110, 79, 0.09);
+  overflow: hidden;
+}
+
+.acc__head.is-open {
+  box-shadow: inset 0 0 0 1px rgba(11, 110, 79, 0.28);
+  background: rgba(11, 110, 79, 0.05);
+}
+
+/* Открытый заголовок занимает всю ширину сетки: он связан с телом под ним
+   и заодно закрывает «дыру» неполного последнего ряда. */
+.acc__head.is-open {
+  grid-column: 1 / -1;
+  order: -1;
+}
+
+.acc__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  /* 30px — высота чипа. Ниже 28px подпись перестаёт читаться как раздел,
+     выше 32px сетка снова начинает съедать высоту тела. */
+  min-height: 30px;
+  padding: 5px 10px;
+  font: inherit;
+  /* 13px + 600. Заголовок больше не заголовок статьи, а подпись чипа, но
+     он всё равно должен читаться раньше знака +/−, поэтому 600. */
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  color: var(--sp-text);
+  border: none;
+  cursor: pointer;
+}
+
+.acc__head:hover {
+  box-shadow: inset 0 0 0 1px rgba(11, 110, 79, 0.22);
+}
+
+.acc__head:focus-visible {
+  outline: 2px solid var(--sp-primary);
+  outline-offset: -2px;
+}
+
+.acc__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acc__sign {
+  flex: 0 0 auto;
+  /* 12px — знак не должен конкурировать с заголовком. */
+  font-size: 12px;
+  line-height: 1;
+  color: var(--sp-muted);
+}
+
+.acc__head.is-open .acc__sign {
+  color: var(--sp-primary);
+}
+
+.acc__body {
+  display: flex;
+  flex-direction: column;
+  background: var(--sp-card);
+  border-radius: var(--sp-radius-sm, 8px);
+  box-shadow: inset 0 0 0 1px rgba(11, 110, 79, 0.09);
+  overflow: hidden;
+  /* 14px между полями и 16px по бокам: в колонке 460px поля перестали
+     тесниться, и 12px выглядели бы нищенски. */
+  gap: 14px;
+  padding: 16px 16px 20px;
+}
+
+/* Тело открытой секции — ЕДИНСТВЕННОЕ место во всей панели, где допустим
+   скролл. Панель и её заголовки не прокручиваются никогда: открытие
+   секции не должно уводить нижние вкладки за край экрана.
+   flex + min-height:0 обязательны, иначе содержимое растягивает карточку и
+   overflow не включается. Полоса тонкая и появляется только при реальном
+   переполнении (низкое окно, длинный раздел). */
+.calc__rail .acc__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* overflow-x: hidden — страховка от горизонтальной полосы. По спецификации
+     при overflow-y: auto невидимый overflow-x вычисляется в auto, то есть
+     ОДНА длинная подпись даёт панели горизонтальный скролл, который не
+     нужен ни в одном сценарии. */
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+/* --- Образцы цвета --- */
+
+.swatches {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.swatches__legend {
+  padding: 0;
+  margin-bottom: 5px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--sp-text);
+}
+
+.swatches__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.swatch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--sp-text);
+  background: var(--sp-card);
+  border: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius-sm, 8px);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+.swatch:hover {
+  border-color: #c3d2cc;
+}
+
+.swatch.is-active {
+  color: var(--sp-primary);
+  background: rgba(11, 110, 79, 0.07);
+  border-color: var(--sp-primary);
+  font-weight: 600;
+}
+
+.swatch:focus-visible {
+  outline: 2px solid var(--sp-primary);
+  outline-offset: 1px;
+}
+
+.swatch__dot {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.45);
+}
+
+.swatch__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.swatches__hint {
+  display: block;
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--sp-muted);
+}
+
+/* Заголовок секции аккордеона заменяет прежний h3 — старые стили формы
+   секций больше не используются конструктором. */
+.form-grid {
+  display: grid;
+  gap: 10px;
+}
+
+/* Значение, когда выбирать нечего: один материал каркаса — это факт
+   калькулятора, а не выбор пользователя. Показываем строкой, чтобы рядом
+   не висела кнопка из одного пункта, которая ничего не переключает. */
+.readonly-value {
+  margin: 0;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--sp-text);
+  background: #f4f7f6;
+  border-radius: var(--sp-radius-sm, 8px);
+}

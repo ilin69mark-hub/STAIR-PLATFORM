@@ -1,0 +1,252 @@
+/* Калькулятор в одном окне: 3D-сцена слева, панель управления со сметой
+   справа. Страница не скроллится — скроллится только правая колонка.
+   Референс-подход (niora.ru/calculator/metal): фиксированный вьюпорт,
+   стек absolute-слоёв, внутренние scroll-регионы, карточки-панели. */
+
+:root {
+  --sp-radius: 12px;
+  --sp-radius-sm: 8px;
+  --sp-gap: 14px;
+  --sp-gap-sm: 8px;
+  --sp-space-1: 4px;
+  --sp-space-2: 8px;
+  --sp-space-3: 12px;
+  --sp-space-4: 16px;
+  --sp-space-5: 24px;
+  --sp-space-6: 32px;
+  /* 460px. Было 380px (ширина панели у niora): в колонке 356px после
+     отступов подпись «Рекомендуем 900–1100 мм» переносилась в три строки
+     и съедала высоту, а тело открытой секции получало окно 356×283px —
+     вводить данные в такое «маленькое окошко» неудобно. Узкая колонка
+     отдавала высоту полотну 3D ценой читаемости формы; на 1440px
+     сцена и так получает больше 900px, поэтому 460px — свободно. */
+  --sp-rail-w: 460px;
+  --sp-stage-min: 320px;
+  --sp-header-h: 61px;
+}
+
+/* --- Оболочка: страница не скроллится, только колонка панели --- */
+
+.store--calc {
+  height: 100svh;
+  min-height: 100svh;
+  max-height: 100svh;
+  overflow: hidden;
+}
+
+.store--calc .store-header {
+  position: static;
+  flex: 0 0 auto;
+  min-height: var(--sp-header-h);
+  padding: 10px 20px;
+}
+
+.store--calc .store-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Футер на маршруте калькулятора только мешает: он внизу, а страница
+   не скроллится — то есть недоступен. Скрываем, а контакты остаются
+   в шапке. */
+.store--calc .store-footer {
+  display: none;
+}
+
+/* --- Сетка калькулятора --- */
+
+.calc {
+  display: grid;
+  grid-template-columns: minmax(var(--sp-stage-min), 1fr) var(--sp-rail-w);
+  gap: 0;
+  height: 100%;
+  min-height: 0;
+  background: var(--sp-stage-bg, #f4f6f7);
+}
+
+.calc__stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--sp-stage-bg, #f4f6f7);
+  border-right: 1px solid var(--sp-border);
+}
+
+.calc__stage .viewer {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Сцена внутри сцены: растягиваем канвас на всю высоту колонки. */
+.calc__stage .viewer__stage {
+  height: 100%;
+  min-height: 0;
+}
+
+.calc__stage-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-space-3);
+  padding: var(--sp-space-6);
+  text-align: center;
+  color: var(--sp-muted);
+}
+
+.calc__stage-empty h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  color: var(--sp-text);
+}
+
+.calc__stage-empty p {
+  margin: 0;
+  max-width: 42ch;
+  font-size: 14px;
+}
+
+/* Панель справа. СКРОЛЛА У ПАНЕЛИ НЕТ — требование владельца продукта:
+   всё управление помещается в один экран, а открытие секции ничего не
+   выталкивает за нижний край.
+   Раньше здесь стоял overflow-y: auto, то есть панель прокручивалась и при
+   открытии «Цвет и материал» (два сегмента + две палитры) заголовки нижних
+   вкладок уезжали вниз. Теперь прокручивается ТОЛЬКО тело открытой секции
+   (.acc__body), а все заголовки закреплены и всегда видны.
+
+   min-height: 0 на всех flex-потомках обязателен: без него flex-элемент не
+   даёт ужаться содержимому и overflow:hidden обрезает его вместо того,
+   чтобы отдать место секции. */
+.calc__rail {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-gap);
+  padding: var(--sp-gap);
+  background: var(--sp-bg);
+}
+
+.calc__rail .panel {
+  margin: 0;
+  /* Панель занимает всю высоту рельса и сама раскладывается на
+     «резиновую» часть (аккордеон) и негибкие (кнопки, баннеры). */
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.calc__rail .panel > h2,
+.calc__rail .panel > .sub {
+  flex: 0 0 auto;
+}
+
+.calc__rail .panel > form {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Переключатель изделий не сжимается и не уезжает: он всегда на виду. */
+.calc__rail .product-tabs {
+  flex: 0 0 auto;
+}
+
+/* Аккордеон забирает остаток высоты; его тело прокручивается, если
+   содержимое секции объективно не помещается (низкое окно, длинный
+   раздел). Заголовки при этом неподвижны. */
+/* Аккордеон забирает остаток высоты: заголовки фиксированы (три ряда
+   по 30px), а тело открытой секции растягивается на всё остальное, чтобы
+   ползунок прокрутки не появлялся там, где содержимое уже помещается. */
+.calc__rail .accordion {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.calc__rail .acc__body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Кнопка «Рассчитать» — постоянный футер панели. Раньше она держалась
+   на position: sticky; при отсутствии скролла sticky не работает и вместо
+   закрепления просто создавал лишний слой, поэтому здесь обычный блок. */
+.calc__rail .actions {
+  flex: 0 0 auto;
+  z-index: 3;
+  margin: 0;
+  padding: 4px 0 0;
+  border-top: 1px solid var(--sp-border);
+  background: none;
+}
+
+/* --- Мобильная раскладка: панель поверх сцены (drawer) --- */
+
+@media (max-width: 900px) {
+  .calc {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(220px, 38%) 1fr;
+  }
+
+  .calc__stage {
+    border-right: none;
+    border-bottom: 1px solid var(--sp-border);
+  }
+}
+
+/* Планшет: 900px делить на 460px рельса и 320px минимум сцены нельзя —
+   сцена получила бы 440px и колонки налезали друг на друга. Рельс сужаем
+   до 400px: на планшете это всё равно читаемо (сетка заголовков в две
+   колонки держит подписи), зато сцена остаётся рабочей. */
+@media (min-width: 781px) and (max-width: 900px) {
+  .calc {
+    grid-template-columns: minmax(var(--sp-stage-min), 1fr) 400px;
+  }
+}
+
+/* Сцена в сплите: заголовок не нужен — колонка и так называется задачей,
+   а height:100% обязателен, иначе канвас схлопнется по контенту. */
+.scheme-3d--stage {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+}
+
+.scheme-3d--stage .viewer {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.scheme-3d--stage .viewer__stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+/* В сплите подсказку про вращение убираем: колонка узкая, надпись
+   перекрывала бы модель. */
+.scheme-3d--stage .viewer__hint {
+  display: none;
+}
+
+/* Пустая сцена до первого расчёта. */
+.calc__stage .viewer--fallback {
+  height: 100%;
+}

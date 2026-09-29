@@ -1,0 +1,132 @@
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
+import { Constructor } from '@shared/storefront/components/Constructor'
+
+// Регрессия: 2026-09-28. Конструктор витрины падал в ErrorBoundary с
+// «Что-то пошло не так» на КАЖДОМ открытии страницы.
+//
+// Причина — temporal dead zone. Блок с renderField/calcSections был
+// объявлен выше const-ов visible/selectOptions/update, а JSX внутри
+// content: (<>…</>) вычисляется в момент создания массива секций, то есть
+// ДО их инициализации. Падало всё, без ввода данных и без расчёта.
+//
+// Тест ловит именно это: любой ReferenceError на рендере означает возврат
+// бага. Проверяем исходное состояние, поведение аккордеона и секцию
+// материалов — там строились палитры, которые тоже падали бы при TDZ.
+//
+// Третий тест заодно поймал отдельный баг Slider: <label htmlFor> указывал
+// на id, которого не было ни у одного инпута, поэтому подпись не была
+// связана с полем (getByLabelText её не находил, и клик по подписи не
+// фокусировал ввод). Теперь id у числового поля, у ползунка — производный
+// с aria-label.
+
+describe('Constructor: рендер без падения в ErrorBoundary', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  it('исходное состояние: секции аккордеона на месте', () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    let thrown: unknown = null
+    try {
+      render(<Constructor />)
+    } catch (e) {
+      thrown = e
+    }
+    if (thrown) console.log('THROWN:', (thrown as Error).stack)
+    errSpy.mockRestore()
+    expect(thrown).toBeNull()
+    // Первая секция открыта, две кнопки изделий видны.
+    expect(screen.getByText('Основные настройки')).toBeTruthy()
+    expect(screen.getByRole('tab', { name: /Металлокаркас/ })).toBeTruthy()
+    expect(screen.getByRole('tab', { name: /Деревянные/ })).toBeTruthy()
+  })
+
+  it('аккордеон: секции раскрываются, сворачиваются и могут быть свёрнуты все', () => {
+    render(<Constructor />)
+    const main = screen.getByText('Основные настройки')
+    // «Форма лестницы» — содержимое открытой секции.
+    expect(screen.getByText('Тип лестницы')).toBeTruthy()
+    fireEvent.click(main)
+    // Клик по открытой секции закрывает и её: состояние «всё свёрнуто»
+    // должно быть достижимо (требование владельца продукта).
+    expect(screen.queryByText('Тип лестницы')).toBeNull()
+    // Открываем другую секцию — открытой остаётся ровно одна.
+    fireEvent.click(screen.getByText('Цвет и материал'))
+    expect(screen.getByText('Каркас (косоуры и площадка)')).toBeTruthy()
+    expect(screen.queryByText('Тип лестницы')).toBeNull()
+
+    // И её тоже можно закрыть — все заголовки остаются на месте.
+    fireEvent.click(screen.getByText('Цвет и материал'))
+    expect(screen.queryByText('Каркас (косоуры и площадка)')).toBeNull()
+    // Прямой марш: «Настройки поворота» скрыта (только L/П), поэтому в
+    // свёрнутом состоянии остаются четыре заголовка, а не пять.
+    for (const t of ['Основные настройки', 'Ограждение', 'Цвет и материал', 'Помещение']) {
+      expect(screen.getByText(t)).toBeTruthy()
+    }
+    expect(screen.queryByText('Настройки поворота')).toBeNull()
+  })
+
+  // Порядок секций в DOM НЕ меняется при раскрытии. Раньше открытая
+  // секция поднималась наверх, а остальные уходили под неё — это спасало от
+  // выталкивания заголовков за край панели, но само по себе было прыжком:
+  // тело открытой секции ездило по высоте. Теперь заголовки — компактная
+  // сетка (три ряда), а тело ОДНО под ними, поэтому прыгать нечему и
+  // порядок разделов остаётся постоянным.
+  it('порядок секций не меняется при раскрытии, тело всегда одно', () => {
+    render(<Constructor />)
+    const titles = () =>
+      Array.from(document.querySelectorAll('.acc__title')).map((n) => n.textContent)
+    const initial = [
+      'Основные настройки',
+      'Ограждение',
+      'Цвет и материал',
+      'Помещение',
+    ]
+    expect(titles()).toEqual(initial)
+
+    fireEvent.click(screen.getByText('Цвет и материал'))
+    expect(titles()).toEqual(initial)
+    expect(document.querySelectorAll('.acc__body')).toHaveLength(1)
+
+    // Открытая секция помечена и подписана — иначе при прокрутке тела
+    // непонятно, какой раздел раскрыт.
+    const open = screen
+      .getByText('Цвет и материал')
+      .closest('.acc__head') as HTMLElement
+    expect(open).toHaveAttribute('aria-expanded', 'true')
+    expect(document.querySelectorAll('.acc__head.is-open')).toHaveLength(1)
+    expect(screen.getByRole('region', { name: 'Цвет и материал' })).toBeInTheDocument()
+
+    // Клик по нижней секции: порядок тот же, тело по-прежнему одно.
+    fireEvent.click(screen.getByText('Помещение'))
+    expect(titles()).toEqual(initial)
+    expect(document.querySelectorAll('.acc__body')).toHaveLength(1)
+
+    // Свернуть всё: тела нет, порядок прежний.
+    fireEvent.click(screen.getByText('Помещение'))
+    expect(titles()).toEqual(initial)
+    expect(document.querySelectorAll('.acc__body')).toHaveLength(0)
+  })
+
+  it('секция материалов: палитры каркаса и ступеней, переключение Дерево/Металл', () => {
+    render(<Constructor />)
+    fireEvent.click(screen.getByText('Цвет и материал'))
+
+    // Каркас в металлокаркасе всегда сталь, поэтому палитра каркаса
+    // показывается строкой, а у ступеней — переключатель вида материала.
+    expect(screen.getByText('Каркас (косоуры и площадка)')).toBeTruthy()
+    expect(screen.getByText('Ступени (проступи и площадка)')).toBeTruthy()
+    // Дефолт витрины — дуб, поэтому видны и отделка ступеней, и палитра каркаса.
+    expect(screen.getByText('Цвет каркаса')).toBeTruthy()
+    expect(screen.getByText('Отделка ступеней')).toBeTruthy()
+
+    // Переключаем на металл: подпись палитры ступеней меняется, рендер не падает.
+    fireEvent.click(screen.getByRole('radio', { name: 'Металл' }))
+    expect(screen.getByText('Цвет ступеней')).toBeTruthy()
+
+    // И обратно на дерево.
+    fireEvent.click(screen.getByRole('radio', { name: 'Дерево' }))
+    expect(screen.getByText('Отделка ступеней')).toBeTruthy()
+  })
+})

@@ -19,6 +19,8 @@ describe('flightFields', () => {
     'stepThicknessMM',
     'clearanceMM',
     'railingHeightMM',
+    // Материал ступеней — общее поле: ступени есть у любого типа марша.
+    'treadMaterial',
   ]
 
   it('прямой марш — общие поля + перила + габариты помещения', () => {
@@ -58,7 +60,7 @@ describe('flightFields', () => {
         'landingWidthMM', 'landingDepthMM', 'roomWidthMM', 'roomLengthMM',
         'approachSpaceMM', 'lowerStepCountMM', 'outerRadiusMM',
         'railing', 'railingLower', 'railingLanding', 'railingUpper',
-        'direction', 'spiralDirection',
+        'direction', 'spiralDirection', 'treadMaterial',
       ]),
     )
   })
@@ -155,6 +157,49 @@ describe('validateForm', () => {
     ).toBe('Не менее 1000')
   })
 
+  // Разделение материалов: пределы толщины ступени задаёт МАТЕРИАЛ СТУПЕНЕЙ,
+  // а не каркаса. Иначе металлокаркас не собрать: стальной косоур бывает
+  // 6–10 мм, а дубовая проступь — от 20 мм, и одно поле материала не могло
+  // описать оба случая сразу.
+  it('толщина ступени ограничена материалом СТУПЕНЕЙ, а не каркаса', () => {
+    const steelFrameWoodTread = {
+      ...defaultConfig,
+      material: 'STEEL-S235' as const,
+      treadMaterial: 'WOOD-OAK',
+      stepThicknessMM: '40',
+    }
+    expect(validateForm(steelFrameWoodTread)).toEqual({})
+
+    // Та же сталь 40 мм не годится: косоур 6 мм + стальная ступень 40 мм —
+    // превышение стального выпуска.
+    const steelBoth = { ...defaultConfig, treadMaterial: '', stepThicknessMM: '40' }
+    expect(validateForm(steelBoth).stepThicknessMM).toBe('Не более 8')
+
+    // Дуб требует минимум 20 мм, даже если каркас стальной.
+    const thinWood = { ...steelFrameWoodTread, stepThicknessMM: '10' }
+    expect(validateForm(thinWood).stepThicknessMM).toBe('Не менее 20')
+  })
+
+  it('толщина подступенка считается по каркасу, а не по ступеням', () => {
+    // Стальной каркас + дубовая ступень: подступенок стальной, 40 мм дуба
+    // в каталоге для стали недопустимы, и без этого поля расчёт блокируется.
+    const base = { ...defaultConfig, stepThicknessMM: '40' }
+    const mixed = { ...base, material: 'STEEL-S235' as const, treadMaterial: 'WOOD-OAK' }
+    expect(toRequest(mixed).riser_thickness_mm).toBe(6)
+
+    // Деревянная лестница: подступенок и проступь из одного материала,
+    // наследование толщины ступени остаётся верным.
+    const wood = { ...base, material: 'WOOD-OAK' as const, treadMaterial: '', stepThicknessMM: '40' }
+    expect(toRequest(wood).riser_thickness_mm).toBe(40)
+  })
+
+  it('toRequest отправляет tread_material только когда он отличается', () => {
+    const base = { ...defaultConfig, stepThicknessMM: '40' }
+    expect(toRequest({ ...base, treadMaterial: '' })).not.toHaveProperty('tread_material')
+    expect(toRequest({ ...base, treadMaterial: 'STEEL-S235' })).not.toHaveProperty('tread_material')
+    expect(toRequest({ ...base, treadMaterial: 'WOOD-OAK' }).tread_material).toBe('WOOD-OAK')
+  })
+
   it('пределы толщины ступени зависят от материала', () => {
     expect(validateForm({ ...defaultConfig, stepThicknessMM: '9' }).stepThicknessMM).toBe(
       'Не более 8',
@@ -162,9 +207,6 @@ describe('validateForm', () => {
     expect(validateForm({ ...defaultConfig, stepThicknessMM: '2' }).stepThicknessMM).toBe(
       'Не менее 3',
     )
-    const alum = { ...defaultConfig, material: 'ALUM-5083' as const }
-    expect(validateForm({ ...alum, stepThicknessMM: '61' }).stepThicknessMM).toBe('Не более 60')
-    expect(validateForm({ ...alum, stepThicknessMM: '1' }).stepThicknessMM).toBe('Не менее 2')
     const wood = { ...defaultConfig, material: 'WOOD-OAK' as const }
     expect(validateForm({ ...wood, stepThicknessMM: '15' }).stepThicknessMM).toBe('Не менее 20')
     expect(validateForm({ ...wood, stepThicknessMM: '61' }).stepThicknessMM).toBe('Не более 60')
@@ -173,9 +215,11 @@ describe('validateForm', () => {
 
   it('максимальная высота подъёма зависит от материала', () => {
     expect(validateForm({ ...defaultConfig, heightMM: '6100' }).heightMM).toBe('Не более 6000')
-    const alum = { ...defaultConfig, material: 'ALUM-5083' as const }
-    expect(validateForm({ ...alum, heightMM: '5000' }).heightMM).toBe('Не более 4550')
-    expect(validateForm({ ...alum, heightMM: '4550' }).heightMM).toBeUndefined()
+    // Предел ниже глобальных 6000 мм остался только у древесины:
+    // крупнейшая плита покрывает подъём до 4550 мм.
+    const wood = { ...defaultConfig, material: 'WOOD-OAK' as const }
+    expect(validateForm({ ...wood, heightMM: '5000' }).heightMM).toBe('Не более 4550')
+    expect(validateForm({ ...wood, heightMM: '4550' }).heightMM).toBeUndefined()
   })
 
   it('максимальная ширина марша ограничена листом материала', () => {
@@ -201,11 +245,12 @@ describe('rulesFor', () => {
 
   it('толщина ступени и высота берутся из предела материала', () => {
     expect(rulesFor('stepThicknessMM', 'STEEL-S235')).toEqual({ min: 3, max: 8 })
-    expect(rulesFor('stepThicknessMM', 'ALUM-5083')).toEqual({ min: 2, max: 60 })
     expect(rulesFor('stepThicknessMM', 'WOOD-OAK')).toEqual({ min: 20, max: 60 })
     expect(rulesFor('heightMM', 'STEEL-S235').max).toBe(6000)
-    expect(rulesFor('heightMM', 'ALUM-5083').max).toBe(4550)
     expect(rulesFor('heightMM', 'WOOD-OAK').max).toBe(4550)
+    // Удалённые из каталога коды не должны попадать в пределы: правила
+    // приходят из materialLimits, и код вне каталога обязан давать пусто.
+    expect(rulesFor('stepThicknessMM', 'НЕТ-ТАКОГО' as never)).toEqual({})
   })
 
   it('косоур: норматив не менее 30 мм, лимит материала как максимум', () => {
@@ -249,6 +294,77 @@ describe('toRequest railing/direction', () => {
     expect(req.spiral_direction).toBe('cw')
     expect(req.railing).toBeUndefined()
     expect(req.direction).toBeUndefined()
+  })
+})
+
+// DOM-001 (2026-09-26): тип поворота и число поворотных ступеней были
+// недостижимы из интерфейса — бэкенд принимал turn_kind/winder_count, но форма
+// не могла их задать, поэтому поворотные ступени (winder) нельзя было выбрать.
+describe('toRequest turn_kind/winder_count (DOM-001)', () => {
+  it('прямой марш и спираль не шлют тип поворота', () => {
+    expect(toRequest({ ...defaultConfig, turnKind: 'winder', winderCountMM: '3' }).turn_kind)
+      .toBeUndefined()
+    expect(
+      toRequest({ ...defaultConfig, flight: 'spiral', turnKind: 'winder', winderCountMM: '3' })
+        .turn_kind,
+    ).toBeUndefined()
+  })
+
+  it('L/U с площадкой шлют turn_kind=platform без winder_count', () => {
+    const req = toRequest({ ...defaultConfig, flight: 'l_shape', turnKind: 'platform' })
+    expect(req.turn_kind).toBe('platform')
+    // winder_count несовместим с площадкой (CHECK-ограничение в БД).
+    expect(req.winder_count).toBeUndefined()
+  })
+
+  it('L/U с поворотными ступенями шлют turn_kind и winder_count', () => {
+    const req = toRequest({
+      ...defaultConfig,
+      flight: 'u_shape',
+      turnKind: 'winder',
+      winderCountMM: '5',
+    })
+    expect(req.turn_kind).toBe('winder')
+    expect(req.winder_count).toBe(5)
+  })
+
+  it('пустое число поворотных ступеней не отправляется (0 = не задано)', () => {
+    const req = toRequest({ ...defaultConfig, flight: 'l_shape', turnKind: 'winder' })
+    expect(req.turn_kind).toBe('winder')
+    expect(req.winder_count).toBeUndefined()
+  })
+})
+
+describe('validateForm turn_kind/winder_count (DOM-001)', () => {
+  it('площадка: число поворотных ступеней не обязательно', () => {
+    const errors = validateForm({ ...defaultConfig, flight: 'l_shape', turnKind: 'platform' })
+    expect(errors.winderCountMM).toBeUndefined()
+    expect(errors.turnKind).toBeUndefined()
+  })
+
+  it('поворотные ступени: число обязательно', () => {
+    const errors = validateForm({ ...defaultConfig, flight: 'u_shape', turnKind: 'winder' })
+    expect(errors.winderCountMM).toBe('Укажите значение')
+  })
+
+  it('поворотные ступени: минимум 3', () => {
+    const errors = validateForm({
+      ...defaultConfig,
+      flight: 'u_shape',
+      turnKind: 'winder',
+      winderCountMM: '2',
+    })
+    expect(errors.winderCountMM).toBe('Не менее 3')
+  })
+
+  it('поле не проверяется для прямого марша', () => {
+    const errors = validateForm({
+      ...defaultConfig,
+      flight: 'straight',
+      turnKind: 'winder',
+      winderCountMM: '1',
+    })
+    expect(errors.winderCountMM).toBeUndefined()
   })
 })
 
@@ -352,7 +468,6 @@ describe('toRatesRequest', () => {
   it('все типы ставок маппятся корректно', () => {
     const r = toRatesRequest({
       ...defaultRates,
-      alum: '300',
       wood: '150',
       machinePerHour: '1000',
       laborPerHour: '800',
@@ -361,7 +476,7 @@ describe('toRatesRequest', () => {
       taxPct: '20',
     })
     expect(r).toEqual({
-      material_per_kg_rub: { 'ALUM-5083': 300, 'WOOD-OAK': 150 },
+      material_per_kg_rub: { 'WOOD-OAK': 150 },
       machine_per_hour_rub: 1000,
       labor_per_hour_rub: 800,
       margin_percent: 15,

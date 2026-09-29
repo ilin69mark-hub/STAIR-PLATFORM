@@ -126,8 +126,9 @@ describe('QuoteResult', () => {
       ...okQuote,
       mesh: mesh(),
     }
+    // Без split сцену рендерит сам QuoteResult; заголовка «3D-модель» в
+    // разметке нет — проверяем сам вьювер.
     render(<QuoteResult quote={withMesh} />)
-    expect(screen.getByText('3D-модель')).toBeInTheDocument()
     expect(await screen.findByText('mock-3d-viewer')).toBeInTheDocument()
   })
 

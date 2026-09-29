@@ -156,11 +156,21 @@ const PAYMENT_STATUS: Record<string, string> = {
   refunded: 'возврат',
 }
 
+// FE-18a (forensic 2026-09-27): суммы платежей показывались с
+// maximumFractionDigits: 0, то есть копейки отбрасывались — клиент, оплативший
+// 1 234,56 ₽, видел «1 235 ₽». Это список его собственных покупок и, рядом,
+// основание для обращения в поддержку («списали больше, чем показано»).
+//
+// Рубля — валюта с двумя знаками после запятой (domain/pricing:
+// CurrencyRUB{Decimals: 2}), поэтому копейки здесь не опция оформления, а
+// часть суммы. Раньше разные экраны использовали разную точность: rubMajor в
+// shared/format даёт 2 знака, а эта локальная копия резала до целых.
 function formatRub(minor: number): string {
   return new Intl.NumberFormat('ru-RU', {
     style: 'currency',
     currency: 'RUB',
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(minor / 100)
 }
 

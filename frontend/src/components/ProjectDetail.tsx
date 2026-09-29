@@ -268,6 +268,15 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
     setBusy(true)
     setError(null)
     try {
+      // DOM-005 (2026-09-26): превью уходило на бэкенд без проверки формы, и
+      // пустая ширина превращалась в width_mm: 0 (Number('') === 0 в toRequest)
+      // — пользователь получал «Ширина марша должна быть положительной»
+      // от сервера вместо подсветки поля. Проверяем локально.
+      const localErrors = validateForm(next)
+      if (Object.keys(localErrors).length > 0) {
+        setError('Исправьте поля формы перед применением варианта')
+        return
+      }
       const body = { ...toRequest(next) }
       const ratesReq = toRatesRequest(rates)
       if (ratesReq) body.rates = ratesReq
@@ -297,6 +306,15 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
     const next = liveApplyVariation(config, v)
     setConfig(next)
     liveValidator.current.invalidate(configKey(next))
+    // DOM-005 (2026-09-26): «применить» уходило в расчёт без проверки формы.
+    // Пустая ширина сериализуется в width_mm: 0, и пользователь получал
+    // серверное «Ширина марша должна быть положительной» вместо подсветки
+    // поля. Проверяем форму до запроса.
+    const localErrors = validateForm(next)
+    if (Object.keys(localErrors).length > 0) {
+      setError('Исправьте поля формы перед применением варианта')
+      return
+    }
     void handleCalculate(next)
     logAction({
       action: 'stair.live_variation_applied',
@@ -762,8 +780,6 @@ interface RatesFormProps {
 
 const rateFields: Array<{ key: keyof RatesForm; label: string; placeholder: string }> = [
   { key: 'steel', label: 'Сталь STEEL-S235, ₽/кг', placeholder: 'дефолт' },
-  { key: 'corten', label: 'Кортэн STEEL-CORTEN, ₽/кг', placeholder: 'дефолт' },
-  { key: 'alum', label: 'Алюминий ALUM-5083, ₽/кг', placeholder: 'дефолт' },
   { key: 'wood', label: 'Дуб WOOD-OAK, ₽/кг', placeholder: 'дефолт' },
   { key: 'walnut', label: 'Орех WOOD-WALNUT, ₽/кг', placeholder: 'дефолт' },
   { key: 'ash', label: 'Ясень WOOD-ASH, ₽/кг', placeholder: 'дефолт' },

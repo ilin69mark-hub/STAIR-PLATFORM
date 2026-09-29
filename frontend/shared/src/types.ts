@@ -306,8 +306,6 @@ export interface CreateProjectRequest {
 export interface Rates {
   material_per_kg_rub?: {
     'STEEL-S235'?: number
-    'STEEL-CORTEN'?: number
-    'ALUM-5083'?: number
     'WOOD-OAK'?: number
     'WOOD-WALNUT'?: number
     'WOOD-ASH'?: number
@@ -574,6 +572,10 @@ export interface Snapshot {
   spiral?: SpiralResult
   step_thickness?: number
   railing_height?: number
+  // width — ширина марша для 2D-чертежей (DOM-005). До этого поля не было,
+  // и схемы рисовались при зашитых 900 мм независимо от фактической ширины,
+  // по которой посчитаны объём, масса и цена.
+  width?: number
   riser?: boolean
   stringer_thickness?: number
   // Стороны перил из конфигурации (CONF-RAILING) — для 2D-рендера:

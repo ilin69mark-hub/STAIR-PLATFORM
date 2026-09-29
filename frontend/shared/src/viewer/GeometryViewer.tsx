@@ -60,12 +60,20 @@ interface Props {
   // environmentHDRI — URL студийного HDRI (Poly Haven, CC0) для отражений.
   // Необязателен: при ошибке загрузки остаётся процедурный RoomEnvironment.
   environmentHDRI?: string
-  // materialCode — код материала деталей (WOOD-OAK, STEEL-CORTEN, …) из
+  // materialCode — код материала деталей (WOOD-OAK, STEEL-S235, …) из
   // пользовательского ввода: определяет PBR-набор в 3D (этап 1).
   materialCode?: string
+  // treadMaterialCode — материал ступеней отдельно от каркаса. Без него
+  // все детали рисуются одним материалом, и металлокаркас с деревянными
+  // ступенями выглядит как цельная деревянная лестница. Пусто → материал
+  // каркаса (лестница из одного материала).
+  treadMaterialCode?: string
   // finishId — финиш поверх материала (масло/лак/краска): меняет вид,
   // но не код материала и не цену.
   finishId?: string
+  // treadFinishId — финиш материала СТУПЕНЕЙ. Отдельный от finishId, потому
+  // что каркас и ступени могут быть из разных материалов с разной палитрой.
+  treadFinishId?: string
   // railingMetal — ограждение металлом вместо стекла.
   railingMetal?: boolean
   // Этап 2 «конструктор»: выбор детали марша в 3D. interactive включает
@@ -166,7 +174,13 @@ function mirrorX(geo: THREE.BufferGeometry) {
 function buildRoleGroups(
   geo: THREE.BufferGeometry,
   api: ApiMesh,
-  opts: { materialCode: string; finishId?: string; castShadow: boolean },
+  opts: {
+    materialCode: string
+    treadMaterialCode?: string
+    finishId?: string
+    treadFinishId?: string
+    castShadow: boolean
+  },
 ): THREE.Mesh[] {
   const ranges = api.PartRanges
   if (!ranges?.length) return []
@@ -188,10 +202,16 @@ function buildRoleGroups(
   const materials: THREE.Material[] = []
   for (const g of groups) {
     geo.addGroup(g.start, g.count, materials.length)
+    const isTread = treadRole(g.role)
     materials.push(
       createStairMaterial({
-        code: opts.materialCode,
-        finishId: opts.finishId,
+        // Материал детали — по её роли. Каркас (косоуры, подступенки,
+        // колонна) идёт по materialCode, ступени (проступи, площадка,
+        // поворотные ступени) — по treadMaterialCode. Роли приходят из
+        // backend PartRanges, поэтому разделение здесь не расходится с тем,
+        // по чему детали реально изготовлены и посчитаны в цене.
+        code: isTread ? (opts.treadMaterialCode ?? opts.materialCode) : opts.materialCode,
+        finishId: isTread ? (opts.treadFinishId ?? opts.finishId) : opts.finishId,
         role: g.role,
         sizeMM,
       }),
@@ -201,6 +221,15 @@ function buildRoleGroups(
   m.castShadow = opts.castShadow
   m.receiveShadow = opts.castShadow
   return [m]
+}
+
+// Роли деталей, изготовляемых из материала СТУПЕНЕЙ. Повторяет разбивку
+// manufacturing/decompose.go: площадка и поворотные ступени там сводятся к
+// PartTread, поэтому в дереве они role='landing'/'winder'.
+const TREAD_ROLES = new Set(['tread', 'landing', 'winder'])
+
+function treadRole(role: string): boolean {
+  return TREAD_ROLES.has(role)
 }
 
 function webglSupported(): boolean {
@@ -222,7 +251,9 @@ export function GeometryViewer({
   roomWidth,
   environmentHDRI,
   materialCode = 'STEEL-S235',
+  treadMaterialCode,
   finishId,
+  treadFinishId,
   railingMetal = false,
   interactive = false,
   selectedPart = null,
@@ -347,7 +378,10 @@ export function GeometryViewer({
     const height = container.clientHeight || 380
 
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color('#f7f9fc')
+    // Продуктовый «белый циклорамный» фон: белый, а не серый — на белом
+    // фоне металл читается как металл, а не как пластик. Серый #f7f9fc
+    // съедал контраст бликов и делал сцену «мутной».
+    scene.background = new THREE.Color('#ffffff')
 
     const camera = new THREE.PerspectiveCamera(45, width / height, 1, 100000)
     let renderer: THREE.WebGLRenderer
@@ -396,22 +430,42 @@ export function GeometryViewer({
     const roomEnv = new RoomEnvironment()
     const roomTarget = pmrem.fromScene(roomEnv, 0.04)
     scene.environment = roomTarget.texture
-    scene.environmentIntensity = 0.85
-    const hemi = new THREE.HemisphereLight(0xffffff, 0xbfc8d8, 0.45)
-    scene.add(hemi)
-    const dir = new THREE.DirectionalLight(0xffffff, 1.6)
-    dir.position.set(2000, 4000, 3000)
-    dir.castShadow = true
-    dir.shadow.mapSize.set(1024, 1024)
+    // Ресурсы IBL живут дольше одного эффекта: эффект пересоздаётся на
+    // каждом изменении меша/параметров, а PMREM-рендертаргет — это GPU-память.
+    // Без dispose на каждый чих слайдера текстура окружения накапливалась.
+    const envTargets: THREE.WebGLRenderTarget[] = [roomTarget]
+    roomEnv.dispose()
+    let disposed = false
+    scene.environmentIntensity = 1.0
+
+    // Световая схема «три источника» — та же логика, что у продуктовой
+    // съёмки на белом циклораме: ключевой сверху-сбоку (даёт тень и форму),
+    // заполняющий с противоположной стороны (гасит провалы в тенях), и
+    // слабый общий снизу (отражает «от пола»). HemisphereLight убран: при
+    // белом окружении он красил нижние грани в синеву.
+    const key = new THREE.DirectionalLight(0xffffff, 2.1)
+    key.position.set(2200, 3600, 2600)
+    key.castShadow = true
+    key.shadow.mapSize.set(2048, 2048)
     // Тени у лестницы: ортокамера по габаритам сцены (выставляется ниже,
     // когда известен bounding box марша).
-    dir.shadow.camera.near = 100
-    dir.shadow.camera.far = 20000
-    dir.shadow.bias = -0.0012
-    scene.add(dir)
-    const dir2 = new THREE.DirectionalLight(0xffffff, 0.35)
-    dir2.position.set(-2000, -1000, -3000)
-    scene.add(dir2)
+    key.shadow.camera.near = 100
+    key.shadow.camera.far = 20000
+    // Смещение нужно, потому что ступени/подступенки/косоуры стоят друг на
+    // друге с нулевым зазором: без bias их контактные грани дают acne.
+    key.shadow.bias = -0.0008
+    key.shadow.normalBias = 0.6
+    scene.add(key)
+
+    const fill = new THREE.DirectionalLight(0xffffff, 0.75)
+    fill.position.set(-2400, 1500, -1800)
+    scene.add(fill)
+
+    const bounce = new THREE.DirectionalLight(0xffffff, 0.28)
+    bounce.position.set(0, -1800, 600)
+    scene.add(bounce)
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.18))
 
     // Студийный HDRI (Poly Haven, CC0) — необязательный: при ошибке сети
     // остаётся RoomEnvironment, разница только в характере бликов.
@@ -421,9 +475,15 @@ export function GeometryViewer({
         hdrUrl,
         (hdr: THREE.Texture) => {
           const target = pmrem.fromEquirectangular(hdr)
+          envTargets.push(target)
           scene.environment = target.texture
           scene.environmentIntensity = 1.0
           hdr.dispose()
+          // Рендертаргет попал в список ПОСЛЕ того, как могла отработать
+          // очистка (HDRI грузится асинхронно) — если эффект уже разобран,
+          // освобождаем его сразу, иначе он утечёт навсегда.
+          if (disposed) target.dispose()
+          needsRender = true
         },
         undefined,
         () => {
@@ -466,7 +526,9 @@ export function GeometryViewer({
     }
     const roleGroups = buildRoleGroups(stair.geo, mesh, {
       materialCode,
+      treadMaterialCode,
       finishId,
+      treadFinishId,
       castShadow,
     })
     if (roleGroups.length > 0) {
@@ -557,7 +619,7 @@ export function GeometryViewer({
         sb.max.z - sb.min.z,
         1000,
       )
-      const cam = dir.shadow.camera
+      const cam = key.shadow.camera
       cam.left = -span * 1.2
       cam.right = span * 1.2
       cam.top = span * 1.2
@@ -632,12 +694,28 @@ export function GeometryViewer({
     const center = unionMin.clone().add(unionMax).multiplyScalar(0.5)
     const radius = Math.max(unionMax.clone().sub(unionMin).length() / 2, 1000)
 
+    // Пол-приёмник теней: невидимая плоскость, на которой лестница
+    // «стоит». Без неё модель висит в белом пространстве и не читается как
+    // объект — пропадает главный признак фотореализма (контакт с плоскостью
+    // и падающая тень). Техника та же, что на продуктовой съёмке:
+    // ShadowMaterial рисует ТОЛЬКО тень, сам пол невидим.
+    const shadowFloorSize = Math.min(radius * 12, 40000)
+    const shadowFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(shadowFloorSize, shadowFloorSize),
+      new THREE.ShadowMaterial({ opacity: 0.16, transparent: true }),
+    )
+    shadowFloor.rotation.x = -Math.PI / 2
+    // Чуть ниже габарита лестницы, чтобы ступени не «утопали» в плоскости.
+    shadowFloor.position.y = unionMin.y - 1
+    shadowFloor.receiveShadow = true
+    scene.add(shadowFloor)
+
     // Пол — большая «бесконечная» сетка (визуализация; проверка вписывания
     // в комнату выполняется расчётом независимо). Размер ограничен дальней
     // плоскостью камеры (far = 100000), чтобы сетка не обрезалась.
     const gridSize = Math.min(radius * 30, 90000)
     const gridDiv = Math.min(200, Math.max(20, Math.round(gridSize / 500)))
-    const grid = new THREE.GridHelper(gridSize, gridDiv, 0x94a3b8, 0xcdd6e0)
+    const grid = new THREE.GridHelper(gridSize, gridDiv, 0xc2cdd8, 0xe0e7ec)
     grid.position.y = unionMin.y
     scene.add(grid)
 
@@ -1113,15 +1191,28 @@ export function GeometryViewer({
       camera.aspect = w / h
       camera.updateProjectionMatrix()
       renderer.setSize(w, h)
+      // Кадр обязателен: цикл рендерит только по needsRender, а resize не
+      // меняет положение камеры и не вызывает controls 'change'. Без этого
+      // после смены размера (в т.ч. первого расклада в сплите) на канвасе
+      // оставался пустой/устаревший кадр до первого поворота мыши.
+      needsRender = true
     })
     ro.observe(container)
 
     return () => {
+      disposed = true
       renderer.setAnimationLoop(null)
       detachPicking()
       ro.disconnect()
       controls.removeEventListener('change', onChange)
       controls.dispose()
+      // IBL: рендертаргеты окружения и сам генератор. Эффект пересоздаётся
+      // на каждое изменение параметров, поэтому без освобождения GPU-память
+      // росла с каждым движением ползунка.
+      for (const t of envTargets) t.dispose()
+      pmrem.dispose()
+      shadowFloor.geometry.dispose()
+      ;(shadowFloor.material as THREE.Material).dispose()
       for (const mat of Array.isArray(stair.mesh.material) ? stair.mesh.material : [stair.mesh.material]) {
         mat.dispose()
       }
@@ -1167,7 +1258,12 @@ export function GeometryViewer({
         container.removeChild(renderer.domElement)
       }
     }
-  }, [mesh, roomMesh, railingMesh, approachSpace, roomWidth, roomLength, direction, stairTop, flight, stepThickness, secondFloorDepth, heightMM])
+    // materialCode/treadMaterialCode/finishId в зависимостях СОЗНАТЕЛЬНО:
+    // сцена собирает материалы по ролям деталей, и без пересборки смены
+    // материала не пересобираются — пользователь выбирал бы цвет, а картинка
+    // молчала бы. Материал меняется по клику, а не каждый кадр, поэтому
+    // лишняя пересборка незаметна.
+  }, [mesh, roomMesh, railingMesh, approachSpace, roomWidth, roomLength, direction, stairTop, flight, stepThickness, secondFloorDepth, heightMM, materialCode, treadMaterialCode, finishId, treadFinishId])
 
   const SIDES: WallSide[] = ['top', 'bottom', 'right', 'left']
   const WALL_LABELS: Record<WallSide, string> = {

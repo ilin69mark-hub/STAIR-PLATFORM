@@ -2,7 +2,7 @@
 //
 // Роли приходят из бэкенда (Mesh.PartRanges: tread, stringer, landing,
 // railing_*), код материала — из пользовательского ввода (WOOD-OAK,
-// STEEL-CORTEN, …). Здесь код превращается в PBR-набор: базовый цвет +
+// WOOD-ASH, …). Здесь код превращается в PBR-набор: базовый цвет +
 // roughness/metalness + ленивая загрузка карт из /static-assets/pbr/<code>/.
 //
 // Принципы:
@@ -36,8 +36,6 @@ const BASE: Record<string, { color: number; roughness: number; metalness: number
   'WOOD-ASH': { color: 0xdfc49a, roughness: 0.66, metalness: 0 },
   'WOOD-SOFT': { color: 0xe0c39a, roughness: 0.75, metalness: 0 },
   'STEEL-S235': { color: 0x9aa3ad, roughness: 0.42, metalness: 0.85 },
-  'STEEL-CORTEN': { color: 0x8a4b2a, roughness: 0.78, metalness: 0.5 },
-  'ALUM-5083': { color: 0xc8ccd2, roughness: 0.34, metalness: 0.92 },
 }
 
 /** Финиши одного материала: меняют вид, но не код материала и не цену. */
@@ -51,10 +49,6 @@ export const FINISHES: Record<string, FinishSpec[]> = {
     { id: 'raw', label: 'Без покрытия', roughnessFactor: 0.42 },
     { id: 'black', label: 'Чёрный', color: 0x24262a, roughnessFactor: 0.46 },
     { id: 'white', label: 'Белый', color: 0xe8e8e6, roughnessFactor: 0.5 },
-  ],
-  'ALUM-5083': [
-    { id: 'natural', label: 'Натуральный', roughnessFactor: 0.34 },
-    { id: 'black', label: 'Чёрный анод', color: 0x2b2d30, roughnessFactor: 0.38 },
   ],
 }
 
@@ -145,6 +139,49 @@ export interface StairMaterialOptions {
 }
 
 /**
+ * Смещение глубины по роли детали.
+ *
+ * ГЕОМЕТРИЯ ИМЕЕТ КОНТАКТНЫЕ (СОВПАДАЮЩИЕ) ПЛОСКОСТИ. На каждом уровне
+ * ступени три грани лежат ровно в одной плоскости Z = (k+1)·h − st:
+ *   - седло пилы косоура (верх гребёнки),
+ *   - низ проступи,
+ *   - верх подступенка.
+ * Для П-марша дополнительно совпадают: низ подступенка верхнего марша с
+ * верхом площадки, и боковые грани площадки с внешними гранями маршей.
+ *
+ * Это физически верно (детали реально стоят друг на друге), но в WebGL
+ * две грани в одной плоскости делят одну и ту же ячейку буфера глубины.
+ * Победитель определяется порядком обхода и округлением — по поверхности
+ * проступами проступает КОСОУР (а на П-марше ступени слипаются в «кучку»).
+ *
+ * Разводить их в геометрии нельзя: параметрическая модель — источник
+ * истины (BC-002), и зазор 0 мм попал бы в раскрой и расчёт массы.
+ * Поэтому разводим только РЕНДЕР: polygonOffset сдвигает фрагмент в
+ * буфере глубины, не меняя ни вершины, ни объём тела.
+ *
+ * Приоритет: tread/landing — «наружная» поверхность, она и должна быть
+ * видна; stringer/riser/winder отступают, чтобы не пробиваться сквозь неё.
+ */
+const ROLE_DEPTH_BIAS: Record<string, { factor: number; units: number }> = {
+  tread: { factor: 1, units: 1 },
+  landing: { factor: 1, units: 1 },
+  winder: { factor: 2, units: 2 },
+  riser: { factor: 3, units: 3 },
+  stringer: { factor: 4, units: 4 },
+}
+
+function depthBiasFor(role: string): { polygonOffset: true; polygonOffsetFactor: number; polygonOffsetUnits: number } {
+  const b = ROLE_DEPTH_BIAS[role] ?? { factor: 1, units: 1 }
+  return {
+    polygonOffset: true,
+    // factor — зависит от наклона грани, units — от глубины; оба нужны,
+    // иначе смещение «плывёт» при наклоне камеры.
+    polygonOffsetFactor: -b.factor,
+    polygonOffsetUnits: -b.units,
+  }
+}
+
+/**
  * Создаёт PBR-материал детали. Текстуры грузятся лениво: материал сразу
  * процедурный (сцена жива), при загрузке карт он обновляется на месте.
  */
@@ -159,6 +196,7 @@ export function createStairMaterial(opts: StairMaterialOptions): THREE.MeshStand
     metalness: Math.min(1, Math.max(0, (finish.metalnessFactor ?? 1) * base.metalness)),
     side: THREE.DoubleSide,
     envMapIntensity: 1.0,
+    ...depthBiasFor(opts.role),
   })
 
   if (finish.clearcoat) {
@@ -170,6 +208,7 @@ export function createStairMaterial(opts: StairMaterialOptions): THREE.MeshStand
       clearcoat: finish.clearcoat,
       clearcoatRoughness: 0.25,
       side: THREE.DoubleSide,
+      ...depthBiasFor(opts.role),
     })
     applyMaps(physical, opts)
     void loadSet(opts.code).then((set) => {
