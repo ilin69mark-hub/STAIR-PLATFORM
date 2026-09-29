@@ -436,6 +436,23 @@
 .price-box .price-value {
   font-size: 32px;
   font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Колонка результата уже конструктора (320px), и бокс цены в ней не помещался
+   ни в две строки по ширине, ни целиком по высоте: «2 602 972,00 ₽»
+   переносилось. Здесь подпись над числом и число меньше — целиком и сразу,
+   потому что это первое, что человек смотрит после расчёта. Обрезку
+   многоточием убрали: цена не должна быть «2 602 972,0…». */
+.calc__cost .price-box {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 14px 18px 16px;
+}
+
+.calc__cost .price-box .price-value {
+  font-size: 24px;
 }
 
 .kv {

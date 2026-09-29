@@ -1229,6 +1229,59 @@ export function Constructor() {
         )}
       </div>
 
+      {/* Результат расчёта — отдельная колонка между 3D и конструктором.
+          Раньше карточки результата лежали в том же рельсе, что и форма:
+          рельс высотой в экран делил высоту на шесть панелей, панель
+          конструктора схлопывалась, и её содержимое (вкладки, кнопки)
+          вылезало поверх карточек, а цена уезжала на ~1000px вниз. В
+          референсе (niora) результат — отдельная колонка «СТОИМОСТЬ»
+          рядом с 3D; то же разделение вернуло конструктору всю высоту. */}
+      {quote && (
+        <aside className="calc__cost" aria-label="Результат расчёта">
+            {quote.validation.blocking && rescueVariation && (
+              <div className="alert alert--warn rescue" role="alert">
+                <div className="rescue__text">
+                  <strong>Такой расчёт невозможен.</strong> Ближайший рабочий вариант
+                  подходит под ваши габариты и открывает 3D с ценой.
+                </div>
+                <button
+                  type="button"
+                  className="sp-btn sp-btn--primary"
+                  onClick={() => applyGalleryVariation(rescueVariation)}
+                >
+                  Спасти расчёт
+                </button>
+              </div>
+            )}
+            <QuoteResultView
+              quote={quote}
+              split
+              onApplySuggestion={applySuggestion}
+              onApplyVariation={applyGalleryVariation}
+              variations={galleryVariations.length > 0 ? galleryVariations : undefined}
+              activeVariationId={activeVariationId}
+              material={config.material}
+              approachSpaceMM={config.approachSpaceMM}
+              heightMM={Number(config.heightMM) || undefined}
+              onAdjustStepHeight={adjustStepHeight}
+              onFlipDirection={flipDirection}
+              onAdjustHeight={adjustHeight}
+              onAdjustComfortStep={adjustComfortStep}
+              comfortStepMM={Number(config.comfortStepMM) || undefined}
+              onAdjustLandingWidth={(mm) => adjustLanding('landingWidthMM', mm)}
+              onAdjustLandingDepth={(mm) => adjustLanding('landingDepthMM', mm)}
+              landingWidthMM={Number(config.landingWidthMM) || undefined}
+              landingDepthMM={Number(config.landingDepthMM) || undefined}
+            />
+            {!quote.validation.blocking && quote.pricing && request && (
+              <OrderForm
+                quote={quote}
+                config={request}
+                onCreated={() => setStatus('Заказ отправлен. Следите за статусом в кабинете.')}
+              />
+            )}
+        </aside>
+      )}
       <aside className="calc__rail">
       <section className="panel">
         <h2>Конструктор лестницы</h2>
@@ -1313,52 +1366,6 @@ export function Constructor() {
         </form>
       </section>
 
-      {quote && (
-        <>
-          {quote.validation.blocking && rescueVariation && (
-            <div className="alert alert--warn rescue" role="alert">
-              <div className="rescue__text">
-                <strong>Такой расчёт невозможен.</strong> Ближайший рабочий вариант
-                подходит под ваши габариты и открывает 3D с ценой.
-              </div>
-              <button
-                type="button"
-                className="sp-btn sp-btn--primary"
-                onClick={() => applyGalleryVariation(rescueVariation)}
-              >
-                Спасти расчёт
-              </button>
-            </div>
-          )}
-          <QuoteResultView
-            quote={quote}
-            split
-            onApplySuggestion={applySuggestion}
-            onApplyVariation={applyGalleryVariation}
-            variations={galleryVariations.length > 0 ? galleryVariations : undefined}
-            activeVariationId={activeVariationId}
-            material={config.material}
-            approachSpaceMM={config.approachSpaceMM}
-            heightMM={Number(config.heightMM) || undefined}
-            onAdjustStepHeight={adjustStepHeight}
-            onFlipDirection={flipDirection}
-            onAdjustHeight={adjustHeight}
-            onAdjustComfortStep={adjustComfortStep}
-            comfortStepMM={Number(config.comfortStepMM) || undefined}
-            onAdjustLandingWidth={(mm) => adjustLanding('landingWidthMM', mm)}
-            onAdjustLandingDepth={(mm) => adjustLanding('landingDepthMM', mm)}
-            landingWidthMM={Number(config.landingWidthMM) || undefined}
-            landingDepthMM={Number(config.landingDepthMM) || undefined}
-          />
-          {!quote.validation.blocking && quote.pricing && request && (
-            <OrderForm
-              quote={quote}
-              config={request}
-              onCreated={() => setStatus('Заказ отправлен. Следите за статусом в кабинете.')}
-            />
-          )}
-        </>
-      )}
       </aside>
     </div>
   )

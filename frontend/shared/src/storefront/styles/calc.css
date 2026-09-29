@@ -21,6 +21,7 @@
      отдавала высоту полотну 3D ценой читаемости формы; на 1440px
      сцена и так получает больше 900px, поэтому 460px — свободно. */
   --sp-rail-w: 460px;
+  --sp-cost-w: 320px;
   --sp-stage-min: 320px;
   --sp-header-h: 61px;
 }
@@ -60,10 +61,11 @@
 
 /* --- Сетка калькулятора --- */
 
+/* Флекс, а не грид: колонка результата (.calc__cost) появляется только после
+   расчёта, а в гриде пустая колонка всё равно резервировала бы ширину.
+   Флекс просто не занимает место, пока такого элемента нет. */
 .calc {
-  display: grid;
-  grid-template-columns: minmax(var(--sp-stage-min), 1fr) var(--sp-rail-w);
-  gap: 0;
+  display: flex;
   height: 100%;
   min-height: 0;
   background: var(--sp-stage-bg, #f4f6f7);
@@ -71,11 +73,29 @@
 
 .calc__stage {
   position: relative;
-  min-width: 0;
+  flex: 1 1 auto;
+  min-width: var(--sp-stage-min);
   min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--sp-stage-bg, #f4f6f7);
+  border-right: 1px solid var(--sp-border);
+}
+
+/* Колонка результата: цена и цифры расчёта стоят рядом с 3D, а не под
+   конструктором. В референсе (niora.ru/calculator/metal) это третья
+   колонка «СТОИМОСТЬ»; здесь — та же идея, но зеркальная: конструктор
+   справа, результат между ним и сценой. Своя прокрутка: карточек много,
+   и колонка не должна утаскивать за собой сцену. */
+.calc__cost {
+  flex: 0 0 var(--sp-cost-w);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-gap);
+  padding: var(--sp-gap);
+  overflow-y: auto;
+  background: var(--sp-bg);
   border-right: 1px solid var(--sp-border);
 }
 
@@ -127,6 +147,7 @@
    даёт ужаться содержимому и overflow:hidden обрезает его вместо того,
    чтобы отдать место секции. */
 .calc__rail {
+  flex: 0 0 var(--sp-rail-w);
   min-width: 0;
   min-height: 0;
   /* overflow-y: auto, а не hidden: пока расчёта нет, рельс ровно по контенту
@@ -228,25 +249,41 @@
 
 /* --- Мобильная раскладка: панель поверх сцены (drawer) --- */
 
-@media (max-width: 900px) {
+/* Три колонки (сцена + результат + конструктор) требуют 320 + 460 плюс
+   сцена, которой нужно минимум 320. До 1200px места не хватает, и рельс
+   уезжал за правый край под обрезкой .store-main (overflow: hidden) —
+   конструктор просто исчезал. Поэтому ниже 1200px колонки складываются в
+   столбец: сцена сверху, под ней результат (если он есть), конструктор
+   снизу; каждая часть со своей прокруткой. */
+@media (max-width: 1199px) {
   .calc {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(220px, 38%) 1fr;
+    flex-direction: column;
+    /* Здесь уже не «всё в один экран»: сцена сверху, результат, конструктор.
+       Делить высоту между тремя блоками нельзя — конструктору доставалось
+       125px, и вкладок с кнопками в нём физически не помещалось. Поэтому
+       прокручивается вся колонка, а блоки берут свою естественную высоту. */
+    overflow-y: auto;
   }
 
   .calc__stage {
+    flex: 0 0 38%;
+    min-height: 220px;
     border-right: none;
     border-bottom: 1px solid var(--sp-border);
   }
-}
 
-/* Планшет: 900px делить на 460px рельса и 320px минимум сцены нельзя —
-   сцена получила бы 440px и колонки налезали друг на друга. Рельс сужаем
-   до 400px: на планшете это всё равно читаемо (сетка заголовков в две
-   колонки держит подписи), зато сцена остаётся рабочей. */
-@media (min-width: 781px) and (max-width: 900px) {
-  .calc {
-    grid-template-columns: minmax(var(--sp-stage-min), 1fr) 400px;
+  .calc__cost {
+    flex: 0 0 auto;
+    border-right: none;
+    border-bottom: 1px solid var(--sp-border);
+  }
+
+  .calc__rail {
+    flex: 0 0 auto;
+    /* 560px — минимум, при котором аккордеон и кнопки «Рассчитать/Сбросить»
+       ещё помещаются, и человек не прокручивает форму ради кнопки. */
+    min-height: 560px;
+    overflow-y: visible;
   }
 }
 
