@@ -113,6 +113,13 @@ jobs:
       # переиспользуем coverage.out. Если регресс ниже порога — джоба падает.
       - name: Coverage gate (>=85%)
         run: ./scripts/coverage-check.sh 85
+
+      # OpenAPI-гейт (API-003/DOC-001): обе копии спеки обязаны совпадать с
+      # выводом hack/gen_swagger.py. Без этого шага дрейф спеки копился
+      # молча: `gen_swagger.py --write` удалял добавленные вручную схемы, а
+      # клиенты получали 404, потому что в servers не было /api/v1.
+      - name: OpenAPI spec in sync with generator
+        run: python3 hack/gen_swagger.py
         env:
           STAIR_TEST_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_test?sslmode=disable
           COVERAGE_PROFILE: coverage.out
@@ -122,6 +129,41 @@ jobs:
         with:
           name: coverage
           path: coverage.out
+
+      # Гейт «БД-интеграция действительно выполнялась» (CRITICAL-01/04/05).
+      #
+      # env выше делает интеграцию ВОЗМОЖНОЙ, но не гарантирует, что она
+      # ПРОИЗОШЛА: тесты скипаются через t.Skip, и `go test ./...` остаётся
+      # зелёным. Ровно так в репозитории проскочили три дефекта, найденные
+      # 2026-09-27, включая сломанный CHECK геометрии, из-за которого падал
+      # `make seed` и любое сохранение конфигурации без необязательных полей.
+      #
+      # Скрипт требует выполнения конкретных тестов-маяков. Случай «переменная
+      # задана, но сервис postgres не поднялся» тоже валит джобу.
+      # Гейт дефектов Helm-чарта (INF-10/11/12, forensic 2026-09-27).
+      #
+      # `helm lint` эти дефекты НЕ ловит — все три рендерились и применялись
+      # без ошибок:
+      #   * `resources: null` у воркера (`toYaml nil` → непустая строка "null",
+      #     поэтому `default` не срабатывал) — воркер BestEffort без limits;
+      #   * Service селектил и api, и worker, а воркер HTTP не слушает;
+      #   * OAuth-секрет в ConfigMap открытым текстом.
+      - name: Helm templates gate (INF-10/11/12)
+        run: ./scripts/check-helm-templates.sh
+
+      - name: Verify DB integration tests actually ran
+        run: ./scripts/check-db-integration-ran.sh
+        env:
+          STAIR_TEST_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_test?sslmode=disable
+
+      # Тот же гейт локально/в Makefile — чтобы падение воспроизводилось одной
+      # командой, а не только в CI.
+      - name: Apply migrations and seeds (schema must accept demo data)
+        run: |
+          go run ./cmd/migrate -dir migrations -database "$STAIR_TEST_DATABASE_URL"
+          go run ./cmd/migrate -dir migrations/seeds -table schema_migrations_seeds -database "$STAIR_TEST_DATABASE_URL"
+        env:
+          STAIR_TEST_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_test?sslmode=disable
 
   test-frontend-store:
     name: Test Store Frontend

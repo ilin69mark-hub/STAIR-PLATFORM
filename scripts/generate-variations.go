@@ -57,7 +57,7 @@ func mustLength(v float64) engineering.Length {
 var attemptsDebug int
 
 func randomValid(flight string) (*Case, bool) {
-	mats := []string{"STEEL-S235", "ALUM-5083", "WOOD-OAK"}
+	mats := []string{"STEEL-S235", "WOOD-OAK"}
 	mat := mats[rand.Intn(len(mats))]
 	// width 300-1200 stratified
 	W := 300 + rand.Float64()*900
@@ -77,11 +77,6 @@ func randomValid(flight string) (*Case, bool) {
 	switch mat {
 	case "STEEL-S235":
 		stepTh = 3 + rand.Float64()*5
-	case "ALUM-5083":
-		stepTh = 2 + rand.Float64()*10
-		if stepTh > 20 {
-			stepTh = 2 + rand.Float64()*8
-		}
 	default:
 		stepTh = 20 + rand.Float64()*20
 	}

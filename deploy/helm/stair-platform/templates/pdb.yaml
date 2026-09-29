@@ -9,6 +9,11 @@ spec:
   selector:
     matchLabels:
       {{- include "stair-platform.selectorLabels" . | nindent 6 }}
+      # INF (2026-09-26): селектор был только {name,instance}, а воркер
+      # добавляет component: worker, из-за чего PDB матчил 3 пода (2 api +
+      # 1 worker) при minAvailable: 1 — дренаж одного узла выбивал ОБЕ
+      # реплики API. Теперь PDB защищает только api; у worker свой PDB.
+      app.kubernetes.io/component: api
   {{- if .Values.pdb.minAvailable }}
   minAvailable: {{ .Values.pdb.minAvailable }}
   {{- end }}

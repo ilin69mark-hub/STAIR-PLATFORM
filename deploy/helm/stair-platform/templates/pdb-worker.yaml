@@ -1,0 +1,22 @@
+{{- /*
+PDB для worker-деплоймента (INF, 2026-09-26).
+
+Раньше был один PDB с селектором {name,instance}, который матчил и api, и
+worker, поэтому при minAvailable: 1 дренаж узла выбивал обе реплики API.
+Теперь у каждого деплоймента свой PDB с явным component.
+*/}}
+{{- if and .Values.pdb.enabled .Values.worker.replicaCount }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "stair-platform.fullname" . }}-worker
+  labels:
+    {{- include "stair-platform.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "stair-platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+  minAvailable: 0
+  maxUnavailable: 1
+{{- end }}

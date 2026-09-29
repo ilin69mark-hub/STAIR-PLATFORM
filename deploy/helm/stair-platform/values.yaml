@@ -5,6 +5,22 @@ replicaCount: 2
 # Background worker (separate Deployment; same image, /bin/worker entrypoint)
 worker:
   replicaCount: 1
+  # INF-10 (forensic 2026-09-27): resources для воркера. До этого ключа не
+  # было вовсе, а шаблон подставлял `null` из-за того, что `toYaml nil`
+  # возвращает непустую строку "null" и `default` не срабатывал. Воркер
+  # оказывался BestEffort без limits — первым вытеснялся при давлении на ноду.
+  #
+  # Если оставить пустым, применяются общие `resources` ниже (поведение,
+  # ожидаемое от шаблона). Задавать имеет смысл отдельно: воркер держит
+  # конвейер расчёта в памяти, и его профиль нагрузки отличается от api.
+  resources: {}
+  # resources:
+  #   limits:
+  #     cpu: 1000m
+  #     memory: 1Gi
+  #   requests:
+  #     cpu: 250m
+  #     memory: 256Mi
 # NetworkPolicy (S-149, S-141 №12, CIS Benchmark 5.3): сегментация трафика.
 # По умолчанию ВЫКЛЮЧЕНА: корректные CIDR знает только оператор среды, а
 # default-deny с пустыми CIDR сломает прод на первом upgrade. Включение:
@@ -182,8 +198,44 @@ monitoring:
     #   release: kube-prometheus-stack
 
 # Debug (NEVER enable in production)
+# Сколько ждать завершения graceful shutdown (WS-комнаты, S-121).
+terminationGracePeriodSeconds: 45
+
+# Раскладка реплик API по узлам: без этого обе реплики могут сесть на один
+# узел, и дренаж убирает весь API одновременно.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: stair-platform
+        app.kubernetes.io/component: api
+
 debug:
   logging: false
+
+# Лимиты запросов (INF, 2026-09-26): до правки не рендерились в ConfigMap,
+# поэтому оператор не мог их поднять, а за ingress-nginx все запросы
+# ключевались по IP пода (см. configmap.yaml и middleware_auth.go).
+rateLimits:
+  login: 10
+  register: 5
+  quote: 30
+  validate: 120
+  auth: 120
+  sso: 30
+
+# Доверенные прокси (CIDR ingress-контроллера/LB). Пусто = не доверять
+# заголовкам X-Forwarded-* (rate-limit ключуется по IP соединения).
+trustedProxies: []
+
+# SSO (OIDC). До правки блок был мёртвой конфигурацией: ConfigMap не
+# рендерил эти значения, а имена не совпадали с читаемым кодом.
+sso:
+  issuerUrl: ""
+  clientId: ""
+  clientSecret: ""
   pprofEnabled: false
 
 # Payments

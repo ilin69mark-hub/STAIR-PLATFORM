@@ -36,8 +36,6 @@ MATERIALS: dict[str, tuple[str, str]] = {
     "WOOD-ASH": ("Wood092", "Ясень, светлый"),
     "WOOD-SOFT": ("Wood049", "Хвойные доски, мягкий рисунок"),
     "STEEL-S235": ("Metal032", "Сталь окрашенная, гладкая"),
-    "STEEL-CORTEN": ("Metal022", "Кортен / weathering steel"),
-    "ALUM-5083": ("Metal050A", "Алюминий шлифованный"),
 }
 
 KEEP_MAPS = ("color", "normal", "roughness", "ambientocclusion")

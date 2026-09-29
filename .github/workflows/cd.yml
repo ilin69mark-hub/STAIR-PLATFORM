@@ -182,7 +182,9 @@ jobs:
             --set image.repository="${{ vars.ECR_REGISTRY }}/${{ vars.ECR_REPOSITORY_API || 'stairplatform/api' }}" \
             --set image.tag="${{ env.APP_VERSION }}" \
             --set imagePullSecrets[0].name=ecr-regcred \
-            --set secretsKey="${{ secrets.STAIR_SECRETS_KEY }}"
+            --set secretsKey="${{ secrets.STAIR_SECRETS_KEY }}" \
+            --set payments.stripeSecretKey="${{ secrets.STRIPE_SECRET_KEY }}" \
+            --set payments.stripeWebhookSecret="${{ secrets.STRIPE_WEBHOOK_SECRET }}"
 
       - name: Verify rollout
         if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}

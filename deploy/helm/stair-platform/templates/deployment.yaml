@@ -20,6 +20,7 @@ spec:
         {{- end }}
       labels:
         {{- include "stair-platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -32,24 +33,42 @@ spec:
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ include "stair-platform.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+          # INF (2026-09-26): миграции выполняются при старте пода
+          # (cmd/api/main.go), а 000031 делает ADD CONSTRAINT с полным
+          # сканированием пяти таблиц. С прежними параметрами (liveness
+          # initialDelay 30s) медленная БД давала CrashLoop: под не успевал
+          # применить миграции и попадал под liveness-килл. startupProbe даёт
+          # до 5 минут только на старт, liveness начинает отсчитывать после.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 30
             periodSeconds: 10
+            failureThreshold: 6
           readinessProbe:
             httpGet:
               path: /ready
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5
+          # S-121: при остановке поды должны успеть доотдать WS-события.
+          terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+          {{- with .Values.topologySpreadConstraints }}
+          topologySpreadConstraints:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           envFrom:
             - configMapRef:
                 name: {{ include "stair-platform.fullname" . }}-config
@@ -65,6 +84,14 @@ spec:
                 secretKeyRef:
                   name: {{ include "stair-platform.fullname" . }}-secrets
                   key: secrets-key
+            {{- if and .Values.sso .Values.sso.clientSecret }}
+            # INF-12: OAuth-секрет приходит из Secret, а не из ConfigMap.
+            - name: STAIR_SSO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "stair-platform.fullname" . }}-secrets
+                  key: sso-client-secret
+            {{- end }}
             {{- if .Values.payments.stripeSecretKey }}
             - name: STAIR_STRIPE_SECRET_KEY
               valueFrom:
