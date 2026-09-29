@@ -170,7 +170,26 @@ export function Segmented({
       data-compact={compact || undefined}
       data-locked={locked || undefined}
     >
-      <legend className="segmented__legend">{legend}</legend>
+      <legend className="segmented__legend">
+        {legend}
+        {locked && (
+          // Замок в подписи — самый заметный признак блокировки: рамка и
+          // курсор читаются не сразу, а здесь видно сразу. aria-hidden,
+          // потому что сам смысл уже произнесён подписью и подсказкой ниже.
+          <span className="segmented__lock" aria-hidden="true">
+            <svg viewBox="0 0 12 14" width="11" height="13" focusable="false">
+              <path
+                d="M2 6V4a4 4 0 1 1 8 0v2"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+              />
+              <rect x="1" y="6" width="10" height="7" rx="1.6" fill="currentColor" />
+            </svg>
+            заблокировано
+          </span>
+        )}
+      </legend>
       <div className="segmented__grid">
         {options.map((o) =>
           locked ? (

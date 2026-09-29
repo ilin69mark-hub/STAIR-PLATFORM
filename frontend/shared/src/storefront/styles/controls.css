@@ -233,19 +233,64 @@
    нативный disabled): с aria-disabled скринридер читает поле как
    «недоступно», с disabled — просто выкидывает его из обхода, и значение
    нельзя было бы послушать с клавиатуры. */
+/* Заблокированный переключатель. Блокировку надо видеть сразу, а не
+   вычислять: владелец попросил «выделить ярче, сейчас бледно и не видно».
+   Четыре независимых признака, потому что одного мало:
+   рамка вокруг всего блока + штриховые кнопки (штрих = не редактируется),
+   курсор not-allowed, замок в подписи и приглушённый фон.
+   Растянуто на 0.75 не делаем — это гасит и текст, и рамку, и читаемость. */
+.segmented[data-locked] {
+  border: 1px dashed #b9c6c0;
+  border-radius: 10px;
+  background: #f2f5f4;
+  padding: 8px 10px 10px;
+}
+
 .segmented[data-locked] .segmented__item {
-  cursor: default;
-  opacity: 0.75;
+  cursor: not-allowed;
+  border-style: dashed;
+  background: #eef1f0;
+  color: var(--sp-muted);
 }
 
 .segmented[data-locked] .segmented__item:hover {
-  border-color: var(--sp-border);
+  border-color: #b9c6c0;
+  background: #eef1f0;
+  color: var(--sp-muted);
 }
 
+/* Активный показывает значение, а не выбор: сплошная заливка, но спокойного
+   серого — зелёная «галочка» читалась бы как доступный для нажатия вариант. */
 .segmented[data-locked] .segmented__item.is-active {
-  border-color: var(--sp-border);
-  background: var(--sp-bg);
+  border-color: #9fb0a9;
+  border-style: solid;
+  background: #dde4e1;
   color: var(--sp-text);
+  font-weight: 600;
+}
+
+.segmented[data-locked] .segmented__hint-line {
+  color: #6b7a72;
+}
+
+/* Замок + слово в подписи заблокированного блока. */
+.segmented__lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  padding: 1px 6px 1px 5px;
+  border-radius: 999px;
+  background: #dde4e1;
+  color: #55665e;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  vertical-align: 1px;
+}
+
+.segmented__lock svg {
+  display: block;
 }
 
 .segmented__label {
