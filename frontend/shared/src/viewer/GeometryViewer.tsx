@@ -237,6 +237,19 @@ function buildRoleGroups(
   return [m]
 }
 
+/**
+ * Что кладём в группу марша: PBR-меш по ролям, если бэкенд отдал PartRanges,
+ * иначе монолит. Ровно ОДИН из них — они делят одну и ту же BufferGeometry, и
+ * непрозрачный синий монолит, добавленный вместе с PBR-мешом, закрывал его
+ * треугольник в треугольник: текстуры и HDRI грузились и применялись, а в
+ * кадре оставался синий «схематичный» марш. Отдельная функция, потому что
+ * проверить это в jsdom нельзя (WebGL нет), а правило обязано быть
+ * зафиксировано тестом.
+ */
+export function stairPartsOf(stairMesh: THREE.Mesh, roleGroups: THREE.Mesh[]): THREE.Mesh[] {
+  return roleGroups.length > 0 ? roleGroups : [stairMesh]
+}
+
 // Роли деталей, изготовляемых из материала СТУПЕНЕЙ. Повторяет разбивку
 // manufacturing/decompose.go: площадка и поворотные ступени там сводятся к
 // PartTread, поэтому в дереве они role='landing'/'winder'.
@@ -547,11 +560,15 @@ export function GeometryViewer({
       riserFinishId,
       castShadow,
     })
-    if (roleGroups.length > 0) {
-      // Заменяем монолит на группы по ролям: геометрия та же, материалы — PBR.
-      scene.remove(stair.mesh)
-      for (const group of roleGroups) scene.add(group)
-    }
+    // Группы по ролям НЕ добавляем в сцену здесь: stairGroup собирается
+    // ниже, и туда кладётся либо PBR-меш по ролям, либо монолит (если
+    // PartRanges нет — старый API). Раньше группы добавлялись в сцену
+    // сразу, а потом в stairGroup доставался ещё и монолит с той же
+    // геометрией: непрозрачный синий MeshStandardMaterial закрывал
+    // PBR-меши ровно на тех же треугольниках, и в кадре оставался один
+    // синий «схематичный» марш, хотя текстуры и HDRI грузились и
+    // применялись (см. материал STEEL-S235 на скриншоте: грузится 200,
+    // на экране — синий).
     // Этап 2: те же диапазоны — карта «треугольник → деталь» для выбора в 3D.
     const partGroups: PartGroup[] = groupsFromRanges(mesh.PartRanges)
 
@@ -667,7 +684,7 @@ export function GeometryViewer({
       )
     }
     const stairGroup = new THREE.Group()
-    stairGroup.add(stair.mesh)
+    for (const m of stairPartsOf(stair.mesh, roleGroups)) stairGroup.add(m)
     if (railing) stairGroup.add(railing.mesh)
     // ADR-0008: трёхмерные оси — X=подъём(2D +X), Z=ширина(2D +Y), Y=высота.
     // Сдвиг placement.offsetX идёт вдоль подъёма (X), offsetY — вдоль ширины (Z).

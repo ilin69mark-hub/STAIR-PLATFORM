@@ -298,7 +298,7 @@ export function QuoteResult({
 
   return (
     <>
-      <section className="panel">
+      <section className="panel panel--result">
         {/* Статус расчёта виден в обеих раскладках: блок был под `split`,
             из-за чего в standalone-режиме заголовок и фраза «Расчёт
             остановлен» просто исчезали. */}
@@ -386,7 +386,7 @@ export function QuoteResult({
       </section>
 
       {!quote.validation.blocking && solver.flight && (
-        <section className="panel">
+        <section className="panel panel--result">
           <h2>Геометрия марша</h2>
           <dl className="kv">
             <div>
@@ -436,7 +436,7 @@ export function QuoteResult({
       )}
 
       {geometry && (
-        <section className="panel">
+        <section className="panel panel--result">
           <h2>Габариты и объём</h2>
           <dl className="kv">
             <div>
@@ -456,7 +456,7 @@ export function QuoteResult({
       )}
 
       {pricing && (
-        <section className="panel">
+        <section className="panel panel--result">
           <div className="price-box">
             <span className="price-label">Предварительная цена</span>
             <span className="price-value">{fmt.rubMajor(pricing.final_price_rub)}</span>

@@ -1,10 +1,35 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { GeometryViewer } from './GeometryViewer'
+import * as THREE from 'three'
+import { GeometryViewer, stairPartsOf } from './GeometryViewer'
 
 const empty = (): any => ({ Vertices: [], Triangles: [] })
 
 const WALLS = ['В', 'Н', 'П', 'Л'] as const
+
+describe('из чего собирается марш в сцене', () => {
+  // Регрессия: PBR-меш по ролям добавлялся в сцену, а потом в ту же группу
+  // доставался ещё и синий монолит с общей геометрией — и закрывал текстуры
+  // ровно на тех же треугольниках. В кадре оставался один синий марш.
+  it('берёт PBR-меш по ролям, а не монолит', () => {
+    const mono = new THREE.Mesh()
+    const pbr = new THREE.Mesh()
+    expect(stairPartsOf(mono, [pbr])).toEqual([pbr])
+  })
+
+  it('без PartRanges (старый API) остаётся монолит', () => {
+    const mono = new THREE.Mesh()
+    expect(stairPartsOf(mono, [])).toEqual([mono])
+  })
+
+  it('монолит и PBR-меш никогда не попадают в сцену вместе', () => {
+    const mono = new THREE.Mesh()
+    const pbr = new THREE.Mesh()
+    const parts = stairPartsOf(mono, [pbr])
+    expect(parts).not.toContain(mono)
+    expect(parts).toHaveLength(1)
+  })
+})
 
 describe('GeometryViewer walls widget', () => {
   it('renders 4 wall segment buttons and exit checkbox', () => {
