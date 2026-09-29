@@ -340,8 +340,10 @@ describe('Constructor', () => {
     for (const re of noRangeDuplicates) {
       expect(maybeInSections(() => screen.queryByText(re))).toBeNull()
     }
-    // Шкала ползунка толщины ступени: по умолчанию дуб, 20–60 мм.
-    const scale = inSection('Основные настройки', () =>
+    // Шкала ползунка толщины ступени: по умолчанию дуб, 20–60 мм. Поле
+    // перенесено в «Цвет и материал» под переключатель материала ступеней,
+    // потому что пределы задаёт именно он.
+    const scale = inSection('Цвет и материал', () =>
       screen.getByLabelText('Толщина ступени (мм), ползунок').parentElement
         ?.querySelector('.slider__scale'),
     )
@@ -376,10 +378,24 @@ describe('Constructor', () => {
     expect(inSection('Помещение', () => screen.queryByText('Рекомендуем ≥ 2000 мм'))).toBeInTheDocument()
   })
 
+  // Требование владельца: толщина ступени стоит в «Цвете и материале», сразу
+  // под выбором «Дерево/Металл». Пределы толщины задаёт именно материал
+  // ступеней (дуб 20–60, сталь 3–8), и в «Основных настройках» человек
+  // ставил 40 мм, переключал на металл и получал отказ сервера.
+  it('толщина ступени живёт в разделе материалов, а не в основных', async () => {
+    await renderWithAuth(<Constructor />, null)
+    expect(inSection('Цвет и материал', () =>
+      screen.queryByLabelText('Толщина ступени (мм)'),
+    )).toBeInTheDocument()
+    expect(inSection('Основные настройки', () =>
+      screen.queryByLabelText('Толщина ступени (мм)'),
+    )).not.toBeInTheDocument()
+  })
+
   it('пределы ползунка толщины ступени следуют за материалом ступеней', async () => {
     await renderWithAuth(<Constructor />, null)
     const scale = () =>
-      inSection('Основные настройки', () =>
+      inSection('Цвет и материал', () =>
         screen.getByLabelText('Толщина ступени (мм), ползунок').parentElement
           ?.querySelector('.slider__scale')?.textContent,
       )

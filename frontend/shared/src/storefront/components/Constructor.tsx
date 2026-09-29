@@ -1008,7 +1008,6 @@ export function Constructor() {
           {renderField('flight')}
           {renderField('heightMM')}
           {renderField('widthMM')}
-          {renderField('stepThicknessMM')}
           {/* Подступень — единственный переключатель на «Да/Нет», поэтому
               подпись и сам переключатель стоят в одну строку: отдельная
               строка под подписью была пустой высотой ради одного слова. */}
@@ -1122,6 +1121,13 @@ export function Constructor() {
               onChange={(v) => setTreadMaterial(v === 'wood' ? 'WOOD-OAK' : 'STEEL-S235')}
             />
           )}
+
+          {/* Толщина ступени — сразу под выбором материала ступеней, потому
+              что её пределы задаёт ИМЕННО он: у дуба 20–60 мм, у стали 2–6 мм.
+              Раньше поле стояло в «Основных настройках», где до материала
+              ступеней ещё надо было догадаться, — и человек ставил 40 мм,
+              потом переключал на металл и получал отказ сервера. */}
+          {renderField('stepThicknessMM')}
 
           {frameFinishOptions.length > 0 && (
             <SwatchGroup
