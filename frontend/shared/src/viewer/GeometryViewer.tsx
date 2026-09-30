@@ -462,9 +462,18 @@ export function GeometryViewer({
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     container.appendChild(renderer.domElement)
 
+    // Границы зума задаются ПОСЛЕ того, как известен габарит сцены (см. ниже,
+    // рядом с fitDist): без них колесо уводило камеру сквозь лестницу в
+    // пустоту, а несколько прокруток назад — теряли марш за кадром. Здесь
+    // только скорость, границы — на своих местах.
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
     controls.dampingFactor = 0.08
+    // Колесо зумит сцену, а не прокручивает страницу: без preventDefault
+    // страница «уезжала» вместо зума, и на тачпадах жест целиком уходил в
+    // скролл. Зум доступен всегда — он не часть выбора детали, поэтому флаг
+    // `interactive` здесь не участвует.
+    renderer.domElement.addEventListener('wheel', (e) => e.preventDefault(), { passive: false })
     // Сохраняем последний кадр для КП — вариант А (твой ракурс)
     const saveLastFrame = () => {
       try {
@@ -1066,6 +1075,19 @@ export function GeometryViewer({
     // есть запас заложен габаритом.
     const fitFov = (camera.fov * Math.PI) / 180
     const fitDist = radius / Math.sin(fitFov / 2)
+    // Границы зума — от ДИСТАНЦИИ КАДРИРОВАНИЯ, а не от радиуса сферы.
+    //
+    // Первая версия считала их от radius и уводила камеру внутрь марша: при
+    // FOV 32° дистанция кадра — это 3.63·R, а 0.35·R в семь раз ближе, то
+    // есть камера оказывалась ВНУТРИ сцены, и в кадре оставался только пол
+    // с тенью. Обе границы теперь кратны fitDist — той же величине, которой
+    // посчитан стартовый кадр, поэтому «единица зума» совпадает с «ед��ницей
+    // кадра»:
+    //   minDistance = 0.4·fitDist — можно рассмотреть ступень, фаску или
+    //     стекло вблизи, но марш остаётся узнаваемым в кадре;
+    //   maxDistance = 3.5·fitDist — при отлёте марш не превращается в точку.
+    controls.minDistance = fitDist * 0.4
+    controls.maxDistance = fitDist * 3.5
     // Направление взгляда — то же, что даёт привычный трёхчетвертной ракурс
     // (сверху, сбоку, спереди), только длина вектора теперь считается от FOV.
     const viewDir = new THREE.Vector3(radius * 1.4, radius * 1.2, radius * 1.6).normalize()
