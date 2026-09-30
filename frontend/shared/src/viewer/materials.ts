@@ -220,7 +220,12 @@ export function createStairMaterial(opts: StairMaterialOptions): THREE.MeshStand
         roughness,
         metalness,
         side: THREE.DoubleSide,
-        envMapIntensity: 1.0,
+        // Металл живёт ОТРАЖЕНИЯМИ: у него почти нет диффузной
+        // составляющей, и при envMapIntensity 1.0 грани, повёрнутые от
+        // источников и от яркой части HDRI, уходили в чёрное — стальной
+        // косоур выглядел дырой в картинке. Дереву и камню 1.15 не нужен:
+        // там отражения — лишь тонкий налёт поверх диффузии.
+        envMapIntensity: metalness > 0.5 ? 1.4 : 1.15,
         ...depthBiasFor(opts.role),
       })
 

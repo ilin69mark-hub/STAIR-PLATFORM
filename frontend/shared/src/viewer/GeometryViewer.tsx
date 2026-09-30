@@ -83,6 +83,12 @@ interface Props {
   riserFinishId?: string
   // railingMetal — ограждение металлом вместо стекла.
   railingMetal?: boolean
+  // debugOverlay — служебная разметка поверх сцены: сетка пола, фиолетовая
+  // линия верха марша и жёлтая зона подхода. Это инженерные инструменты
+  // (проверить вписывание в помещение и границу марша), а не часть
+  // товара: покупателю они показывали «чертёж», а не лестницу. По умолчанию
+  // выключены — витрина отдаёт чистую сцену.
+  debugOverlay?: boolean
   // Этап 2 «конструктор»: выбор детали марша в 3D. interactive включает
   // raycast, onSelectPart сообщает React о выбранной детали (или null).
   interactive?: boolean
@@ -285,6 +291,7 @@ export function GeometryViewer({
   treadFinishId,
   riserFinishId,
   railingMetal = false,
+  debugOverlay = false,
   interactive = false,
   selectedPart = null,
   onSelectPart,
@@ -328,6 +335,12 @@ export function GeometryViewer({
     left: null,
   })
   const exitRef = useRef<THREE.Object3D | null>(null)
+  // Полупрозрачный периметр помещения (room_mesh) — тот же контекст, что и
+  // стены: он показывает, куда лестница вписана, и по умолчанию выключен
+  // вместе с ними. Раньше он рисовался всегда, и на белом «циклораме»
+  // полупрозрачная оранжевая плоскость читалась как кремовая плита, парящая
+  // в кадре, — покупатель видел артефакт вместо лестницы.
+  const roomRef = useRef<THREE.Object3D | null>(null)
   // Актуальные значения тумблеров для эффекта построения сцены: туда они НЕ
   // входят зависимостями (переключение не должно пересобирать сцену), поэтому
   // начальную видимость читаем из зеркальных рефов.
@@ -388,6 +401,11 @@ export function GeometryViewer({
     if (wallsRef.current.bottom) wallsRef.current.bottom.visible = walls.bottom
     if (wallsRef.current.right) wallsRef.current.right.visible = walls.right
     if (wallsRef.current.left) wallsRef.current.left.visible = walls.left
+    // Периметр помещения живёт по тем же тумблерам, что и стены: пока не
+    // включена ни одна сторона, показывать «где помещение» нечем.
+    if (roomRef.current) {
+      roomRef.current.visible = walls.top || walls.bottom || walls.right || walls.left
+    }
   }, [walls])
 
   useEffect(() => {
@@ -413,7 +431,11 @@ export function GeometryViewer({
     // съедал контраст бликов и делал сцену «мутной».
     scene.background = new THREE.Color('#ffffff')
 
-    const camera = new THREE.PerspectiveCamera(45, width / height, 1, 100000)
+    // Продуктовый кадр: 32° вместо 45°. Широкий угол «раздувает» лестницу
+    // к зрителю и даёт эффект рыбий глаз на ступенях — для съёмки изделия
+    // нужен длиннофокусный вид, как у 50–85 мм на фотокамере. Марш в кадре
+    // становится «вещественным», а не диорамой.
+    const camera = new THREE.PerspectiveCamera(32, width / height, 1, 100000)
     let renderer: THREE.WebGLRenderer
     try {
       renderer = new THREE.WebGLRenderer({
@@ -466,13 +488,22 @@ export function GeometryViewer({
     const envTargets: THREE.WebGLRenderTarget[] = [roomTarget]
     roomEnv.dispose()
     let disposed = false
-    scene.environmentIntensity = 1.0
+    scene.environmentIntensity = 1.15
 
-    // Световая схема «три источника» — та же логика, что у продуктовой
-    // съёмки на белом циклораме: ключевой сверху-сбоку (даёт тень и форму),
-    // заполняющий с противоположной стороны (гасит провалы в тенях), и
-    // слабый общий снизу (отражает «от пола»). HemisphereLight убран: при
-    // белом окружении он красил нижние грани в синеву.
+    // Световая схема «студийный циклорам» — та же логика, что у продуктовой
+    // съёмки на белом фоне: ключевой сверху-сбоку (даёт тень и форму),
+    // заполняющий с противоположной стороны (гасит провалы в тенях) и
+    // отражающий снизу («от пола»). HemisphereLight убран: при белом
+    // окружении он красил нижние грани в синеву.
+    //
+    // ГЛАВНОЕ для металла. Сталь (metalness 0.85) почти не имеет диффузной
+    // составляющей: её освещают ИСКЛЮЧИТЕЛЬНО отражения, и грани, повёрнутые
+    // от источников и от яркой части HDRI, честно уходят в чёрный. На
+    // белом циклораме это выглядит как дыра в картинке: дальний косоур
+    // пропадал. Лечится двумя вещами:
+    //   1) заполняющий источник идёт СО СТОРОНЫ КАМЕРЫ (от «объектива»), а не
+    //      сзади — тогда у металла всегда есть блик в видимой плоскости;
+    //   2) общий IBL поднят, чтобы диффузная часть деталей не проседала.
     const key = new THREE.DirectionalLight(0xffffff, 2.1)
     key.position.set(2200, 3600, 2600)
     key.castShadow = true
@@ -487,13 +518,25 @@ export function GeometryViewer({
     key.shadow.normalBias = 0.6
     scene.add(key)
 
+    // Заполняющий с противоположной стороны — гасит провалы, но НЕ светит
+    // в кадр, поэтому металл с этой стороны оставался бы тёмным.
     const fill = new THREE.DirectionalLight(0xffffff, 0.75)
     fill.position.set(-2400, 1500, -1800)
     scene.add(fill)
 
+    // Отражение от «пола» циклорамы.
     const bounce = new THREE.DirectionalLight(0xffffff, 0.28)
     bounce.position.set(0, -1800, 600)
     scene.add(bounce)
+
+    // «Подсветка из объектива»: едет вместе с камерой, поэтому при любом
+    // ракурсе блик на металле есть. Направленный, а не точечный — иначе
+    // свет падал бы пятном и ловил блики с неверной перспективой.
+    const front = new THREE.DirectionalLight(0xffffff, 0.62)
+    scene.add(front)
+    scene.add(front.target)
+    front.target.position.set(0, 0, 0)
+    // Позиция обновляется вместе с камерой (см. ниже, где считается кадр).
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.18))
 
@@ -507,7 +550,10 @@ export function GeometryViewer({
           const target = pmrem.fromEquirectangular(hdr)
           envTargets.push(target)
           scene.environment = target.texture
-          scene.environmentIntensity = 1.0
+          // Та же интенсивность, что и у процедурного окружения выше: если
+          // HDRI грузится с другой яркостью, металл на двух путях загрузки
+          // выглядел бы по-разному.
+          scene.environmentIntensity = 1.15
           hdr.dispose()
           // Рендертаргет попал в список ПОСЛЕ того, как могла отработать
           // очистка (HDRI грузится асинхронно) — если эффект уже разобран,
@@ -609,6 +655,13 @@ export function GeometryViewer({
         side: THREE.DoubleSide,
       })
       room = makeMesh(roomMesh, roomMat)
+      // Видимость применяем ЗДЕСЬ, а не только в эффекте на `walls`: тот
+      // эффект на первом рендере отрабатывает раньше, чем сцена создала меш,
+      // и правило не срабатывало ни разу — периметр помещения так и висел
+      // на экране поверх «белого циклорама».
+      const w0 = wallsStateRef.current
+      room.mesh.visible = w0.top || w0.bottom || w0.right || w0.left
+      roomRef.current = room.mesh
       scene.add(room.mesh)
     }
 
@@ -825,11 +878,13 @@ export function GeometryViewer({
     // Пол — большая «бесконечная» сетка (визуализация; проверка вписывания
     // в комнату выполняется расчётом независимо). Размер ограничен дальней
     // плоскостью камеры (far = 100000), чтобы сетка не обрезалась.
-    const gridSize = Math.min(radius * 30, 90000)
-    const gridDiv = Math.min(200, Math.max(20, Math.round(gridSize / 500)))
-    const grid = new THREE.GridHelper(gridSize, gridDiv, 0xc2cdd8, 0xe0e7ec)
-    grid.position.y = unionMin.y
-    scene.add(grid)
+    if (debugOverlay) {
+      const gridSize = Math.min(radius * 30, 90000)
+      const gridDiv = Math.min(200, Math.max(20, Math.round(gridSize / 500)))
+      const grid = new THREE.GridHelper(gridSize, gridDiv, 0xc2cdd8, 0xe0e7ec)
+      grid.position.y = unionMin.y
+      scene.add(grid)
+    }
 
     // Фиолетовая линия: горизонтально на уровне пола (z = box.min.z), ровно
     // под местом, где заканчивается марш (для straight меш зеркалится по X,
@@ -842,12 +897,14 @@ export function GeometryViewer({
       const y0 = box.min.y
       const y1 = box.max.y
       const z = box.min.z
-      const lg = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(x, y0, z),
-        new THREE.Vector3(x, y1, z),
-      ])
-      topLine = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: 0x9b5de5 }))
-      stairGroup.add(topLine)
+      if (debugOverlay) {
+        const lg = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(x, y0, z),
+          new THREE.Vector3(x, y1, z),
+        ])
+        topLine = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: 0x9b5de5 }))
+        stairGroup.add(topLine)
+      }
     }
 
     // Зона свободного пространства перед первой ступенью (EDR-0023): полупрозрачная
@@ -858,7 +915,7 @@ export function GeometryViewer({
     // Run + approach она упирается ровно в стену П, ничего не вылезая.
     // Добавляем в stairGroup, чтобы зона ехала вместе со сдвигом размещения.
     let approachMesh: THREE.Mesh | null = null
-    if (sb) {
+    if (sb && debugOverlay) {
       const widthZ = Math.max(1, sb.max.z - sb.min.z)
       const apGeo = new THREE.PlaneGeometry(ap, widthZ)
       const apMat = new THREE.MeshBasicMaterial({
@@ -999,7 +1056,20 @@ export function GeometryViewer({
       }
     }
 
-    camera.position.copy(center).add(new THREE.Vector3(radius * 1.4, radius * 1.2, radius * 1.6))
+    // Кадрируем камеру по ГАБАРИТУ СФЕРЫ и УГЛУ ОБЗОРА, а не константой.
+    //
+    // Расстояние, с которого сфера радиуса R помещается в кадр, равно
+    // R / sin(fov/2). При 32° это 3.63·R, а при прежних 45° — 2.61·R. Со
+    // сменой объектива на длиннофокусный кадр физически стал «уже», и лестница
+    // начала уезжать за край: константа расстояния здесь и была ошибкой.
+    // Запас не нужен: в сферу уже входят плита выхода и зона подхода, то
+    // есть запас заложен габаритом.
+    const fitFov = (camera.fov * Math.PI) / 180
+    const fitDist = radius / Math.sin(fitFov / 2)
+    // Направление взгляда — то же, что даёт привычный трёхчетвертной ракурс
+    // (сверху, сбоку, спереди), только длина вектора теперь считается от FOV.
+    const viewDir = new THREE.Vector3(radius * 1.4, radius * 1.2, radius * 1.6).normalize()
+    camera.position.copy(center).add(viewDir.multiplyScalar(fitDist))
     controls.target.copy(center)
     controls.update()
 
@@ -1285,6 +1355,12 @@ export function GeometryViewer({
     highlightSelection(selectedPartRef.current)
     renderer.setAnimationLoop(() => {
       controls.update()
+      // «Подсветка из объектива» едет вместе с камерой: ставим её на
+      // расстоянии от цели вдоль направления взгляда, иначе при повороте
+      // сцены блик на металле уезжал бы вбок.
+      front.position.copy(camera.position)
+      front.target.position.copy(controls.target)
+      front.target.updateMatrixWorld()
       if (!needsRender) return
       needsRender = false
       renderer.render(scene, camera)
