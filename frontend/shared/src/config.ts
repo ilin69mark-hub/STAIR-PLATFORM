@@ -28,7 +28,9 @@ export const allFlightTypes = allFlightOptions.map((o) => o.value) as Flight[]
 // Доступные материалы конструктора (коды каталога MFG-0005). Совпадают
 // с материалами DefaultMaterialRegistry и ставками RatesForm.
 export const materialOptions = [
-  { value: 'STEEL-S235', label: 'Сталь S235', minThicknessMM: 2, maxThicknessMM: 60, density: 7850 },
+  // Сталь — только лазерный раскрой 3–8 мм; зеркало бэкендового
+  // реестра материалов (DefaultMaterialRegistry).
+  { value: 'STEEL-S235', label: 'Сталь S235', minThicknessMM: 3, maxThicknessMM: 8, density: 7850 },
   { value: 'WOOD-OAK', label: 'Дуб', minThicknessMM: 20, maxThicknessMM: 60, density: 700 },
   { value: 'WOOD-WALNUT', label: 'Орех', minThicknessMM: 20, maxThicknessMM: 60, density: 640 },
   { value: 'WOOD-ASH', label: 'Ясень', minThicknessMM: 20, maxThicknessMM: 60, density: 690 },
