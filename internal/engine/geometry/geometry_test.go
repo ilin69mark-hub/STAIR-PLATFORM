@@ -645,3 +645,77 @@ func TestSteelLandingHasNoChamfer(t *testing.T) {
 		t.Fatalf("no chamfer means no milling, got %+v", res.MillingFeatures)
 	}
 }
+
+// --- Текстурные координаты ---------------------------------------------------
+//
+// Без UV все вершины получают uv=(0,0): текстура семплит один пиксель, и
+// материал выглядит плоским цветом, сколько бы карт ни грузилось. Поэтому
+// наличие и корректность UV — контракт, а не украшение.
+
+func TestPreviewMeshHasUVForEveryVertex(t *testing.T) {
+	res, err := Generate(context.Background(), testConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Mesh.UV) != len(res.Mesh.Vertices) {
+		t.Fatalf("uv = %d, want one per vertex (%d)", len(res.Mesh.UV), len(res.Mesh.Vertices))
+	}
+	// Координаты в метрах, то есть для лестницы высотой 2700 мм они порядка
+	// единиц-десятков, а не 0..1: иначе рисунок растягивался бы на деталь.
+	maxAbs := 0.0
+	for _, uv := range res.Mesh.UV {
+		if math.Abs(uv.U) > maxAbs {
+			maxAbs = math.Abs(uv.U)
+		}
+		if math.Abs(uv.V) > maxAbs {
+			maxAbs = math.Abs(uv.V)
+		}
+	}
+	if maxAbs < 1 {
+		t.Fatalf("uv look normalized (max %v): they must be in metres", maxAbs)
+	}
+	if maxAbs > 20 {
+		t.Fatalf("uv out of sane range for a 2700 mm flight: max %v", maxAbs)
+	}
+}
+
+func TestUVNotIdenticalOnNeighbouringTreads(t *testing.T) {
+	// Смещение UV внутри детали нужно, чтобы рисунок на соседних ступенях не
+	// был пиксель в пиксель: без него ступени выглядели бы как копии.
+	res, err := Generate(context.Background(), testConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := -1
+	second := -1
+	for i, pr := range res.Mesh.PartRanges {
+		if pr.Role != "tread" {
+			continue
+		}
+		if first < 0 {
+			first = i
+		} else {
+			second = i
+			break
+		}
+	}
+	if first < 0 || second < 0 {
+		t.Fatal("need at least two treads in the flight")
+	}
+	a := res.Mesh.PartRanges[first]
+	b := res.Mesh.PartRanges[second]
+	same := 0
+	// Сравниваем по диапазону треугольников: вершины у соседних ступеней
+	// разные, но их UV не должны совпадать целиком.
+	for t1 := a.Start; t1 < a.End && t1 < len(res.Mesh.Triangles); t1++ {
+		for t2 := b.Start; t2 < b.Start+1 && t2 < len(res.Mesh.Triangles); t2++ {
+			tr1, tr2 := res.Mesh.Triangles[t1], res.Mesh.Triangles[t2]
+			if res.Mesh.UV[tr1[0]] == res.Mesh.UV[tr2[0]] {
+				same++
+			}
+		}
+	}
+	if same > 0 {
+		t.Fatal("neighbouring treads must not share the same UV (pattern would tile identically)")
+	}
+}

@@ -127,11 +127,17 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 		caches[i] = kerngeo.NewTessellationCache()
 	}
 
+	// Общая точка отсчёта UV для всех деталей: минимальный угол габарита
+	// модели. Считается до параллельной стадии, чтобы все тела мешали
+	// одинаково (см. meshSolid).
+	uvOrigin := kerngeo.BoundingBox(model).Min
+
 	type solidOut struct {
 		issues []kerngeo.ValidationIssue
 		vol    float64
 		area   float64
 		verts  []kerngeo.Point3
+		uvs    []kerngeo.Point2
 		tris   [][3]int
 		err    error
 	}
@@ -149,7 +155,7 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 			o.area, o.err = kerngeo.SurfaceAreaCached(solid, caches[i])
 		}
 		if o.err == nil {
-			o.verts, o.tris, o.err = meshSolid(solid, caches[i])
+			o.verts, o.uvs, o.tris, o.err = meshSolid(solid, caches[i], uvOrigin)
 		}
 		outs[i] = o
 		return o.err
@@ -174,6 +180,7 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 	base := 0
 	for i := range outs {
 		result.Mesh.Vertices = append(result.Mesh.Vertices, outs[i].verts...)
+		result.Mesh.UV = append(result.Mesh.UV, outs[i].uvs...)
 		start := len(result.Mesh.Triangles)
 		for _, tr := range outs[i].tris {
 			if err := result.Mesh.AddTriangle(base+tr[0], base+tr[1], base+tr[2]); err != nil {
@@ -207,10 +214,11 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 		rw := cfg.RoomWidth.Millimeters()
 		rl := cfg.RoomLength.Millimeters()
 		if room := buildRoomSolid(rw, rl); room != nil {
-			if verts, tris, rerr := meshSolid(room, kerngeo.NewTessellationCache()); rerr == nil {
+			if verts, uvs, tris, rerr := meshSolid(room, kerngeo.NewTessellationCache(), kerngeo.Point3{}); rerr == nil {
 				rb := 0
 				result.RoomMesh = &kerngeo.Mesh{}
 				result.RoomMesh.Vertices = append(result.RoomMesh.Vertices, verts...)
+				result.RoomMesh.UV = append(result.RoomMesh.UV, uvs...)
 				for _, tr := range tris {
 					if aerr := result.RoomMesh.AddTriangle(rb+tr[0], rb+tr[1], rb+tr[2]); aerr != nil {
 						return nil, aerr
@@ -342,11 +350,12 @@ func appendRailingMesh(result *GenerationResult, cfg *engineering.StairConfigura
 			issue.Element = fmt.Sprintf("decor:%s/%s", solid.Role(), issue.Element)
 			result.Issues = append(result.Issues, issue)
 		}
-		verts, tris, err := meshSolid(solid, cache)
+		verts, uvs, tris, err := meshSolid(solid, cache, kerngeo.BoundingBox(result.Model).Min)
 		if err != nil {
 			return fmt.Errorf("geometry: railing mesh: %w", err)
 		}
 		result.RailingMesh.Vertices = append(result.RailingMesh.Vertices, verts...)
+		result.RailingMesh.UV = append(result.RailingMesh.UV, uvs...)
 		start := len(result.RailingMesh.Triangles)
 		for _, tr := range tris {
 			if err := result.RailingMesh.AddTriangle(base+tr[0], base+tr[1], base+tr[2]); err != nil {

@@ -68,7 +68,6 @@ interface LoadedSet {
   map?: THREE.Texture
   normalMap?: THREE.Texture
   roughnessMap?: THREE.Texture
-  aoMap?: THREE.Texture
 }
 
 const cache = new Map<string, LoadedSet>()
@@ -101,14 +100,19 @@ function loadSet(code: MaterialCode): Promise<LoadedSet> {
   if (inflight) return inflight
 
   const base = `${assetsBase}/pbr/${code}`
+  // Загружаются ТРИ карты на материал. AO-карты не запрашиваются: их нет в
+  // проекте, и быть не должно — затенение от окружения (ambient occlusion) не
+  // свойство плоской доски, а свойство СЦЕНЫ: оно живёт в стыке проступи с
+  // косоуром, в пазу под поручнем. Наклеить такую карту на текстуру доски
+  // нельзя. AO появится в рендере (SSAO, фаза 4) и в вершинных цветах меша,
+  // где он считается по реальной геометрии.
   const p = Promise.all([
     loadOne(`${base}/color.jpg`, true),
     loadOne(`${base}/normal.jpg`, false),
     loadOne(`${base}/roughness.jpg`, false),
-    loadOne(`${base}/ao.jpg`, false),
   ])
-    .then(([map, normalMap, roughnessMap, aoMap]) => {
-      const set: LoadedSet = { map, normalMap, roughnessMap, aoMap }
+    .then(([map, normalMap, roughnessMap]) => {
+      const set: LoadedSet = { map, normalMap, roughnessMap }
       cache.set(code, set)
       loading.delete(code)
       return set
@@ -252,12 +256,6 @@ function applyMaps(
     const r = repeatFor(opts.role, opts.sizeMM ?? 1000)
     t.repeat.set(r, r)
     material.roughnessMap = t
-  }
-  if (set.aoMap) {
-    const t = set.aoMap.clone()
-    const r = repeatFor(opts.role, opts.sizeMM ?? 1000)
-    t.repeat.set(r, r)
-    material.aoMap = t
   }
 }
 

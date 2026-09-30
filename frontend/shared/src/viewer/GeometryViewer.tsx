@@ -532,6 +532,18 @@ export function GeometryViewer({
       const g = new THREE.BufferGeometry()
       g.setAttribute('position', new THREE.BufferAttribute(positions, 3))
       g.setIndex(new THREE.BufferAttribute(indices, 1))
+      // Текстурные координаты натягиваются ТОЛЬКО если backend их прислал и их
+      // столько же, сколько вершин. Иначе атрибут был бы короче геометрии, и
+      // three.js читал бы за границу буфера: без проверки это молчаливый
+      // мусор в памяти вместо внятной процедурной заливки.
+      if (api.UV && api.UV.length === api.Vertices.length) {
+        const uvs = new Float32Array(api.UV.length * 2)
+        api.UV.forEach((t, i) => {
+          uvs[i * 2] = t.U
+          uvs[i * 2 + 1] = t.V
+        })
+        g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+      }
       g.computeVertexNormals()
       g.computeBoundingBox()
       const m = new THREE.Mesh(g, material)
@@ -616,6 +628,14 @@ export function GeometryViewer({
       const g = new THREE.BufferGeometry()
       g.setAttribute('position', new THREE.BufferAttribute(positions, 3))
       g.setIndex(new THREE.BufferAttribute(indices, 1))
+      if (railingMesh.UV && railingMesh.UV.length === railingMesh.Vertices.length) {
+        const uvs = new Float32Array(railingMesh.UV.length * 2)
+        railingMesh.UV.forEach((t, i) => {
+          uvs[i * 2] = t.U
+          uvs[i * 2 + 1] = t.V
+        })
+        g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+      }
       g.computeVertexNormals()
       g.computeBoundingBox()
       const m = new THREE.Mesh(g, railMat)

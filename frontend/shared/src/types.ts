@@ -455,9 +455,20 @@ export interface MeshVertex {
   Z: number
 }
 
+// Текстурная координата: по одной на вершину, в метрах (не 0..1).
+export interface MeshUV {
+  U: number
+  V: number
+}
+
 export interface Mesh {
   Vertices: MeshVertex[]
   Triangles: Array<[number, number, number]>
+  // UV — текстурные координаты. Без них все вершины получают uv=(0,0),
+  // текстура семплит один пиксель, и материал выглядит плоским цветом.
+  // Необязателен: старый API их не слал, тогда вьювер рисует процедурный
+  // материал — прежнее поведение.
+  UV?: MeshUV[]
   // PartRanges — диапазоны треугольников по телам с ролями (этап 1:
   // tread/stringer/landing/railing_*). Позволяет назначить деталям разные
   // PBR-материалы в 3D. Необязателен (старый API мог не слать).
