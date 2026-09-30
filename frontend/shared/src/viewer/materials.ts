@@ -193,34 +193,36 @@ export function createStairMaterial(opts: StairMaterialOptions): THREE.MeshStand
   const base = BASE[opts.code] ?? { color: 0xb0b0b0, roughness: 0.6, metalness: 0.1 }
   const finish = finishFor(opts.code, opts.finishId)
   const color = finish.color ?? base.color
+  const roughness = Math.min(1, Math.max(0.05, finish.roughnessFactor ?? base.roughness))
+  const metalness = Math.min(1, Math.max(0, (finish.metalnessFactor ?? 1) * base.metalness))
 
-  const material = new THREE.MeshStandardMaterial({
-    color,
-    roughness: Math.min(1, Math.max(0.05, finish.roughnessFactor ?? base.roughness)),
-    metalness: Math.min(1, Math.max(0, (finish.metalnessFactor ?? 1) * base.metalness)),
-    side: THREE.DoubleSide,
-    envMapIntensity: 1.0,
-    ...depthBiasFor(opts.role),
-  })
-
-  if (finish.clearcoat) {
-    // Финиш с лаком: Physical-слой даёт блик поверх древесины.
-    const physical = new THREE.MeshPhysicalMaterial({
-      color: material.color,
-      roughness: material.roughness,
-      metalness: material.metalness,
-      clearcoat: finish.clearcoat,
-      clearcoatRoughness: 0.25,
-      side: THREE.DoubleSide,
-      ...depthBiasFor(opts.role),
-    })
-    applyMaps(physical, opts)
-    void loadSet(opts.code).then((set) => {
-      applyMaps(physical, opts, set)
-      physical.needsUpdate = true
-    })
-    return physical
-  }
+  // Финиш с лаком требует MeshPhysicalMaterial (слой clearcoat), остальное
+  // держится на дешёвом MeshStandardMaterial. Материал выбирается ОДИН раз:
+  // раньше здесь сначала создавался MeshStandardMaterial, а при clearcoat он
+  // молча выбрасывался и на сцену уходил Physical — с потерянным
+  // envMapIntensity, то есть финиш «Матовый лак» выглядел темнее и площе
+  // остальных, хотя объявлен как блестящий.
+  const material: THREE.MeshStandardMaterial = finish.clearcoat
+    ? new THREE.MeshPhysicalMaterial({
+        color,
+        roughness,
+        metalness,
+        clearcoat: finish.clearcoat,
+        // Лаковый слой гладкий и тонкий: roughness слоя заметно ниже
+        // roughness древесины, иначе блик размазывается в пятно.
+        clearcoatRoughness: Math.min(0.2, roughness * 0.5),
+        side: THREE.DoubleSide,
+        envMapIntensity: 1.15,
+        ...depthBiasFor(opts.role),
+      })
+    : new THREE.MeshStandardMaterial({
+        color,
+        roughness,
+        metalness,
+        side: THREE.DoubleSide,
+        envMapIntensity: 1.0,
+        ...depthBiasFor(opts.role),
+      })
 
   applyMaps(material, opts)
   void loadSet(opts.code).then((set) => {
@@ -259,26 +261,65 @@ function applyMaps(
   }
 }
 
-/** Материал ограждения: стекло по умолчанию, металл — по флагу. */
-export function createRailingMaterial(metal: boolean): THREE.MeshStandardMaterial {
-  if (metal) {
-    return new THREE.MeshStandardMaterial({
-      color: 0x8f979f,
-      roughness: 0.35,
-      metalness: 0.9,
-      side: THREE.DoubleSide,
-      envMapIntensity: 1.2,
-    })
-  }
-  // «Стекло» без transmission (дорого): прозрачность + env-отражения дают
-  // убедительный вид при 450 треугольниках сцены.
-  return new THREE.MeshStandardMaterial({
-    color: 0xcfe3ea,
-    roughness: 0.08,
-    metalness: 0.1,
+/**
+ * Настоящее стекло ограждения.
+ *
+ * Раньше «стекло» делалось прозрачностью MeshStandardMaterial (opacity 0.32),
+ * и это работало только потому, что за стеклом было нечего разглядывать:
+ * камера смотрит на лестницу, за панелью — та же лестница. Стоило стеклу
+ * оказаться на переднем плане (панель верхнего марша, площадка перед
+ * камерой), и мутная полупрозрачная пластина выдавала себя: стекло без
+ * преломления и отражений — это пластик.
+ *
+ * MeshPhysicalMaterial с transmission даёт настоящее поведение: панель
+ * пропускает сцену, преломляя её (ior 1.52 — бытовое закалённое стекло), и
+ * добавляет зеркальный слой от HDRI. thickness задаёт, насколько сильно
+ * преломляется луч: у 10 мм панели это десятые доли миллиметра смещения, но
+ * их достаточно, чтобы стекло перестало быть плоским.
+ *
+ * Панели приходят отдельными ЗАМКНУТЫМИ телами, поэтому side = FrontSide:
+ * при DoubleSide луч проходит через стекло дважды и стеклянный конец
+ * «светится» вдвойне, а прозрачность сортируется неверно.
+ */
+export function createGlassMaterial(): THREE.MeshPhysicalMaterial {
+  return new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
+    // Гладкое, но не зеркало: у настоящего стекла roughness 0.02–0.05, при
+    // нуле поверхность превращается в идеальное зеркало и панель выглядит
+    // фольгой.
+    roughness: 0.04,
+    metalness: 0,
+    transmission: 0.94,
+    thickness: 0.01,
+    // Бытовой Si-стекло, 10 мм.
+    ior: 1.52,
+    // Кромка стекла на просвет даёт зеленоватый оттенок (примесь Fe2+ в
+    // float-стекле) — именно так и отличить стекло от пластика.
+    attenuationColor: new THREE.Color(0xdff3ee),
+    attenuationDistance: 0.4,
+    side: THREE.FrontSide,
+    envMapIntensity: 1.4,
+    // Панель должна честно пропускать свет и не отбрасывать тени на
+    // лестницу: за стеклом видно ступени, а не чёрный силуэт.
     transparent: true,
-    opacity: 0.32,
-    side: THREE.DoubleSide,
-    envMapIntensity: 1.6,
+    opacity: 1,
   })
+}
+
+/** Металл ограждения: поручень, стойки и (в металлическом варианте) панели. */
+export function createRailingMetalMaterial(panel: boolean): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
+    color: panel ? 0x7d858e : 0x9aa3ad,
+    roughness: panel ? 0.42 : 0.3,
+    metalness: 0.9,
+    side: THREE.DoubleSide,
+    envMapIntensity: 1.25,
+  })
+}
+
+/** Материал роли ограждения. Стекло — прозрачное, остальное — по флагу. */
+export function createRailingMaterialForRole(role: string, metal: boolean): THREE.Material {
+  const isGlass = role === 'railing_glass'
+  if (isGlass && !metal) return createGlassMaterial()
+  return createRailingMetalMaterial(isGlass)
 }

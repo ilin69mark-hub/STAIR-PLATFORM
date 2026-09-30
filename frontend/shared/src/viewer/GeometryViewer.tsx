@@ -11,7 +11,7 @@ import { toThreePositions } from './projection'
 import { computePlacement } from '../placement'
 import { approachZoneCenterX, EXIT_BLOCK_H, exitSlabBox, exitWallSide, stairTopLineX, wallBox, wallBoundsOf, type Box3Like, type BoxSpec, type WallSide } from './layout'
 import { ANNOTATE, edgeColor, WALLS } from '../scheme-annot'
-import { createRailingMaterial, createStairMaterial } from './materials'
+import { createRailingMaterialForRole, createStairMaterial } from './materials'
 import {
   dragAxisIsHorizontal,
   dragComfortStep,
@@ -19,6 +19,7 @@ import {
   dragLandingMM,
   groupsFromRanges,
   isDragDistance,
+  railingPartsOf,
   isEditablePart,
   pickPart,
   type PartGroup,
@@ -610,39 +611,79 @@ export function GeometryViewer({
       scene.add(room.mesh)
     }
 
-    // Перила — отдельный меш БЕЗ каркаса (Issue 1): сплошной материал, без
+    // Перила — отдельные меши БЕЗ каркаса (Issue 1): сплошной материал, без
     // EdgesGeometry, чтобы между балясинами и поручнями не рисовались лишние
     // линии. Координаты совпадают с телом марша, поэтому для прямого марша
     // зеркалим так же, как stair.geo.
-    let railing: { mesh: THREE.Mesh; geo: THREE.BufferGeometry } | null = null
-    if (railingMesh?.Vertices?.length && railingMesh?.Triangles) {
-      // Стекло по умолчанию (с отражениями), металл — по флагу railingMetal.
-      const railMat = createRailingMaterial(railingMetal)
-      const positions = new Float32Array(toThreePositions(railingMesh.Vertices))
-      const indices = new Uint32Array(railingMesh.Triangles.length * 3)
-      railingMesh.Triangles.forEach((t, i) => {
-        indices[i * 3] = t[0]
-        indices[i * 3 + 1] = t[1]
-        indices[i * 3 + 2] = t[2]
+    //
+    // Роли разводятся на ОТДЕЛЬНЫЕ МЕШИ, а не в группы одного меша: стекло
+    // должно быть и другим материалом, и другим правилом теней. У
+    // MeshPhysicalMaterial с transmission three.js по-прежнему рисует
+    // непрозрачную тень, поэтому стеклянные панели отбрасывали бы на ступени
+    // чёрную полосу — ровно то, чего на реальном ограждении нет.
+    //
+    // Поручень и стойки по умолчанию ДЕРЕВЯННЫЕ — в цвет ступеней. Раньше всё
+    // ограждение без флага railingMetal красилось «стеклом», то есть поручень
+    // вместе с балясинами становился полупрозрачным: он просвечивал насквозь и
+    // исчезал за стеклянной панелью. Флаг railingMetal переключает и
+    // заполнение, и профиль ограждения на металл.
+    const railingMaterialFor = (role: string): THREE.Material => {
+      if (role === 'railing_glass' || railingMetal) {
+        return createRailingMaterialForRole(role, railingMetal)
+      }
+      return createStairMaterial({
+        code: treadMaterialCode ?? materialCode,
+        finishId: treadFinishId ?? finishId,
+        role,
+        sizeMM: stair.geo.boundingBox
+          ? Math.max(
+              stair.geo.boundingBox.max.x - stair.geo.boundingBox.min.x,
+              stair.geo.boundingBox.max.y - stair.geo.boundingBox.min.y,
+              stair.geo.boundingBox.max.z - stair.geo.boundingBox.min.z,
+            )
+          : 1000,
       })
-      const g = new THREE.BufferGeometry()
-      g.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-      g.setIndex(new THREE.BufferAttribute(indices, 1))
-      if (railingMesh.UV && railingMesh.UV.length === railingMesh.Vertices.length) {
-        const uvs = new Float32Array(railingMesh.UV.length * 2)
-        railingMesh.UV.forEach((t, i) => {
-          uvs[i * 2] = t.U
-          uvs[i * 2 + 1] = t.V
+    }
+    const railings: { mesh: THREE.Mesh; geo: THREE.BufferGeometry }[] = []
+    if (railingMesh?.Vertices?.length && railingMesh?.Triangles) {
+      const positions = new Float32Array(toThreePositions(railingMesh.Vertices))
+      const uvs =
+        railingMesh.UV && railingMesh.UV.length === railingMesh.Vertices.length
+          ? (() => {
+              const out = new Float32Array(railingMesh.UV!.length * 2)
+              railingMesh.UV!.forEach((t, i) => {
+                out[i * 2] = t.U
+                out[i * 2 + 1] = t.V
+              })
+              return out
+            })()
+          : null
+      for (const part of railingPartsOf(railingMesh)) {
+        const indices = new Uint32Array(part.triangles.length * 3)
+        part.triangles.forEach((t, i) => {
+          indices[i * 3] = t[0]
+          indices[i * 3 + 1] = t[1]
+          indices[i * 3 + 2] = t[2]
         })
-        g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+        if (!indices.length) continue
+        const g = new THREE.BufferGeometry()
+        g.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+        if (uvs) g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+        g.setIndex(new THREE.BufferAttribute(indices, 1))
+        g.computeVertexNormals()
+        g.computeBoundingBox()
+        if (flight === 'straight') {
+          mirrorX(g)
+        }
+        const isGlass = part.role === 'railing_glass'
+        const m = new THREE.Mesh(g, railingMaterialFor(part.role))
+        m.name = part.role
+        // Стекло тени не отбрасывает (см. выше). У непрозрачных деталей
+        // ограждения тень нужна: она приземляет поручень на площадку.
+        m.castShadow = castShadow && !isGlass
+        m.receiveShadow = castShadow
+        railings.push({ mesh: m, geo: g })
       }
-      g.computeVertexNormals()
-      g.computeBoundingBox()
-      const m = new THREE.Mesh(g, railMat)
-      if (flight === 'straight') {
-        mirrorX(g)
-      }
-      railing = { mesh: m, geo: g }
     }
 
     // Размещение лестницы у дальней стены/угла помещения (placement.ts):
@@ -705,7 +746,7 @@ export function GeometryViewer({
     }
     const stairGroup = new THREE.Group()
     for (const m of stairPartsOf(stair.mesh, roleGroups)) stairGroup.add(m)
-    if (railing) stairGroup.add(railing.mesh)
+    for (const r of railings) stairGroup.add(r.mesh)
     // ADR-0008: трёхмерные оси — X=подъём(2D +X), Z=ширина(2D +Y), Y=высота.
     // Сдвиг placement.offsetX идёт вдоль подъёма (X), offsetY — вдоль ширины (Z).
     stairGroup.position.set(offset.offsetX, 0, offset.offsetY)
@@ -959,7 +1000,7 @@ export function GeometryViewer({
     // поэтому достаточно поменять emissive. Клик отличаем от вращения камеры
     // по смещению указателя: иначе каждый поворот сцены «выбирал» бы деталь.
     const pickTargets: THREE.Object3D[] = [...roleGroups]
-    if (railing) pickTargets.push(railing.mesh)
+    for (const r of railings) pickTargets.push(r.mesh)
     const raycaster = new THREE.Raycaster()
     const pointerNDC = new THREE.Vector2()
     let hoveredGroup = -1
@@ -1274,9 +1315,9 @@ export function GeometryViewer({
         ;(room.mesh.material as THREE.Material).dispose()
         room.geo.dispose()
       }
-      if (railing) {
-        ;(railing.mesh.material as THREE.Material).dispose()
-        railing.geo.dispose()
+      for (const r of railings) {
+        ;(r.mesh.material as THREE.Material).dispose()
+        r.geo.dispose()
       }
       if (roleGroups.length > 0) {
         for (const group of roleGroups) {

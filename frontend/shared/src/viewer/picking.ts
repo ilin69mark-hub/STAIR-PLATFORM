@@ -6,7 +6,7 @@
 // восстанавливается обратным поиском по диапазонам — без догадок и без
 // отдельной геометрии на каждую ступень.
 
-import type { MeshPartRange } from '../types'
+import type { Mesh as ApiMesh, MeshPartRange } from '../types'
 
 export interface PartGroup {
   /** Начальный треугольник (включительно). */
@@ -146,4 +146,38 @@ export function isDragDistance(deltaY: number, threshold = 4): boolean {
 /** Можно ли редактировать выбранную деталь (редактируются ступени марша). */
 export function isEditablePart(role: string): boolean {
   return role === 'tread' || role === 'stringer' || role === 'landing'
+}
+
+type Tri = [number, number, number]
+
+export interface RailingPart {
+  role: string
+  triangles: Tri[]
+}
+
+/**
+ * Раскладывает меш перил по ролям (railing / baluster / railing_glass).
+ *
+ * Роли приходят из backend как PartRanges. Без них (старый API) отдаётся одна
+ * часть с ролью railing — то есть прежнее поведение «всё ограждение одним
+ * материалом».
+ *
+ * Смежные диапазоны с одинаковой ролью объединяются: иначе на 15 ступенях
+ * получилось бы 30+ отдельных мешей, и каждый со своим материалом и своим
+ * вызовом компиляции шейдера.
+ */
+export function railingPartsOf(api: ApiMesh): RailingPart[] {
+  const triangles = api.Triangles ?? []
+  const ranges = groupsFromRanges(api.PartRanges)
+  if (!ranges.length) return [{ role: 'railing', triangles }]
+  const out: RailingPart[] = []
+  for (const g of ranges) {
+    const last = out[out.length - 1]
+    if (last && last.role === g.role) {
+      last.triangles.push(...triangles.slice(g.start, g.start + g.count))
+      continue
+    }
+    out.push({ role: g.role, triangles: triangles.slice(g.start, g.start + g.count) })
+  }
+  return out.filter((p) => p.triangles.length > 0)
 }

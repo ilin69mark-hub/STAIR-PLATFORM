@@ -225,7 +225,7 @@ func TestGenerateRailingAffectsOnlyMesh(t *testing.T) {
 }
 
 // TestBuildRailingDecorStraight проверяет состав декоративных тел прямого
-// марша: роли только railing/baluster, для 'right' — одна кромка (y=W).
+// марша: роли railing/baluster/railing_glass, для 'right' — одна кромка (y=W).
 func TestBuildRailingDecorStraight(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Railing = engineering.RailingRight
@@ -240,7 +240,7 @@ func TestBuildRailingDecorStraight(t *testing.T) {
 	roles := map[string]int{}
 	for _, s := range decor {
 		switch s.Role() {
-		case roleRailing, roleBaluster:
+		case roleRailing, roleBaluster, roleRailingGlass:
 			roles[s.Role()]++
 		default:
 			t.Fatalf("unexpected decor role %q", s.Role())
@@ -251,6 +251,11 @@ func TestBuildRailingDecorStraight(t *testing.T) {
 	}
 	if roles[roleBaluster] != 15 {
 		t.Fatalf("balusters = %d, want 15 (one per step)", roles[roleBaluster])
+	}
+	// Стекло закрывает промежутки МЕЖДУ стойками: их 14, а не 15 — верхний
+	// пролёт открыт на площадку, нижний упирается в пол.
+	if roles[roleRailingGlass] != 14 {
+		t.Fatalf("glass panels = %d, want 14 (between 15 balusters)", roles[roleRailingGlass])
 	}
 	// правая сторона: поручень и стойки сдвинуты внутрь ступени (edgeInset),
 	// наружная грань совпадает с кромкой y=W=900. Центр габарита по Y:
