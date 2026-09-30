@@ -95,12 +95,16 @@ func TestCalculateValidPipeline(t *testing.T) {
 		t.Fatal("price breakdown must be present")
 	}
 
-	// Финальная цена эталонного конвейера (100 ₽/кг, ставки по умолчанию).
-	if res.Price.FinalPrice.Minor() != 327138547 {
-		t.Fatalf("final price = %d, want 327138547", res.Price.FinalPrice.Minor())
+	// Финальная цена эталонного конвейера (100 ₽/кг, ставки по умолчанию):
+	// стальной марш 16 ступеней, 473 кг, 234 751,18 ₽.
+	//
+	// Раньше здесь было 3 271 385,47 ₽ — заготовка деталей бралась по
+	// габаритному блоку, и металла выходило 10,4 тонны.
+	if res.Price.FinalPrice.Minor() != 23475118 {
+		t.Fatalf("final price = %d, want 23475118", res.Price.FinalPrice.Minor())
 	}
-	if res.Price.FinalPrice.Major(domprc.CurrencyRUB) != 3271385.47 {
-		t.Fatalf("final price = %.2f rub, want 3271385.47", res.Price.FinalPrice.Major(domprc.CurrencyRUB))
+	if res.Price.FinalPrice.Major(domprc.CurrencyRUB) != 234751.18 {
+		t.Fatalf("final price = %.2f rub, want 234751.18", res.Price.FinalPrice.Major(domprc.CurrencyRUB))
 	}
 }
 
@@ -125,8 +129,8 @@ func TestCalculateCustomRates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Стоимость стали удвоена → финальная цена выше дефолтной.
-	if res.Price.Material.Minor() <= 182033277 {
+	// Стоимость стали удвоена → материал выше дефолтных 113 040 ₽.
+	if res.Price.Material.Minor() <= 11304000 {
 		t.Fatalf("material with doubled rate must exceed default, got %d", res.Price.Material.Minor())
 	}
 }

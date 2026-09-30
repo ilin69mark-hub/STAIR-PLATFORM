@@ -196,8 +196,10 @@ func TestCalculateReference(t *testing.T) {
 	if resp.Flight.StepThicknessMm != 40 || resp.Flight.RailingHeightMm != 1000 || !resp.Flight.Riser || resp.Flight.StringerThicknessMm != 50 {
 		t.Fatalf("flight echo mismatch: %+v", resp.Flight)
 	}
-	if resp.Pricing.FinalPriceRub != 3271385.47 {
-		t.Fatalf("final price = %v, want 3271385.47", resp.Pricing.FinalPriceRub)
+	// Стальной марш 16 ступеней, 473 кг: см. service_test на происхождение
+	// значения (заготовка — лист лазерного раскроя, а не габаритный блок).
+	if resp.Pricing.FinalPriceRub != 234751.18 {
+		t.Fatalf("final price = %v, want 234751.18", resp.Pricing.FinalPriceRub)
 	}
 	if len(resp.Manufacturing.Parts) == 0 || len(resp.Manufacturing.BOM) == 0 ||
 		len(resp.Manufacturing.CutList) == 0 || len(resp.Manufacturing.Nesting.Sheets) == 0 {

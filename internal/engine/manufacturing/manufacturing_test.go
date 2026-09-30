@@ -85,32 +85,38 @@ func TestManufacturePartDimensions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// косоур-гребёнка: 4050×2660×50 (седла на низ проступи, спинка до пола).
+	// Косоур-гребёнка — заготовка это ПОЛОСА: длина марша × ШАГ СТУПЕНИ,
+	// а не габаритный блок «длина × высота марша». Раньше здесь стояло
+	// 4050×2660, и это была ровно та ошибка, из-за которой стальной каркас
+	// стоил 8,5 тонны на марш: зубья пилы уходят в обрез, а не в заготовку.
+	// Толщина 8 — это лист лазерного раскроя: материал детали выводится из
+	// толщины, а деталь без заданного материала считается сталью. 50 мм
+	// (ширина секции косоура) в расход материала не идёт.
 	if p := findPart(pkg, "STR-01"); p != nil {
-		if !nearlyEqual(p.Length.Millimeters(), 4050) || !nearlyEqual(p.Width.Millimeters(), 2660) ||
-			!nearlyEqual(p.Thickness.Millimeters(), 50) {
-			t.Fatalf("stringer dims = %v×%v×%v, want 4050×2660×50",
+		if !nearlyEqual(p.Length.Millimeters(), 4050) || !nearlyEqual(p.Width.Millimeters(), 180) ||
+			!nearlyEqual(p.Thickness.Millimeters(), 8) {
+			t.Fatalf("stringer dims = %v×%v×%v, want 4050×180×8",
 				p.Length.Millimeters(), p.Width.Millimeters(), p.Thickness.Millimeters())
 		}
 	} else {
 		t.Fatal("STR-01 not found")
 	}
-	// проступь: 900×310×40 (во всю ширину, глубина шага + толщина подступенка, тонок по Z).
+	// Проступь: 900×310 (во всю ширину, глубина шага + толщина подступенка).
+	// Толщина 8 — лист лазерного раскроя, как и у косоура.
 	if p := findPart(pkg, "TRD-01"); p != nil {
 		if !nearlyEqual(p.Length.Millimeters(), 900) || !nearlyEqual(p.Width.Millimeters(), 310) ||
-			!nearlyEqual(p.Thickness.Millimeters(), 40) {
-			t.Fatalf("tread dims = %v×%v×%v, want 900×310×40",
+			!nearlyEqual(p.Thickness.Millimeters(), 8) {
+			t.Fatalf("tread dims = %v×%v×%v, want 900×310×8",
 				p.Length.Millimeters(), p.Width.Millimeters(), p.Thickness.Millimeters())
 		}
 	} else {
 		t.Fatal("TRD-01 not found")
 	}
-	// подступенок: единое полотно во всю ширину (тонок по X, высота h−st):
-	// 900×140×40.
+	// Подступенок: единое полотно во всю ширину (тонок по X, высота h−st).
 	if p := findPart(pkg, "RSR-01"); p != nil {
 		if !nearlyEqual(p.Length.Millimeters(), 900) || !nearlyEqual(p.Width.Millimeters(), 140) ||
-			!nearlyEqual(p.Thickness.Millimeters(), 40) {
-			t.Fatalf("riser dims = %v×%v×%v, want 900×140×40",
+			!nearlyEqual(p.Thickness.Millimeters(), 8) {
+			t.Fatalf("riser dims = %v×%v×%v, want 900×140×8",
 				p.Length.Millimeters(), p.Width.Millimeters(), p.Thickness.Millimeters())
 		}
 	} else {
@@ -118,8 +124,8 @@ func TestManufacturePartDimensions(t *testing.T) {
 	}
 	if p := findPart(pkg, "RSR-02"); p != nil {
 		if !nearlyEqual(p.Length.Millimeters(), 900) || !nearlyEqual(p.Width.Millimeters(), 140) ||
-			!nearlyEqual(p.Thickness.Millimeters(), 40) {
-			t.Fatalf("riser 2 dims = %v×%v×%v, want 900×140×40",
+			!nearlyEqual(p.Thickness.Millimeters(), 8) {
+			t.Fatalf("riser 2 dims = %v×%v×%v, want 900×140×8",
 				p.Length.Millimeters(), p.Width.Millimeters(), p.Thickness.Millimeters())
 		}
 	} else {
@@ -149,7 +155,7 @@ func TestManufactureBOM(t *testing.T) {
 		length   float64
 		width    float64
 	}{
-		{"Stringer", 2, 4050, 2660},
+		{"Stringer", 2, 4050, 180}, // полоса: длина марша × шаг ступени
 		{"Tread", 15, 900, 310},
 		{"Riser", 15, 900, 140},
 	}
@@ -223,11 +229,15 @@ func TestManufactureNesting(t *testing.T) {
 	if int(pkg.Nesting.PartCount) != len(pkg.Parts) {
 		t.Fatalf("nesting parts = %d, want %d", pkg.Nesting.PartCount, len(pkg.Parts))
 	}
-	// n=15: 2 косоура (t=50, лист 6000×3000, по одному на лист → 2 листа);
-	// проступи и полосы подступенков (t=40, лист 2500×1250) раскраиваются
-	// вместе, проступи увеличены до 310 вглубь → 4 листа. Итого 6 листов.
-	if len(pkg.Nesting.Sheets) != 6 {
-		t.Fatalf("sheets = %d, want 6", len(pkg.Nesting.Sheets))
+	// n=15, всё из стали: заготовки — полосы 4050×180 (косоуры),
+	// 900×310 (проступи) и 900×140 (подступенки), все листом 8 мм. Площадь
+	// деталей 7,53 м², лист 6000×3000 = 18 м², поэтому хватает одного
+	// листа.
+	//
+	// До починки косоур брался габаритным блоком 4050×2660 и детали были по
+	// 50–40 мм: пять листов, 10,4 тонны и цена в десять раз выше реальной.
+	if len(pkg.Nesting.Sheets) != 1 {
+		t.Fatalf("sheets = %d, want 1", len(pkg.Nesting.Sheets))
 	}
 	if pkg.Nesting.Utilization <= 0 || pkg.Nesting.Utilization > 1 {
 		t.Fatalf("utilization out of range: %v", pkg.Nesting.Utilization)

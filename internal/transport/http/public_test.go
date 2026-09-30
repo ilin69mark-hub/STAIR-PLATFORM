@@ -44,8 +44,10 @@ func TestPublicQuoteSuccess(t *testing.T) {
 	if resp.Pricing == nil {
 		t.Fatal("pricing must be present for non-blocking result")
 	}
-	if resp.Pricing.FinalPriceRub != 3271385.47 {
-		t.Fatalf("final price = %v, want 3271385.47", resp.Pricing.FinalPriceRub)
+	// Стальной марш 16 ступеней, 473 кг: см. service_test на происхождение
+	// значения (заготовка — лист лазерного раскроя, а не габаритный блок).
+	if resp.Pricing.FinalPriceRub != 234751.18 {
+		t.Fatalf("final price = %v, want 234751.18", resp.Pricing.FinalPriceRub)
 	}
 
 	// Габаритная ширина марша приходит из конфигурации.

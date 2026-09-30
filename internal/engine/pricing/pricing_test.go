@@ -171,16 +171,23 @@ func TestPriceExactValues(t *testing.T) {
 		got  domprc.Money
 		want int64
 	}{
-		{"material", b.Material, 181988783},
-		{"machine", b.Machine, 1482267},
+		// Эталон — стальной марш: 16 ступеней, лист лазерного раскроя 8 мм.
+		// Масса 473 кг, материал 113 040 ₽.
+		//
+		// До починки заготовки деталей те же конфигурации давали 10 364 кг и
+		// 3 271 385 ₽: косоур брался габаритным блоком 4050×2660×50 мм, то
+		// есть 1,08 м³ стали на один косоур. Правдоподобие массы проверяется
+		// в engine/manufacturing (TestPrepareCostMetrics).
+		{"material", b.Material, 11304000},
+		{"machine", b.Machine, 1416133},
 		{"labor", b.Labor, 480000},
-		{"overhead", b.Overhead, 36790210},
-		{"production", b.ProductionCost, 220741260},
-		{"margin", b.Margin, 66222378},
-		{"discount", b.Discount, 14348182},
-		{"pre-tax", b.PreTax, 272615456},
-		{"tax", b.Tax, 54523091},
-		{"final", b.FinalPrice, 327138547},
+		{"overhead", b.Overhead, 2640027},
+		{"production", b.ProductionCost, 15840160},
+		{"margin", b.Margin, 4752048},
+		{"discount", b.Discount, 1029610},
+		{"pre-tax", b.PreTax, 19562598},
+		{"tax", b.Tax, 3912520},
+		{"final", b.FinalPrice, 23475118},
 	}
 	for _, c := range checks {
 		if c.got.Minor() != c.want {

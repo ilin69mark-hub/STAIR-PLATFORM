@@ -74,8 +74,10 @@ func TestPlanOperationsTotalTime(t *testing.T) {
 		t.Fatal(err)
 	}
 	// stringers 2×(2+perim/2000) + treads 15×3.21 + risers 15×3.04
-	// + 32×3 finish.
-	want := 2*(2+2*(4050.0+2660)/2000) + 15*3.21 + 15*3.04 + 32*3
+	// + 32×3 finish. Периметр заготовки косоура — полоса 4050×180, а не
+	// блок 4050×2660: время резки считается по длине реза, и с блоком
+	// косоур «пилил» бы в полтора раза больше, чем есть металла.
+	want := 2*(2+2*(4050.0+180)/2000) + 15*3.21 + 15*3.04 + 32*3
 	if !nearlyEqual(plan.TotalTime(), want) {
 		t.Fatalf("total time = %v, want %v", plan.TotalTime(), want)
 	}
