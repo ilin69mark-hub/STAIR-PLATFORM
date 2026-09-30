@@ -168,7 +168,9 @@ describe('Constructor: панель параметров убирается и �
     vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
-  const railToggle = () => screen.getByRole('button', { name: 'Панель' })
+  // Имя кнопки — в aria-label: подпись «Панель» убрали с кромки, но кнопка
+  // осталась доступной для скринридера и для поиска в тестах.
+  const railToggle = () => screen.getByRole('button', { name: /панель параметров/i })
 
   it('ручка видна, панель раскрыта', () => {
     render(<Constructor />)
@@ -178,6 +180,18 @@ describe('Constructor: панель параметров убирается и �
     expect(btn.getAttribute('aria-controls')).toBe('calc-rail')
     expect(document.getElementById('calc-rail')).toBeTruthy()
     expect(document.querySelector('.calc--rail-hidden')).toBeNull()
+    // На кромке только стрелка (решение владельца): подпись «Панель»
+    // перекрывала изделие, имя кнопки живёт в aria-label.
+    expect(btn.textContent).toBe('›')
+    expect(screen.queryByText('Панель')).toBeNull()
+  })
+
+  it('свёрнутая ручка показывает стрелку обратно', () => {
+    render(<Constructor />)
+    fireEvent.click(railToggle())
+    expect(railToggle().textContent).toBe('‹')
+    fireEvent.click(railToggle())
+    expect(railToggle().textContent).toBe('›')
   })
 
   it('клик убирает панель и раскрывает обратно, состояние полей не теряется', () => {

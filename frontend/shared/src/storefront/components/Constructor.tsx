@@ -1261,19 +1261,22 @@ export function Constructor() {
         )}
         {/* Ручка панели. Живёт в колонке сцены, а не в панели: когда панель
             убрана, ручка остаётся на экране — иначе вернуть её было бы
-            нечем, и 3D остался бы в режиме «навсегда всю ширину». */}
+            нечем, и 3D остался бы в режиме «навсегда всю ширину».
+            Только стрелка (решение владельца): слово «Панель» на кромке
+            перекрывало изделие. Имя кнопки — в aria-label, иначе после
+            удаления подписи она осталась бы безымянной для скринридера. */}
         <button
           type="button"
           className="calc__rail-toggle"
           aria-expanded={railOpen}
           aria-controls="calc-rail"
+          aria-label={railOpen ? 'Свернуть панель параметров' : 'Развернуть панель параметров'}
           onClick={() => setRailOpen((v) => !v)}
           title={railOpen ? 'Свернуть панель параметров' : 'Развернуть панель параметров'}
         >
           <span className="calc__rail-toggle__chevron" aria-hidden="true">
             {railOpen ? '›' : '‹'}
           </span>
-          <span className="calc__rail-toggle__label">Панель</span>
         </button>
       </div>
 

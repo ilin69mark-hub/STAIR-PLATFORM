@@ -174,7 +174,9 @@
   border-right: none;
 }
 
-/* Ручка панели на кромке сцены. */
+/* Ручка панели на кромке сцены. Только стрелка: слово «Панель» на кромке
+   перекрывало изделие (решение владельца), поэтому подпись убрана в
+   aria-label/title, а сама кнопка сжата до размера иконки. */
 .calc__rail-toggle {
   position: absolute;
   top: 50%;
@@ -182,18 +184,16 @@
   z-index: 6;
   display: flex;
   align-items: center;
-  gap: 3px;
+  justify-content: center;
   /* translateY вместо margin: кнопка не должна смещать соседей и не
      участвует в потоке колонки сцены. */
   transform: translateY(-50%);
-  padding: 9px 6px 9px 8px;
+  padding: 7px 3px;
   border: 1px solid var(--sp-border);
   border-right: none;
-  border-radius: 10px 0 0 10px;
+  border-radius: 8px 0 0 8px;
   background: rgba(255, 255, 255, 0.92);
   color: var(--sp-text);
-  font-size: 11px;
-  line-height: 1;
   cursor: pointer;
   box-shadow: -2px 0 10px rgba(15, 23, 42, 0.08);
   transition: background 0.15s ease, box-shadow 0.15s ease;
@@ -205,17 +205,8 @@
 }
 
 .calc__rail-toggle__chevron {
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1;
-}
-
-.calc__rail-toggle__label {
-  /* Вертикальная надпись: на кромке шириной в 60px горизонтальное слово
-     «Панель» не поместилось бы, и ручка стала бы широкой полосой поверх
-     сцены. */
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  letter-spacing: 0.02em;
 }
 
 .calc__rail .panel {
