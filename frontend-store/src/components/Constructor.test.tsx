@@ -326,29 +326,51 @@ describe('Constructor', () => {
     })
   })
 
-  // Результат расчёта — отдельная колонка между 3D и конструктором, и ЦЕНА в
-  // ней первая. Раньше карточки результата лежали в рельсе конструктора: рельс
-  // делил высоту на шесть панелей, содержимое конструктора вылезало поверх
-  // карточек, а цена уезжала на ~1000px вниз — её не было видно сразу после
-  // расчёта, то есть ради неё человек и нажимал кнопку.
-  it('результат в своей колонке и цена первой карточкой', async () => {
+  // После УСПЕШНОГО расчёта вкладки параметров схлопываются, и под ними
+  // раскрывается результат. Владелец: «раскрытая вкладка должна схлопнутся
+  // с параметрами, и под ними должна отображатся вся эта информация».
+  // Отдельная колонка для результата была попыткой выиграть место по ширине —
+  // вернули результат под параметры.
+  it('после расчёта вкладки схлопываются, результат — под ними в рельсе', async () => {
     const spy = vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote)
     await renderWithAuth(<Constructor />, null)
-    // До расчёта колонки результата нет — иначе пустая резервировала бы ширину.
-    expect(document.querySelector('.calc__cost')).toBeNull()
+    // До расчёта раскрыта «Основные настройки».
+    expect(document.querySelector('.acc__body')).not.toBeNull()
 
     fillValid()
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
     await waitFor(() => expect(spy).toHaveBeenCalled())
 
-    const cost = document.querySelector('.calc__cost')
-    expect(cost).not.toBeNull()
-    // Цена идёт раньше геометрии и статуса: человек смотрит вниз колонки и
-    // сразу видит сумму, а не «Результат расчёта ✅».
-    const text = (cost as HTMLElement).textContent ?? ''
-    expect(text.indexOf('Предварительная цена')).toBeGreaterThanOrEqual(0)
+    await waitFor(() => {
+      expect(document.querySelector('.acc__body')).toBeNull()
+    })
+    // Заголовки вкладок остаются на месте — схлопнулось тело, а не панель.
+    expect(document.querySelectorAll('.acc__head').length).toBeGreaterThanOrEqual(4)
+    // Результат лежит В рельсе конструктора, ниже его панели, и цена в нём
+    // первая карточкой: человек, нажавший «Рассчитать», видит сумму сразу.
+    const rail = document.querySelector('.calc__rail') as HTMLElement
+    const price = rail.querySelector('.price-value')
+    expect(price).not.toBeNull()
+    const text = rail.textContent ?? ''
     expect(text.indexOf('Предварительная цена')).toBeLessThan(text.indexOf('Геометрия марша'))
-    expect(text.indexOf('Предварительная цена')).toBeLessThan(text.indexOf('Результат расчёта'))
+    // Порядок в DOM: панель конструктора, потом результат.
+    const children = Array.from(rail.children)
+    const panelAt = children.findIndex((n) => n.classList.contains('panel'))
+    const resultAt = children.findIndex((n) => n.classList.contains('panel--result'))
+    expect(panelAt).toBeGreaterThanOrEqual(0)
+    expect(resultAt).toBeGreaterThan(panelAt)
+  })
+
+  // При БЛОКИРУЮЩЕМ ответе вкладки остаются раскрытыми: там наоборот надо
+  // вернуться к полям и поправить их.
+  it('при блокирующем ответе вкладки не схлопываются', async () => {
+    const blocked = { ...okQuote, validation: { valid: false, blocking: true, issues: [] } }
+    const spy = vi.spyOn(quoteApi, 'calculate').mockResolvedValue(blocked)
+    await renderWithAuth(<Constructor />, null)
+    fillValid()
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await waitFor(() => expect(spy).toHaveBeenCalled())
+    expect(document.querySelector('.acc__body')).not.toBeNull()
   })
 
   // Пределы под ползунком НЕ дублируются текстом: минимум и максимум показывает

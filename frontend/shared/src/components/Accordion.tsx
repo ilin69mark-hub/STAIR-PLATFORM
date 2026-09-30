@@ -65,11 +65,23 @@ export interface AccordionProps {
   sections: AccordionSection[]
   /** id открытой секции; uncontrolled-состояние живёт внутри. */
   defaultOpen?: string
+  /**
+   * Управляемый режим: если передано (в т.ч. null), источник истины — здесь,
+   * внутреннее состояние не трогается. Нужен конструктору, чтобы СХЛОПИТЬ
+   * вкладки после расчёта: перемонтировать по key нельзя — потерялась бы
+   * выбранная секция, а схлопнуть надо по факту расчёта, а не по смене
+   * вкладки. null = ничего не раскрыто.
+   */
+  openId?: string | null
   onChange?: (id: string | null) => void
 }
 
-export function Accordion({ sections, defaultOpen, onChange }: AccordionProps) {
-  const [open, setOpen] = useState<string | null>(defaultOpen ?? sections.find((s) => !s.hidden)?.id ?? null)
+export function Accordion({ sections, defaultOpen, openId, onChange }: AccordionProps) {
+  const [internalOpen, setInternalOpen] = useState<string | null>(
+    defaultOpen ?? sections.find((s) => !s.hidden)?.id ?? null,
+  )
+  const controlled = openId !== undefined
+  const open = controlled ? (openId ?? null) : internalOpen
   const bodyRef = useRef<HTMLDivElement>(null)
   const [more, setMore] = useState(false)
   const baseId = useId()
@@ -99,11 +111,9 @@ export function Accordion({ sections, defaultOpen, onChange }: AccordionProps) {
   // Повторное нажатие на открытую секцию закрывает её: свернуть всё —
   // разрешённое состояние. Иначе «свернуть» означало бы «свернуть нельзя».
   const toggle = (id: string) => {
-    setOpen((cur) => {
-      const next = cur === id ? null : id
-      onChange?.(next)
-      return next
-    })
+    const next = open === id ? null : id
+    if (!controlled) setInternalOpen(next)
+    onChange?.(next)
   }
 
   // Скрытые секции фильтруем, а не пропускаем в разметке, иначе

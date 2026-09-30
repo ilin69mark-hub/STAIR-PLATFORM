@@ -247,6 +247,11 @@ export function Constructor() {
   const markTouched = (k: keyof ConfigForm) =>
     setTouched((t) => (t[k] ? t : { ...t, [k]: true }))
   const [quote, setQuote] = useState<QuoteResult | null>(null)
+  // Какая вкладка параметров раскрыта. null = всё схлопнуто. После УСПЕШНОГО
+  // расчёта сбрасываем: результат раскрывается под вкладками, и развёрнутая
+  // секция отнимала бы у него место (владелец: «раскрытая вкладка должна
+  // схлопнуться с параметрами»).
+  const [openSection, setOpenSection] = useState<string | null>('main')
   const [request, setRequest] = useState<Record<string, unknown> | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -496,6 +501,12 @@ export function Constructor() {
       const res = await quoteApi.calculate(body)
       setQuote(res)
       setRequest(body)
+      // Вкладки параметров схлопываются, когда расчёт ДАЛ цифры: под вкладками
+      // раскрывается результат, и развёрнутая секция parameters отнимала бы у
+      // него место. При блокирующем ответе не схлопываем — там наоборот надо
+      // вернуться к полям и поправить их, а подсказки сервера указывают, в
+      // какую именно секцию.
+      if (!res.validation.blocking) setOpenSection(null)
       // Успех отмечаем ДО разбора валидации: расчёт был, а заблокирован он
       // или нет — это разные вопросы, и их видно по разным событиям
       // (cta.quote_clicked и blocker.* от живого ответа).
@@ -1229,60 +1240,12 @@ export function Constructor() {
         )}
       </div>
 
-      {/* Результат расчёта — отдельная колонка между 3D и конструктором.
-          Раньше карточки результата лежали в том же рельсе, что и форма:
-          рельс высотой в экран делил высоту на шесть панелей, панель
-          конструктора схлопывалась, и её содержимое (вкладки, кнопки)
-          вылезало поверх карточек, а цена уезжала на ~1000px вниз. В
-          референсе (niora) результат — отдельная колонка «СТОИМОСТЬ»
-          рядом с 3D; то же разделение вернуло конструктору всю высоту. */}
-      {quote && (
-        <aside className="calc__cost" aria-label="Результат расчёта">
-            {quote.validation.blocking && rescueVariation && (
-              <div className="alert alert--warn rescue" role="alert">
-                <div className="rescue__text">
-                  <strong>Такой расчёт невозможен.</strong> Ближайший рабочий вариант
-                  подходит под ваши габариты и открывает 3D с ценой.
-                </div>
-                <button
-                  type="button"
-                  className="sp-btn sp-btn--primary"
-                  onClick={() => applyGalleryVariation(rescueVariation)}
-                >
-                  Спасти расчёт
-                </button>
-              </div>
-            )}
-            <QuoteResultView
-              quote={quote}
-              split
-              onApplySuggestion={applySuggestion}
-              onApplyVariation={applyGalleryVariation}
-              variations={galleryVariations.length > 0 ? galleryVariations : undefined}
-              activeVariationId={activeVariationId}
-              material={config.material}
-              approachSpaceMM={config.approachSpaceMM}
-              heightMM={Number(config.heightMM) || undefined}
-              onAdjustStepHeight={adjustStepHeight}
-              onFlipDirection={flipDirection}
-              onAdjustHeight={adjustHeight}
-              onAdjustComfortStep={adjustComfortStep}
-              comfortStepMM={Number(config.comfortStepMM) || undefined}
-              onAdjustLandingWidth={(mm) => adjustLanding('landingWidthMM', mm)}
-              onAdjustLandingDepth={(mm) => adjustLanding('landingDepthMM', mm)}
-              landingWidthMM={Number(config.landingWidthMM) || undefined}
-              landingDepthMM={Number(config.landingDepthMM) || undefined}
-            />
-            {!quote.validation.blocking && quote.pricing && request && (
-              <OrderForm
-                quote={quote}
-                config={request}
-                onCreated={() => setStatus('Заказ отправлен. Следите за статусом в кабинете.')}
-              />
-            )}
-        </aside>
-      )}
-      <aside className="calc__rail">
+      {/* calc__rail--result: результат уже есть, значит место отдаётся ему —
+          панель параметров сжимается до вкладок и кнопок. Без этого модификатора
+          панель продолжала расти (`flex: 1 1 auto`) и держала ~130px пустоты
+          между свёрнутыми вкладками и кнопками, пока под ней раскрывался
+          результат. */}
+      <aside className={quote ? 'calc__rail calc__rail--result' : 'calc__rail'}>
       <section className="panel">
         <h2>Конструктор лестницы</h2>
         <form onSubmit={handleSubmit}>
@@ -1301,7 +1264,14 @@ export function Constructor() {
             onChange={switchProduct}
           />
 
-          <Accordion sections={calcSections} defaultOpen="main" />
+          {/* Аккордеон под управлением конструктора: после расчёта вкладки
+              схлопываются (setOpenSection(null) в calculate), и под ними
+              освобождается место под результат. */}
+          <Accordion
+            sections={calcSections}
+            openId={openSection}
+            onChange={setOpenSection}
+          />
 
 
           {roomPrompt && (
@@ -1366,6 +1336,57 @@ export function Constructor() {
         </form>
       </section>
 
+
+      {/* Результат расчёта — ПОД параметрами, в том же рельсе. Отдельная
+          колонка была попыткой выиграть место по ширине, но владелец
+          вернул результат под вкладки: после расчёта аккордеон схлопывается,
+          освобождает высоту, и под ним раскрывается вся информация. */}
+      {quote && (
+        <>
+          {quote.validation.blocking && rescueVariation && (
+            <div className="alert alert--warn rescue" role="alert">
+              <div className="rescue__text">
+                <strong>Такой расчёт невозможен.</strong> Ближайший рабочий вариант
+                подходит под ваши габариты и открывает 3D с ценой.
+              </div>
+              <button
+                type="button"
+                className="sp-btn sp-btn--primary"
+                onClick={() => applyGalleryVariation(rescueVariation)}
+              >
+                Спасти расчёт
+              </button>
+            </div>
+          )}
+          <QuoteResultView
+            quote={quote}
+            split
+            onApplySuggestion={applySuggestion}
+            onApplyVariation={applyGalleryVariation}
+            variations={galleryVariations.length > 0 ? galleryVariations : undefined}
+            activeVariationId={activeVariationId}
+            material={config.material}
+            approachSpaceMM={config.approachSpaceMM}
+            heightMM={Number(config.heightMM) || undefined}
+            onAdjustStepHeight={adjustStepHeight}
+            onFlipDirection={flipDirection}
+            onAdjustHeight={adjustHeight}
+            onAdjustComfortStep={adjustComfortStep}
+            comfortStepMM={Number(config.comfortStepMM) || undefined}
+            onAdjustLandingWidth={(mm) => adjustLanding('landingWidthMM', mm)}
+            onAdjustLandingDepth={(mm) => adjustLanding('landingDepthMM', mm)}
+            landingWidthMM={Number(config.landingWidthMM) || undefined}
+            landingDepthMM={Number(config.landingDepthMM) || undefined}
+          />
+          {!quote.validation.blocking && quote.pricing && request && (
+            <OrderForm
+              quote={quote}
+              config={request}
+              onCreated={() => setStatus('Заказ отправлен. Следите за статусом в кабинете.')}
+            />
+          )}
+        </>
+      )}
       </aside>
     </div>
   )

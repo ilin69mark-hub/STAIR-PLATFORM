@@ -49,20 +49,44 @@ describe('компоновка панели конструктора', () => {
     expect(panel).toMatch(/min-height:\s*\d+px/)
   })
 
-  // Результат — отдельная колонка .calc__cost между сценой и конструктором.
-  // Раскладка флексом, а не гридом: колонка появляется только после расчёта,
-  // а в гриде пустая колонка всё равно резервировала бы ширину.
-  it('колонка результата — флекс между сценой и рельсом, ниже 1200px столбцом', () => {
+  // Раскладка флексом: сцена тянется, рельс (460px) держит ширину. С гридом
+  // пришлось бы дублировать колонки в медиазапросах.
+  it('раскладка флексом, узкий экран складывает колонки в столбец', () => {
     const calc = css('calc.css')
     const root = calc.match(/\n\.calc \{\s*([^}]*)\}/)?.[1] ?? ''
     expect(root).toContain('display: flex')
-    const cost = calc.match(/\.calc__cost\s*\{[^}]*\}/)?.[0] ?? ''
-    expect(cost).toMatch(/flex:\s*0 0 var\(--sp-cost-w\)/)
-    // Порог складывания в столбец: три колонки (320 сцена + 320 результат +
-    // 460 рельс) не влезают в узкий экран, и рельс уезжал под обрезку.
-    const stack = calc.match(/@media \(max-width: 1199px\) \{([\s\S]*?)\n\}/)?.[1] ?? ''
+    const rail = calc.match(/\.calc__rail\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(rail).toMatch(/flex:\s*0 0 var\(--sp-rail-w\)/)
+    // Отдельной колонки результата больше нет: он живёт в рельсе под панелью.
+    expect(calc).not.toContain('.calc__cost')
+    // Узкий экран — столбец с прокруткой: делить высоту между сценой и
+    // рельсом нельзя, рельсу нужно минимум, чтобы влезли вкладки и кнопки.
+    const stack = calc.match(/@media \(max-width: 900px\) \{([\s\S]*?)\n\}/)?.[1] ?? ''
     expect(stack).toContain('flex-direction: column')
     expect(stack).toMatch(/\.calc__rail\s*\{[\s\S]*min-height:\s*5\d\dpx/)
+  })
+
+  // После расчёта панель параметров по своей высоте (вкладки свёрнуты), и
+  // место отдаётся результату: растянутая панель держала ~130px пустоты.
+  it('с результатом панель параметров не растягивается', () => {
+    const calc = css('calc.css')
+    const block = calc.match(/\.calc__rail--result \.panel\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(block).toMatch(/flex:\s*0 0 auto/)
+  })
+
+  // Компактность по требованию владельца: кнопки расчёта и карточки
+  // результата уменьшены, иначе результат не влезает под вкладки.
+  it('кнопки расчёта и карточки результата компактные', () => {
+    const calc = css('calc.css')
+    const btn = calc.match(/\.calc__rail \.actions \.sp-btn\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(btn).toMatch(/min-height:\s*2\dpx/)
+    expect(btn).toMatch(/font-size:\s*1[0-2]px/)
+    // Селектор встречается дважды (высота и плотность) — берём тот блок,
+    // где заданы отступы, иначе проверка ловит соседнее правило.
+    const cards = calc.match(/\.calc__rail \.panel--result\s*\{[^}]*\}/g) ?? []
+    expect(cards.some((b) => b.includes('padding: 10px 12px'))).toBe(true)
+    const price = calc.match(/\.calc__rail \.panel--result \.price-box \.price-value\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(price).toMatch(/font-size:\s*2\dpx/)
   })
 
   // Указатель «снизу есть ещё» обязан лежать ВНЕ прокручиваемого тела:
