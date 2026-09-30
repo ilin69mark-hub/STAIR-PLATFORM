@@ -72,23 +72,34 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 		return buildCompound(builds)
 	}
 
-	// проступи: горизонтальные боксы во всю ширину [0,w], толщина по Z.
-	// Верх проступи на уровне носика (k+1)·h, толщина st вниз (EDR-0004):
-	// низ проступи ложится на седло пилы косоура. Проступь глубже шага на st
-	// (охват [k·b−st, (k+1)·b]): её задняя кромка нависает над подступенком,
-	// который выдвинут на столько же (см. ниже).
+	// проступи во всю ширину [0,w]. Верх на уровне носика (k+1)·h, толщина st
+	// вниз (EDR-0004): низ проступи ложится на седло пилы косоура. Проступь
+	// глубже шага на st (охват [k·b−st, (k+1)·b]): её задняя кромка нависает
+	// над подступенком, который выдвинут на столько же (см. ниже).
+	//
+	// Скругление носа (филёнка) задаётся радиусом, который приходит из
+	// материала ступеней (StairConfiguration.TreadNoseRadiusMM; у металла ноль).
+	// Из-за него проступь собирается иначе, чем раньше: сечение строится в
+	// плоскости XZ и вытягивается вдоль ширины (+Y), как косоур. Прежний
+	// вариант экструдировал горизонтальный прямоугольник вверх по Z, и нос в
+	// такой модели — острый угол бокса, который нельзя скруглить без
+	// изменения всей конструкции тела.
+	noseR := cfg.TreadNoseRadiusMM.Millimeters()
+	if noseR > st {
+		// Радиус больше толщины — нос не поместится в деталь. Прикладной слой
+		// это уже подрезает; здесь защита на случай прямого вызова движка.
+		noseR = st
+	}
 	for k := 0; k < n; k++ {
 		k := k
 		builds = append(builds, func() (*kerngeo.Solid, error) {
 			x0, x1 := float64(k)*b-st, float64(k+1)*b
 			z := float64(k+1)*h - st
-			profile := []kerngeo.Point3{
-				kerngeo.NewPoint3(x0, 0, z),
-				kerngeo.NewPoint3(x1, 0, z),
-				kerngeo.NewPoint3(x1, w, z),
-				kerngeo.NewPoint3(x0, w, z),
+			section, err := treadSection(x0, x1, z, st, noseR)
+			if err != nil {
+				return nil, fmt.Errorf("geometry: tread %d: %w", k, err)
 			}
-			solid, err := kerngeo.Extrude(profile, kerngeo.NewVector3(0, 0, 1), st)
+			solid, err := kerngeo.Extrude(section, kerngeo.NewVector3(0, 1, 0), w)
 			if err != nil {
 				return nil, fmt.Errorf("geometry: tread %d: %w", k, err)
 			}
@@ -493,6 +504,69 @@ func buildWinders(w, h, st float64, n1, nw int, pLower, pUpper kerngeo.Point3) (
 		sols = append(sols, solid.WithRole("winder"))
 	}
 	return sols, nil
+}
+
+// noseArcSegments — число сегментов дуги скругления носа. 10 сегментов на
+// четверть окружности дают отклонение от идеала R(1−cos(π/40)) ≈ 0,3 мм при
+// R = 10 — глазом не видно, но блик на кромке ступени уже не «ломается».
+// Больше сегментов незачем: деталь всё равно режется, и на раскрой это не
+// влияет (заготовка остаётся прямоугольной).
+const noseArcSegments = 10
+
+// pushDistinct добавляет точку в контур, если она не совпадает с последней
+// добавленной. Профили скруглённой проступи в предельных случаях (радиус равен
+// толщине) вырождают касательные в углы, и без этой проверки контур получает
+// повторяющиеся вершины — а такое тело не manifold.
+func pushDistinct(section []kerngeo.Point3, p kerngeo.Point3) []kerngeo.Point3 {
+	if n := len(section); n > 0 && section[n-1].Distance(p) <= kerngeo.Precision*10 {
+		return section
+	}
+	return append(section, p)
+}
+
+// treadSection строит сечение проступи в плоскости XZ для вытягивания вдоль
+// ширины: прямоугольник x0..x1, z..z+st, у которого передний верхний угол
+// (нос) скруглён дугой радиуса r.
+//
+// При r ≤ 0 возвращается обычный прямоугольник — то же тело, что и до
+// появления фасок, поэтому металлическая лестница не меняется ни на миллиметр.
+func treadSection(x0, x1, zBottom, thickness, r float64) ([]kerngeo.Point3, error) {
+	zTop := zBottom + thickness
+	corner := kerngeo.NewPoint3(x1, 0, zTop)
+	if r <= kerngeo.Precision {
+		return []kerngeo.Point3{
+			kerngeo.NewPoint3(x0, 0, zBottom),
+			kerngeo.NewPoint3(x1, 0, zBottom),
+			corner,
+			kerngeo.NewPoint3(x0, 0, zTop),
+		}, nil
+	}
+	// Угол 90°: точки касания отстоят от угла на r, поэтому скругление
+	// съедает r по передней грани вниз и r по верхней грани назад.
+	arc, err := kerngeo.RoundCorner(
+		kerngeo.NewPoint3(x1, 0, zBottom), // вверх по передней грани
+		corner,
+		kerngeo.NewPoint3(x0, 0, zTop), // назад по верхней грани
+		r, noseArcSegments,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("geometry: tread nose rounding: %w", err)
+	}
+	section := []kerngeo.Point3{}
+	section = pushDistinct(section, kerngeo.NewPoint3(x0, 0, zBottom))
+	section = pushDistinct(section, kerngeo.NewPoint3(x1, 0, zBottom))
+	// Точка касания на передней грани. При r = st она совпадает с нижним
+	// передним углом, и pushDistinct её отбрасывает: иначе в профиле появляются
+	// две одинаковые точки, ребро вырождается, и тело перестаёт быть manifold
+	// (GEO-SOLID-NON-MANIFOLD: на ребро претендуют 4 грани).
+	section = pushDistinct(section, kerngeo.NewPoint3(x1, 0, zTop-r))
+	for _, p := range arc {
+		section = pushDistinct(section, p)
+	}
+	// Точка касания на верхней грани и задний верхний угол.
+	section = pushDistinct(section, kerngeo.NewPoint3(x1-r, 0, zTop))
+	section = pushDistinct(section, kerngeo.NewPoint3(x0, 0, zTop))
+	return section, nil
 }
 
 // buildLanding строит твёрдое тело горизонтальной прямоугольной плиты

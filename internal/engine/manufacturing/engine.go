@@ -41,6 +41,22 @@ func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResu
 	if err != nil {
 		return nil, err
 	}
+	// Фрезеровка: длина кромки берётся из геометрии (MillingFeatures), а не
+	// пересчитывается здесь — иначе расчёт работы разошёлся бы с моделью при
+	// первом же изменении геометрии детали. Признак ставится по роли детали:
+	// скругление носа есть у ступеней, у косоуров и подступенков — нет.
+	for _, f := range gen.MillingFeatures {
+		if f.EdgeLengthMM <= 0 {
+			continue
+		}
+		for i := range parts {
+			if string(parts[i].Kind) != f.Role {
+				continue
+			}
+			parts[i].MillEdgeLengthMM = f.EdgeLengthMM
+			parts[i].MillRadiusMM = f.RadiusMM
+		}
+	}
 	registry, err := DefaultMaterialRegistry()
 	if err != nil {
 		return nil, fmt.Errorf("manufacturing: default registry: %w", err)

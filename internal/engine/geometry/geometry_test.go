@@ -1,6 +1,7 @@
 package geometry
 
 import (
+	"context"
 	"math"
 	"reflect"
 	"testing"
@@ -343,4 +344,194 @@ func expectedTriangleCount(model *kerngeo.Compound) int {
 		}
 	}
 	return count
+}
+
+// --- Скругление носа ступени (фаска-филёнка) ------------------------------
+//
+// Фаска — не только вид: скругление снимает материал, поэтому объём детали
+// обязан уменьшиться, и из этого же объёма потом считается масса и цена.
+// Габариты при этом НЕ меняются: скругление идёт по уже существующей толщине
+// проступи, покупатель платит за обработку, а не за лишний миллиметр.
+
+// withNose копирует конфиг с заданным радиусом скругления носа.
+func withNose(t *testing.T, cfg *engineering.StairConfiguration, r float64) *engineering.StairConfiguration {
+	t.Helper()
+	cp := *cfg
+	cp.TreadNoseRadiusMM = engineering.Length(r)
+	return &cp
+}
+
+// firstTreadIndex — индекс первой проступи в модели прямого марша: тела
+// строятся слотами «косоуры → проступи → подступенки», косоуров всегда два.
+func firstTreadIndex() int { return 2 }
+
+func buildFlight(t *testing.T, cfg *engineering.StairConfiguration) *kerngeo.Compound {
+	t.Helper()
+	model, err := BuildStraightFlight(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return model
+}
+
+func modelVolume(t *testing.T, model *kerngeo.Compound) float64 {
+	t.Helper()
+	total := 0.0
+	for _, solid := range model.Solids() {
+		v, err := kerngeo.Volume(solid)
+		if err != nil {
+			t.Fatalf("volume of solid: %v", err)
+		}
+		total += v
+	}
+	return total
+}
+
+func TestTreadNoseRoundingReducesVolume(t *testing.T) {
+	cfg := testConfig(t)
+	vSharp := modelVolume(t, buildFlight(t, cfg))
+	vRounded := modelVolume(t, buildFlight(t, withNose(t, cfg, 8)))
+
+	if vRounded >= vSharp {
+		t.Fatalf("rounded volume %v must be less than sharp %v", vRounded, vSharp)
+	}
+	// Снятый объём — 15 проступей × (R² − πR²/4) × ширина марша. Для R=8,
+	// w=900, n=15 это ≈ 145 000 мм³: проверяем порядок, чтобы «скругление» не
+	// съело полпроступи и не оказалось пустым.
+	removed := vSharp - vRounded
+	wantApprox := 15 * (64 - math.Pi*64/4) * 900
+	if math.Abs(removed-wantApprox)/wantApprox > 0.05 {
+		t.Fatalf("removed %v mm³, want about %v mm³ (5%% tolerance)", removed, wantApprox)
+	}
+}
+
+func TestTreadNoseRoundingKeepsBoundingBox(t *testing.T) {
+	cfg := testConfig(t)
+	bs := kerngeo.BoundingBox(buildFlight(t, cfg))
+	br := kerngeo.BoundingBox(buildFlight(t, withNose(t, cfg, 8)))
+	if bs.Min.Sub(br.Min).Norm() > 1e-6 || bs.Max.Sub(br.Max).Norm() > 1e-6 {
+		t.Fatalf("bounding box must not change: %v/%v vs %v/%v",
+			bs.Min, bs.Max, br.Min, br.Max)
+	}
+}
+
+func TestTreadNoseRoundingIsManifoldAndValid(t *testing.T) {
+	model := buildFlight(t, withNose(t, testConfig(t), 8))
+	// Скруглённая проступь обязана быть корректным телом: иначе
+	// manufacturing/engine.go откажется считать («invalid geometry») и фаска
+	// не просто не покажется, а сломает весь расчёт.
+	for _, is := range kerngeo.Validate(model.Solids()[firstTreadIndex()]) {
+		if is.Severity == kerngeo.SeverityError {
+			t.Fatalf("chamfered tread is invalid: %s: %s", is.Code, is.Message)
+		}
+	}
+}
+
+func TestTreadNoseRadiusClampedToThickness(t *testing.T) {
+	// Радиус больше толщины ступени — нос не поместился бы в деталь.
+	cfg := testConfig(t)
+	cfg.StepThickness = mustLength(t, 20)
+	model := buildFlight(t, withNose(t, cfg, 40))
+	for _, is := range kerngeo.Validate(model.Solids()[firstTreadIndex()]) {
+		if is.Severity == kerngeo.SeverityError {
+			t.Fatalf("radius above thickness must be clamped, got invalid solid: %s: %s", is.Code, is.Message)
+		}
+	}
+}
+
+func TestTreadWithoutNoseRadiusIsUnchanged(t *testing.T) {
+	// Радиус 0 (металл) — тело должно совпасть с прежним: фаска не должна
+	// менять геометрию там, где её не просят.
+	cfg := testConfig(t)
+	sharp := buildFlight(t, cfg)
+	zero := buildFlight(t, withNose(t, cfg, 0))
+	if len(sharp.Solids()) != len(zero.Solids()) {
+		t.Fatalf("solid count changed: %d vs %d", len(sharp.Solids()), len(zero.Solids()))
+	}
+	for i := range sharp.Solids() {
+		v1, _ := kerngeo.Volume(sharp.Solids()[i])
+		v2, _ := kerngeo.Volume(zero.Solids()[i])
+		if math.Abs(v1-v2) > 1e-6 {
+			t.Fatalf("solid %d volume changed with zero radius: %v vs %v", i, v1, v2)
+		}
+	}
+}
+
+// --- MillingFeatures: детали под фрезеровку --------------------------------
+
+func TestMillingFeaturesCountTreadsFromModel(t *testing.T) {
+	cfg := withNose(t, testConfig(t), 8)
+	res, err := Generate(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.MillingFeatures) != 1 {
+		t.Fatalf("features = %d, want 1 (treads)", len(res.MillingFeatures))
+	}
+	f := res.MillingFeatures[0]
+	if f.Role != "tread" {
+		t.Fatalf("role = %q, want tread", f.Role)
+	}
+	// 15 ступеней из testConfig — по числу тел роли "tread" в модели, а не по
+	// StepCount: для L/П-маршей это разные величины.
+	if f.Quantity != 15 {
+		t.Fatalf("quantity = %d, want 15", f.Quantity)
+	}
+	// Длина ребра — ширина марша (900 мм из testConfig).
+	if math.Abs(f.EdgeLengthMM-900) > 1e-6 {
+		t.Fatalf("edge length = %v, want flight width 900", f.EdgeLengthMM)
+	}
+	if math.Abs(f.RadiusMM-8) > 1e-6 {
+		t.Fatalf("radius = %v, want 8", f.RadiusMM)
+	}
+}
+
+func TestNoMillingFeaturesWithoutNoseRadius(t *testing.T) {
+	// Металл: ни фаски, ни фрезеровки.
+	res, err := Generate(context.Background(), testConfig(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.MillingFeatures) != 0 {
+		t.Fatalf("features = %v, want none without a nose radius", res.MillingFeatures)
+	}
+}
+
+func TestMillingFeaturesCountLShapeBothSegments(t *testing.T) {
+	// L-марш: ступени набираются из двух сегментов, и количество берётся из
+	// модели. Проверяем, что оно равно числу тел "tread", а не StepCount.
+	cfg, err := engineering.NewStairConfiguration(
+		mustLength(t, 900), mustLength(t, 2700), engineering.FlightLShape)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.StepCount = 15
+	cfg.LowerStepCount = 6
+	cfg.StepHeight = mustLength(t, 180)
+	cfg.TreadDepth = mustLength(t, 270)
+	cfg.StringerThickness = mustLength(t, 50)
+	cfg.StepThickness = mustLength(t, 40)
+	cfg.LandingWidth = mustLength(t, 900)
+	cfg.Riser = true
+	cfg.TreadNoseRadiusMM = engineering.Length(8)
+
+	res, err := Generate(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.MillingFeatures) != 1 {
+		t.Fatalf("features = %d, want 1", len(res.MillingFeatures))
+	}
+	treads := 0
+	for _, s := range res.Model.Solids() {
+		if s.Role() == "tread" {
+			treads++
+		}
+	}
+	if got := res.MillingFeatures[0].Quantity; got != treads {
+		t.Fatalf("quantity = %d, want %d (tread solids in the model)", got, treads)
+	}
+	if treads == 0 {
+		t.Fatal("L-shaped flight must have treads")
+	}
 }

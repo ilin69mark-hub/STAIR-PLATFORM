@@ -733,6 +733,27 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 			return nil, configInputError(fmt.Errorf(
 				"stair: catalog unavailable: %w", err))
 		}
+		// Радиус скругления носа — производная величина от материала ступеней
+		// (Material.TreadNoseRadiusMm): у металла он нулевой, поэтому
+		// металлическая лестница не получает ни геометрии фаски, ни операции
+		// фрезеровки, и её цена не меняется. Именно здесь, а не в калькуляторе:
+		// только в прикладном слое известен материал ДЕТАЛИ, а движок
+		// геометрии о материалах не знает вовсе.
+		if mat, ok := reg.Find(treadCode); ok {
+			c.TreadNoseRadiusMM = engineering.Length(mat.TreadNoseRadiusMm)
+		} else {
+			c.TreadNoseRadiusMM = 0
+		}
+		// Радиус не может превышать толщину ступени: иначе нос не поместится в
+		// деталь. Каталог проверяет это против минимальной толщины, но при
+		// толщине 20 мм и радиусе 8 мм проверка по каталогу проходит, а
+		// конкретная конфигурация может оказаться тоньше.
+		if r := c.TreadNoseRadiusMM.Millimeters(); r > 0 {
+			if st := cfg.StepThickness.Millimeters(); r > st {
+				c.TreadNoseRadiusMM = engineering.Length(st)
+			}
+		}
+
 		// Толщина детали проверяется по материтету ЭТОЙ детали: каркасная
 		// толщина — против каркасного материала, ступенная и подступенковая —
 		// против материала ступеней. Подступенок режется из материала ступеней

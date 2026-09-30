@@ -40,6 +40,17 @@ type Material struct {
 	// MaxHeightMm — максимальная высота подъёма, гарантируемая изготовлением
 	// именно в этом материале (MFG-0012: крупнейший лист для косоура).
 	MaxHeightMm float64
+	// TreadNoseRadiusMm — радиус скругления носа ступени, который изготовитель
+	// делает по умолчанию в этом материале. Это НЕ украшение, а операция:
+	// скругление снимает материал и требует фрезеровки, поэтому входит в
+	// цену (см. milling:chamfer в разбивке). У металла ноль: фасок на
+	// прокатанном/шлифованном профиле нет, и выставлять их — значит считать
+	// покупателю работу, которой не будет.
+	//
+	// Значение породы подобрано так, чтобы скругление помещалось в толщину
+	// ступени (20 мм — минимальная для дерева) и не выходило за пределы
+	// нормы: мягкое дерево крошится, поэтому радиус меньше.
+	TreadNoseRadiusMm float64
 }
 
 // Validate проверяет корректность записи материала.
@@ -68,6 +79,15 @@ func (m *Material) Validate() error {
 	}
 	if math.IsNaN(m.MaxHeightMm) || m.MaxHeightMm <= 0 {
 		return fmt.Errorf("manufacturing: material max height must be positive")
+	}
+	if math.IsNaN(m.TreadNoseRadiusMm) || m.TreadNoseRadiusMm < 0 {
+		return fmt.Errorf("manufacturing: material tread nose radius must not be negative")
+	}
+	// Скругление не может быть шире половины минимальной толщины: иначе нос не
+	// поместится в деталь. Это ловится на этапе каталога, а не в расчёте.
+	if m.TreadNoseRadiusMm > 0 && m.TreadNoseRadiusMm > m.MinThickness/2 {
+		return fmt.Errorf("manufacturing: material %q nose radius %v exceeds half of min thickness %v",
+			m.Code, m.TreadNoseRadiusMm, m.MinThickness)
 	}
 	return nil
 }

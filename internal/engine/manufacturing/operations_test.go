@@ -1,9 +1,11 @@
 package manufacturing
 
 import (
+	"math"
 	"reflect"
 	"testing"
 
+	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
 )
 
@@ -140,5 +142,98 @@ func TestMachineRatesValidate(t *testing.T) {
 	rates.FinishMin = -1
 	if err := rates.Validate(); err == nil {
 		t.Fatal("negative finish time must be rejected")
+	}
+}
+
+// --- Фрезеровка кромки (скругление носа ступени) ---------------------------
+//
+// Фаска — это трудозатраты, поэтому обязана попадать в техмаршрут и в цену.
+// Заготовка при этом остаётся прямоугольной: раскрой и закупка не меняются.
+
+func TestPlanOperationsAddsMillingForChamferedPart(t *testing.T) {
+	part := dommfg.Part{
+		Number: "P1", Kind: dommfg.PartTread, Material: "WOOD-OAK",
+		Thickness: engineering.Length(40), Length: engineering.Length(310),
+		Width: engineering.Length(900),
+		// Нос длиной 900 мм (вся ширина марша), радиус 8 мм.
+		MillEdgeLengthMM: 900, MillRadiusMM: 8,
+	}
+	pkg := &dommfg.ManufacturingPackage{Parts: []dommfg.Part{part}}
+	plan, err := PlanOperations(pkg, DefaultMachineRates())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops := plan.Parts[0].Operations
+	if len(ops) != 3 {
+		t.Fatalf("operations = %d, want 3 (cut, mill, finish): %+v", len(ops), ops)
+	}
+	if ops[1].Type != dommfg.OpMilling {
+		t.Fatalf("second operation = %q, want %q", ops[1].Type, dommfg.OpMilling)
+	}
+	// Фрезеровка — работа мастера: идёт на ручное рабочее место, иначе цена
+	// посчитала бы её по машинному тарифу.
+	if ops[1].Machine != dommfg.MachineManualWorkstation {
+		t.Fatalf("milling machine = %q, want %q (ручная операция)", ops[1].Machine, dommfg.MachineManualWorkstation)
+	}
+	// Последовательности строго возрастают: рез → фрезеровка → финиш.
+	if ops[0].Sequence != 1 || ops[1].Sequence != 2 || ops[2].Sequence != 3 {
+		t.Fatalf("sequences = %d,%d,%d — want 1,2,3", ops[0].Sequence, ops[1].Sequence, ops[2].Sequence)
+	}
+	// Время = наладка + длина/подача = 1 + 900/350.
+	rates := DefaultMachineRates()
+	want := rates.MillSetupMin + 900/rates.MillFeed["WOOD-OAK"]
+	if math.Abs(ops[1].EstimatedTime-want) > 1e-9 {
+		t.Fatalf("milling time = %v, want %v", ops[1].EstimatedTime, want)
+	}
+}
+
+func TestPlanOperationsSkipsMillingWithoutChamfer(t *testing.T) {
+	// Металлическая ступень: фасок нет, маршрут прежний — две операции.
+	part := dommfg.Part{
+		Number: "P1", Kind: dommfg.PartTread, Material: "STEEL-S235",
+		Thickness: engineering.Length(6), Length: engineering.Length(310),
+		Width: engineering.Length(900),
+	}
+	pkg := &dommfg.ManufacturingPackage{Parts: []dommfg.Part{part}}
+	plan, err := PlanOperations(pkg, DefaultMachineRates())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops := plan.Parts[0].Operations
+	if len(ops) != 2 {
+		t.Fatalf("operations = %d, want 2 (cut, finish)", len(ops))
+	}
+	for _, op := range ops {
+		if op.Type == dommfg.OpMilling {
+			t.Fatal("metal stair must not be scheduled for milling")
+		}
+	}
+}
+
+func TestPlanOperationsRejectsMillingWithoutFeed(t *testing.T) {
+	// Фрезеровка нужна, а подачи по материалу нет — это ошибка ставок, а не
+	// повод молча пропустить операцию и занизить цену.
+	part := dommfg.Part{
+		Number: "P1", Kind: dommfg.PartTread, Material: "SOME-UNKNOWN",
+		Thickness: engineering.Length(40), Length: engineering.Length(310),
+		Width: engineering.Length(900), MillEdgeLengthMM: 900,
+	}
+	rates := DefaultMachineRates()
+	rates.CutSpeed["SOME-UNKNOWN"] = 5000
+	pkg := &dommfg.ManufacturingPackage{Parts: []dommfg.Part{part}}
+	if _, err := PlanOperations(pkg, rates); err == nil {
+		t.Fatal("expected an error: milling without a feed rate must not be silently skipped")
+	}
+}
+
+func TestMillFeedZeroOnlyForSteel(t *testing.T) {
+	rates := DefaultMachineRates()
+	if rates.MillFeed["STEEL-S235"] != 0 {
+		t.Fatal("steel must have no milling feed: no chamfers on metal")
+	}
+	for _, code := range []dommfg.MaterialCode{"WOOD-OAK", "WOOD-WALNUT", "WOOD-ASH", "WOOD-SOFT"} {
+		if rates.MillFeed[code] <= 0 {
+			t.Fatalf("wood %q must have a positive mill feed", code)
+		}
 	}
 }

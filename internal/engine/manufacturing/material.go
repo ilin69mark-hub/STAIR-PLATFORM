@@ -31,6 +31,8 @@ func DefaultMaterialRegistry() (*dommfg.MaterialRegistry, error) {
 				// Энвелоп MFG-0012: крупнейший лист 10400×6200 покрывает
 				// косоур до H≈6000, проступи до ширины W=3000 (лист 6000×3000).
 				MaxWidthMm: 3000, MaxHeightMm: 6000,
+				// У металла фасок нет: прокат/шлифовка дают прямой профиль.
+				TreadNoseRadiusMm: 0,
 			},
 			&dommfg.Material{
 				Code: "WOOD-OAK", Name: "Oak Wood", NameRu: "Дуб", Category: "Wood",
@@ -38,6 +40,9 @@ func DefaultMaterialRegistry() (*dommfg.MaterialRegistry, error) {
 				// Энвелоп MFG-0012: крупнейшая плита 9000×4600 покрывает
 				// косоур до H≈4550, проступи до W=3000 (плита 6000×3000).
 				MaxWidthMm: 3000, MaxHeightMm: 4550,
+				// Дуб — самая твёрдая порода каталога, скругление держит
+				// чисто; 8 мм — типовой радиус филёнки на носике.
+				TreadNoseRadiusMm: 8,
 			},
 			// Фаза 1 «студийный 3D» (витрина, вариант Б): породы и металлы с
 			// разной ценой и плотностью. Плотность влияет на массу/стоимость
@@ -46,16 +51,23 @@ func DefaultMaterialRegistry() (*dommfg.MaterialRegistry, error) {
 				Code: "WOOD-WALNUT", Name: "American Walnut", NameRu: "Орех", Category: "Wood",
 				Density: 640, MinThickness: 20, MaxThickness: 60,
 				MaxWidthMm: 3000, MaxHeightMm: 4550,
+				// Орех плотнее дуба и темнее — на нём скругление заметнее,
+				// поэтому радиус чуть больше.
+				TreadNoseRadiusMm: 10,
 			},
 			&dommfg.Material{
 				Code: "WOOD-ASH", Name: "Ash Wood", NameRu: "Ясень", Category: "Wood",
 				Density: 690, MinThickness: 20, MaxThickness: 60,
 				MaxWidthMm: 3000, MaxHeightMm: 4550,
+				TreadNoseRadiusMm: 8,
 			},
 			&dommfg.Material{
 				Code: "WOOD-SOFT", Name: "Softwood (pine)", NameRu: "Сосна", Category: "Wood",
 				Density: 520, MinThickness: 20, MaxThickness: 60,
 				MaxWidthMm: 3000, MaxHeightMm: 4550,
+				// Сосна крошится на скруглении: маленький радиус, иначе
+				// фрезер снимает щепу.
+				TreadNoseRadiusMm: 5,
 			},
 		)
 		if err != nil {

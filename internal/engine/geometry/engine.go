@@ -27,6 +27,31 @@ type GenerationResult struct {
 	RoomMesh    *kerngeo.Mesh
 	Issues      []kerngeo.ValidationIssue
 	Measurement Measurement
+	// MillingFeatures — детали, которым нужна фрезеровная обработка, с
+	// длиной фрезеруемого ребра. Геометрия здесь единственный источник
+	// истины: производство берёт длину отсюда, а не пересчитывает по
+	// конфигурации — иначе расчёт обработки разъехался бы с моделью при
+	// первом же изменении геометрии детали.
+	//
+	// Длина ребра — это и есть объём работы: скругление носка идёт по всей
+	// ширине ступени, поэтому время фрезеровки пропорционально ширине марша,
+	// и именно так оно и тарифицируется.
+	MillingFeatures []MillingFeature
+}
+
+// MillingFeature — одна деталь, требующая фрезеровки.
+type MillingFeature struct {
+	// Role — роль тела в модели ("tread", "landing", …), по ней производство
+	// сопоставляет деталь из раскроя.
+	Role string
+	// EdgeLengthMM — длина фрезеруемого ребра, мм.
+	EdgeLengthMM float64
+	// RadiusMM — радиус скругления, мм. В операцию попадает как описание
+	// работы, на тариф не влияет.
+	RadiusMM float64
+	// Quantity — сколько таких деталей (ступени одинаковые, но считать их
+	// по одной было бы неверно: 15 ступеней — это 15 носов по 900 мм).
+	Quantity int
 }
 
 // Generate строит параметрическую B-Rep модель марша (прямого,
@@ -140,6 +165,9 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 	}
 	result.Measurement.SolidCount = kerngeo.SolidCount(model)
 	result.Measurement.BoundingBox = kerngeo.BoundingBox(model)
+	// Детали под фрезеровку: длина ребра берётся из габарита построенной
+	// модели, поэтому совпадает с тем, что действительно изготовят.
+	result.MillingFeatures = millingFeaturesOf(cfg, model)
 
 	// preview mesh — производная величина, собранная из слотов в порядке тел.
 	result.Mesh = &kerngeo.Mesh{}
@@ -205,6 +233,44 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 	}
 
 	return result, nil
+}
+
+// millingFeaturesOf собирает список деталей под фрезеровку по ГОТОВОЙ модели.
+//
+// Количество ступеней берётся подсчётом тел с ролью "tread", а не из
+// конфигурации: у L/П-маршей ступени набираются из двух сегментов, у П-лестницы
+// на поворотных ступенях — из вееров, и любой расчёт «n1 + n2» в конфигурации
+// рано или поздно разошёлся бы с тем, что реально построено. Единственный
+// источник истины — сама модель.
+//
+// Длина ребра носа равна ширине марша: нос идёт по всей ширине проступи, и
+// именно эта длина тарифицируется как работа.
+func millingFeaturesOf(cfg *engineering.StairConfiguration, model *kerngeo.Compound) []MillingFeature {
+	radius := cfg.TreadNoseRadiusMM.Millimeters()
+	if radius <= kerngeo.Precision || model == nil {
+		// Металл (или явный ноль): фасок нет, фрезеровка не нужна.
+		return nil
+	}
+	treads := 0
+	for _, solid := range model.Solids() {
+		if solid.Role() == "tread" {
+			treads++
+		}
+	}
+	if treads == 0 {
+		return nil
+	}
+	bb := kerngeo.BoundingBox(model)
+	width := bb.Max.Y - bb.Min.Y
+	if width <= kerngeo.Precision {
+		return nil
+	}
+	return []MillingFeature{{
+		Role:         "tread",
+		EdgeLengthMM: width,
+		RadiusMM:     radius,
+		Quantity:     treads,
+	}}
 }
 
 // buildRoomSolid строит тонкую декоративную плиту «пола комнаты» размером
