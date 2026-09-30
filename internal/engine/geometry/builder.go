@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 
 	"stairplatform/internal/domain/engineering"
 	"stairplatform/internal/engine/scheduler"
@@ -27,6 +28,41 @@ const flightSideInsetMM = 50.0
 // раскрой использовали единый габарит косоура (BC-002).
 func StringerExtent(heightMm, stepThMm float64) float64 {
 	return heightMm - stepThMm
+}
+
+// maxPlateFrameMM — верхняя граница толщины листового металла, по которой
+// каркас опознаётся как пластинчатый (steel 3–8 мм по MFG-0005). Нужна для
+// автоназначения материала, когда код материала не задан: косоур из стали
+// тонкий, косоур из дерева — 40–60 мм (это же правило уже записано в
+// engineering.StairConfiguration.Material).
+const maxPlateFrameMM = 10.0
+
+// StringerPlateDepthMM — глубина боковой пластины косоура металлокаркаса по
+// нормали к линии подъёма. Копия решения Ниоры (niora.ru/calculator/metal и
+// их цех): косоур — ровная наклонная пластина, ступени лежат на её верхнем
+// ребре, торец проступи упирается в боковую грань, на пол пластина встаёт
+// передней вертикальной гранью. Прежняя гребёнка (посадочные места на
+// уровне низа проступи, спинка шириной в толщину металла) давала в 3D
+// «кашу из непонятных элементов»: две тонкие пилы внутри ширины марша, по
+// которым ступень стоит как на рельсах.
+const StringerPlateDepthMM = 300.0
+
+// plateStringer — металлический каркас (косоур боковой пластиной) или нет.
+func plateStringer(cfg *engineering.StairConfiguration) bool {
+	if m := cfg.Material; m != "" {
+		return strings.HasPrefix(m, "STEEL") || strings.HasPrefix(m, "METAL")
+	}
+	// Материал не задан — автоназначение по толщине детали (тот же вывод,
+	// что в раскрое: тонкая деталь из листа, толстая — пиломатериал).
+	return cfg.StringerThickness.Millimeters() <= maxPlateFrameMM
+}
+
+// PlateStringerFrame — признак пластинчатого (металлического) каркаса.
+// Экспортируется для раскроя: заготовка боковой пластины (полоса по склону
+// марша шириной «глубина пластины + толщина») и заготовка гребёнки (полоса
+// шириной в шаг ступени) считаются по-разному.
+func PlateStringerFrame(cfg *engineering.StairConfiguration) bool {
+	return plateStringer(cfg)
 }
 
 // BuildStraightFlight строит параметрическую B-Rep модель прямого марша
@@ -52,14 +88,29 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 	// слотов (косоуры → проступи → подступенки) — детерминизм ADR-0003.
 	builds := make([]func() (*kerngeo.Solid, error), 0, 4*n+2)
 
-	// косоуры: два внутри ширины, симметрично относительно центра марша —
-	// полосы [w/4−t/2, w/4+t/2] и [3w/4−t/2, 3w/4+t/2]. Ступени лежат на
-	// сёдлах пилы сверху (седло = низ проступи).
+	// Металлокаркас: косоур — боковая пластина ПО КРАЯМ ширины, и ступени
+	// идут между пластинами ([t, w−t]): торец проступи упирается в боковую
+	// грань косоура, как на Ниоре. Дерево: прежняя гребёнка внутри ширины,
+	// ступень кладётся на седло пилы и перекрывает косоур по всей ширине.
+	plate := plateStringer(cfg)
 	yA, yC := w/4-t/2, 3*w/4-t/2
+	// Ширина ступеней и подступенков: [0,w] у гребёнки, между пластинами у
+	// пластины.
+	y0, y1 := 0.0, w
+	if plate {
+		yA, yC = 0, w-t
+		y0, y1 = t, w-t
+	}
+	buildProfile := func(y float64) []kerngeo.Point3 {
+		if plate {
+			return plateStringerProfile(n, b, h, st, y, t, StringerPlateDepthMM)
+		}
+		return stringerProfile(n, b, h, st, y, t)
+	}
 	for i, y := range []float64{yA, yC} {
 		i, y := i, y
 		builds = append(builds, func() (*kerngeo.Solid, error) {
-			profile := stringerProfile(n, b, h, st, y, t)
+			profile := buildProfile(y)
 			solid, err := kerngeo.Extrude(profile, kerngeo.NewVector3(0, 1, 0), t)
 			if err != nil {
 				return nil, fmt.Errorf("geometry: stringer %d: %w", i, err)
@@ -94,7 +145,7 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 			if err != nil {
 				return nil, fmt.Errorf("geometry: tread %d: %w", k, err)
 			}
-			solid, err := kerngeo.Extrude(section, kerngeo.NewVector3(0, 1, 0), w)
+			solid, err := kerngeo.Extrude(shiftY(section, y0), kerngeo.NewVector3(0, 1, 0), y1-y0)
 			if err != nil {
 				return nil, fmt.Errorf("geometry: tread %d: %w", k, err)
 			}
@@ -131,10 +182,10 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 		z0, z1 := float64(k)*h, float64(k+1)*h-st
 		builds = append(builds, func() (*kerngeo.Solid, error) {
 			profile := []kerngeo.Point3{
-				kerngeo.NewPoint3(x0, 0, z0),
-				kerngeo.NewPoint3(x0, 0, z1),
-				kerngeo.NewPoint3(x0, w, z1),
-				kerngeo.NewPoint3(x0, w, z0),
+				kerngeo.NewPoint3(x0, y0, z0),
+				kerngeo.NewPoint3(x0, y0, z1),
+				kerngeo.NewPoint3(x0, y1, z1),
+				kerngeo.NewPoint3(x0, y1, z0),
 			}
 			solid, err := kerngeo.Extrude(profile, kerngeo.NewVector3(1, 0, 0), rt)
 			if err != nil {
@@ -659,6 +710,77 @@ func validateFlight(cfg *engineering.StairConfiguration) error {
 		return fmt.Errorf("geometry: width must exceed two stringer thicknesses")
 	}
 	return nil
+}
+
+// shiftY сдвигает профиль по ширине: сечение ступени строится в плоскости
+// XZ при y = 0, а между боковыми пластинами косоура она должна лечь от y0.
+func shiftY(pts []kerngeo.Point3, y0 float64) []kerngeo.Point3 {
+	if y0 == 0 {
+		return pts
+	}
+	out := make([]kerngeo.Point3, len(pts))
+	for i, p := range pts {
+		out[i] = kerngeo.NewPoint3(p.X, p.Y+y0, p.Z)
+	}
+	return out
+}
+
+// plateStringerProfile строит профиль боковой пластины косоура
+// металлокаркаса в плоскости XZ при y = yOff — копия решения Ниоры.
+//
+// Форма: ровная наклонная полоса постоянной глубины depth (по нормали к
+// линии подъёма). Верхнее ребро — посадочная линия ступеней: она проходит
+// через нижние углы проступей (k·b, (k+1)·h − st), поэтому это прямая с
+// уклоном h/b, а не пила. Сверху — горизонтальная полка до x = n·b на
+// уровне низа верхней ступени (та же полка, что у гребёнки: под площадкой).
+// Передняя грань вертикальна (x = 0, от пола до первой посадки): первая
+// ступень нависает над плитой, как на Ниоре. Нижнее ребро — посадочная
+// линия, сдвинутая на depth по нормали вниз, и обрезается полом.
+//
+// Отличие от гребёнки принципиальное: гребёнка несёт ступень на
+// посадочных местах и имеет спинку шириной в толщину металла, то есть её
+// вид сбоку — пила. Здесь ступень лежит на сплошном ребре, а сбоку —
+// глухая боковая стенка марша во всю высоту.
+func plateStringerProfile(n int, b, h, st, yOff, t, depth float64) []kerngeo.Point3 {
+	L := math.Hypot(b, h)
+	nz := -b / L // вертикальная составляющая нормали вниз: (h, −b)/L
+	firstZ := h - st                                 // посадка первой ступени
+	topZ := float64(n)*h - st                        // посадка последней ступени
+	lastSeatX := float64(n-1) * b                    // x последней посадки
+	endX := float64(n) * b                           // конец марша (x = n·b)
+	shelfZ := topZ - depth                            // низ горизонтальной полки
+	// Нижнее ребро: z(x) = (h−st) + (h/b)·x + depth·(−b/L). Отсюда точки
+	// пересечения с полом (z = 0) и с низом полки (z = shelfZ).
+	floorX, shelfX := 0.0, 0.0
+	if h > kerngeo.Precision {
+		floorX = (firstZ - depth*nz) * b / h
+		shelfX = (shelfZ - firstZ - depth*nz) * b / h
+	}
+	if floorX < 0 {
+		floorX = 0
+	}
+	pts := []kerngeo.Point3{
+		kerngeo.NewPoint3(0, yOff, 0),
+		kerngeo.NewPoint3(0, yOff, firstZ),
+		kerngeo.NewPoint3(lastSeatX, yOff, topZ),
+		kerngeo.NewPoint3(endX, yOff, topZ),
+	}
+	if shelfX <= endX {
+		// Нижнее ребро успевает дойти до низа полки: профиль с полкой
+		// (6+1 вершин). Так и выглядит верх Ниоры: под площадкой пластина
+		// имеет горизонтальное ребро.
+		pts = append(pts,
+			kerngeo.NewPoint3(endX, yOff, shelfZ),
+			kerngeo.NewPoint3(shelfX, yOff, shelfZ),
+		)
+	} else {
+		// Пластина слишком глубокая (или марш слишком крутой) — полки
+		// нет, правый срез вертикален до нижнего ребра.
+		zAtEnd := topZ + depth*nz
+		pts = append(pts, kerngeo.NewPoint3(endX, yOff, zAtEnd))
+	}
+	pts = append(pts, kerngeo.NewPoint3(floorX, yOff, 0))
+	return pts
 }
 
 // stringerProfile строит строго простой профиль косоура-гребёнки в

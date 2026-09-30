@@ -199,8 +199,8 @@ func TestCalculateReference(t *testing.T) {
 	}
 	// Стальной марш 16 ступеней, 473 кг: см. service_test на происхождение
 	// значения (заготовка — лист лазерного раскроя, а не габаритный блок).
-	if resp.Pricing.FinalPriceRub != 277814.63 {
-		t.Fatalf("final price = %v, want 277814.63", resp.Pricing.FinalPriceRub)
+	if resp.Pricing.FinalPriceRub != 285502.88 {
+		t.Fatalf("final price = %v, want 285502.88", resp.Pricing.FinalPriceRub)
 	}
 	if len(resp.Manufacturing.Parts) == 0 || len(resp.Manufacturing.BOM) == 0 ||
 		len(resp.Manufacturing.CutList) == 0 || len(resp.Manufacturing.Nesting.Sheets) == 0 {

@@ -185,15 +185,15 @@ func TestPriceExactValues(t *testing.T) {
 		// есть 1,08 м³ стали на один косоур. Правдоподобие массы проверяется
 		// в engine/manufacturing (TestPrepareCostMetrics).
 		{"material", b.Material, 11304000},
-		{"machine", b.Machine, 1416133},
+		{"machine", b.Machine, 1379547},
 		{"labor", b.Labor, 480000},
-		{"overhead", b.Overhead, 2640027},
-		{"production", b.ProductionCost, 15840160},
-		{"margin", b.Margin, 4752048},
-		{"discount", b.Discount, 1029610},
-		{"pre-tax", b.PreTax, 19562598},
-		{"tax", b.Tax, 3912520},
-		{"final", b.FinalPrice, 23475118},
+		{"overhead", b.Overhead, 2632709},
+		{"production", b.ProductionCost, 15796256},
+		{"margin", b.Margin, 4738877},
+		{"discount", b.Discount, 1026757},
+		{"pre-tax", b.PreTax, 19508376},
+		{"tax", b.Tax, 3901675},
+		{"final", b.FinalPrice, 23410051},
 	}
 	for _, c := range checks {
 		if c.got.Minor() != c.want {

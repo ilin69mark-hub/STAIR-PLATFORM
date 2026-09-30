@@ -110,11 +110,15 @@ func TestCalculateValidPipeline(t *testing.T) {
 	// металла выходило 10,4 тонны. Потом 234 751,18 ₽ — эталон задавал
 	// косоур 50 мм, и она схлопывалась в 8 мм правилом листа; теперь
 	// толщина в конфигурации сразу 8 мм, и геометрия честно тоньше.
-	if res.Price.FinalPrice.Minor() != 27781463 {
-		t.Fatalf("final price = %d, want 27781463", res.Price.FinalPrice.Minor())
+	// Далее 277 814,63 ₽ — косоур был пилообразной гребёнкой (спинка шириной
+	// в толщину металла). Теперь косоур металлокаркаса — боковая пластина
+	// 300 мм (копия решения Ниоры): металла в заготовке больше, поэтому
+	// цена выше, а вот время лазерной резки меньше — у пластины нет зубьев.
+	if res.Price.FinalPrice.Minor() != 28550288 {
+		t.Fatalf("final price = %d, want 28550288", res.Price.FinalPrice.Minor())
 	}
-	if res.Price.FinalPrice.Major(domprc.CurrencyRUB) != 277814.63 {
-		t.Fatalf("final price = %.2f rub, want 277814.63", res.Price.FinalPrice.Major(domprc.CurrencyRUB))
+	if res.Price.FinalPrice.Major(domprc.CurrencyRUB) != 285502.88 {
+		t.Fatalf("final price = %.2f rub, want 285502.88", res.Price.FinalPrice.Major(domprc.CurrencyRUB))
 	}
 }
 
@@ -502,8 +506,8 @@ func TestCalculateLShapePipeline(t *testing.T) {
 	}
 	// Объём упал с 331 300 173 до 48 109 490: косоур стал листом 8 мм
 	// вместо блока 50 мм, а косоуры в объёме марша и есть почти всё.
-	if math.Abs(res.Measurement.Volume-48109490.444) > 1 {
-		t.Fatalf("volume = %v, want 48109490.444", res.Measurement.Volume)
+	if math.Abs(res.Measurement.Volume-6.645557530495769e+07) > 1 {
+		t.Fatalf("volume = %v, want 6.645557530495769e+07", res.Measurement.Volume)
 	}
 	if res.Price == nil || res.Price.FinalPrice.Minor() <= 0 {
 		t.Fatal("l_shape pipeline must produce price")
@@ -609,8 +613,8 @@ func TestCalculateUShapePipeline(t *testing.T) {
 	if res.Mesh == nil || len(res.Mesh.Vertices) == 0 {
 		t.Fatal("u_shape pipeline must produce preview mesh")
 	}
-	if math.Abs(res.Measurement.Volume-50404490.444) > 1 {
-		t.Fatalf("volume = %v, want 50404490.444", res.Measurement.Volume)
+	if math.Abs(res.Measurement.Volume-6.875057530495743e+07) > 1 {
+		t.Fatalf("volume = %v, want 6.875057530495743e+07", res.Measurement.Volume)
 	}
 	if res.Price == nil || res.Price.FinalPrice.Minor() <= 0 {
 		t.Fatal("u_shape pipeline must produce price")

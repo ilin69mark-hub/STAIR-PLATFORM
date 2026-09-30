@@ -84,10 +84,10 @@ func TestManufactureLShapeDimensions(t *testing.T) {
 		number dommfg.PartNumber
 		l, wd  float64
 	}{
-		{"STR-01", 1620, 180}, // полоса: длина марша × шаг ступени
-		{"STR-02", 1620, 180},
-		{"STR-03", 2430, 180},
-		{"STR-04", 2430, 180},
+		{"STR-01", 1620, 308}, // полоса: длина марша × (глубина пластины + лист)
+		{"STR-02", 1620, 308},
+		{"STR-03", 2430, 308},
+		{"STR-04", 2430, 308},
 		{"TRD-01", 900, 310},
 		{"TRD-07", 1000, 900},
 		{"TRD-08", 900, 310},
@@ -143,11 +143,11 @@ func TestManufactureLShapeBOM(t *testing.T) {
 		length   float64
 		width    float64
 	}{
-		{"Stringer", 2, 1620, 180},
+		{"Stringer", 2, 1620, 308},
 		{"Tread", 15, 900, 310},
 		{"Riser", 15, 900, 140},
 		{"Tread", 1, 1000, 900},
-		{"Stringer", 2, 2430, 180},
+		{"Stringer", 2, 2430, 308},
 	}
 	if len(pkg.BOM.Lines) != len(want) {
 		t.Fatalf("BOM lines = %d, want %d", len(pkg.BOM.Lines), len(want))

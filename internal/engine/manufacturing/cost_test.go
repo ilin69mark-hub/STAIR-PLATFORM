@@ -49,16 +49,16 @@ func TestPrepareCostMetrics(t *testing.T) {
 		got  float64
 		want float64
 	}{
-		{"part area", ds.PartArea, 7.533e+06},
+		{"part area", ds.PartArea, 7.8948e+06},
 		{"sheet area", ds.SheetArea, 1.8e+07},
-		{"waste area", ds.WasteArea, 1.0467e+07},
-		{"volume", ds.Volume, 6.0264e+07},
-		{"surface area", ds.SurfaceArea, 1.574136e+07},
-		{"waste percent", ds.WastePercent, 1.0467e+07 / 1.8e+07},
-		{"utilization", ds.Utilization, 7.533e+06 / 1.8e+07},
-		{"machine time", ds.EstimatedMachineTime, 106.21},
+		{"waste area", ds.WasteArea, 1.01052e+07},
+		{"volume", ds.Volume, 6.31584e+07},
+		{"surface area", ds.SurfaceArea, 1.6421056e+07},
+		{"waste percent", ds.WastePercent, 1.01052e+07 / 1.8e+07},
+		{"utilization", ds.Utilization, 7.8948e+06 / 1.8e+07},
+		{"machine time", ds.EstimatedMachineTime, 103.466},
 		{"labor time", ds.EstimatedLaborTime, 96},
-		{"production time", ds.EstimatedProductionTime, 202.21},
+		{"production time", ds.EstimatedProductionTime, 199.466},
 	}
 	for _, c := range checks {
 		if !nearlyEqual(c.got, c.want) {
