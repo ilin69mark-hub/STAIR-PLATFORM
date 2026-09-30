@@ -974,16 +974,27 @@ describe('Constructor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
     await screen.findByText('Расчёт остановлен: обнаружены блокирующие нарушения.')
 
-    // Галерея: исходный «Прямой марш» (выбран) + альтернатива от бэкенда.
-    expect(screen.getByText('Выбран')).toBeInTheDocument()
+    // Список вариантов: исходный «Прямой марш» + альтернатива от бэкенда.
+    // Метки «Выбран» нет: снапшот ИСХОДНОГО (заблокированного) конфига не
+    // считается применённым вариантом — он как раз тот, от чего предлагают
+    // уйти, и раньше именно он помечался «Выбран».
+    expect(screen.queryByText('Выбран')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Прямой марш/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Угол 30°/ })).toBeInTheDocument()
 
-    // Выбираем L-образный вариант — он становится снапшотом, прямой остаётся.
+    // Выбираем L-образный вариант — он применяется, и всё остальное скрывается:
+    // это подтверждение выбора (владелец: «как мне подтвердить этот выбор,
+    // чтобы все остальное скрылось»).
     fireEvent.click(screen.getByRole('button', { name: /Угол 30°/ }))
     await waitFor(() =>
       expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ flight: 'l_shape' })),
     )
+    // Применённый вариант показан строкой (она некликабельна) + «Изменить».
+    expect(screen.getByText('L-образный марш')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Прямой марш/ })).not.toBeInTheDocument()
+
+    // «Изменить» возвращает полный список — история конфигураций на месте.
+    fireEvent.click(screen.getByRole('button', { name: 'Изменить' }))
     expect(screen.getByRole('button', { name: /Прямой марш/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /L-образный марш/ })).toBeInTheDocument()
 

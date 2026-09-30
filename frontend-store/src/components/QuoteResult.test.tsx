@@ -98,8 +98,9 @@ describe('QuoteResult', () => {
     expect(screen.getByText(/Информация:/)).toBeInTheDocument()
   })
 
-  it('персистентные варианты рисуются галереей: активный крупно и «Выбран»', () => {
+  it('применённый вариант показан одной строкой, остальные скрыты', () => {
     const onApply = vi.fn()
+    const onClear = vi.fn()
     const blocked: QuoteResultType = {
       validation: { valid: false, blocking: true, issues: [] },
     }
@@ -113,15 +114,17 @@ describe('QuoteResult', () => {
         onApplyVariation={onApply}
         variations={variations}
         activeVariationId="Угол 35°"
+        onClearVariation={onClear}
       />,
     )
-    // Галерея: активный вариант один + уменьшенные остальные.
-    expect(screen.getByText('Выбран')).toBeInTheDocument()
-    const btns = screen.getAllByRole('button', { name: /Угол/ })
-    expect(btns.length).toBe(2)
-    // Клик по уменьшенной карточке меняет активный вариант местами.
-    fireEvent.click(screen.getByRole('button', { name: /Угол 30°/ }))
-    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ id: 'Угол 30°' }))
+    // Применённый вариант — одна строка, остальные скрыты (это и есть
+    // подтверждение выбора: нажал — всё лишнее убрано, вернуться можно
+    // кнопкой «Изменить»). Метки «Выбран» больше нет.
+    expect(screen.getByText('Угол 35°')).toBeInTheDocument()
+    expect(screen.queryByText('Угол 30°')).not.toBeInTheDocument()
+    expect(screen.queryByText('Выбран')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Изменить' }))
+    expect(onClear).toHaveBeenCalled()
   })
 
   it('показывает 3D-модель при наличии меша', async () => {
@@ -418,7 +421,9 @@ describe('QuoteResult', () => {
       },
     }
     render(<QuoteResult quote={blocked} onApplyVariation={onApply} />)
-    expect(screen.getByText(/Варианты решения \(выберите подходящий\)/)).toBeInTheDocument()
+    // Заголовка «Варианты решения (выберите подходящий)» убран: он съедал
+    // строку в панели 460px и ничего не объяснял. Варианты видно сами.
+    expect(screen.queryByText(/Варианты решения/)).not.toBeInTheDocument()
     const btns = screen.getAllByRole('button', { name: /Угол/ })
     expect(btns.length).toBe(2)
     fireEvent.click(btns[0])
@@ -453,7 +458,7 @@ describe('QuoteResult', () => {
       },
     }
     render(<QuoteResult quote={blocked} onApplyVariation={onApply} />)
-    expect(screen.getByText(/Варианты решения/)).toBeInTheDocument()
+    expect(screen.queryByText(/Варианты решения/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Угол 32°/ }))
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ id: 'Угол 32°' }))
   })
@@ -486,7 +491,7 @@ describe('QuoteResult', () => {
       },
     }
     render(<QuoteResult quote={blocked} onApplyVariation={onApply} />)
-    expect(screen.getByText(/Варианты решения/)).toBeInTheDocument()
+    expect(screen.queryByText(/Варианты решения/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Угол 30°/ }))
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ id: 'Угол 30°' }))
   })

@@ -236,7 +236,8 @@ function ValidationPanel({
       )}
       {firstVar && firstVar.Variations && onApplyVariation && (
         <div className="variations">
-          <h3 className="panel__sub">Варианты решения (выберите подходящий)</h3>
+          {/* Заголовка «Варианты решения (выберите подходящий)» нет — тот же
+              список строк без галереи, что и в конструкторе. */}
           <VariationPicker
             variations={firstVar.Variations}
             onApply={onApplyVariation}

@@ -258,6 +258,8 @@ interface Props {
   // использует собственный активный выбор (activeVariantId).
   variations?: Variation[] | null
   activeVariationId?: string | null
+  /** Снять применённый вариант и вернуть список (кнопка «Изменить»). */
+  onClearVariation?: () => void
   // Высота марша из ввода пользователя (поле «Высота», мм): задаёт высоту
   // стен периметра в 3D-вьювере.
   heightMM?: number
@@ -286,6 +288,7 @@ export function QuoteResult({
   approachSpaceMM,
   variations,
   activeVariationId,
+  onClearVariation,
   heightMM,
   split = false,
 }: Props) {
@@ -383,11 +386,15 @@ export function QuoteResult({
 
         {(variations ?? firstVar?.variations) && onApplyVariation && (
           <div className="variations">
-            <h3 className="panel__sub">Варианты решения (выберите подходящий)</h3>
+            {/* Заголовка «Варианты решения (выберите подходящий)» больше нет:
+                список вариантов говорит сам за себя, а в панели 460px
+                заголовок съедал строку и ничего не объяснял (владелец: «зачем
+                там городить странные движения с вкладками»). */}
             <VariationPicker
               variations={variations ?? firstVar!.variations!}
               onApply={onApplyVariation}
               activeId={activeVariationId ?? undefined}
+              onReset={onClearVariation}
             />
           </div>
         )}

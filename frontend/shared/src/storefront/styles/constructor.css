@@ -340,78 +340,79 @@
   margin: 12px 0;
 }
 
-.variation-picker__hint {
-  color: var(--sp-muted);
-  font-size: 13px;
-}
-
-.variation-gallery {
-  display: flex;
-  align-items: stretch;
-  gap: 12px;
-}
-
-.variation-gallery__main {
-  flex: 1 1 58%;
-  min-width: 0;
-}
-
-.variation-gallery__main .variation-picker__item {
-  min-height: 100%;
-}
-
-.variation-gallery__thumbs {
-  flex: 1 1 42%;
+/* Варианты — простой список строк во всю ширину. Галерея «главная карточка +
+   миниатюры» (58%/42%) в панели 460px сжимала главную до ~250px, и подписи
+   вариантов наезжали друг на друга и обрезались. */
+.variation-picker {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  min-width: 0;
+  gap: 4px;
 }
 
-.variation-picker__item {
+.variation-picker__row {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 10px 12px;
-  border: 1px solid var(--sp-border);
-  border-radius: 10px;
-  background: var(--sp-card);
+  gap: 1px;
+  width: 100%;
+  /* min-width: 0 обязателен: flex-потомок с min-width:auto по содержимому не
+     сжимается, и длинная подпись распирала строку за пределы панели. */
+  min-width: 0;
+  padding: 6px 8px;
   text-align: left;
-  cursor: pointer;
   font: inherit;
   color: var(--sp-text);
+  background: var(--sp-card);
+  border: 1px solid var(--sp-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
 }
 
-.variation-picker__item:hover {
-  border-color: var(--sp-primary);
-  box-shadow: var(--sp-shadow);
+.variation-picker__row:hover {
+  border-color: #c3d2cc;
+  background: rgba(11, 110, 79, 0.04);
 }
 
-.variation-picker__item--active {
-  border-color: var(--sp-primary);
-  background: #eff6f3;
+.variation-picker__row--plain {
+  cursor: default;
+  border-color: rgba(11, 110, 79, 0.28);
+  background: rgba(11, 110, 79, 0.05);
 }
 
-.variation-picker__item--thumb {
-  padding: 8px 12px;
+.variation-picker__row--plain:hover {
+  border-color: rgba(11, 110, 79, 0.28);
+  background: rgba(11, 110, 79, 0.05);
 }
 
 .variation-picker__title {
-  font-size: 14px;
+  font-size: 12.5px;
   font-weight: 600;
+  /* Перенос по словам: заголовок варианта — единственное, что нельзя резать. */
+  overflow-wrap: anywhere;
 }
 
-.variation-picker__summary,
-.variation-picker__desc {
-  font-size: 12px;
+.variation-picker__summary {
+  font-size: 11.5px;
   color: var(--sp-muted);
+  overflow-wrap: anywhere;
 }
 
-.variation-picker__applied {
-  margin-top: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--sp-primary);
+/* Применённый вариант: строка + кнопка «Изменить» рядом. */
+.variation-picker--applied {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.variation-picker--applied .variation-picker__row {
+  flex: 1 1 auto;
+}
+
+.variation-picker__change {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  font-size: 11.5px;
+  border-radius: 7px;
 }
 
 /* ---- Result / price ---- */

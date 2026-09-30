@@ -191,16 +191,25 @@ function versionContentKey(cfg: Record<string, unknown>): string {
   ])
 }
 
+// Миллиметры в подписи варианта. Значения приходят из расчёта с плавающей
+// точкой, и в подпись уходило «площадка 1229.8000000000002×…» — в карточке
+// варианта это читалось как поломка (владелец: «какие то безумные цифры»).
+// Округляем до целого миллиметра; нечисло показываем как есть.
+function mmText(v: string | number | undefined): string {
+  const n = Number(v)
+  return Number.isFinite(n) ? String(Math.round(n)) : String(v ?? '—')
+}
+
 function versionSummary(cfg: ConfigForm): string {
-  const parts = [`Высота ${cfg.heightMM} мм`, `марш ${cfg.widthMM} мм`]
+  const parts = [`Высота ${mmText(cfg.heightMM)} мм`, `марш ${mmText(cfg.widthMM)} мм`]
   if (cfg.flight === 'l_shape' || cfg.flight === 'u_shape') {
     if (cfg.turnKind === 'winder') {
-      parts.push(`поворот ${cfg.winderCountMM || '—'} ступ.`)
+      parts.push(`поворот ${mmText(cfg.winderCountMM) || '—'} ступ.`)
     } else {
-      parts.push(`площадка ${cfg.landingWidthMM}×${cfg.landingDepthMM}`)
+      parts.push(`площадка ${mmText(cfg.landingWidthMM)}×${mmText(cfg.landingDepthMM)}`)
     }
   }
-  if (cfg.flight === 'spiral') parts.push(`радиус ${cfg.outerRadiusMM}`)
+  if (cfg.flight === 'spiral') parts.push(`радиус ${mmText(cfg.outerRadiusMM)}`)
   return parts.join(' · ')
 }
 
@@ -523,12 +532,19 @@ export function Constructor() {
       // Новый блокирующий ответ с вариациями заменяет список альтернатив.
       // Текущий (заблокированный) конфиг якорим как снапшот — исходный марш
       // остаётся в галерее и к нему можно вернуться.
+      //
+      // Снапшот НЕ помечаем применённым вариантом: он и есть то, от чего
+      // предлагают уйти, и поставить его «выбранным» значило пометить как
+      // применённый ровно то, что человек менять собирался. Раньше это
+      // выглядело меткой «Выбран» на карточке исходного конфига, теперь —
+      // схлопнутым списком без альтернатив.
       const firstVar = res.validation.issues?.find(
         (i) => i.variations && i.variations.length > 0,
       )
       if (firstVar && firstVar.variations) {
         setVariations(firstVar.variations)
-        setActiveVariationId(pushVersion(cfg))
+        setActiveVariationId(null)
+        pushVersion(cfg)
       }
     } catch (e) {
       // Отказ сервера — тоже «где затык»: код ошибки важнее текста, который
@@ -1365,6 +1381,7 @@ export function Constructor() {
             onApplyVariation={applyGalleryVariation}
             variations={galleryVariations.length > 0 ? galleryVariations : undefined}
             activeVariationId={activeVariationId}
+            onClearVariation={() => setActiveVariationId(null)}
             material={config.material}
             approachSpaceMM={config.approachSpaceMM}
             heightMM={Number(config.heightMM) || undefined}
