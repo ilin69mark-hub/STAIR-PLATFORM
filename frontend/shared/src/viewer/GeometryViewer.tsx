@@ -12,6 +12,7 @@ import { computePlacement } from '../placement'
 import { approachZoneCenterX, EXIT_BLOCK_H, exitSlabBox, exitWallSide, stairTopLineX, wallBox, wallBoundsOf, type Box3Like, type BoxSpec, type WallSide } from './layout'
 import { ANNOTATE, edgeColor, WALLS } from '../scheme-annot'
 import { createRailingMaterialForRole, createStairMaterial } from './materials'
+import { createPostFX, acesWhitePoint } from './postfx'
 import { MouseHint } from './MouseHint'
 import {
   dragAxisIsHorizontal,
@@ -463,6 +464,10 @@ export function GeometryViewer({
     renderer.toneMapping = THREE.ACESFilmicToneMapping
     renderer.toneMappingExposure = 1.05
     renderer.outputColorSpace = THREE.SRGBColorSpace
+    // Фон проходит через пост-обработку наравне с геометрией: линейный
+    // «белый» 1.0 после ACES становится 0.8, и белый циклорамный фон
+    // уезжал в светло-серый. Отсюда — белая точка, а не 1.0.
+    scene.background = new THREE.Color().setScalar(acesWhitePoint(renderer.toneMappingExposure))
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     container.appendChild(renderer.domElement)
@@ -1402,6 +1407,10 @@ export function GeometryViewer({
     }
     applySelectionRef.current = highlightSelection
     highlightSelection(selectedPartRef.current)
+    // Пост-обработка (затенение контактов) собирается здесь, а не на старте
+    // эффекта: радиус затенения выводится из габарита сцены, который известен
+    // только после расчёта габаритов.
+    const postfx = createPostFX(renderer, scene, camera, width, height, radius)
     renderer.setAnimationLoop(() => {
       controls.update()
       // «Подсветка из объектива» едет вместе с камерой: ставим её на
@@ -1412,7 +1421,9 @@ export function GeometryViewer({
       front.target.updateMatrixWorld()
       if (!needsRender) return
       needsRender = false
-      renderer.render(scene, camera)
+      // Именно composer, а не renderer.render: без него AO не считается,
+      // а тонмаппинг ACES применяется дважды (в рендер-таргет и в вывод).
+      postfx.composer.render()
       // Кадр для КП сохраняем только ПОСЛЕ фактической отрисовки и не чаще
       // 150 мс при непрерывном вращении — фиксированного PNG-цикла больше нет.
       const now = performance.now()
@@ -1428,6 +1439,9 @@ export function GeometryViewer({
       camera.aspect = w / h
       camera.updateProjectionMatrix()
       renderer.setSize(w, h)
+      // Без этого цепочка пост-обработки продолжала бы считать AO в прежнем
+      // разрешении: после смены размера полотна картинка мылилась бы по краям.
+      postfx.setSize(w, h)
       // Кадр обязателен: цикл рендерит только по needsRender, а resize не
       // меняет положение камеры и не вызывает controls 'change'. Без этого
       // после смены размера (в т.ч. первого расклада в сплите) на канвасе
@@ -1445,6 +1459,9 @@ export function GeometryViewer({
       resetViewRef.current = null
       controls.removeEventListener('change', onChange)
       controls.dispose()
+      // Рендертаргеты AO и буферов денойзинга: эффект пересоздаётся на каждое
+      // изменение параметров, без освобождения GPU-память текла.
+      postfx.dispose()
       // IBL: рендертаргеты окружения и сам генератор. Эффект пересоздаётся
       // на каждое изменение параметров, поэтому без освобождения GPU-память
       // росла с каждым движением ползунка.
