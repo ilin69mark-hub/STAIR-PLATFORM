@@ -251,13 +251,16 @@ func millingFeaturesOf(cfg *engineering.StairConfiguration, model *kerngeo.Compo
 		// Металл (или явный ноль): фасок нет, фрезеровка не нужна.
 		return nil
 	}
-	treads := 0
+	treads, landings := 0, 0
 	for _, solid := range model.Solids() {
-		if solid.Role() == "tread" {
+		switch solid.Role() {
+		case "tread":
 			treads++
+		case "landing":
+			landings++
 		}
 	}
-	if treads == 0 {
+	if treads == 0 && landings == 0 {
 		return nil
 	}
 	bb := kerngeo.BoundingBox(model)
@@ -265,12 +268,21 @@ func millingFeaturesOf(cfg *engineering.StairConfiguration, model *kerngeo.Compo
 	if width <= kerngeo.Precision {
 		return nil
 	}
-	return []MillingFeature{{
-		Role:         "tread",
-		EdgeLengthMM: width,
-		RadiusMM:     radius,
-		Quantity:     treads,
-	}}
+	features := make([]MillingFeature, 0, 2)
+	if treads > 0 {
+		features = append(features, MillingFeature{
+			Role: "tread", EdgeLengthMM: width, RadiusMM: radius, Quantity: treads,
+		})
+	}
+	// Площадка: фрезеруется её ВНЕШНЯЯ кромка вдоль Y, то есть на всю ширину
+	// марша — столько же, сколько нос ступени. Кромка, которой примыкает
+	// верхний марш, не фрезеруется (см. landingRoundSide).
+	if landings > 0 {
+		features = append(features, MillingFeature{
+			Role: "landing", EdgeLengthMM: width, RadiusMM: radius, Quantity: landings,
+		})
+	}
+	return features
 }
 
 // buildRoomSolid строит тонкую декоративную плиту «пола комнаты» размером

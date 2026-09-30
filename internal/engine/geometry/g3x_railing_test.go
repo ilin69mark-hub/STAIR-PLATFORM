@@ -45,7 +45,7 @@ func TestGEOM03_LandingRailingMatchesLanding(t *testing.T) {
 	for _, left := range []bool{false, true} {
 		c := g3xUShapeConfig(900, left)
 		_, _, lx0, ly := uShapePlatformTransforms(c)
-		landing, err := buildLanding(900, ly, lx0, 7*180, 40)
+		landing, err := buildLanding(900, ly, lx0, 7*180, 40, roundNone, 0)
 		if err != nil {
 			t.Fatalf("buildLanding: %v", err)
 		}

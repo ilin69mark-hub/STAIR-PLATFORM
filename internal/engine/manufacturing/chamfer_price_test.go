@@ -103,3 +103,53 @@ func absRel(got, want float64) float64 {
 	}
 	return d / want
 }
+
+// Фаза 1: фаска добралась до площадки. Площадка фрезеруется по внешней кромке
+// — ровно по ширине марша, как и нос ступени, поэтому её фрезеровка стоит
+// столько же, сколько одна ступень.
+func TestLandingChamferAddsOneMoreMillingPass(t *testing.T) {
+	cfg := testConfig(t)
+	cp := *cfg
+	cp.Flight = engineering.FlightLShape
+	cp.LowerStepCount = 6
+	cp.LandingWidth = mustLength(t, 900)
+	cp.Riser = true
+	cp.Material = "STEEL-S235"
+	cp.TreadMaterial = "WOOD-OAK"
+	// Радиус — производная величина, её вычисляет прикладной слой из материала
+	// ступеней. Здесь движок зовётся напрямую, поэтому поле задаётся вручную —
+	// ровно так же, как его передаёт buildConfiguration.
+	cp.TreadNoseRadiusMM = engineering.Length(8)
+
+	gen, err := enggeo.Generate(context.Background(), &cp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	landing, found := 0, false
+	treads := 0
+	for _, f := range gen.MillingFeatures {
+		switch f.Role {
+		case "landing":
+			landing, found = f.Quantity, true
+		case "tread":
+			treads += f.Quantity
+		}
+	}
+	if !found {
+		t.Fatalf("L-shaped flight must schedule landing milling: %+v", gen.MillingFeatures)
+	}
+	if landing != 1 {
+		t.Fatalf("landing milling quantity = %d, want 1", landing)
+	}
+	// Столько же ступеней, сколько тел роли "tread" в модели.
+	actual := 0
+	for _, s := range gen.Model.Solids() {
+		if s.Role() == "tread" {
+			actual++
+		}
+	}
+	if treads != actual {
+		t.Fatalf("tread milling %d, want %d solids", treads, actual)
+	}
+	t.Logf("L-марш: %d ступеней + %d площадка под фрезеровку", treads, landing)
+}

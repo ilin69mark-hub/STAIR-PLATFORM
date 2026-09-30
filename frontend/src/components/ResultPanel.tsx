@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState } from 'react'
-import type { Pricing, Snapshot, Variation } from '@shared/types'
+import type { Cost, Pricing, Snapshot, Variation } from '@shared/types'
 import { fmt } from '@shared/format'
 import { exportCsv } from '../lib/export'
 import { StairProfile } from '@shared/schemes/StairProfile'
@@ -602,6 +602,8 @@ function ManufacturingPanel({ snapshot }: { snapshot: Snapshot }) {
         </tbody>
       </table>
 
+      <OperationSummary cost={snapshot.cost} />
+
       <h3 className="panel__sub">Раскрой (листов: {nesting.Sheets.length})</h3>
       <dl className="kv">
         <div>
@@ -639,6 +641,78 @@ function ManufacturingPanel({ snapshot }: { snapshot: Snapshot }) {
         </button>
       </div>
     </section>
+  )
+}
+
+// Сводка техмаршрута: сколько операций каждого типа и сколько они заняли
+// времени. Без неё администратор видит в цене одну строку «труд» и не может
+// понять, что именно её увеличило (например, фрезеровку фасок на проступях).
+function OperationSummary({ cost }: { cost?: Cost }) {
+  const plan = cost?.OperationPlan
+  const ops = plan?.Parts?.flatMap((p) => p.Operations) ?? []
+  if (ops.length === 0) return null
+
+  // Сворачиваем по типу операции: деталей десятки, а типов операций единицы, и
+  // именно сводка отвечает на вопрос «сколько стоит обработка».
+  const byType = new Map<string, { count: number; time: number; machine: string }>()
+  for (const op of ops) {
+    const row = byType.get(op.Type) ?? { count: 0, time: 0, machine: op.Machine }
+    row.count += 1
+    row.time += op.EstimatedTime
+    byType.set(op.Type, row)
+  }
+
+  const NAMES: Record<string, string> = {
+    cutting: 'Лазерный рез',
+    milling: 'Фрезеровка кромки (фаска)',
+    finishing: 'Финишная обработка',
+  }
+  const MACHINES: Record<string, string> = {
+    ['']: '',
+    'laser-cutter': 'лазер',
+    'manual-workstation': 'ручное рабочее место',
+  }
+
+  const minutes = (v: number) => `${v.toFixed(1).replace('.', ',')}`
+
+  return (
+    <>
+      <h3 className="panel__sub">Технологический маршрут</h3>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Операция</th>
+            <th>Оборудование</th>
+            <th>Кол-во</th>
+            <th>Время, мин</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[...byType.entries()].map(([type, row]) => (
+            <tr key={type}>
+              <td>{NAMES[type] ?? type}</td>
+              <td>{MACHINES[row.machine] ?? row.machine}</td>
+              <td>{row.count}</td>
+              <td>{minutes(row.time)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <dl className="kv">
+        <div>
+          <dt>Машинное время</dt>
+          <dd>{minutes(cost?.EstimatedMachineTime ?? 0)} мин</dd>
+        </div>
+        <div>
+          <dt>Труд</dt>
+          <dd>{minutes(cost?.EstimatedLaborTime ?? 0)} мин</dd>
+        </div>
+        <div>
+          <dt>Всего</dt>
+          <dd>{minutes(cost?.EstimatedProductionTime ?? 0)} мин</dd>
+        </div>
+      </dl>
+    </>
   )
 }
 

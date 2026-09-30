@@ -541,6 +541,34 @@ export interface Manufacturing {
   Nesting: Nesting
 }
 
+// Технологический маршрут детали (MFG-0009). Нужен админке, чтобы показать,
+// из чего складывается цена: без него сводная строка «труд» не объясняет, что
+// добавилась фрезеровка фасок.
+export interface Operation {
+  ID: number
+  PartNumber: string
+  Type: string
+  Sequence: number
+  Machine: string
+  EstimatedTime: number // минуты
+  OperatorRequired: boolean
+}
+
+export interface PartOperationPlan {
+  PartNumber: string
+  Operations: Operation[]
+}
+
+export interface Cost {
+  OperationCount?: number
+  FastenerCount?: number
+  PartCount?: number
+  EstimatedMachineTime?: number
+  EstimatedLaborTime?: number
+  EstimatedProductionTime?: number
+  OperationPlan?: { Parts: PartOperationPlan[] }
+}
+
 export interface CostComponent {
   Name: string
   Category: string
@@ -591,7 +619,7 @@ export interface Snapshot {
   issue_count: number
   manufacturing?: Manufacturing
   pricing?: Pricing
-  cost?: Record<string, unknown>
+  cost?: Cost
 }
 
 export interface Calculation {

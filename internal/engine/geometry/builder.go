@@ -84,18 +84,13 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 	// вариант экструдировал горизонтальный прямоугольник вверх по Z, и нос в
 	// такой модели — острый угол бокса, который нельзя скруглить без
 	// изменения всей конструкции тела.
-	noseR := cfg.TreadNoseRadiusMM.Millimeters()
-	if noseR > st {
-		// Радиус больше толщины — нос не поместится в деталь. Прикладной слой
-		// это уже подрезает; здесь защита на случай прямого вызова движка.
-		noseR = st
-	}
+	noseR := noseRadiusFor(cfg)
 	for k := 0; k < n; k++ {
 		k := k
 		builds = append(builds, func() (*kerngeo.Solid, error) {
 			x0, x1 := float64(k)*b-st, float64(k+1)*b
 			z := float64(k+1)*h - st
-			section, err := treadSection(x0, x1, z, st, noseR)
+			section, err := plateSection(x0, x1, z, st, noseR, roundFront)
 			if err != nil {
 				return nil, fmt.Errorf("geometry: tread %d: %w", k, err)
 			}
@@ -150,6 +145,17 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 	}
 
 	return buildCompound(builds)
+}
+
+// noseRadiusFor — радиус скругления носка для конфигурации, ограниченный
+// толщиной детали. Радиус приходит из материала ступеней (у металла нулевой),
+// а больше толщины он быть не может: нос не поместится в деталь.
+func noseRadiusFor(cfg *engineering.StairConfiguration) float64 {
+	r := cfg.TreadNoseRadiusMM.Millimeters()
+	if st := cfg.StepThickness.Millimeters(); r > st {
+		return st
+	}
+	return r
 }
 
 // buildCompound выполняет все build-замыкания параллельно через Scheduler
@@ -236,7 +242,8 @@ func BuildLShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, 
 
 	// площадка: горизонтальная плита толщиной st на высоте H1, план
 	// [landingX0, landingX0+Ld]×[0, Wp] (EDR-0005 §4.8), роль "landing".
-	landing, err := buildLanding(ld, wp, landingX0, h1, st)
+	noseR := noseRadiusFor(cfg)
+	landing, err := buildLanding(ld, wp, landingX0, h1, st, landingRoundSide(left), noseR)
 	if err != nil {
 		return nil, err
 	}
@@ -378,7 +385,9 @@ func buildUShapePlatform(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 
 	// площадка: плита толщиной st на высоте H1, план
 	// [landingX0, landingX0+W]×[0, 2W], роль "landing".
-	landing, err := buildLanding(w, landingY, landingX0, h1, st)
+	noseR := noseRadiusFor(cfg)
+	landing, err := buildLanding(w, landingY, landingX0, h1, st,
+		landingRoundSide(cfg.Direction == engineering.TurnLeft), noseR)
 	if err != nil {
 		return nil, err
 	}
@@ -524,48 +533,74 @@ func pushDistinct(section []kerngeo.Point3, p kerngeo.Point3) []kerngeo.Point3 {
 	return append(section, p)
 }
 
-// treadSection строит сечение проступи в плоскости XZ для вытягивания вдоль
-// ширины: прямоугольник x0..x1, z..z+st, у которого передний верхний угол
-// (нос) скруглён дугой радиуса r.
+// roundSide — какая верхняя кромка плиты скругляется: +1 — по x = x1
+// (передняя), −1 — по x = x0 (задняя), 0 — не скруглять.
+type roundSide int
+
+const (
+	roundNone  roundSide = 0
+	roundFront roundSide = 1
+	roundBack  roundSide = -1
+)
+
+// plateSection строит сечение плиты в плоскости XZ для вытягивания вдоль
+// ширины: прямоугольник x0..x1, z..z+thickness, у которого ОДИН верхний угол
+// скруглён дугой радиуса r. Таких плит две — проступь (нос по x1) и площадка
+// (внешняя кромка, см. landingRoundSide), поэтому хелпер общий.
 //
-// При r ≤ 0 возвращается обычный прямоугольник — то же тело, что и до
-// появления фасок, поэтому металлическая лестница не меняется ни на миллиметр.
-func treadSection(x0, x1, zBottom, thickness, r float64) ([]kerngeo.Point3, error) {
+// Точки перечислены В ПОРЯДКЕ ОБХОДА КОНТУРА: снизу вверх по левому краю,
+// вдоль низа, вверх по правому краю, вдоль верха, снова вниз. Порядок важен
+// не для красоты: он определяет ориентацию граней тела, а несогласованный
+// контур (например, если начать с угла и вернуться назад) даёт
+// «polygon is not simple» в триангуляции.
+//
+// При r ≤ 0 или side == roundNone возвращается обычный прямоугольник — то же
+// тело, что и до появления фасок, поэтому металлическая лестница не меняется
+// ни на миллиметр.
+func plateSection(x0, x1, zBottom, thickness, r float64, side roundSide) ([]kerngeo.Point3, error) {
 	zTop := zBottom + thickness
-	corner := kerngeo.NewPoint3(x1, 0, zTop)
-	if r <= kerngeo.Precision {
-		return []kerngeo.Point3{
-			kerngeo.NewPoint3(x0, 0, zBottom),
-			kerngeo.NewPoint3(x1, 0, zBottom),
-			corner,
-			kerngeo.NewPoint3(x0, 0, zTop),
-		}, nil
+	pt := func(x, z float64) kerngeo.Point3 { return kerngeo.NewPoint3(x, 0, z) }
+
+	if r <= kerngeo.Precision || side == roundNone {
+		return []kerngeo.Point3{pt(x0, zBottom), pt(x1, zBottom), pt(x1, zTop), pt(x0, zTop)}, nil
 	}
-	// Угол 90°: точки касания отстоят от угла на r, поэтому скругление
-	// съедает r по передней грани вниз и r по верхней грани назад.
-	arc, err := kerngeo.RoundCorner(
-		kerngeo.NewPoint3(x1, 0, zBottom), // вверх по передней грани
-		corner,
-		kerngeo.NewPoint3(x0, 0, zTop), // назад по верхней грани
-		r, noseArcSegments,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("geometry: tread nose rounding: %w", err)
+	// Точка касания не должна уйти за противоположную грань: по боковой — это
+	// r ≤ толщины (при r = толщина нос становится полукруглым и боковая грань
+	// схлопывается в точку, что pushDistinct и обрабатывает), по верхней —
+	// r ≤ длины плиты.
+	if r > thickness+kerngeo.Precision || r > (x1-x0)+kerngeo.Precision {
+		return nil, fmt.Errorf("geometry: plate rounding radius %v does not fit %vx%v plate", r, x1-x0, thickness)
 	}
-	section := []kerngeo.Point3{}
-	section = pushDistinct(section, kerngeo.NewPoint3(x0, 0, zBottom))
-	section = pushDistinct(section, kerngeo.NewPoint3(x1, 0, zBottom))
-	// Точка касания на передней грани. При r = st она совпадает с нижним
-	// передним углом, и pushDistinct её отбрасывает: иначе в профиле появляются
-	// две одинаковые точки, ребро вырождается, и тело перестаёт быть manifold
-	// (GEO-SOLID-NON-MANIFOLD: на ребро претендуют 4 грани).
-	section = pushDistinct(section, kerngeo.NewPoint3(x1, 0, zTop-r))
-	for _, p := range arc {
-		section = pushDistinct(section, p)
+
+	section := []kerngeo.Point3{pt(x0, zBottom), pt(x1, zBottom)}
+	switch side {
+	case roundFront:
+		// Идём вверх по правой грани, дуга в левый верхний угол, затем по верху
+		// назад к x0. Дуга идёт ОТ грани К верху — так соответствует обходу.
+		arc, err := kerngeo.RoundCorner(pt(x1, zBottom), pt(x1, zTop), pt(x0, zTop), r, noseArcSegments)
+		if err != nil {
+			return nil, fmt.Errorf("geometry: plate corner rounding: %w", err)
+		}
+		section = pushDistinct(section, pt(x1, zTop-r))
+		for _, p := range arc {
+			section = pushDistinct(section, p)
+		}
+		section = pushDistinct(section, pt(x1-r, zTop))
+	case roundBack:
+		// Симметрично: вверх по правой грани до угла, по верху влево, дуга в
+		// левый верхний угол, вниз к x0.
+		arc, err := kerngeo.RoundCorner(pt(x1, zTop), pt(x0, zTop), pt(x0, zBottom), r, noseArcSegments)
+		if err != nil {
+			return nil, fmt.Errorf("geometry: plate corner rounding: %w", err)
+		}
+		section = pushDistinct(section, pt(x1, zTop))
+		section = pushDistinct(section, pt(x0+r, zTop))
+		for _, p := range arc {
+			section = pushDistinct(section, p)
+		}
+		section = pushDistinct(section, pt(x0, zTop-r))
 	}
-	// Точка касания на верхней грани и задний верхний угол.
-	section = pushDistinct(section, kerngeo.NewPoint3(x1-r, 0, zTop))
-	section = pushDistinct(section, kerngeo.NewPoint3(x0, 0, zTop))
+	section = pushDistinct(section, pt(x0, zTop))
 	return section, nil
 }
 
@@ -573,18 +608,38 @@ func treadSection(x0, x1, zBottom, thickness, r float64) ([]kerngeo.Point3, erro
 // площадки толщиной st с верхней гранью на уровне h1 (EDR-0005 §4.8):
 // план [x0, x0+w] × [0, Wp] — ширина марша W вдоль +X, ширина площадки
 // Wp вдоль +Y.
-func buildLanding(w, wp, x0, h1, st float64) (*kerngeo.Solid, error) {
-	p := []kerngeo.Point3{
-		kerngeo.NewPoint3(x0, 0, h1-st),
-		kerngeo.NewPoint3(x0+w, 0, h1-st),
-		kerngeo.NewPoint3(x0+w, wp, h1-st),
-		kerngeo.NewPoint3(x0, wp, h1-st),
+// buildLanding строит площадку — плиту x0..x0+w × 0..wp толщиной st с
+// верхом на уровне h1.
+//
+// side задаёт, какая из двух кромок вдоль X скругляется: та, что свободна.
+// Кромка y = wp всегда занята верхним маршем, а кромка y = 0 идёт вдоль
+// внешнего края поворота, но она перпендикулярна скругляемой, и две
+// перпендикулярные скруглённые кромки полиэдральная модель (Solid из плоских
+// граней) не выражает: для этого нужны две независимые операции над рёбрами.
+// Поэтому скругляется одна — та, что видна из комнаты.
+func buildLanding(w, wp, x0, h1, st float64, side roundSide, r float64) (*kerngeo.Solid, error) {
+	if r > st {
+		r = st
 	}
-	solid, err := kerngeo.Extrude(p, kerngeo.NewVector3(0, 0, 1), st)
+	section, err := plateSection(x0, x0+w, h1-st, st, r, side)
+	if err != nil {
+		return nil, fmt.Errorf("geometry: landing: %w", err)
+	}
+	solid, err := kerngeo.Extrude(section, kerngeo.NewVector3(0, 1, 0), wp)
 	if err != nil {
 		return nil, fmt.Errorf("geometry: landing: %w", err)
 	}
 	return solid.WithRole("landing"), nil
+}
+
+// landingRoundSide определяет, какая кромка площадки свободна. Марши
+// примыкают к площадке с одной стороны по X, поэтому вторая кромка (дальняя
+// от поворота) — внешняя, и её скругляют.
+func landingRoundSide(left bool) roundSide {
+	if left {
+		return roundBack
+	}
+	return roundFront
 }
 
 func validateFlight(cfg *engineering.StairConfiguration) error {

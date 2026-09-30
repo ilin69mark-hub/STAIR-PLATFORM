@@ -519,8 +519,16 @@ func TestMillingFeaturesCountLShapeBothSegments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.MillingFeatures) != 1 {
-		t.Fatalf("features = %d, want 1", len(res.MillingFeatures))
+	// L-марш: две детали под фрезеровку — ступени обеих сегментов и площадка.
+	if len(res.MillingFeatures) != 2 {
+		t.Fatalf("features = %d, want 2 (treads + landing)", len(res.MillingFeatures))
+	}
+	byRole := map[string]MillingFeature{}
+	for _, f := range res.MillingFeatures {
+		byRole[f.Role] = f
+	}
+	if _, ok := byRole["landing"]; !ok {
+		t.Fatalf("L-shaped flight must mill its landing: %+v", res.MillingFeatures)
 	}
 	treads := 0
 	for _, s := range res.Model.Solids() {
@@ -528,10 +536,112 @@ func TestMillingFeaturesCountLShapeBothSegments(t *testing.T) {
 			treads++
 		}
 	}
-	if got := res.MillingFeatures[0].Quantity; got != treads {
+	if got := byRole["tread"].Quantity; got != treads {
 		t.Fatalf("quantity = %d, want %d (tread solids in the model)", got, treads)
 	}
 	if treads == 0 {
 		t.Fatal("L-shaped flight must have treads")
+	}
+}
+
+// --- Фаска на площадке --------------------------------------------------------
+//
+// Площадка — та же плита, что и проступь, и скругляется тем же радиусом из
+// материала ступеней. Кромка, которой примыкает верхний марш, не трогается:
+// она не видна и не фрезеруется.
+
+func lShapeConfig(t *testing.T, left bool) *engineering.StairConfiguration {
+	t.Helper()
+	cfg, err := engineering.NewStairConfiguration(
+		mustLength(t, 900), mustLength(t, 2700), engineering.FlightLShape)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.StepCount = 15
+	cfg.LowerStepCount = 6
+	cfg.StepHeight = mustLength(t, 180)
+	cfg.TreadDepth = mustLength(t, 270)
+	cfg.StringerThickness = mustLength(t, 50)
+	cfg.StepThickness = mustLength(t, 40)
+	cfg.LandingWidth = mustLength(t, 900)
+	cfg.Riser = true
+	cfg.TreadNoseRadiusMM = engineering.Length(8)
+	if left {
+		cfg.Direction = engineering.TurnLeft
+	}
+	return cfg
+}
+
+func TestLandingIsChamferedOnFreeEdge(t *testing.T) {
+	for _, left := range []bool{false, true} {
+		name := "правый поворот"
+		if left {
+			name = "левый поворот"
+		}
+		cfg := lShapeConfig(t, left)
+		res, err := Generate(context.Background(), cfg)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		var landingTris int
+		for _, pr := range res.Mesh.PartRanges {
+			if pr.Role == "landing" {
+				landingTris = pr.End - pr.Start
+			}
+		}
+		// Прямоугольная площадка — 12 треугольников (4 точки сечения: 2 крышки
+		// по 2 + 4 боковые грани по 2). Скругление добавляет 11 точек дуги.
+		if landingTris <= 12 {
+			t.Fatalf("%s: landing has %d triangles — the chamfer is missing", name, landingTris)
+		}
+		// Площадка с фаской должна быть корректным телом, иначе
+		// manufacturing отвергает весь расчёт.
+		for _, is := range res.Issues {
+			if is.Severity == kerngeo.SeverityError {
+				t.Fatalf("%s: %s: %s", name, is.Code, is.Message)
+			}
+		}
+	}
+}
+
+func TestLandingChamferReducesVolumeNotBoundingBox(t *testing.T) {
+	cfg := lShapeConfig(t, false)
+	withChamfer, err := Generate(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := *cfg
+	plain.TreadNoseRadiusMM = 0
+	without, err := Generate(context.Background(), &plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withChamfer.Measurement.Volume >= without.Measurement.Volume {
+		t.Fatalf("chamfered volume %v must be less than %v",
+			withChamfer.Measurement.Volume, without.Measurement.Volume)
+	}
+	b1 := withChamfer.Measurement.BoundingBox
+	b2 := without.Measurement.BoundingBox
+	if b1.Min.Sub(b2.Min).Norm() > 1e-6 || b1.Max.Sub(b2.Max).Norm() > 1e-6 {
+		t.Fatal("chamfer must not change the bounding box")
+	}
+}
+
+func TestSteelLandingHasNoChamfer(t *testing.T) {
+	cfg := lShapeConfig(t, false)
+	cfg.TreadNoseRadiusMM = 0
+	res, err := Generate(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pr := range res.Mesh.PartRanges {
+		if pr.Role == "landing" {
+			if got := pr.End - pr.Start; got != 12 {
+				t.Fatalf("square landing has %d triangles, want 12 (plain rectangle)", got)
+			}
+		}
+	}
+	if len(res.MillingFeatures) != 0 {
+		t.Fatalf("no chamfer means no milling, got %+v", res.MillingFeatures)
 	}
 }
