@@ -27,7 +27,15 @@ func DefaultMaterialRegistry() (*dommfg.MaterialRegistry, error) {
 		reg, err := dommfg.NewMaterialRegistry(
 			&dommfg.Material{
 				Code: "STEEL-S235", Name: "Structural Steel S235", NameRu: "Сталь S235", Category: "Steel",
-				Density: 7850, MinThickness: 2, MaxThickness: 60,
+				// Выпуск лазерного раскроя 3–8 мм (тот же диапазон, что
+				// отдаёт конфигуратор в fieldRules.stepThicknessMM).
+				//
+				// Раньше стояло 2–60, и это позволяло считать сталью любую
+				// деталь: 40-миллиметровая ступень или 50-миллиметровый
+				// косоур проходили как сталь, а потом и оплачивались как
+				// стальной блок. Диапазон сузили до выпуска: деталь толще
+				// 8 мм из стали не существует.
+				Density: 7850, MinThickness: 3, MaxThickness: 8,
 				// Энвелоп MFG-0012: крупнейший лист 10400×6200 покрывает
 				// косоур до H≈6000, проступи до ширины W=3000 (лист 6000×3000).
 				MaxWidthMm: 3000, MaxHeightMm: 6000,

@@ -44,10 +44,10 @@ func TestPublicQuoteSuccess(t *testing.T) {
 	if resp.Pricing == nil {
 		t.Fatal("pricing must be present for non-blocking result")
 	}
-	// Стальной марш 16 ступеней, 473 кг: см. service_test на происхождение
-	// значения (заготовка — лист лазерного раскроя, а не габаритный блок).
-	if resp.Pricing.FinalPriceRub != 234751.18 {
-		t.Fatalf("final price = %v, want 234751.18", resp.Pricing.FinalPriceRub)
+	// Стальной марш 16 ступеней: см. service_test на происхождение значения
+	// (заготовка — лист лазерного раскроя, а не габаритный блок).
+	if resp.Pricing.FinalPriceRub != 277814.63 {
+		t.Fatalf("final price = %v, want 277814.63", resp.Pricing.FinalPriceRub)
 	}
 
 	// Габаритная ширина марша приходит из конфигурации.
@@ -56,7 +56,8 @@ func TestPublicQuoteSuccess(t *testing.T) {
 	}
 
 	// Эхо производственных параметров для 2D-рендера (BC-002).
-	if resp.Flight.StepThicknessMm != 40 || resp.Flight.RailingHeightMm != 1000 || !resp.Flight.Riser || resp.Flight.StringerThicknessMm != 50 {
+	// Сталь: обе детали — лист лазерного раскроя 3–8 мм.
+	if resp.Flight.StepThicknessMm != 6 || resp.Flight.RailingHeightMm != 1000 || !resp.Flight.Riser || resp.Flight.StringerThicknessMm != 8 {
 		t.Fatalf("flight echo mismatch: %+v", resp.Flight)
 	}
 
@@ -148,7 +149,7 @@ func TestPublicQuoteBlocking(t *testing.T) {
 		"height_mm": 2700,
 		"flight": "straight",
 		"step_height_mm": 10,
-		"stringer_thickness_mm": 50,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
@@ -178,7 +179,7 @@ func TestPublicQuoteBlockingCarriesAdvice(t *testing.T) {
 		"height_mm": 2700,
 		"flight": "straight",
 		"step_height_mm": 10,
-		"stringer_thickness_mm": 50,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
@@ -238,7 +239,7 @@ func TestPublicQuoteAngleCarriesVariations(t *testing.T) {
 		"height_mm": 2700,
 		"flight": "straight",
 		"step_height_mm": 10,
-		"stringer_thickness_mm": 50,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
@@ -287,7 +288,7 @@ func TestPublicQuoteLShapeLandingNarrowAdvisory(t *testing.T) {
 		"landing_width_mm": 1200,
 		"lower_step_count": 6,
 		"step_height_mm": 180,
-		"stringer_thickness_mm": 50,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
@@ -333,7 +334,7 @@ func TestPublicQuoteTallFlightSucceeds(t *testing.T) {
 		"height_mm": 6000,
 		"flight": "straight",
 		"step_height_mm": 180,
-		"stringer_thickness_mm": 50,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
@@ -369,7 +370,7 @@ func TestPublicQuoteSpiralTemporarilyDisabled(t *testing.T) {
 		"flight": "spiral",
 		"outer_radius_mm": 3100,
 		"step_height_mm": 190,
-		"stringer_thickness_mm": 50,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2300,
 		"railing_height_mm": 1100
@@ -385,14 +386,21 @@ func TestPublicQuoteSpiralTemporarilyDisabled(t *testing.T) {
 }
 
 func woodJSON(material string) string {
+	// Толщины деталей зависят от материала: сталь режется листом 3–8 мм, дерево
+	// пилится из доски 20–60 мм. Один набор на оба материала давал 422
+	// MFG-MATERIAL на дубе (40 мм ступени при стали / 8 мм косоура при дубе).
+	stringerT, stepT := 8, 6
+	if material != "STEEL-S235" {
+		stringerT, stepT = 50, 40
+	}
 	return `{
 		"width_mm": 900,
 		"height_mm": 2700,
 		"flight": "straight",
 		"material": "` + material + `",
 		"step_height_mm": 180,
-		"stringer_thickness_mm": 50,
-		"step_thickness_mm": 40,
+		"stringer_thickness_mm": ` + strconv.Itoa(stringerT) + `,
+		"step_thickness_mm": ` + strconv.Itoa(stepT) + `,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
 	}`
@@ -441,7 +449,7 @@ func TestPublicQuoteMaterialThicknessBlocked(t *testing.T) {
 		"flight": "straight",
 		"material": "WOOD-OAK",
 		"step_height_mm": 180,
-		"stringer_thickness_mm": 150,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
@@ -490,7 +498,7 @@ func TestPublicQuoteAngle_UserScenario(t *testing.T) {
 			name: "straight",
 			body: `{
 				"width_mm": 1000, "height_mm": 3000, "flight": "straight",
-				"step_height_mm": 158, "stringer_thickness_mm": 50,
+				"step_height_mm": 158, "stringer_thickness_mm": 8,
 				"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 900
 			}`,
 		},
@@ -499,7 +507,7 @@ func TestPublicQuoteAngle_UserScenario(t *testing.T) {
 			body: `{
 				"width_mm": 1000, "height_mm": 3000, "flight": "l_shape",
 				"landing_width_mm": 1200, "landing_depth_mm": 1500, "lower_step_count": 6,
-				"step_height_mm": 158, "stringer_thickness_mm": 50,
+				"step_height_mm": 158, "stringer_thickness_mm": 8,
 				"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 900
 			}`,
 		},
@@ -508,7 +516,7 @@ func TestPublicQuoteAngle_UserScenario(t *testing.T) {
 			body: `{
 				"width_mm": 1000, "height_mm": 3000, "flight": "u_shape",
 				"landing_width_mm": 1200, "landing_depth_mm": 1500, "lower_step_count": 6,
-				"step_height_mm": 158, "stringer_thickness_mm": 50,
+				"step_height_mm": 158, "stringer_thickness_mm": 8,
 				"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 900
 			}`,
 		},

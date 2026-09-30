@@ -114,7 +114,7 @@ func TestDOM001_CalculateAcceptsTurnKindAndWinderCount(t *testing.T) {
 	body := `{
 		"width_mm": 900, "height_mm": 2700, "flight": "u_shape",
 		"landing_width_mm": 1000, "landing_depth_mm": 1000, "lower_step_count": 6,
-		"step_height_mm": 180, "stringer_thickness_mm": 50, "step_thickness_mm": 40,
+		"step_height_mm": 180, "stringer_thickness_mm": 8, "step_thickness_mm": 40,
 		"clearance_mm": 2000, "railing_height_mm": 900, "riser": true,
 		"turn_kind": "winder", "winder_count": 3,
 		"room_width_mm": 0, "room_length_mm": 0, "approach_space_mm": 1000
@@ -151,12 +151,12 @@ func TestDOM001_CalculateAcceptsTurnKindAndWinderCount(t *testing.T) {
 func TestDOM001_InvalidTurnKindRejected(t *testing.T) {
 	for name, body := range map[string]string{
 		"unknown turn_kind": `{"width_mm":1000,"height_mm":2700,"flight":"l_shape",
-			"step_height_mm":150,"stringer_thickness_mm":50,"step_thickness_mm":6,
+			"step_height_mm":150,"stringer_thickness_mm":8,"step_thickness_mm":6,
 			"riser":true,"clearance_mm":80,"railing_height_mm":900,
 			"landing_width_mm":1000,"landing_depth_mm":1000,"turn_kind":"spiral"}`,
 		"winder without count": `{"width_mm":900,"height_mm":2700,"flight":"u_shape",
 			"landing_width_mm":1000,"landing_depth_mm":1000,"lower_step_count":6,
-			"step_height_mm":180,"stringer_thickness_mm":50,"step_thickness_mm":40,
+			"step_height_mm":180,"stringer_thickness_mm":8,"step_thickness_mm":40,
 			"clearance_mm":2000,"railing_height_mm":900,"riser":true,
 			"turn_kind":"winder","winder_count":0}`,
 	} {

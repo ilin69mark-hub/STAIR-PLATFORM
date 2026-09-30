@@ -18,12 +18,16 @@ func standard() *constraint.ConstraintSet {
 // inStraight — типовой вход советника для прямого марша.
 func inStraight(h, h0 float64) Input {
 	return Input{
-		Flight:          engineering.FlightStraight,
-		HeightMm:        h,
-		TargetStepMm:    h0,
-		ComfortMm:       solver.DefaultComfortStep,
-		ClearanceMm:     2100,
-		RailingMm:       900,
+		Flight:       engineering.FlightStraight,
+		HeightMm:     h,
+		TargetStepMm: h0,
+		ComfortMm:    solver.DefaultComfortStep,
+		ClearanceMm:  2100,
+		RailingMm:    900,
+		// Материал задан явно: без него он выводится из толщины косоура, и
+		// после сужения стали до выпуска 3–8 мм толщина 40 мм стала означать
+		// дуб — советник молча советовал бы по дубовому листу 9000×4600.
+		Material:        "STEEL-S235",
 		StringerThickMm: 40,
 	}
 }
@@ -330,8 +334,12 @@ func TestManufacturingIssueMaterialGuide(t *testing.T) {
 	if !strings.Contains(iss.Guide, "9000×4600") || strings.Contains(iss.Guide, "10400×6200") {
 		t.Fatalf("oak guide must reference largest oak sheet, got %q", iss.Guide)
 	}
-	// Без выбора материала — сталь (макс. 10400×6200).
+	// Без выбора материала — сталь (макс. 10400×6200). Чтобы подсказка так и
+	// работала, толщина косоура должна быть из СТАЛЬНОГО выпуска 3–8 мм:
+	// без материала он выводится по толщине, и 40 мм после сужения стали
+	// означают дуб.
 	in.Material = ""
+	in.StringerThickMm = 8
 	iss = manufacturingIssue(in, worst)
 	if !strings.Contains(iss.Guide, "10400×6200") {
 		t.Fatalf("steel guide must reference 10400×6200, got %q", iss.Guide)
@@ -360,6 +368,7 @@ func inSpiral(w, r float64) Input {
 		OuterRadiusMm:   r,
 		ClearanceMm:     2300,
 		RailingMm:       1100,
+		Material:        "STEEL-S235",
 		StringerThickMm: 40,
 	}
 }

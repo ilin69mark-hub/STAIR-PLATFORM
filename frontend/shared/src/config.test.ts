@@ -231,12 +231,18 @@ describe('validateForm', () => {
     expect(validateForm({ ...defaultConfig, widthMM: '3000' }).widthMM).toBeUndefined()
   })
 
-  it('косоур не бывает толще лимита материала', () => {
-    expect(validateForm({ ...defaultConfig, stringerThicknessMM: '61' }).stringerThicknessMM).toBe(
-      'Не более 60',
+  it('косоур из стали ограничен выпуском листа 3–8 мм', () => {
+    // Сталь — лазерный раскрой: и косоур, и ступень режутся из листа 3–8 мм.
+    // Раньше предел косоура был 60 мм, и стальной косоур 50 мм проходил
+    // форму, но отвергался сервером (MFG-MATERIAL).
+    expect(validateForm({ ...defaultConfig, stringerThicknessMM: '9' }).stringerThicknessMM).toBe(
+      'Не более 8',
     )
     expect(
       validateForm({ ...defaultConfig, stringerThicknessMM: '50' }).stringerThicknessMM,
+    ).toBe('Не более 8')
+    expect(
+      validateForm({ ...defaultConfig, stringerThicknessMM: '8' }).stringerThicknessMM,
     ).toBeUndefined()
   })
 })

@@ -22,6 +22,12 @@ func lshapeConfig(t *testing.T) *engineering.StairConfiguration {
 	cfg.StepHeight = mustLength(t, 180)
 	cfg.TreadDepth = mustLength(t, 270)
 	cfg.StringerThickness = mustLength(t, 50)
+	// Материал задаём ЯВНО. Раньше он выводился из толщины: 50 мм подходили
+	// стали (диапазон 2–60), и тесты молча проверяли стальной марш на
+	// конфигурации без материала. С выходом стали на выпуск 3–8 мм такой
+	// вывод стал давать дуб, и тесты проверяли бы не то.
+	cfg.Material = "STEEL-S235"
+	cfg.TreadMaterial = "STEEL-S235"
 	cfg.StepThickness = mustLength(t, 40)
 	cfg.LowerStepCount = 6
 	cfg.LandingWidth = mustLength(t, 1000)

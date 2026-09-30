@@ -13,7 +13,7 @@ import (
 func TestPublicSpiralTemporarilyDisabled(t *testing.T) {
 	body := `{
 		"width_mm": 900, "height_mm": 2800, "flight": "spiral", "material": "STEEL-S235",
-		"step_height_mm": 175, "step_thickness_mm": 6, "stringer_thickness_mm": 50,
+		"step_height_mm": 175, "step_thickness_mm": 6, "stringer_thickness_mm": 8,
 		"clearance_mm": 2000, "railing_height_mm": 900, "outer_radius_mm": 1200
 	}`
 	for _, path := range []string{"/api/v1/public/stairs:quote", "/api/v1/public/stairs:validate"} {
@@ -35,7 +35,7 @@ func TestPublicSpiralTemporarilyDisabled(t *testing.T) {
 func TestInternalCalculateStillAcceptsSpiral(t *testing.T) {
 	body := `{
 		"width_mm": 900, "height_mm": 2800, "flight": "spiral", "material": "STEEL-S235",
-		"step_height_mm": 175, "step_thickness_mm": 6, "stringer_thickness_mm": 50,
+		"step_height_mm": 175, "step_thickness_mm": 6, "stringer_thickness_mm": 8,
 		"clearance_mm": 2000, "railing_height_mm": 900, "outer_radius_mm": 1200
 	}`
 	rec := httptest.NewRecorder()
@@ -51,7 +51,7 @@ func TestInternalCalculateStillAcceptsSpiral(t *testing.T) {
 func TestPublicQuoteDropsSpiralVariations(t *testing.T) {
 	body := `{
 		"width_mm": 1100, "height_mm": 2700, "flight": "straight", "material": "STEEL-S235",
-		"step_height_mm": 168, "step_thickness_mm": 6, "stringer_thickness_mm": 50,
+		"step_height_mm": 168, "step_thickness_mm": 6, "stringer_thickness_mm": 8,
 		"riser": true, "clearance_mm": 2000, "railing_height_mm": 900,
 		"room_width_mm": 4500, "room_length_mm": 900
 	}`

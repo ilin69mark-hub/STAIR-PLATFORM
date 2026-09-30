@@ -24,6 +24,10 @@ func spiralConfig(t *testing.T) *engineering.StairConfiguration {
 		StringerThickness: mustLength(t, 50),
 		StepThickness:     mustLength(t, 40),
 		OuterRadius:       mustLength(t, 800),
+		// Материал явно: иначе детали выводятся из толщины, а с сужением
+		// стали до выпуска 3–8 мм спираль проверялась бы как дуб.
+		Material:      "STEEL-S235",
+		TreadMaterial: "STEEL-S235",
 	}
 }
 

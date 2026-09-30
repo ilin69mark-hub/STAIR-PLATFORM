@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"stairplatform/internal/application/stair"
+	"stairplatform/internal/domain/engineering"
 	kerngeo "stairplatform/internal/geometry"
 )
 
@@ -23,6 +24,8 @@ func woodTreads() stair.Config {
 	cfg := testConfig()
 	cfg.Material = "STEEL-S235"
 	cfg.TreadMaterial = "WOOD-OAK"
+	// Проступь из дуба пилится из доски 20–60 мм; эталонные 6 мм — стальные.
+	cfg.StepThickness = engineering.Length(40)
 	cfg.Riser = true
 	return cfg
 }

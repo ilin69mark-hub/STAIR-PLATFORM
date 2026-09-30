@@ -16,6 +16,8 @@ func woodStairConfig() Config {
 	cfg := referenceConfig()
 	cfg.Material = "STEEL-S235" // каркас стальной
 	cfg.TreadMaterial = "WOOD-OAK"
+	// Проступь из дуба пилится из доски 20–60 мм; эталонные 6 мм — стальные.
+	cfg.StepThickness = mustLengthHelper(40)
 	return cfg
 }
 
@@ -23,6 +25,11 @@ func metalStairConfig() Config {
 	cfg := referenceConfig()
 	cfg.Material = "STEEL-S235"
 	cfg.TreadMaterial = "STEEL-S235"
+	// Ступень из стали — тоже лист лазерного раскроя: 3–8 мм. Со
+	// страницей эталона (40 мм, значение для дерева) расчёт блокировался
+	// MFG-MATERIAL, и Price приходил пустым. Раньше конфигурация была
+	// невозможной, но проходила: сталь принимала толщину до 60 мм.
+	cfg.StepThickness = mustLengthHelper(6)
 	return cfg
 }
 
@@ -122,6 +129,9 @@ func TestNoseRadiusDerivedFromTreadMaterialNotFrame(t *testing.T) {
 	allWood := woodStairConfig()
 	allWood.Material = "WOOD-OAK"
 	allWood.TreadMaterial = "WOOD-OAK"
+	// Косоур из дуба пилится из доски 20–60 мм: толщина эталона (8 мм) —
+	// стальная, и все-деревянная конфигурация с ней не проходит.
+	allWood.StringerThickness = mustLengthHelper(50)
 	woodFrame, err := s.Calculate(context.Background(), allWood, Options{})
 	if err != nil {
 		t.Fatal(err)

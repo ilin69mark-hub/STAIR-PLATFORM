@@ -51,8 +51,8 @@ const referenceJSON = `{
 	"height_mm": 2700,
 	"flight": "straight",
 	"step_height_mm": 180,
-	"stringer_thickness_mm": 50,
-	"step_thickness_mm": 40,
+	"stringer_thickness_mm": 8,
+	"step_thickness_mm": 6,
 	"riser": true,
 	"clearance_mm": 2500,
 	"railing_height_mm": 1000
@@ -64,7 +64,7 @@ func TestCalculateRailingAndDirectionEcho(t *testing.T) {
 		"height_mm": 2700,
 		"flight": "l_shape",
 		"step_height_mm": 180,
-		"stringer_thickness_mm": 50,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"riser": true,
 		"clearance_mm": 2500,
@@ -114,7 +114,7 @@ func TestCalculateSpiralAutoRailingEcho(t *testing.T) {
 			"height_mm": 2700,
 			"flight": "spiral",
 			"step_height_mm": 180,
-			"stringer_thickness_mm": 50,
+			"stringer_thickness_mm": 8,
 			"step_thickness_mm": 40,
 			"riser": true,
 			"clearance_mm": 2500,
@@ -151,7 +151,7 @@ func TestCalculateInvalidRailingRejected(t *testing.T) {
 		"height_mm": 2700,
 		"flight": "straight",
 		"step_height_mm": 180,
-		"stringer_thickness_mm": 50,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000,
@@ -193,13 +193,14 @@ func TestCalculateReference(t *testing.T) {
 	if resp.Flight.StepCount != 15 {
 		t.Fatalf("step count = %d, want 15", resp.Flight.StepCount)
 	}
-	if resp.Flight.StepThicknessMm != 40 || resp.Flight.RailingHeightMm != 1000 || !resp.Flight.Riser || resp.Flight.StringerThicknessMm != 50 {
+	// Сталь: обе детали — лист лазерного раскроя 3–8 мм.
+	if resp.Flight.StepThicknessMm != 6 || resp.Flight.RailingHeightMm != 1000 || !resp.Flight.Riser || resp.Flight.StringerThicknessMm != 8 {
 		t.Fatalf("flight echo mismatch: %+v", resp.Flight)
 	}
 	// Стальной марш 16 ступеней, 473 кг: см. service_test на происхождение
 	// значения (заготовка — лист лазерного раскроя, а не габаритный блок).
-	if resp.Pricing.FinalPriceRub != 234751.18 {
-		t.Fatalf("final price = %v, want 234751.18", resp.Pricing.FinalPriceRub)
+	if resp.Pricing.FinalPriceRub != 277814.63 {
+		t.Fatalf("final price = %v, want 277814.63", resp.Pricing.FinalPriceRub)
 	}
 	if len(resp.Manufacturing.Parts) == 0 || len(resp.Manufacturing.BOM) == 0 ||
 		len(resp.Manufacturing.CutList) == 0 || len(resp.Manufacturing.Nesting.Sheets) == 0 {
@@ -227,7 +228,7 @@ func TestCalculateBlocking(t *testing.T) {
 		"height_mm": 2700,
 		"flight": "straight",
 		"step_height_mm": 10,
-		"stringer_thickness_mm": 50,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
@@ -298,12 +299,19 @@ func TestSEC001_RateOverrideRejected_NewMaterial(t *testing.T) {
 	base := `{
 				"width_mm": 900, "height_mm": 2700, "flight": "straight",
 				"material": "%s",
-				"step_height_mm": 180, "stringer_thickness_mm": 50,
-				"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 1000`
+				"step_height_mm": 180, "stringer_thickness_mm": %d,
+				"step_thickness_mm": %d, "clearance_mm": 2500, "railing_height_mm": 1000`
 	for _, code := range codes {
+		// Толщины деталей зависят от материала: сталь режется листом 3–8 мм,
+		// дерево пилится из доски 20–60 мм. Один набор на всех не проходит:
+		// запрос с 40 мм при стали отвергается MFG-MATERIAL.
+		stringerT, stepT := 8, 6
+		if code != "STEEL-S235" {
+			stringerT, stepT = 50, 40
+		}
 		t.Run(code, func(t *testing.T) {
 			// 1. Без rates — 200, цена серверная и положительная.
-			plain := fmt.Sprintf(base, code) + "}"
+			plain := fmt.Sprintf(base, code, stringerT, stepT) + "}"
 			rec := httptest.NewRecorder()
 			testRouter().ServeHTTP(rec, authedRequest(http.MethodPost, "/api/v1/stairs:calculate", plain))
 			if rec.Code != http.StatusOK {
@@ -318,7 +326,7 @@ func TestSEC001_RateOverrideRejected_NewMaterial(t *testing.T) {
 			}
 
 			// 2. С попыткой подменить ставку — 422, цена не применяется.
-			evil := fmt.Sprintf(base, code) +
+			evil := fmt.Sprintf(base, code, stringerT, stepT) +
 				`, "rates": {"material_per_kg_rub": {"` + code + `": 9999}}}`
 			rec2 := httptest.NewRecorder()
 			testRouter().ServeHTTP(rec2, authedRequest(http.MethodPost, "/api/v1/stairs:calculate", evil))
@@ -343,12 +351,12 @@ func TestSEC001_RateOverrideRejected_NewMaterial(t *testing.T) {
 func TestSEC001_RateOverrideRejected_AllRates(t *testing.T) {
 	plain := `{
 		"width_mm": 900, "height_mm": 2700, "flight": "straight",
-		"step_height_mm": 180, "stringer_thickness_mm": 50,
+		"step_height_mm": 180, "stringer_thickness_mm": 8,
 		"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 1000
 	}`
 	evil := `{
 		"width_mm": 900, "height_mm": 2700, "flight": "straight",
-		"step_height_mm": 180, "stringer_thickness_mm": 50,
+		"step_height_mm": 180, "stringer_thickness_mm": 8,
 		"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 1000,
 		"rates": {
 			"material_per_kg_rub": {"STEEL-S235": 200},
@@ -363,7 +371,7 @@ func TestSEC001_RateOverrideRejected_AllRates(t *testing.T) {
 	// Обнуляющая атака из аудита 2026-09-26.
 	zero := `{
 		"width_mm": 900, "height_mm": 2700, "flight": "straight",
-		"step_height_mm": 180, "stringer_thickness_mm": 50,
+		"step_height_mm": 180, "stringer_thickness_mm": 8,
 		"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 1000,
 		"rates": {
 			"material_per_kg_rub": {"STEEL-S235": 0.01, "WOOD-OAK": 0.01,
@@ -452,7 +460,7 @@ func TestOptimizeTargetCost(t *testing.T) {
 		"height_mm": 2700,
 		"flight": "straight",
 		"step_height_mm": 180,
-		"stringer_thickness_mm": 50,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000,
@@ -491,7 +499,7 @@ func TestOptimizeNoValidCandidate(t *testing.T) {
 		"height_mm": 2700,
 		"flight": "straight",
 		"step_height_mm": 180,
-		"stringer_thickness_mm": 50,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000,
@@ -523,7 +531,7 @@ func TestOptimizeUnknownTarget(t *testing.T) {
 		"height_mm": 2700,
 		"flight": "straight",
 		"step_height_mm": 180,
-		"stringer_thickness_mm": 50,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000,

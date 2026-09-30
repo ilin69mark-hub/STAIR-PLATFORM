@@ -172,7 +172,9 @@ export const defaultConfig: ConfigForm = {
   flight: 'straight',
   material: 'STEEL-S235',
   stepHeightMM: '180',
-  stringerThicknessMM: '50',
+  // Стартовая комплектация витрины — стальной каркас, поэтому толщина
+  // косоура берётся из выпуска листа 3–8 мм, а не из деревянных 50.
+  stringerThicknessMM: '8',
   stepThicknessMM: '6',
   riser: true,
   clearanceMM: '80',
@@ -363,7 +365,10 @@ export const materialLimits: Record<
     widthMM: { max: 3000 },
     heightMM: { max: 6000 },
     stepThicknessMM: { min: 3, max: 8 },
-    stringerThicknessMM: { max: 60 },
+    // Косоур из стали — тоже лист лазерного раскроя, те же 3–8 мм. Раньше
+    // здесь стояло только «max: 60», и стальной косоур 50 мм уходил в
+    // расчёт, который сервер отвергал (MFG-MATERIAL).
+    stringerThicknessMM: { min: 3, max: 8 },
   },
   'WOOD-OAK': {
     widthMM: { max: 3000 },
