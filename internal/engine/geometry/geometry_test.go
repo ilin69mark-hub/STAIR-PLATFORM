@@ -719,3 +719,45 @@ func TestUVNotIdenticalOnNeighbouringTreads(t *testing.T) {
 		t.Fatal("neighbouring treads must not share the same UV (pattern would tile identically)")
 	}
 }
+
+// --- Габариты проступи после перехода на сечение -----------------------------
+//
+// Смена конструкции (экструзия сечения вдоль ширины вместо вертикальной
+// экструзии прямоугольника) не должна была изменить ни одного габарита: это
+// та же деталь, только с закруглённым носом. Проверяем числами, потому что на
+// рендере при невыразительном свете отличить «съехавшую ступень» от ракурса
+// невозможно.
+
+func TestTreadKeepsItsFootprint(t *testing.T) {
+	cfg := testConfig(t) // w=900, b=270, st=40, h=180, n=15
+	withNose := withNose(t, cfg, 8)
+	for _, c := range []struct {
+		name string
+		cfg  *engineering.StairConfiguration
+	}{{"прямой нос", cfg}, {"скруглённый нос", withNose}} {
+		model, err := BuildStraightFlight(c.cfg)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		solid := model.Solids()[firstTreadIndex()]
+		bb := kerngeo.SolidBoundingBox(solid)
+		w := 900.0
+		b := 270.0
+		st := 40.0
+		if got := bb.Max.Y - bb.Min.Y; math.Abs(got-w) > 1e-6 {
+			t.Fatalf("%s: ширина проступи %v, want %v", c.name, got, w)
+		}
+		// Глубина проступи = шаг + свес на толщину ступени (x0 = k·b − st).
+		if got := bb.Max.X - bb.Min.X; math.Abs(got-(b+st)) > 1e-6 {
+			t.Fatalf("%s: глубина проступи %v, want %v", c.name, got, b+st)
+		}
+		if got := bb.Max.Z - bb.Min.Z; math.Abs(got-st) > 1e-6 {
+			t.Fatalf("%s: толщина проступи %v, want %v", c.name, got, st)
+		}
+		// Проступь должна начинаться от пола минус толщина: первая ступень
+		// имеет свес st перед собой.
+		if got := bb.Min.X; math.Abs(got+st) > 1e-6 {
+			t.Fatalf("%s: первая ступень начинается с X=%v, want %v (свес)", c.name, got, -st)
+		}
+	}
+}
