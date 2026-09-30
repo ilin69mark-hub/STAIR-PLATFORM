@@ -65,6 +65,9 @@ describe('QuoteResult', () => {
     expect(screen.getByText(/Результат расчёта/)).toBeInTheDocument()
     expect(screen.getByText('15')).toBeInTheDocument()
     expect(screen.getByText('Предварительная цена')).toBeInTheDocument()
+    // Цена 18 ₽ в фикстуре — меньше тысячи, поэтому округление её не трогает
+    // (иначе получилось бы «0 ₽»). Крупные суммы округляются до тысячи:
+    // fmt.rubRough покрыт отдельным тестом в format.test.ts.
     expect(screen.getByText('18,00 ₽')).toBeInTheDocument()
   })
 

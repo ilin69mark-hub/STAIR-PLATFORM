@@ -307,7 +307,11 @@ export function QuoteResult({
         <section className="panel panel--result">
           <div className="price-box">
             <span className="price-label">Предварительная цена</span>
-            <span className="price-value">{fmt.rubMajor(pricing.final_price_rub)}</span>
+            {/* Округлённая сумма (fmt.rubRough, шаг 1000 ₽ вверх), а не
+                копеечная: предварительная оценка не должна выглядеть как
+                итог до рубля. Точную сумму подтверждает менеджер — об этом
+                прямо сказано в подписи ниже. */}
+            <span className="price-value">{fmt.rubRough(pricing.final_price_rub)}</span>
           </div>
           {/* Материал ступеней выбирается отдельно от каркаса, поэтому
               подпись «Материал» вводила в заблуждение: показываем, что

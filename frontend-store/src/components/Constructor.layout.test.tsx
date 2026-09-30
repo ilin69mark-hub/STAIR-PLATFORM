@@ -83,10 +83,18 @@ describe('компоновка панели конструктора', () => {
     expect(btn).toMatch(/font-size:\s*1[0-2]px/)
     // Селектор встречается дважды (высота и плотность) — берём тот блок,
     // где заданы отступы, иначе проверка ловит соседнее правило.
+    // Карточки результата склеены: отступы 8/10 и НУЛЕвой отступ между ними,
+    // иначе пять карточек требовали прокрутки ради последней.
     const cards = calc.match(/\.calc__rail \.panel--result\s*\{[^}]*\}/g) ?? []
-    expect(cards.some((b) => b.includes('padding: 10px 12px'))).toBe(true)
+    const glue = cards.find((b) => b.includes('padding')) ?? ''
+    expect(glue).toContain('padding: 8px 10px')
+    expect(glue).toContain('margin-top: 0')
+    // Цена по центру и компактная.
+    const priceBox = calc.match(/\.calc__rail \.panel--result \.price-box\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(priceBox).toContain('align-items: center')
+    expect(priceBox).toContain('text-align: center')
     const price = calc.match(/\.calc__rail \.panel--result \.price-box \.price-value\s*\{[^}]*\}/)?.[0] ?? ''
-    expect(price).toMatch(/font-size:\s*2\dpx/)
+    expect(price).toMatch(/font-size:\s*1[6-9]px/)
   })
 
   // Указатель «снизу есть ещё» обязан лежать ВНЕ прокручиваемого тела:

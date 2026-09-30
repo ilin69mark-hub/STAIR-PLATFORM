@@ -35,7 +35,11 @@ afterEach(() => {
 describe('Cabinet', () => {
   it('анонимум видит предложение войти', async () => {
     await renderWithAuth(<Cabinet />, null)
-    expect(await screen.findByRole('heading', { name: 'Вход' })).toBeInTheDocument()
+    // Заголовка «Вход» нет (владелец убрал: то же слово стоит на активной
+    // кнопке переключателя, и читалось дважды подряд) — форма опознаётся по
+    // самому переключателю.
+    expect(await screen.findByRole('button', { name: 'Вход' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Вход' })).not.toBeInTheDocument()
     expect(screen.queryByText('Мои заказы')).not.toBeInTheDocument()
   })
 
