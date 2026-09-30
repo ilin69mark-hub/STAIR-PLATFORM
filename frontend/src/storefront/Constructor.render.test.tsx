@@ -160,3 +160,52 @@ describe('Constructor: рендер без падения в ErrorBoundary', () 
     expect(screen.getByText('Отделка ступеней')).toBeTruthy()
   })
 })
+
+// Сворачиваемая панель параметров. Панель уезжает вбок, отдавая всю ширину
+// 3D-сцене, а ручка остаётся на кромке — вернуть панель можно всегда.
+describe('Constructor: панель параметров убирается и выдвигается', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  const railToggle = () => screen.getByRole('button', { name: 'Панель' })
+
+  it('ручка видна, панель раскрыта', () => {
+    render(<Constructor />)
+    const btn = railToggle()
+    expect(btn).toBeTruthy()
+    expect(btn.getAttribute('aria-expanded')).toBe('true')
+    expect(btn.getAttribute('aria-controls')).toBe('calc-rail')
+    expect(document.getElementById('calc-rail')).toBeTruthy()
+    expect(document.querySelector('.calc--rail-hidden')).toBeNull()
+  })
+
+  it('клик убирает панель и раскрывает обратно, состояние полей не теряется', () => {
+    render(<Constructor />)
+    const width = document.querySelector('input[type=text]') as HTMLInputElement
+    fireEvent.change(width, { target: { value: '1234' } })
+
+    fireEvent.click(railToggle())
+    expect(railToggle().getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('.calc')).toHaveClass('calc--rail-hidden')
+    // Панель не размонтирована — форма держит введённое, иначе сворачивание
+    // стирало бы расчёт настроек.
+    expect(document.getElementById('calc-rail')).toBeTruthy()
+    expect((document.querySelector('input[type=text]') as HTMLInputElement).value).toBe('1234')
+
+    fireEvent.click(railToggle())
+    expect(railToggle().getAttribute('aria-expanded')).toBe('true')
+    expect(document.querySelector('.calc--rail-hidden')).toBeNull()
+    expect((document.querySelector('input[type=text]') as HTMLInputElement).value).toBe('1234')
+  })
+
+  it('свёрнутая панель уходит из фокуса (inert), иначе Tab лезет в невидимые поля', () => {
+    render(<Constructor />)
+    const rail = document.getElementById('calc-rail') as HTMLElement
+    expect(rail.hasAttribute('inert')).toBe(false)
+    fireEvent.click(railToggle())
+    expect(rail.hasAttribute('inert')).toBe(true)
+    fireEvent.click(railToggle())
+    expect(rail.hasAttribute('inert')).toBe(false)
+  })
+})

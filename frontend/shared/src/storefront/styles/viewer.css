@@ -1,5 +1,14 @@
+/* Вьювер — колонка из полотна и строки управления. Именно колонка, а не блок:
+   в сплите калькулятора полотно задано height: 100% и без flex-раскладки
+   выдавливало строку управления (стены/выход/«Вернуть вид») за нижний край
+   вьювера, а тот обрезался по overflow: hidden — то есть тумблеры стен и
+   кнопка были в DOM, на экране их не было, и нажать их рукой было нельзя.
+   min-height: 0 обязателен, иначе flex-потомок не даёт ужаться. */
 .viewer {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   border: 1px solid var(--sp-border);
   border-radius: 12px;
   background: #fff;
@@ -7,6 +16,8 @@
 }
 
 .viewer__stage {
+  flex: 1 1 auto;
+  min-height: 0;
   width: 100%;
   height: 380px;
 }
@@ -51,12 +62,73 @@
   font-size: 0.8rem;
 }
 
-.viewer__hint {
-  margin: 0;
-  padding: 8px 12px;
-  border-top: 1px solid var(--sp-border);
+/* Подсказка про мышь (MouseHint). Решение владельца — «еле заметная»:
+   приглушена, не перехватывает указатель (pointer-events: none, иначе она
+   съедала бы первые пиксели сдвига) и ничего не занимает по высоте, потому
+   что лежит поверх полотна, а не под ним. Стоит в правом верхнем углу,
+   где не бывает HUD изделия (тот слева). */
+.viewer__mouse-hint {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
   color: var(--sp-muted);
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.2;
+  opacity: 0.62;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.viewer__mouse-hint__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.viewer__mouse-hint__key {
+  color: var(--sp-text);
+  font-weight: 600;
+}
+
+.viewer__mouse-hint__glyph {
+  flex: none;
+  width: 11px;
+  height: 15px;
+  color: var(--sp-text);
+}
+
+/* Узкое окно: подсказка налезала бы на изделие и на HUD слева. Там же
+   тач, где кнопки мыши не существуют. */
+@media (max-width: 700px) {
+  .viewer__mouse-hint {
+    display: none;
+  }
+}
+
+.viewer__reset-view {
+  flex: none;
+  align-self: center;
+  padding: 4px 9px;
+  border: 1px solid var(--sp-border);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--sp-muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.viewer__reset-view:hover {
+  color: var(--sp-primary);
+  border-color: var(--sp-primary);
 }
 
 .viewer__controls {

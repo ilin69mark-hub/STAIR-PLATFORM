@@ -149,6 +149,73 @@
   gap: 0;
   padding: var(--sp-gap);
   background: var(--sp-bg);
+  /* Панель уезжает вбок, а не исчезает: переход по ширине и прозрачности.
+     Без него переключение выглядело бы как «щёлкнул — полстолы пропало». */
+  transition:
+    flex-basis 0.26s ease,
+    padding 0.26s ease,
+    opacity 0.18s ease;
+}
+
+/* Убранная панель. Ширина в ноль, а не display: none — иначе сцена не
+   «выдвигается» на её место, а подпрыгивает. Внутри — inert (см. JSX),
+   поэтому скрытые поля не мешают клавиатурной навигации. */
+.calc--rail-hidden .calc__rail {
+  flex: 0 0 0;
+  padding-left: 0;
+  padding-right: 0;
+  opacity: 0;
+  overflow: hidden;
+}
+
+/* Границы между колонками на свёрнутой панели тоже лишние: кромка сцены
+   становится внешней стороной окна. */
+.calc--rail-hidden .calc__stage {
+  border-right: none;
+}
+
+/* Ручка панели на кромке сцены. */
+.calc__rail-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  /* translateY вместо margin: кнопка не должна смещать соседей и не
+     участвует в потоке колонки сцены. */
+  transform: translateY(-50%);
+  padding: 9px 6px 9px 8px;
+  border: 1px solid var(--sp-border);
+  border-right: none;
+  border-radius: 10px 0 0 10px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--sp-text);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: -2px 0 10px rgba(15, 23, 42, 0.08);
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.calc__rail-toggle:hover {
+  background: #fff;
+  box-shadow: -2px 0 14px rgba(15, 23, 42, 0.16);
+}
+
+.calc__rail-toggle__chevron {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.calc__rail-toggle__label {
+  /* Вертикальная надпись: на кромке шириной в 60px горизонтальное слово
+     «Панель» не поместилось бы, и ручка стала бы широкой полосой поверх
+     сцены. */
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  letter-spacing: 0.02em;
 }
 
 .calc__rail .panel {
@@ -360,6 +427,23 @@
     min-height: 560px;
     overflow-y: visible;
   }
+
+  /* Ручки панели в мобильной раскладке нет: там панель лежит ПОД сценой,
+     и убирать её вбок некуда — да и незачем, колонка и так прокручивается. */
+  .calc__rail-toggle {
+    display: none;
+  }
+
+  /* Раз ручки нет, панель обязана остаться на месте: иначе состояние
+     calc--rail-hidden (а его могли выставить до сужения окна) убрал бы
+     форму из мобильной раскладки навсегда. */
+  .calc--rail-hidden .calc__rail {
+    flex: 0 0 auto;
+    padding-left: var(--sp-gap);
+    padding-right: var(--sp-gap);
+    opacity: 1;
+    overflow-y: visible;
+  }
 }
 
 /* Сцена в сплите: заголовок не нужен — колонка и так называется задачей,
@@ -382,12 +466,6 @@
   flex: 1 1 auto;
   min-height: 0;
   height: 100%;
-}
-
-/* В сплите подсказку про вращение убираем: колонка узкая, надпись
-   перекрывала бы модель. */
-.scheme-3d--stage .viewer__hint {
-  display: none;
 }
 
 /* Пустая сцена до первого расчёта. */

@@ -1,5 +1,5 @@
 // 3D-вьювер геометрии (FE-0017, ENG-GEO-0008): отображение preview mesh
-// из снапшота. Вращение — ЛКМ, панорама — ПКМ/средняя, зум — колесо.
+// из снапшота. Сдвиг сцены — ЛКМ, вращение — ПКМ, зум к курсору — колесо.
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import * as THREE from 'three'
@@ -12,6 +12,7 @@ import { computePlacement } from '../placement'
 import { approachZoneCenterX, EXIT_BLOCK_H, exitSlabBox, exitWallSide, stairTopLineX, wallBox, wallBoundsOf, type Box3Like, type BoxSpec, type WallSide } from './layout'
 import { ANNOTATE, edgeColor, WALLS } from '../scheme-annot'
 import { createRailingMaterialForRole, createStairMaterial } from './materials'
+import { MouseHint } from './MouseHint'
 import {
   dragAxisIsHorizontal,
   dragComfortStep,
@@ -352,6 +353,10 @@ export function GeometryViewer({
   const applySelectionRef = useRef<(part: { solid: number; role: string } | null) => void>(
     () => {},
   )
+  // Посадка камеры для кнопки «Вернуть вид». Границ зума нет (решение
+  // владельца), поэтому сцену можно увести куда угодно и потерять изделие;
+  // вернуть его можно только той же посадкой, что и при сборке сцены.
+  const resetViewRef = useRef<(() => void) | null>(null)
   // Колбэки перетаскивания — в рефе: пересчёт меняет данные, сцена стабильна.
   const dragCallbacksRef = useRef({
     onDragPreview,
@@ -1105,15 +1110,22 @@ export function GeometryViewer({
     // просмотра изделия: рассмотреть узел вблизи было нельзя.
     // Направление взгляда — то же, что даёт привычный трёхчетвертной ракурс
     // (сверху, сбоку, спереди), только длина вектора считается от FOV.
-    const viewDir = new THREE.Vector3(radius * 1.4, radius * 1.2, radius * 1.6).normalize()
-    camera.position.copy(center).add(viewDir.multiplyScalar(fitDist))
-    controls.target.copy(center)
-    controls.update()
-
-    // Экономия CPU (P1-7): рендерим только при фактическом изменении, а не в
-    // постоянном цикле с фиксированной частотой. OrbitControls помечает
-    // needsRender при взаимодействии; в покое лишние кадры не генерируются.
+    //
+    // Экономия CPU (P1-7) объявлена ДО посадки: resetView уже дёргает
+    // needsRender, и объявление ниже давало бы Temporal Dead Zone.
     let needsRender = true
+    const viewDir = new THREE.Vector3(radius * 1.4, radius * 1.2, radius * 1.6).normalize()
+    const resetView = () => {
+      // viewDir копируем: сама посадка ниже умножает вектор на расстояние,
+      // а повторный вызов (кнопка «Вернуть вид») не должен укорачивать его.
+      camera.position.copy(center).add(viewDir.clone().multiplyScalar(fitDist))
+      controls.target.copy(center)
+      controls.update()
+      needsRender = true
+    }
+    resetView()
+    resetViewRef.current = resetView
+
     let lastCapture = 0
     const onChange = () => {
       needsRender = true
@@ -1429,6 +1441,8 @@ export function GeometryViewer({
       renderer.setAnimationLoop(null)
       detachPicking()
       ro.disconnect()
+      // Кнопка «Вернуть вид» не должна дёргать камеру снятой сцены.
+      resetViewRef.current = null
       controls.removeEventListener('change', onChange)
       controls.dispose()
       // IBL: рендертаргеты окружения и сам генератор. Эффект пересоздаётся
@@ -1514,7 +1528,12 @@ export function GeometryViewer({
 
   return (
     <div className="viewer">
-      <div className="viewer__stage" ref={containerRef} />
+      {/* Подсказка лежит ВНУТРИ полотна: она ничего не занимает по высоте,
+          то есть канвас не теряет ни пикселя, а полоса всегда висит в
+          верхней части окна сцены. */}
+      <div className="viewer__stage" ref={containerRef}>
+        <MouseHint />
+      </div>
       {overlay && <div className="viewer__overlay">{overlay}</div>}
       <div className="viewer__controls">
         <div className="viewer__walls" role="group" aria-label="Стены">
@@ -1548,8 +1567,15 @@ export function GeometryViewer({
           />
           <span>Выход на 2-й этаж</span>
         </label>
+        <button
+          type="button"
+          className="viewer__reset-view"
+          onClick={() => resetViewRef.current?.()}
+          title="Вернуть посадочный кадр"
+        >
+          Вернуть вид
+        </button>
       </div>
-      <p className="viewer__hint">Вращение — ЛКМ · панорама — ПКМ/средняя · зум — колесо</p>
     </div>
   )
 }

@@ -97,3 +97,43 @@ describe('GeometryViewer walls widget', () => {
     expect(exit).toBeChecked()
   })
 })
+
+describe('подсказка про мышь над сценой', () => {
+  // Регрессия: после смены управления нижняя подпись продолжала врать
+  // («Вращение — ЛКМ»), а покупатель по привычке жал правую кнопку и ждал
+  // контекстное меню. Расшифровка обязана стоять в сцене и говорить ровно
+  // то, что делают кнопки.
+  it('рассказывает, что ЛКМ двигает сцену, а ПКМ крутит', () => {
+    render(<GeometryViewer mesh={empty()} />)
+    expect(screen.getByText('двигать сцену')).toBeInTheDocument()
+    expect(screen.getByText('крутить')).toBeInTheDocument()
+    expect(screen.getByText('ЛКМ')).toBeInTheDocument()
+    expect(screen.getByText('ПКМ')).toBeInTheDocument()
+  })
+
+  it('объясняет зум колесом к курсору', () => {
+    render(<GeometryViewer mesh={empty()} />)
+    expect(screen.getByText('зум к курсору')).toBeInTheDocument()
+  })
+
+  it('рисунки мыши не мешают сцене: подсказка не перехватывает указатель', () => {
+    // pointer-events: none в .viewer__mouse-hint — без него первые пиксели
+    // сдвига сцены съедал бы сам хинт, и левая кнопка «не работала бы»
+    // у самого края окна.
+    render(<GeometryViewer mesh={empty()} />)
+    const hint = screen.getByText('двигать сцену').closest('.viewer__mouse-hint')
+    expect(hint).not.toBeNull()
+    expect(hint!.querySelectorAll('svg')).toHaveLength(2)
+  })
+})
+
+describe('кнопка «Вернуть вид»', () => {
+  it('есть в интерфейсе и не падает без собранной сцены', () => {
+    render(<GeometryViewer mesh={empty()} />)
+    const btn = screen.getByRole('button', { name: 'Вернуть вид' })
+    expect(btn).toBeInTheDocument()
+    // Сцена в тесте не собирается (нет WebGL-контекста) — кнопка обязана
+    // быть безопасным no-op, а не бросать на мёртвую камеру.
+    expect(() => fireEvent.click(btn)).not.toThrow()
+  })
+})

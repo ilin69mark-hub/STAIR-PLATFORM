@@ -351,6 +351,11 @@ export function Constructor() {
   // Предупреждение при расчёте без габаритов помещения + подсветка комнатных
   // полей, если пользователь выбрал «внести данные площади».
   const [roomPrompt, setRoomPrompt] = useState(false)
+  // Правая панель убирается в ноль (решение владельца): на широком экране
+  // 3D-сцене полезно отдать всю ширину, чтобы рассмотреть изделие целиком,
+  // а вернуть панель — одна кнопка на кромке сцены. Состояние полей при
+  // этом теряется только визуально: форма остаётся смонтированной.
+  const [railOpen, setRailOpen] = useState(true)
   // Вопрос «укажите размеры помещения» — самая частая точка, на которой
   // посетитель отваливается: нажал «Рассчитать» и ушёл, не ответив. По
   // отчёту без этого события он выглядит как «нажал и исчез», а на самом деле
@@ -1227,7 +1232,7 @@ export function Constructor() {
   ]
 
   return (
-    <div className="calc">
+    <div className={railOpen ? 'calc' : 'calc calc--rail-hidden'}>
       <div className="calc__stage">
         {hasMesh && quote && stageSolver ? (
           <Stage3D
@@ -1254,6 +1259,22 @@ export function Constructor() {
             <h2>3D-модель лестницы</h2>
           </div>
         )}
+        {/* Ручка панели. Живёт в колонке сцены, а не в панели: когда панель
+            убрана, ручка остаётся на экране — иначе вернуть её было бы
+            нечем, и 3D остался бы в режиме «навсегда всю ширину». */}
+        <button
+          type="button"
+          className="calc__rail-toggle"
+          aria-expanded={railOpen}
+          aria-controls="calc-rail"
+          onClick={() => setRailOpen((v) => !v)}
+          title={railOpen ? 'Свернуть панель параметров' : 'Развернуть панель параметров'}
+        >
+          <span className="calc__rail-toggle__chevron" aria-hidden="true">
+            {railOpen ? '›' : '‹'}
+          </span>
+          <span className="calc__rail-toggle__label">Панель</span>
+        </button>
       </div>
 
       {/* calc__rail--result: результат уже есть, значит место отдаётся ему —
@@ -1261,7 +1282,14 @@ export function Constructor() {
           панель продолжала расти (`flex: 1 1 auto`) и держала ~130px пустоты
           между свёрнутыми вкладками и кнопками, пока под ней раскрывался
           результат. */}
-      <aside className={quote ? 'calc__rail calc__rail--result' : 'calc__rail'}>
+      <aside
+        id="calc-rail"
+        /* Свёрнутая панель остаётся в DOM (форма держит состояние), поэтому
+           её нужно вывести из доступности и из фокуса — иначе Tab уводит
+           в поля, которых на экране нет. */
+        inert={!railOpen}
+        className={quote ? 'calc__rail calc__rail--result' : 'calc__rail'}
+      >
       <section className="panel">
         <h2>Конструктор лестницы</h2>
         <form onSubmit={handleSubmit}>
