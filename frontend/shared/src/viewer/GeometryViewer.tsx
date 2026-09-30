@@ -17,6 +17,7 @@ import {
   dragComfortStep,
   dragHeight,
   dragLandingMM,
+  compactTriangles,
   groupsFromRanges,
   isDragDistance,
   railingPartsOf,
@@ -659,27 +660,44 @@ export function GeometryViewer({
             })()
           : null
       for (const part of railingPartsOf(railingMesh)) {
-        const indices = new Uint32Array(part.triangles.length * 3)
-        part.triangles.forEach((t, i) => {
-          indices[i * 3] = t[0]
-          indices[i * 3 + 1] = t[1]
-          indices[i * 3 + 2] = t[2]
-        })
-        if (!indices.length) continue
+        // Геометрия КОМПАКТИФИЦИРУЕТСЯ по треугольникам части.
+        //
+        // Раньше все части ограждения делили один буфер вершин всей сетки и
+        // отличались только индексом. Так нельзя: computeBoundingBox/
+        // computeBoundingSphere в three.js смотрят на ВЕСЬ массив position, а
+        // не на то, какие вершины реально использует индекс. У всех частей
+        // получался одинаковый габарит — габарит всего ограждения — и
+        // одинаковая сфера с центром в середине марша. Стоило камере
+        // приблизиться так, что середина марша оказывалась за кадром, как
+        // frustumCulled отсекал панели стекла: они были в сцене, с корректным
+        // материалом и индексом — и не рисовались вообще (renderer.info.calls
+        // не менялся при frustumCulled=false). Поручень с той же сферой
+        // рисовался только потому, что попадал в кадр целиком.
+        //
+        // Собственный буфер на часть решает и это, и лишнюю память.
+        const compact = compactTriangles(positions, uvs, part.triangles)
+        if (!compact) continue
         const g = new THREE.BufferGeometry()
-        g.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-        if (uvs) g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
-        g.setIndex(new THREE.BufferAttribute(indices, 1))
+        g.setAttribute('position', new THREE.BufferAttribute(compact.positions, 3))
+        if (compact.uvs) g.setAttribute('uv', new THREE.BufferAttribute(compact.uvs, 2))
+        g.setIndex(new THREE.BufferAttribute(compact.indices, 1))
         g.computeVertexNormals()
         g.computeBoundingBox()
+        g.computeBoundingSphere()
         if (flight === 'straight') {
           mirrorX(g)
+          // Границы ПОСЛЕ зеркала: иначе сфера остаётся в старой половине
+          // марша, и меш снова вылетает из кадра (та же ошибка, что описана
+          // выше, только на уровне transform).
+          g.computeBoundingBox()
+          g.computeBoundingSphere()
         }
         const isGlass = part.role === 'railing_glass'
         const m = new THREE.Mesh(g, railingMaterialFor(part.role))
         m.name = part.role
-        // Стекло тени не отбрасывает (см. выше). У непрозрачных деталей
-        // ограждения тень нужна: она приземляет поручень на площадку.
+        // Стекло тени не отбрасывает: см. комментарий выше. У непрозрачных
+        // деталей ограждения тень нужна — она приземляет поручень на
+        // площадку.
         m.castShadow = castShadow && !isGlass
         m.receiveShadow = castShadow
         railings.push({ mesh: m, geo: g })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
-import { railingPartsOf } from './picking'
+import { compactTriangles, railingPartsOf } from './picking'
 import {
   createGlassMaterial,
   createRailingMaterialForRole,
@@ -79,29 +79,44 @@ describe('разбивка меша ограждения по ролям', () =>
 })
 
 describe('стекло ограждения', () => {
-  it('пропускает свет настоящим transmission, а не opacity', () => {
-    // Регрессия: «стекло» было opacity 0.32 — мутная пластина, которая
-    // разоблачалась, как только панель оказывалась на переднем плане.
-    const m = createGlassMaterial() as THREE.MeshPhysicalMaterial
-    expect(m.isMeshPhysicalMaterial).toBe(true)
-    expect(m.transmission).toBeGreaterThan(0.8)
-    // opacity при transmission = 1: прозрачность даёт двойное смешивание.
-    expect(m.opacity).toBe(1)
+  it('прозрачно и не преломляет пустоту', () => {
+    // Регрессия, найденная на живой сцене: transmission 0.94 давал ЧЁРНЫЕ
+    // панели. three.js в renderTransmissionPass обнуляет scene.background,
+    // поэтому стекло преломляет только непрозрачную геометрию, а всё
+    // остальное приходит нулями. У ограждения половина панели всегда висит
+    // на силуэте — там преломлять нечего, и панель становится чёрной.
+    const m = createGlassMaterial()
+    expect(m.transparent).toBe(true)
+    expect(m.transmission ?? 0).toBe(0)
+    expect(m.opacity).toBeGreaterThan(0.05)
+    expect(m.opacity).toBeLessThan(0.6)
   })
 
-  it('ior стекла, а не пластика (1.52) и толщина панели 10 мм', () => {
+  it('отражает: env-слой сильный, иначе при альфе стекло не видно', () => {
+    // При прозрачности 0.28 блик тоже умножается на alpha — без усиленного
+    // env-отражения панель просто исчезает, и ограждения не видно.
     const m = createGlassMaterial()
+    expect(m.envMapIntensity).toBeGreaterThan(1.5)
+    expect(m.clearcoat).toBeGreaterThan(0.5)
+  })
+
+  it('гладкая поверхность и настоящий показатель преломления', () => {
+    const m = createGlassMaterial()
+    expect(m.roughness).toBeLessThan(0.1)
     expect(m.ior).toBeCloseTo(1.52, 2)
-    expect(m.thickness).toBeCloseTo(0.01, 3)
   })
 
   it('панели замкнутые — FrontSide, иначе стекло просвечивает дважды', () => {
     expect(createGlassMaterial().side).toBe(THREE.FrontSide)
   })
 
+  it('depthWrite выключен: 14 панелей не должны запечатывать буфер глубины', () => {
+    expect(createGlassMaterial().depthWrite).toBe(false)
+  })
+
   it('роль railing_glass даёт стекло, а не металл', () => {
     const m = createRailingMaterialForRole('railing_glass', false)
-    expect((m as THREE.MeshPhysicalMaterial).transmission).toBeGreaterThan(0.8)
+    expect(m.transparent).toBe(true)
   })
 
   it('во «металлическом» ограждении заполнение непрозрачное', () => {
@@ -140,4 +155,70 @@ describe('лак поверх древесины', () => {
     expect(m).toBeInstanceOf(THREE.MeshStandardMaterial)
     expect(m).not.toBeInstanceOf(THREE.MeshPhysicalMaterial)
   })
+})
+
+describe('компактификация геометрии по треугольникам', () => {
+  // 4 вершины, 2 треугольника: [0,1,2] и [0,2,3]
+  const positions = new Float32Array([
+    0, 0, 0,
+    100, 0, 0,
+    100, 100, 0,
+    0, 100, 0,
+  ])
+  const uvs = new Float32Array([0, 0, 1, 0, 1, 1, 0, 1])
+
+  it('оставляет только используемые вершины', () => {
+    const out = compactTriangles(positions, uvs, [[0, 1, 2]])
+    expect(out!.positions).toHaveLength(9) // 3 вершины по 3 координаты
+    expect(out!.indices).toHaveLength(3)
+    expect(Array.from(out!.positions)).toEqual([0, 0, 0, 100, 0, 0, 100, 100, 0])
+  })
+
+  it('переиндексирует без потери winding', () => {
+    // Регрессия: при общей карте «старый→новый» повторно встречающаяся
+    // вершина обязана получать ТОТ ЖЕ новый индекс, иначе в треугольнике
+    // появится вырожденное ребро, а вместе с ним — неверная нормаль.
+    const out = compactTriangles(positions, uvs, [[0, 1, 2], [0, 2, 3]])
+    expect(Array.from(out!.indices)).toEqual([0, 1, 2, 0, 2, 3])
+    expect(out!.positions).toHaveLength(12)
+  })
+
+  it('uv едут вместе с вершинами', () => {
+    const out = compactTriangles(positions, uvs, [[0, 1, 2]])
+    expect(Array.from(out!.uvs!)).toEqual([0, 0, 1, 0, 1, 1])
+  })
+
+  it('без uv остаётся null, а не пустой буфер', () => {
+    const out = compactTriangles(positions, null, [[0, 1, 2]])
+    expect(out!.uvs).toBeNull()
+  })
+
+  it('пустой набор треугольников не даёт геометрии', () => {
+    expect(compactTriangles(positions, uvs, [])).toBeNull()
+  })
+
+  it('ГЛАВНОЕ: габарит части совпадает с её треугольниками, а не со всем мешем',
+    () => {
+      // Именно из-за этого панели стекла не рисовались: computeBoundingSphere
+      // смотрит на весь буфер position, поэтому у всех частей была сфера
+      // середины марша, и frustumCulled выбрасывал панели при приближении
+      // камеры. Проверяем, что после компактификации габарит части — её
+      // собственный.
+      const meshPositions = new Float32Array([
+        // Часть A: треугольник у x=0
+        0, 0, 0, 10, 0, 0, 10, 10, 0,
+        // Часть B: треугольник у x=5000
+        5000, 0, 0, 5010, 0, 0, 5010, 10, 0,
+      ])
+      const a = compactTriangles(meshPositions, null, [[0, 1, 2]])!
+      const b = compactTriangles(meshPositions, null, [[3, 4, 5]])!
+      // Только X-координаты: в Y и Z там нули, и Math.min по всему буферу
+      // всегда дал бы 0.
+      const minX = (arr: Float32Array) => Math.min(...Array.from({ length: arr.length / 3 }, (_, i) => arr[i * 3]))
+      const minA = minX(a.positions)
+      const minB = minX(b.positions)
+      expect(minA).toBe(0)
+      expect(minB).toBe(5000)
+      expect(minB - minA).toBe(5000)
+    })
 })

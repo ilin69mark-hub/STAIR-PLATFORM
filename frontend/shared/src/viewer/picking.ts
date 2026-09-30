@@ -156,6 +156,55 @@ export interface RailingPart {
 }
 
 /**
+ * Собирает буферы вершин ТОЛЬКО для используемых треугольников.
+ *
+ * Зачем: three.js считает boundingBox/boundingSphere по ВСЕМУ массиву
+ * position, а не по тому, что использует индекс. Если части меша делят один
+ * буфер вершин (а отличаются только индексом), у всех частей получается
+ * одинаковый габарит — габарит всего меша. Для ограждения это значит, что
+ * сфера у всех частей центрирована в середине марша; стоило камере
+ * приблизиться, и frustumCulled выбрасывал панели стекла, которые были в
+ * сцене, с корректным материалом и индексом, но просто не рисовались.
+ *
+ * Компактификация даёт каждой части собственный буфер, а значит честные
+ * границы: и отсев, и picking (Raycaster тоже отсекает по сфере), и тени
+ * считаются по своей геометрии, а не по габариту всего ограждения.
+ *
+ * Переиндексация идёт через карту «старый индекс → новый»: порядок вершин
+ * внутри треугольника сохраняется, значит winding и нормали остаются
+ * корректными.
+ */
+export function compactTriangles(
+  positions: Float32Array,
+  uvs: Float32Array | null,
+  triangles: Tri[],
+): { positions: Float32Array; uvs: Float32Array | null; indices: Uint32Array } | null {
+  if (!triangles.length) return null
+  const remap = new Map<number, number>()
+  const outPos: number[] = []
+  const outUv: number[] = []
+  const indices = new Uint32Array(triangles.length * 3)
+  for (let i = 0; i < triangles.length; i++) {
+    for (let c = 0; c < 3; c++) {
+      const src = triangles[i][c]
+      let dst = remap.get(src)
+      if (dst === undefined) {
+        dst = outPos.length / 3
+        remap.set(src, dst)
+        outPos.push(positions[src * 3], positions[src * 3 + 1], positions[src * 3 + 2])
+        if (uvs) outUv.push(uvs[src * 2], uvs[src * 2 + 1])
+      }
+      indices[i * 3 + c] = dst
+    }
+  }
+  return {
+    positions: new Float32Array(outPos),
+    uvs: uvs ? new Float32Array(outUv) : null,
+    indices,
+  }
+}
+
+/**
  * Раскладывает меш перил по ролям (railing / baluster / railing_glass).
  *
  * Роли приходят из backend как PartRanges. Без них (старый API) отдаётся одна

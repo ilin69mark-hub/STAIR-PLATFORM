@@ -61,7 +61,13 @@ export function Stage3D({
   finishId,
   treadFinishId,
   riserFinishId,
-  railingMetal = true,
+  // По умолчанию — стеклянное заполнение и деревянный поручень (витринный
+  // вид). Раньше здесь стояло `true`, и ветка «стекло» была мёртвым кодом:
+  // флаг никто не передавал, поэтому всё ограждение рисовалось металлом, а
+  // «стекло с прозрачностью» не показывалось покупателю вообще. Теперь, когда
+  // стекло действительно построено в геометрии (роль railing_glass), дефолт
+  // можно вернуть к тому, что обещает витрина.
+  railingMetal = false,
   onAdjustStepHeight,
   onFlipDirection,
   onAdjustHeight,
@@ -284,7 +290,8 @@ export function QuoteResult({
   landingDepthMM,
   environmentHDRI = '/static-assets/hdri/studio_small_08_1k.hdr',
   finishId,
-  railingMetal = true,
+  // См. Stage3D: стекло по умолчанию, металл — по явному флагу.
+  railingMetal = false,
   approachSpaceMM,
   variations,
   activeVariationId,
