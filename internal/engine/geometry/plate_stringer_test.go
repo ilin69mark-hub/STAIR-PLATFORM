@@ -94,54 +94,6 @@ func TestPlateStringerTreadsSpanBetweenPlates(t *testing.T) {
 	}
 }
 
-// Верхняя площадка — ОТДЕЛЬНАЯ деталь на уровне последней ступени: без неё
-// марш обрывается ступенью и не видно, куда ступень приводит.
-func TestPlateFrameHasLanding(t *testing.T) {
-	cfg := metalConfig(t)
-	b := cfg.TreadDepth.Millimeters()
-	h := cfg.StepHeight.Millimeters()
-	tn := cfg.StringerThickness.Millimeters()
-	w := cfg.Width.Millimeters()
-	model, err := BuildStraightFlight(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var found bool
-	for _, solid := range model.Solids() {
-		if solid.Role() != "top_plate" {
-			continue
-		}
-		found = true
-		lo, hi := solidYBounds(solid)
-		if !nearlyEqual(lo, tn-plateJoinMM) || !nearlyEqual(hi, w-tn+plateJoinMM) {
-			t.Fatalf("площадка y = [%v, %v], ждём [%v, %v]", lo, hi, tn-plateJoinMM, w-tn+plateJoinMM)
-		}
-	}
-	if !found {
-		t.Fatal("у металлокаркаса нет верхней площадки — отдельной детали под сварку")
-	}
-	// Площадка начинается с конца марша и идёт на шаг ступени, верх вровень
-	// с носиком последней ступени.
-	lp := b * landingDepthFactor
-	pts := []kerngeo.Point3{
-		kerngeo.NewPoint3(float64(cfg.StepCount)*b, 0, float64(cfg.StepCount)*h-tn),
-		kerngeo.NewPoint3(float64(cfg.StepCount)*b+lp, 0, float64(cfg.StepCount)*h-tn),
-		kerngeo.NewPoint3(float64(cfg.StepCount)*b+lp, 0, float64(cfg.StepCount)*h),
-		kerngeo.NewPoint3(float64(cfg.StepCount)*b, 0, float64(cfg.StepCount)*h),
-	}
-	solid, err := kerngeo.Extrude(pts, kerngeo.NewVector3(0, 1, 0), w-2*tn+2*plateJoinMM)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bb := kerngeo.SolidBoundingBox(solid)
-	if !nearlyEqual(bb.Max.X-bb.Min.X, lp) {
-		t.Fatalf("глубина площадки = %v, ждём %v (шаг ступени)", bb.Max.X-bb.Min.X, lp)
-	}
-	if !nearlyEqual(bb.Max.Z-bb.Min.Z, tn) {
-		t.Fatalf("толщина площадки = %v, ждём %v (лист косоура)", bb.Max.Z-bb.Min.Z, tn)
-	}
-}
-
 // Профиль пластины: пять вершин, верхнее ребро — посадочная линия ступеней
 // (прямая, без зубьев), нижнее — та же линия, сдвинутая на глубину пластины.
 func TestPlateStringerProfileIsStraightPlate(t *testing.T) {
@@ -173,13 +125,17 @@ func TestPlateStringerProfileIsStraightPlate(t *testing.T) {
 	if !nearlyEqual(pts[4].Z, 0) {
 		t.Fatalf("пятка Z = %v, ждём 0 (пластина стоит на полу)", pts[4].Z)
 	}
-	// Пластина — полоса постоянной глубины ПО НОРМАЛИ: оба её ребра
-	// параллельны линии подъёма и разнесены по вертикали на depth·b/L.
+	// Пластина — полоса постоянной глубины ПО НОРМАЛИ к линии подъёма.
+	// Задний срез вертикальный, поэтому вертикальный зазор между рёбрами
+	// равен depth/cos(угла) = depth·L/b, а ПЕРПЕНДИКУЛЯРНЫЙ — ровно depth.
+	// Проверяем именно перпендикулярное расстояние: именно оно заявлено в
+	// чертеже как «пластина 300 мм».
 	L := math.Hypot(b, h)
 	vertGap := pts[2].Z - pts[3].Z
-	if math.Abs(vertGap-depth*b/L) > 1e-6 {
-		t.Fatalf("вертикальный зазор между рёбрами = %v, ждём %v (глубина %v по нормали)",
-			vertGap, depth*b/L, depth)
+	perp := vertGap * b / L
+	if math.Abs(perp-depth) > 1e-6 {
+		t.Fatalf("перпендикулярная глубина пластины = %v, ждём %v (вертикальный зазор %v)",
+			perp, depth, vertGap)
 	}
 	// Верхнее ребро (посадки) и нижнее — обе прямые с уклоном подъёма h/b.
 	tdx, tdz := pts[2].X-pts[1].X, pts[2].Z-pts[1].Z
@@ -190,6 +146,26 @@ func TestPlateStringerProfileIsStraightPlate(t *testing.T) {
 	bdx, bdz := pts[4].X-pts[3].X, pts[4].Z-pts[3].Z
 	if math.Abs(bdx*h-bdz*b) > 1e-6 {
 		t.Fatalf("нижнее ребро (%v, %v) не параллельно подъёму (%v, %v)", bdx, bdz, b, h)
+	}
+}
+
+// Глубина пластины 300 мм — это расстояние ПО НОРМАЛИ, и оно не должно
+// зависеть от угла марша. Регрессия: сдвиг низа был задан вертикальным
+// отрезком depth·b/L, и перпендикулярная глубина выходила depth·(b/L)² —
+// 233 мм при подъёме 150, 216 при 175, 199 при 200, 167 при 250.
+func TestPlateDepthIsConstantAcrossFlightAngles(t *testing.T) {
+	for _, h := range []float64{150, 175, 200, 250} {
+		b, st, n := 280.0, 40.0, 16
+		pts := plateStringerProfile(n, b, h, st, 0, 8, StringerPlateDepthMM)
+		perp := (pts[2].Z - pts[3].Z) * b / math.Hypot(b, h)
+		if math.Abs(perp-StringerPlateDepthMM) > 1e-6 {
+			t.Errorf("подъём %v: перпендикулярная глубина = %v, ждём %v",
+				h, perp, StringerPlateDepthMM)
+		}
+		// Пятка не уезжает за задний срез: иначе контур самопересекается.
+		if pts[4].X > pts[3].X {
+			t.Errorf("подъём %v: пятка X = %v уехала за задний срез %v", h, pts[4].X, pts[3].X)
+		}
 	}
 }
 
@@ -252,5 +228,28 @@ func TestPlateFrameMaterialAutoByThickness(t *testing.T) {
 	wood := testConfig(t)
 	if PlateStringerFrame(wood) {
 		t.Fatal("косоур 50 мм не должен считаться листовым")
+	}
+}
+
+// Заготовка лазерного раскроя = длина пластины по склону × глубина по
+// нормали. Считается из тела, поэтому одинаково работает для прямого
+// марша и для сегментов Г- и П-образных лестниц.
+func TestPlateBlankMatchesPartGeometry(t *testing.T) {
+	pts := plateStringerProfile(16, 280, 175, 40, 0, 8, StringerPlateDepthMM)
+	solid, err := kerngeo.Extrude(pts, kerngeo.NewVector3(0, 1, 0), 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	length, width := kerngeo.SolidPlateBlank(solid)
+	if math.Abs(width-StringerPlateDepthMM) > 1 {
+		t.Fatalf("ширина заготовки = %v, ждём %v (глубина пластины)", width, StringerPlateDepthMM)
+	}
+	// Длина больше горизонтального габарита марша: пластина идёт по склону.
+	if length <= (16-1)*280 {
+		t.Fatalf("длина заготовки = %v, должна быть больше горизонтального габарита %v", length, 15*280)
+	}
+	want, _ := PlateBlankMM(16, 280, 175, 40, StringerPlateDepthMM)
+	if math.Abs(length-want) > 1 {
+		t.Fatalf("длина по телу = %v, расчёт по профилю = %v — расходятся", length, want)
 	}
 }

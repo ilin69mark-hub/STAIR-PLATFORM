@@ -84,24 +84,24 @@ func TestManufactureLShapeDimensions(t *testing.T) {
 		number dommfg.PartNumber
 		l, wd  float64
 	}{
-		{"STR-01", 1620, 308}, // полоса: длина марша × (глубина пластины + лист)
-		{"STR-02", 1620, 308},
-		{"STR-03", 2430, 308},
-		{"STR-04", 2430, 308},
-		{"TRD-01", 900, 310},
+		{"STR-01", 1700.156, 300}, // пластина: длина по склону × глубина по нормали
+		{"STR-02", 1700.156, 300},
+		{"STR-03", 2673.655, 300},
+		{"STR-04", 2673.655, 300},
+		{"TRD-01", 804, 310}, // между пластинами 50 мм + нахлёст 2 мм в каждую сторону
 		{"TRD-07", 1000, 900},
-		{"TRD-08", 900, 310},
-		{"TRD-16", 900, 310},
-		{"RSR-01", 900, 140},
-		{"RSR-02", 900, 140},
-		{"RSR-15", 900, 140},
+		{"TRD-08", 804, 310},
+		{"TRD-16", 804, 310},
+		{"RSR-01", 804, 140},
+		{"RSR-02", 804, 140},
+		{"RSR-15", 804, 140},
 	}
 	for _, c := range cases {
 		p := findPart(pkg, c.number)
 		if p == nil {
 			t.Fatalf("part %q not found", c.number)
 		}
-		if !nearlyEqual(p.Length.Millimeters(), c.l) || !nearlyEqual(p.Width.Millimeters(), c.wd) {
+		if !nearlyEqualTol(p.Length.Millimeters(), c.l, 0.01) || !nearlyEqualTol(p.Width.Millimeters(), c.wd, 0.01) {
 			t.Fatalf("part %q dims = %v×%v, want %v×%v",
 				c.number, p.Length.Millimeters(), p.Width.Millimeters(), c.l, c.wd)
 		}
@@ -143,11 +143,11 @@ func TestManufactureLShapeBOM(t *testing.T) {
 		length   float64
 		width    float64
 	}{
-		{"Stringer", 2, 1620, 308},
-		{"Tread", 15, 900, 310},
-		{"Riser", 15, 900, 140},
+		{"Stringer", 2, 1700.156, 300},
+		{"Tread", 15, 804, 310},
+		{"Riser", 15, 804, 140},
 		{"Tread", 1, 1000, 900},
-		{"Stringer", 2, 2430, 308},
+		{"Stringer", 2, 2673.655, 300},
 	}
 	if len(pkg.BOM.Lines) != len(want) {
 		t.Fatalf("BOM lines = %d, want %d", len(pkg.BOM.Lines), len(want))
@@ -160,7 +160,7 @@ func TestManufactureLShapeBOM(t *testing.T) {
 		if int(line.Quantity) != w.quantity {
 			t.Fatalf("line %d quantity = %d, want %d", i, int(line.Quantity), w.quantity)
 		}
-		if !nearlyEqual(line.Length.Millimeters(), w.length) || !nearlyEqual(line.Width.Millimeters(), w.width) {
+		if !nearlyEqualTol(line.Length.Millimeters(), w.length, 0.01) || !nearlyEqualTol(line.Width.Millimeters(), w.width, 0.01) {
 			t.Fatalf("line %d dims = %v×%v, want %v×%v", i,
 				line.Length.Millimeters(), line.Width.Millimeters(), w.length, w.width)
 		}

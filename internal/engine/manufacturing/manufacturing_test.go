@@ -16,6 +16,13 @@ func nearlyEqual(a, b float64) bool {
 	return math.Abs(a-b) <= 1e-6
 }
 
+// nearlyEqualTol — сравнение с допуском: размеры заготовки пластины
+// иррациональны (длина по склону через корень), и сверять их с точностью
+// 1e-6 бессмысленно.
+func nearlyEqualTol(a, b, tol float64) bool {
+	return math.Abs(a-b) <= tol
+}
+
 func mustLength(t *testing.T, mm float64) engineering.Length {
 	t.Helper()
 	l, err := engineering.NewLength(mm)
@@ -62,8 +69,8 @@ func TestManufactureParts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pkg.Parts) != 33 {
-		t.Fatalf("parts = %d, want 33", len(pkg.Parts))
+	if len(pkg.Parts) != 32 {
+		t.Fatalf("parts = %d, want 32", len(pkg.Parts))
 	}
 	// уникальные номера: 2 косоура, 15 проступей, 15 подступенков.
 	seen := make(map[dommfg.PartNumber]bool)
@@ -98,34 +105,18 @@ func TestManufacturePartDimensions(t *testing.T) {
 	// Толщина 8 — это лист лазерного раскроя: материал детали выводится из
 	// толщины, а деталь без заданного материала считается сталью. 50 мм
 	// (ширина секции косоура) в расход материала не идёт.
-	// Длина 3780 = (n−1)·b: верхний срез пластины стоит на ПОСЛЕДНЕЙ
-	// посадке, дальше марш продолжает площадка, а не косоур.
+	// Длина пластины — ПО СКЛОНУ (4620.65 мм), а ширина — глубина
+	// пластины по нормали (300 мм). Раньше здесь стоял горизонтальный
+	// габарит марша 3780 и «глубина + толщина» 308: деталь была короче
+	// геометрии и не совпадала с ней.
 	if p := findPart(pkg, "STR-01"); p != nil {
-		if !nearlyEqual(p.Length.Millimeters(), 3780) || !nearlyEqual(p.Width.Millimeters(), 308) ||
+		if !nearlyEqualTol(p.Length.Millimeters(), 4620.65263455616, 0.01) || !nearlyEqual(p.Width.Millimeters(), 300) ||
 			!nearlyEqual(p.Thickness.Millimeters(), 8) {
-			t.Fatalf("stringer dims = %v×%v×%v, want 3780×308×8",
+			t.Fatalf("stringer dims = %v×%v×%v, want 4620.65×300×8",
 				p.Length.Millimeters(), p.Width.Millimeters(), p.Thickness.Millimeters())
 		}
 	} else {
 		t.Fatal("STR-01 not found")
-	}
-	// Верхняя площадка — ОТДЕЛЬНАЯ деталь LND: та же стальная пластина, что
-	// и косоур (толщина 8), ширина между боковинами, глубина — шаг ступени.
-	if p := findPart(pkg, "LND-01"); p != nil {
-		// 804 = 800 + 2·2: торцы площадки, как и у ступеней, заведены на 2 мм
-		// в пластину косоура, чтобы не было совпадающих плоскостей.
-		// Length ≥ Width (инвариант детали): длина здесь — это ширина
-		// площадки по маршу (804), ширина — глубина шага (270).
-		if !nearlyEqual(p.Length.Millimeters(), 804) || !nearlyEqual(p.Width.Millimeters(), 270) ||
-			!nearlyEqual(p.Thickness.Millimeters(), 8) {
-			t.Fatalf("top plate dims = %v×%v×%v, want 804×270×8",
-				p.Length.Millimeters(), p.Width.Millimeters(), p.Thickness.Millimeters())
-		}
-		if p.Material != dommfg.MaterialCode("STEEL-S235") {
-			t.Fatalf("площадка по материалу %q, ждём сталь каркаса", p.Material)
-		}
-	} else {
-		t.Fatal("LND-01 (верхняя площадка) not found")
 	}
 	// Проступь: 804×310 — между боковыми пластинами косоура (900 − 2·50 + 2·2 нахлёста),
 	// глубина шага + толщина подступенка.
@@ -171,9 +162,8 @@ func TestManufactureBOM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 4 строки: косоуры, площадка, проступи, подступенки.
-	if len(pkg.BOM.Lines) != 4 {
-		t.Fatalf("BOM lines = %d, want 4", len(pkg.BOM.Lines))
+	if len(pkg.BOM.Lines) != 3 {
+		t.Fatalf("BOM lines = %d, want 3", len(pkg.BOM.Lines))
 	}
 	// порядок строк детерминирован: косоуры, проступи, подступенки
 	// (единое полотно 900×140).
@@ -183,8 +173,7 @@ func TestManufactureBOM(t *testing.T) {
 		length   float64
 		width    float64
 	}{
-		{"Stringer", 2, 3780, 308}, // полоса: длина марша × (глубина пластины + лист)
-		{"top_plate", 1, 804, 270}, // верхняя площадка: та же сталь, отдельная деталь
+		{"Stringer", 2, 4620.65263455616, 300}, // пластина: длина по склону × глубина по нормали
 		{"Tread", 15, 804, 310},
 		{"Riser", 15, 804, 140},
 	}
@@ -312,4 +301,47 @@ func findPart(pkg *dommfg.ManufacturingPackage, number dommfg.PartNumber) *dommf
 		}
 	}
 	return nil
+}
+
+// Длинная боковая пластина не влезает в деталь: материал ограничивает длину
+// (у STEEL-S235 MaxHeightMm = 6000, MFG-0012), поэтому марш режется на
+// несколько деталей со сварным стыком. Проверяем, что кусков ровно столько,
+// сколько нужно, и что каждый в пределе.
+func TestPlateStringerSplitsLongFlights(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.StepCount = 34
+	cfg.StepHeight = mustLength(t, 180)
+	cfg.TreadDepth = mustLength(t, 280)
+	cfg.StringerThickness = mustLength(t, 8)
+	cfg.Material = "STEEL-S235"
+	cfg.TreadMaterial = "STEEL-S235"
+	limit := plateLengthLimitMM(cfg, 8)
+	if limit <= 0 {
+		t.Fatal("предел длины детали не найден для стали")
+	}
+	pkg, err := Manufacture(cfg, genResult(t, cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plates []dommfg.Part
+	for _, p := range pkg.Parts {
+		if p.Kind == dommfg.PartStringer {
+			plates = append(plates, p)
+		}
+	}
+	if len(plates) < 4 {
+		t.Fatalf("косоуров %d, марш высотой %v должен резаться на несколько деталей", len(plates), cfg.Height)
+	}
+	total := 0.0
+	for _, p := range plates {
+		l := p.Length.Millimeters()
+		if l > limit {
+			t.Fatalf("деталь %q длиной %v превышает предел материала %v", p.Number, l, limit)
+		}
+		total += l
+	}
+	// Сумма кусков равна длине пластины: стык ничего не теряет.
+	if total <= limit {
+		t.Fatalf("сумма кусков %v не покрывает длину пластины", total)
+	}
 }

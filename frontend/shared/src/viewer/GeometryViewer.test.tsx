@@ -32,10 +32,11 @@ describe('из чего собирается марш в сцене', () => {
 })
 
 describe('GeometryViewer walls widget', () => {
-  it('renders 4 wall segment buttons and exit checkbox', () => {
+  it('renders 4 wall segment buttons', () => {
     render(<GeometryViewer mesh={empty()} roomWidth={3000} roomLength={4200} />)
     for (const k of WALLS) expect(screen.getByRole('button', { name: k })).toBeInTheDocument()
-    expect(screen.getByRole('checkbox', { name: 'Выход на 2-й этаж' })).toBeChecked()
+    // Плиты выхода в 3D больше нет — тумблера «Выход на 2-й этаж» нет.
+    expect(screen.queryByRole('checkbox', { name: 'Выход на 2-й этаж' })).toBeNull()
   })
 
   it('БЕЗ габаритов помещения тумблеры залочены и выводится подсказка', () => {
@@ -44,8 +45,6 @@ describe('GeometryViewer walls widget', () => {
       expect(screen.getByRole('button', { name: k })).toBeDisabled()
     }
     expect(screen.getByText(/Введите габариты помещения/i)).toBeInTheDocument()
-    // Плита выхода не зависит от помещения — чекбокс остаётся активным.
-    expect(screen.getByRole('checkbox', { name: 'Выход на 2-й этаж' })).not.toBeDisabled()
   })
 
   it('нулевые или отрицательные габариты тоже залочены', () => {
@@ -88,14 +87,6 @@ describe('GeometryViewer walls widget', () => {
     expect(top).toHaveAttribute('aria-pressed', 'false')
   })
 
-  it('exit checkbox toggles', () => {
-    render(<GeometryViewer mesh={empty()} />)
-    const exit = screen.getByRole('checkbox', { name: 'Выход на 2-й этаж' })
-    fireEvent.click(exit)
-    expect(exit).not.toBeChecked()
-    fireEvent.click(exit)
-    expect(exit).toBeChecked()
-  })
 })
 
 describe('подсказка про мышь над сценой', () => {

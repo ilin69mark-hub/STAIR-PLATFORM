@@ -9,7 +9,7 @@ import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js'
 import type { Mesh as ApiMesh } from '../types'
 import { toThreePositions } from './projection'
 import { computePlacement } from '../placement'
-import { approachZoneCenterX, EXIT_BLOCK_H, exitSlabBox, exitWallSide, stairTopLineX, wallBox, wallBoundsOf, type Box3Like, type BoxSpec, type WallSide } from './layout'
+import { approachZoneCenterX, stairTopLineX, wallBox, wallBoundsOf, type Box3Like, type BoxSpec, type WallSide } from './layout'
 import { ANNOTATE, edgeColor, WALLS } from '../scheme-annot'
 import { createRailingMaterialForRole, createStairMaterial } from './materials'
 import { createPostFX, acesWhitePoint } from './postfx'
@@ -57,6 +57,11 @@ interface Props {
   stepThickness?: number
   // Глубина плиты «выхода на 2-й этаж» (мм), примыкающей к верхнему торцу
   // марша. По умолчанию 1200.
+  /**
+   * secondFloorDepth — глубина перекрытия над маршом. В 3D больше не рисуется
+   * (плиты выхода в кадре нет), параметр остаётся в контракте: он приходит
+   * из конфигурации и участвует в расчёте, а не в геометрии сцены.
+   */
   secondFloorDepth?: number
   // Высота марша из ввода пользователя (поле «Высота», мм). Задаёт верхнюю
   // кромку стен; при отстуствии берётся геометрический верх меша (sb.max.y).
@@ -327,7 +332,6 @@ export function GeometryViewer({
     left: false,
   })
   // Плита «выхода на 2-й этаж» — отдельный тумблер, включён по умолчанию.
-  const [showExit, setShowExit] = useState(true)
   // Ссылки на объекты контекста (стены/плита), чтобы переключатели меняли
   // только .visible без пересоздания сцены (иначе сбрасывается камера).
   const wallsRef = useRef<Record<WallSide, THREE.Object3D | null>>({
@@ -336,7 +340,6 @@ export function GeometryViewer({
     right: null,
     left: null,
   })
-  const exitRef = useRef<THREE.Object3D | null>(null)
   // Полупрозрачный периметр помещения (room_mesh) — тот же контекст, что и
   // стены: он показывает, куда лестница вписана, и по умолчанию выключен
   // вместе с ними. Раньше он рисовался всегда, и на белом «циклораме»
@@ -347,7 +350,6 @@ export function GeometryViewer({
   // входят зависимостями (переключение не должно пересобирать сцену), поэтому
   // начальную видимость читаем из зеркальных рефов.
   const wallsStateRef = useRef(walls)
-  const showExitStateRef = useRef(showExit)
   // Этап 2: выбранная деталь хранится в рефе — сцена не пересобирается при
   // выборе, а applySelectionRef переключает подсветку материала.
   const selectedPartRef = useRef(selectedPart)
@@ -430,9 +432,7 @@ export function GeometryViewer({
   }, [walls])
 
   useEffect(() => {
-    showExitStateRef.current = showExit
-    if (exitRef.current) exitRef.current.visible = showExit
-  }, [showExit])
+  }, [])
 
   useEffect(() => {
     const container = containerRef.current
@@ -882,48 +882,40 @@ export function GeometryViewer({
     scene.add(stairGroup)
 
     const box = stair.geo.boundingBox ?? new THREE.Box3(new THREE.Vector3(), new THREE.Vector3(1, 1, 1))
-    // Габарит контекста (стены + плита выхода) в локальных координатах: стены
-    // на 60 мм выступают за периметр, плита выхода уходит от верхнего торца на
-    // secondFloorDepth. Включаем в кадр всегда (даже при выключенных тумблерах),
-    // чтобы кадр не прыгал при переключении.
+    // Габарит кадра — изделие плюс запас на толщину стен (60 мм по
+    // периметру). Плиты выхода в 3D больше нет: владелец убрал её целиком
+    // («её не надо было вообще изображать») — она висела рядом с верхом
+    // марша с зазором, не примыкала к лестнице и перекрывала кадр. Сам
+    // параметр «глубина перекрытия» остаётся в расчёте, он не про 3D.
     const WALL_T = 60
-    const SLAB_T = 200
     const ctxMin = new THREE.Vector3(box.min.x, box.min.y, box.min.z)
     const ctxMax = new THREE.Vector3(box.max.x, box.max.y, box.max.z)
-    if (sb) {
-      // Габарит плиты выхода (для straight/u/spiral вдоль X, для l_shape вдоль Z)
-      // + запас на толщину стен (60 мм по периметру). Включаем в кадр всегда
-      // (даже при выключенных тумблерах), чтобы кадр не прыгал при кликах.
-      const slab = exitSlabBox(sb, flight ?? '', direction, secondFloorDepth, SLAB_T)
-      const hs = slab.size.map((v) => v / 2)
-      ctxMin.x = Math.min(ctxMin.x, slab.pos[0] - hs[0])
-      ctxMin.z = Math.min(ctxMin.z, slab.pos[2] - hs[2])
-      ctxMax.x = Math.max(ctxMax.x, slab.pos[0] + hs[0])
-      ctxMax.z = Math.max(ctxMax.z, slab.pos[2] + hs[2])
-      ctxMin.x -= WALL_T
-      ctxMin.z -= WALL_T
-      ctxMax.x += WALL_T
-      ctxMax.z += WALL_T
-    }
-    // Кадр строим по САМОМУ ИЗДЕЛИЮ: лестница (со сдвигом placement) ∪
-    // плита выхода ∪ стены, плюс половина габарита помещения с каждой
-    // стороны, чтобы было видно, к какой стене лестница прижата.
+    ctxMin.x -= WALL_T
+    ctxMin.z -= WALL_T
+    ctxMax.x += WALL_T
+    ctxMax.z += WALL_T
+    // Кадр строим по САМОМУ ИЗДЕЛИЮ: лестница (со сдвигом placement) плюс
+    // запас на толщину стен. Помещение в кадр НЕ входит.
     //
-    // Раньше в кадр входило помещение ЦЕЛИКОМ, и при комнате 6000×7000
-    // против лестницы 4480×2800 изделие уезжало в угол кадра: сфера
-    // описывала пустые стены, а лестница занимала меньше трети полотна.
-    // Считать кадр по изделию — то же, что делает Ниора: показывает
-    // лестницу, а помещение оставляет контекстом по краям.
+    // Раньше в кадр входило помещение целиком, а потом его половина — и
+    // изделие всё равно уезжало в угол: комната 6000×7000 центрируется в
+    // начале координат, а лестница стоит у её края, так что «половина
+    // комнаты» — это точка в 3–4 метрах от изделия, и кадр целился туда.
+    // Считаем кадр по изделию, как у Ниоры: показываем лестницу, а стены
+    // (они полупрозрачные и переключаемые) остаются контекстом по краям.
     const unionMin = new THREE.Vector3(ctxMin.x + offset.offsetX, ctxMin.y, ctxMin.z + offset.offsetY)
     const unionMax = new THREE.Vector3(ctxMax.x + offset.offsetX, ctxMax.y, ctxMax.z + offset.offsetY)
-    if (room && room.geo.boundingBox) {
-      const rb = room.geo.boundingBox
-      const roomSize = rb.getSize(new THREE.Vector3())
-      // Половина комнаты с каждой стороны изделия: стена остаётся в кадре,
-      // но не раздувает кадр вчетверо.
-      const half = roomSize.clone().multiplyScalar(0.5)
-      unionMin.min(rb.min.clone().add(half))
-      unionMax.max(rb.max.clone().sub(half))
+    // Ограждение — часть изделия, а не контекст: поручень на 900 мм выше
+    // последней ступени, и без него верх марша уезжал за кадр.
+    for (const r of railings) {
+      if (!r.geo.boundingBox) continue
+      const rb = r.geo.boundingBox
+      unionMin.x = Math.min(unionMin.x, rb.min.x + offset.offsetX)
+      unionMin.y = Math.min(unionMin.y, rb.min.y)
+      unionMin.z = Math.min(unionMin.z, rb.min.z + offset.offsetY)
+      unionMax.x = Math.max(unionMax.x, rb.max.x + offset.offsetX)
+      unionMax.y = Math.max(unionMax.y, rb.max.y)
+      unionMax.z = Math.max(unionMax.z, rb.max.z + offset.offsetY)
     }
     const center = unionMin.clone().add(unionMax).multiplyScalar(0.5)
     const radius = Math.max(unionMax.clone().sub(unionMin).length() / 2, 1000)
@@ -1011,18 +1003,13 @@ export function GeometryViewer({
     const contextGeos: THREE.BufferGeometry[] = []
     const contextMats: THREE.Material[] = []
     const wallMeshes: Record<WallSide, THREE.Mesh | null> = { top: null, bottom: null, right: null, left: null }
-    let exitMesh: THREE.Mesh | null = null
 
     // Стены периметра: строятся ПО ПЕРИМЕТРУ ПОМЕЩЕНИЯ (мировые координаты,
     // как полупрозрачный периметр room_mesh), а не по габаритам лестницы.
     // В — дальняя стена позади марша, Н — ближняя (перед маршем, внутри
     // помещения), П — правая, Л — левая. Высота — из wallBounds (ввод
-    // пользователя «высота марша»). Выходная стена (exitWallSide) доводится
-    // до низа блока «выхода на 2-й этаж» (EXIT_BLOCK_H) — блок ложится на неё
-    // заподлицо; расчёт статичен и не зависит от чекбокса (плита лишь
-    // переключает .visible). Без заданных габаритов помещения стены не
-    // строятся, виджет залочен.
-    const exitSide = exitWallSide(flight ?? '', direction)
+    // пользователя «высота марша»). Без заданных габаритов помещения стены
+    // не строятся, виджет залочен.
     if (sb && wallBounds) {
       const wallMat = new THREE.MeshStandardMaterial({
         color: 0xaab6c4,
@@ -1045,31 +1032,8 @@ export function GeometryViewer({
       }
 
       for (const s of ['top', 'bottom', 'right', 'left'] as WallSide[]) {
-        wallMeshes[s] = makeWall(wallBox(wallBounds, s, WALL_T, { side: exitSide, height: EXIT_BLOCK_H }), s)
+        wallMeshes[s] = makeWall(wallBox(wallBounds, s, WALL_T), s)
       }
-    }
-
-    if (sb) {
-      // Плита «выхода на 2-й этаж»: плоская, глубиной secondFloorDepth, верх
-      // на уровне верха марша (sb.max.y). Направление/ось зависят от типа
-      // марша (см. exitSlabBox): straight/u_shape — вдоль X, l_shape — вдоль Z.
-      const slab = exitSlabBox(sb, flight ?? '', direction, secondFloorDepth, SLAB_T)
-      const slabGeo = new THREE.BoxGeometry(slab.size[0], slab.size[1], slab.size[2])
-      const slabMat = new THREE.MeshStandardMaterial({
-        color: 0x8b98a9,
-        roughness: 0.7,
-        metalness: 0.1,
-        side: THREE.DoubleSide,
-      })
-      contextGeos.push(slabGeo)
-      contextMats.push(slabMat)
-      exitMesh = new THREE.Mesh(slabGeo, slabMat)
-      exitMesh.position.set(slab.pos[0], slab.pos[1], slab.pos[2])
-      exitMesh.visible = showExitStateRef.current
-      stairGroup.add(exitMesh)
-      exitRef.current = exitMesh
-    } else {
-      exitRef.current = null
     }
 
     wallsRef.current = {
@@ -1134,10 +1098,7 @@ export function GeometryViewer({
     // Запас не нужен: в сферу уже входят плита выхода и зона подхода, то
     // есть запас заложен габаритом.
     const fitFov = (camera.fov * Math.PI) / 180
-    // 0.88 от кадра сферы. Изделие — длинная диагональ в кадре, и полный
-    // кадр сферы оставлял слева пустую треть полотна; 12% — компромисс,
-    // при котором плита выхода и низ марша остаются в кадре целиком.
-    const fitDist = (radius / Math.sin(fitFov / 2)) * 0.88
+    const fitDist = radius / Math.sin(fitFov / 2)
     // Границ зума НЕТ: покупатель сам решает, насколько близко и под каким
     // углом смотреть. Ограничения стояли здесь по сугубо внутренним
     // соображениям («не улетать в пустоту»), но ломали ожидаемое поведение
@@ -1646,15 +1607,6 @@ export function GeometryViewer({
         {!roomSizes && (
           <p className="viewer__walls-lock">Введите габариты помещения (ширину и длину) в калькуляторе, чтобы показать стены.</p>
         )}
-        <label className="viewer__exit">
-          <input
-            type="checkbox"
-            checked={showExit}
-            onChange={(e) => setShowExit(e.target.checked)}
-            title="Плита у верхней ступени — выход на 2-й этаж"
-          />
-          <span>Выход на 2-й этаж</span>
-        </label>
         <button
           type="button"
           className="viewer__reset-view"

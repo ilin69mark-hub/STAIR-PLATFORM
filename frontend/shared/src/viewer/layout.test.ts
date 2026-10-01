@@ -2,9 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   approachZoneCenterX,
   entranceFaceX,
-  EXIT_BLOCK_H,
-  exitSlabBox,
-  exitWallSide,
   stairTopLineX,
   wallBox,
   wallBoundsOf,
@@ -91,76 +88,6 @@ describe('approachZoneCenterX', () => {
   })
 })
 
-describe('exitWallSide', () => {
-  it('straight — выход у box.min.x, стена Л', () => {
-    expect(exitWallSide('straight', undefined)).toBe('left')
-  })
-  it('l_shape — верхний марш поднимается вдоль ширины, выход вдоль +Z → стена В', () => {
-    expect(exitWallSide('l_shape', 'right')).toBe('top')
-    expect(exitWallSide('l_shape', 'left')).toBe('top')
-  })
-  it('u_shape правый — верхний марш у box.min.x → стена Л; левый → стена П', () => {
-    expect(exitWallSide('u_shape', 'right')).toBe('left')
-    expect(exitWallSide('u_shape', 'left')).toBe('right')
-  })
-  it('spiral — торец угловой → стена П', () => {
-    expect(exitWallSide('spiral', 'cw')).toBe('right')
-  })
-  it('u_shape без направления — дефолт правый поворот → стена Л', () => {
-    expect(exitWallSide('u_shape', undefined)).toBe('left')
-  })
-  it('спираль без/с другим направлением — всегда стена П', () => {
-    expect(exitWallSide('spiral', undefined)).toBe('right')
-    expect(exitWallSide('spiral', 'left')).toBe('right')
-    expect(exitWallSide('spiral', 'right')).toBe('right')
-  })
-})
-
-describe('exitSlabBox', () => {
-  const d = 1200 // depth
-  const t = 200 // толщина
-  it('straight: плита вдоль −X от box.min.x, ширина по Z = марш', () => {
-    expect(exitSlabBox(straightBox, 'straight', undefined, d, t)).toEqual({
-      size: [1200, 200, 900],
-      pos: [-5650, 2600, 450],
-    })
-  })
-  it('l_shape: верхний марш поднимается вдоль ширины (+Z) — плита за box.max.z, ширина по X = bbox', () => {
-    expect(exitSlabBox(lShapeBox, 'l_shape', 'right', d, t)).toEqual({
-      size: [2560, 200, 1200],
-      pos: [1240, 2600, 4030],
-    })
-    expect(exitSlabBox(lShapeBox, 'l_shape', 'left', d, t)).toEqual({
-      size: [2560, 200, 1200],
-      pos: [1240, 2600, 4030],
-    })
-  })
-  it('u_shape правый поворот: плита вдоль −X от box.min.x', () => {
-    expect(exitSlabBox(uShapeRightBox, 'u_shape', 'right', d, t)).toEqual({
-      size: [1200, 200, 1800],
-      pos: [-1410, 2600, 900],
-    })
-  })
-  it('u_shape без направления — как правый поворот (плита вдоль −X)', () => {
-    expect(exitSlabBox(uShapeRightBox, 'u_shape', undefined, d, t)).toEqual({
-      size: [1200, 200, 1800],
-      pos: [-1410, 2600, 900],
-    })
-  })
-  it('u_shape левый поворот: плита вдоль +X от box.max.x', () => {
-    expect(exitSlabBox(uShapeLeftBox, 'u_shape', 'left', d, t)).toEqual({
-      size: [1200, 200, 1800],
-      pos: [3930, 2600, 900],
-    })
-  })
-  it('spiral: плита вдоль +X от box.max.x независимо от направления', () => {
-    const a = exitSlabBox(spiralBox, 'spiral', undefined, d, t)
-    expect(a).toEqual({ size: [1200, 200, 800], pos: [1400, 2600, 400] })
-    expect(exitSlabBox(spiralBox, 'spiral', 'cw', d, t)).toEqual(a)
-    expect(exitSlabBox(spiralBox, 'spiral', 'ccw', d, t)).toEqual(a)
-  })
-})
-
 describe('wallBox (по периметру помещения)', () => {
   const t = 60
   // Габариты комнаты: 3000 мм по X (длина забега + подход), 4200 мм по Z
@@ -178,35 +105,12 @@ describe('wallBox (по периметру помещения)', () => {
     expect(wallBox(room, 'left', t)).toEqual({ size: [60, 2700, 4200], pos: [-30, 1350, 2100] })
   })
 
-  it('выходная стена: высота на 200 ниже (уровень низа блока второго этажа)', () => {
-    const sf = { side: 'left' as const, height: EXIT_BLOCK_H }
-    // Стена Л — выходная: высота = 2700−200 = 2500, верх = 2500, центр = 1250.
-    expect(wallBox(room, 'left', t, sf)).toEqual({ size: [60, 2500, 4200], pos: [-30, 1250, 2100] })
-    // Стена В — не выходная, полная высота.
-    expect(wallBox(room, 'top', t, sf)).toEqual({ size: [3000, 2700, 60], pos: [1500, 1350, 4230] })
-  })
-
-  it('secondFloor уменьшает только свою сторону — проверены все 4 стороны', () => {
-    const sf = { side: 'top' as const, height: EXIT_BLOCK_H }
-    // Выход на В: только top урезан, остальные полные.
-    expect(wallBox(room, 'top', t, sf)).toEqual({ size: [3000, 2500, 60], pos: [1500, 1250, 4230] })
-    expect(wallBox(room, 'bottom', t, sf)).toEqual({ size: [3000, 2700, 60], pos: [1500, 1350, -30] })
-    expect(wallBox(room, 'right', t, sf)).toEqual({ size: [60, 2700, 4200], pos: [3030, 1350, 2100] })
-    expect(wallBox(room, 'left', t, sf)).toEqual({ size: [60, 2700, 4200], pos: [-30, 1350, 2100] })
-  })
-
-  it('secondFloor выше стены: выходная стена срезается к минимальной толщине 1 мм', () => {
-    const sf = { side: 'left' as const, height: 2700 } // = полная высота
-    expect(wallBox(room, 'left', t, sf)).toEqual({ size: [60, 1, 4200], pos: [-30, 0, 2100] })
-  })
-
   it('стены начинаются от нижней грани меша (пол помещения не на нуле)', () => {
     // Реальный room_mesh: пол на Y∈[−20,20], верх стен 2700 → высота 2720,
     // центр на 1340.
     const withFloor = { min: { x: 0, y: -20, z: 0 }, max: { x: 3000, y: 2700, z: 4200 } }
     expect(wallBox(withFloor, 'top', t)).toEqual({ size: [3000, 2720, 60], pos: [1500, 1340, 4230] })
-    const sf = { side: 'left' as const, height: EXIT_BLOCK_H }
-    expect(wallBox(withFloor, 'left', t, sf)).toEqual({ size: [60, 2520, 4200], pos: [-30, 1240, 2100] })
+    expect(wallBox(withFloor, 'left', t)).toEqual({ size: [60, 2720, 4200], pos: [-30, 1340, 2100] })
   })
 
   it('толщина стены двигает плоскость и размер по здоровой оси', () => {
@@ -267,16 +171,10 @@ describe('wallBoundsOf (габарит стен = периметр помеще�
 
 describe('wallBox ∘ wallBoundsOf (интеграция: габарит из ввода → стены)', () => {
   const t = 60
-  it('высота ввода 2900: обычные стены 2900, выходная 2700 (2900 − 200)', () => {
+  it('высота ввода 2900: все стены полной высоты (плиты выхода в 3D нет)', () => {
     const bounds = wallBoundsOf({ stairBox: straightBox, roomWidth: 3000, roomLength: 4200, heightMM: 2900 })!
-    expect(wallBox(bounds, 'top', t, { side: 'left', height: EXIT_BLOCK_H })).toEqual({
-      size: [3000, 2900, 60],
-      pos: [1500, 1450, 4230],
-    })
-    expect(wallBox(bounds, 'left', t, { side: 'left', height: EXIT_BLOCK_H })).toEqual({
-      size: [60, 2700, 4200],
-      pos: [-30, 1350, 2100],
-    })
+    expect(wallBox(bounds, 'top', t)).toEqual({ size: [3000, 2900, 60], pos: [1500, 1450, 4230] })
+    expect(wallBox(bounds, 'left', t)).toEqual({ size: [60, 2900, 4200], pos: [-30, 1450, 2100] })
   })
 })
 

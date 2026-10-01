@@ -2,6 +2,7 @@ package geometry
 
 import (
 	"fmt"
+	"math"
 )
 
 // BoundingBox возвращает BBox всей модели — минимальный охват всех вершин
@@ -65,6 +66,112 @@ func solidPoints(solid *Solid) []Point3 {
 		}
 	}
 	return pts
+}
+
+// SolidPlateBlank — габарит плоской детали в её СОБСТВЕННОЙ системе осей:
+// длина вдоль длиннейшего ребра и ширина по нормали к нему. Это размеры
+// заготовки для раскроя, а не габаритный блок по осям сцены.
+//
+// Нужно боковой пластине косоура: она стоит в наклонной плоскости, и её
+// bbox по X/Z не является ни длиной, ни шириной листа. Ось вдоль
+// длиннейшего ребра — это посадочная линия ступеней (верхнее ребро
+// пластины), а ширина — расстояние от неё до нижнего ребра, то есть ровно
+// та глубина пластины, что заявлена в чертеже.
+func SolidPlateBlank(solid *Solid) (length, width float64) {
+	pts := solidPoints(solid)
+	if len(pts) < 3 {
+		return 0, 0
+	}
+	best := 0.0
+	// Тонкая ось — та, по которой тело тонкое: она выпадает из плоскости
+	// детали. Остальные две задают её плоскость.
+	bb := SolidBoundingBox(solid)
+	ext := [3]float64{bb.Max.X - bb.Min.X, bb.Max.Y - bb.Min.Y, bb.Max.Z - bb.Min.Z}
+	thin := 0
+	for i := 1; i < 3; i++ {
+		if ext[i] < ext[thin] {
+			thin = i
+		}
+	}
+	var axes [2]int
+	k := 0
+	for i := 0; i < 3; i++ {
+		if i != thin {
+			axes[k] = i
+			k++
+		}
+	}
+	// Длиннейшее РЕБРО контура — посадочная линия. Именно ребро, а не
+	// самая длинная пара вершин: диагональ пятой вершины длиннее посадочной
+	// линии, и по ней ширина пластины выходила бы 408 мм вместо 300.
+	bx, by := 1.0, 0.0
+	for _, ring := range solidRings(solid) {
+		for i := range ring {
+			a, c := ring[i], ring[(i+1)%len(ring)]
+			dx := coord(c, axes[0]) - coord(a, axes[0])
+			dy := coord(c, axes[1]) - coord(a, axes[1])
+			if d := math.Hypot(dx, dy); d > best {
+				best, bx, by = d, dx, dy
+			}
+		}
+	}
+	if best <= 0 {
+		return 0, 0
+	}
+	uniq := dedupePoints(pts, 1e-6)
+	ux, uy := bx/best, by/best
+	// Проекции всех вершин: вдоль ребра и по нормали к нему.
+	sMin, sMax := math.Inf(1), math.Inf(-1)
+	pMin, pMax := math.Inf(1), math.Inf(-1)
+	for _, p := range uniq {
+		p0, p1 := coord(p, axes[0]), coord(p, axes[1])
+		s := p0*ux + p1*uy
+		q := -p0*uy + p1*ux
+		sMin, sMax = math.Min(sMin, s), math.Max(sMax, s)
+		pMin, pMax = math.Min(pMin, q), math.Max(pMax, q)
+	}
+	return sMax - sMin, pMax - pMin
+}
+
+// solidRings — контуры всех граней тела: по ним ищутся РЁБРА детали.
+func solidRings(solid *Solid) [][]Point3 {
+	var rings [][]Point3
+	for _, shell := range solid.Shells() {
+		for _, face := range shell.Faces() {
+			if pts, ok := contourPoints(face.Outer()); ok && len(pts) > 1 {
+				rings = append(rings, pts)
+			}
+		}
+	}
+	return rings
+}
+
+func coord(p Point3, axis int) float64 {
+	switch axis {
+	case 0:
+		return p.X
+	case 1:
+		return p.Y
+	default:
+		return p.Z
+	}
+}
+
+func dedupePoints(pts []Point3, tol float64) []Point3 {
+	out := make([]Point3, 0, len(pts))
+	for _, p := range pts {
+		dup := false
+		for _, q := range out {
+			if math.Abs(p.X-q.X) <= tol && math.Abs(p.Y-q.Y) <= tol && math.Abs(p.Z-q.Z) <= tol {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // Volume возвращает объём замкнутого твёрдого тела (мм³) по формуле Гаусса:

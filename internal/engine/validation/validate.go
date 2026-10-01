@@ -36,6 +36,9 @@ func bindings() []binding {
 		{constraint.GEO_STRINGER_THICKNESS, "stringer_thickness", func(c *engineering.StairConfiguration) float64 {
 			return c.StringerThickness.Millimeters()
 		}},
+		{constraint.GEO_STRINGER_THICKNESS_SHEET, "stringer_thickness", func(c *engineering.StairConfiguration) float64 {
+			return c.StringerThickness.Millimeters()
+		}},
 		{constraint.SAF_RAILING_HEIGHT, "railing_height", func(c *engineering.StairConfiguration) float64 {
 			return c.RailingHeight.Millimeters()
 		}},
@@ -47,9 +50,15 @@ func bindings() []binding {
 // по Code, ID нумеруются после сортировки (ADR-0001). Валидация не изменяет модель.
 func Validate(cfg *engineering.StairConfiguration, set *constraint.ConstraintSet) Result {
 	var issues []Issue
+	// Класс материала каркаса: правила с чужим классом не проверяются. Если
+	// материал не задан, класс выводится из толщины косоура (лист — металл).
+	materialClass := constraint.MaterialClassFor(string(cfg.Material), cfg.StringerThickness.Millimeters())
 	for _, b := range bindings() {
 		rule, ok := set.Resolve(b.code, b.value(cfg))
 		if ok {
+			continue
+		}
+		if rule.MaterialClass != "" && rule.MaterialClass != materialClass {
 			continue
 		}
 		issue := Issue{

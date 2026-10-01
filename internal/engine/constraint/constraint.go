@@ -3,7 +3,10 @@
 // Контекст не изменяет модель — только хранит и предоставляет правила.
 package constraint
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Severity — уровень нарушения ограничения (EDR-0003).
 type Severity string
@@ -57,8 +60,61 @@ type Constraint struct {
 	Active   bool
 	Message  string
 	Fix      string
+	// MaterialClass — класс материала, к которому относится правило:
+	// "" — к любому, MaterialMetal — к листовому металлу,
+	// MaterialWood — к пиломатериалу. Правило с классом, который не совпадает
+	// с материалом изделия, не проверяется вовсе.
+	//
+	// Нужен для толщины косоура: у листового каркаса это 3–8 мм (MFG-0005),
+	// а у пиломатериала 30–60. Одно правило на оба случая давало или ложное
+	// «толщина косоура 8 мм, нужно не менее 30 мм» на стальном изделии,
+	// или обратное.
+	MaterialClass string
 	// Advice — подсказка для советника исправлений (nil = без подсказок).
 	Advice *ConstraintAdvice
+}
+
+// Классы материалов для MaterialClass.
+const (
+	MaterialMetal = "metal"
+	MaterialWood  = "wood"
+)
+
+// SheetStringerMaxMM — верхняя граница толщины листового косоура (MFG-0005:
+// лазерный раскрой стали 3–8 мм). Нужна, когда материал изделия не задан:
+// класс выводится из толщины, как и в геометрии (plateStringer).
+const SheetStringerMaxMM = 8.0
+
+// MaterialClassFor — класс материала изделия. Если код материала задан, он
+// определяет класс; если не задан, класс выводится из толщины косоура:
+// лист — металл, пиломатериал — дерево. Пустой класс означает «не определён».
+func MaterialClassFor(code string, stringerThicknessMM float64) string {
+	if c := MaterialClassOf(code); c != "" {
+		return c
+	}
+	switch {
+	case stringerThicknessMM <= 0:
+		// Толщина не задана: класс не определён, и правила с классом не
+		// применяются (входной разбор всё равно остановит расчёт).
+		return ""
+	case stringerThicknessMM <= SheetStringerMaxMM:
+		return MaterialMetal
+	default:
+		return MaterialWood
+	}
+}
+
+// MaterialClassOf — класс материала по его коду. Пустой код — класс не
+// определён.
+func MaterialClassOf(code string) string {
+	switch {
+	case strings.HasPrefix(code, "STEEL"), strings.HasPrefix(code, "METAL"),
+		strings.HasPrefix(code, "ALU"), strings.HasPrefix(code, "AL"):
+		return MaterialMetal
+	case strings.HasPrefix(code, "WOOD"):
+		return MaterialWood
+	}
+	return ""
 }
 
 // ConstraintSet — агрегат (BC-003): полный набор ограничений проекта.

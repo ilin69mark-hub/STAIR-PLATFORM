@@ -53,13 +53,6 @@ const StringerPlateDepthMM = 300.0
 // (деталь то пробивает косоур, то пропадает, то косоур меняет цвет).
 const plateJoinMM = 2.0
 
-// landingDepthMM — глубина верхней горизонтальной площадки прямого марша
-// металлокаркаса. Площадка идёт ОТДЕЛЬНОЙ деталью (сварка после раскроя),
-// как у Ниоры: последняя ступень стоит на косоуре, а дальше идёт
-// стальная пластина вровень с ней. Глубина — в шаг ступени: столько же,
-// сколько занимает ступень, площадка идёт одним «шагом» дальше марша.
-const landingDepthFactor = 1.0
-
 // plateStringer — металлический каркас (косоур боковой пластиной) или нет.
 func plateStringer(cfg *engineering.StairConfiguration) bool {
 	if m := cfg.Material; m != "" {
@@ -142,34 +135,6 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 
 	if st <= kerngeo.Precision {
 		return buildCompound(builds)
-	}
-
-	// Верхняя горизонтальная площадка металлокаркаса — ОТДЕЛЬНАЯ деталь.
-	// Без неё марш обрывается последней ступенью, и на 3D не видно, куда
-	// ступень приводит: у Ниоры там стальная пластина вровень с последней
-	// проступью, приваренная к косоурам (владелец: «горизонтальных
-	// площадок, на которые устанавливаются ступени, не вижу — они должны
-	// быть отдельными элементами, после резки будет сварка»).
-	//
-	// Геометрия: горизонтальная пластина толщиной t (как лист косоура) с
-	// верхней плоскостью на уровне носика последней ступени (n·h), от конца
-	// марша (n·b) дальше на шаг ступени. По ширине — между пластинами, с
-	// тем же нахлёстом 2 мм внутрь, что и у ступеней.
-	if plate {
-		builds = append(builds, func() (*kerngeo.Solid, error) {
-			lp := b * landingDepthFactor
-			profile := []kerngeo.Point3{
-				kerngeo.NewPoint3(float64(n)*b, y0, float64(n)*h-t),
-				kerngeo.NewPoint3(float64(n)*b+lp, y0, float64(n)*h-t),
-				kerngeo.NewPoint3(float64(n)*b+lp, y0, float64(n)*h),
-				kerngeo.NewPoint3(float64(n)*b, y0, float64(n)*h),
-			}
-			solid, err := kerngeo.Extrude(profile, kerngeo.NewVector3(0, 1, 0), y1-y0)
-			if err != nil {
-				return nil, fmt.Errorf("geometry: landing: %w", err)
-			}
-			return solid.WithRole("top_plate"), nil
-		})
 	}
 
 	// проступи во всю ширину [0,w]. Верх на уровне носика (k+1)·h, толщина st
@@ -386,6 +351,15 @@ func subFlight(cfg *engineering.StairConfiguration, height float64, steps int) *
 		// получил бы 0 и откатился на толщину ступени.
 		RiserThickness: cfg.RiserThickness,
 		Riser:          cfg.Riser,
+		// Материал секции ОБЯЗАТЕЛЬНО наследуется: по нему выбирается тип
+		// косоура — боковая пластина (metal, 3–8 мм) или пила-гребёнка
+		// (дерево, 30–60 мм). Раньше материал в под-конфигурацию не попадал,
+		// и выбор шёл по толщине: у Г- и П-образного марша с листом 8 мм
+		// пластина строилась, а при заданном материале и толщине 50 мм —
+		// уже гребёнка, тогда как раскрой смотрел на материал ВСЕЙ
+		// лестницы и считал пластину. Геометрия и раскрой расходились.
+		Material:      cfg.Material,
+		TreadMaterial: cfg.TreadMaterial,
 	}
 }
 
@@ -790,23 +764,45 @@ func shiftY(pts []kerngeo.Point3, y0 float64) []kerngeo.Point3 {
 // одинаковой глубины, а сверху её накрывает отдельная горизонтальная
 // площадка (см. landingProfile) — ровно как у Ниоры.
 func plateStringerProfile(n int, b, h, st, yOff, t, depth float64) []kerngeo.Point3 {
-	L := math.Hypot(b, h)
-	nz := -b / L              // вертикальная составляющая нормали вниз: (h, −b)/L
-	firstZ := h - st          // посадка первой ступени
-	topZ := float64(n)*h - st // посадка последней ступени
-	lastSeatX := float64(n-1) * b
-	// Нижнее ребро — посадочная линия, сдвинутая по нормали вниз на depth:
-	// вертикальная составляющая сдвига −depth·b/L, поэтому
-	// z(x) = (h−st) − depth·b/L + (h/b)·x. Пятка — пересечение этой прямой
-	// с полом (z = 0): x = (depth·b/L − (h−st))·b/h.
+	// Глубина пластины отсчитывается ПО НОРМАЛИ к линии подъёма: это и есть
+	// «300 мм пластины» из чертежа. Раньше сдвиг нижнего ребра был задан
+	// ВЕРТИКАЛЬНЫМ отрезком depth·b/L, и перпендикулярная глубина выходила
+	// depth·(b/L)² — то есть не 300 мм, а 216 при подъёме 175, 233 при 150
+	// и 167 при 250. Спецификация не выполнялась ни при одном угле, и
+	// «глубина» дышала вместе с наклоном марша.
 	//
-	// ЗНАК ВАЖЕН: со знаком «+» пятка уезжала вправо, нижнее ребро шло не
-	// параллельно подъёму, и пластина получалась трапецией — к верху уже
-	// (владелец: «от низа к верху он заужается, хотя должен быть одного
-	// размера»).
+	// Задний срез остаётся ВЕРТИКАЛЬНЫМ (как на Ниоре), поэтому
+	// вертикальный сдвиг равен depth/cos(угла) = depth·L/b, и
+	// перпендикулярное расстояние между посадочной и нижней линиями
+	// равно ровно depth при любом угле подъёма.
+	drop := depth
+	if b > kerngeo.Precision {
+		drop = depth * math.Hypot(b, h) / b
+	}
+	firstZ := h - st // посадка первой ступени
+	// Посадочная линия идёт от первой посадки (0, h−st) с уклоном подъёма
+	// h/b. На двухступенчатом и длиннее марше её конец — последняя посадка
+	// ((n−1)·b, n·h−st). На ОДНОСТУПЕНЧАТОМ марше посадка одна, линия
+	// вырождается в точку, и профиль из пяти вершин склеивался бы в
+	// отрезок («profile points are collinear»). Поэтому для n < 2 берём
+	// половину шага: линия остаётся той же наклонной прямой, только короче.
+	seatDX := float64(n-1) * b
+	if seatDX <= kerngeo.Precision {
+		seatDX = b / 2
+	}
+	lastSeatX := seatDX
+	topZ := firstZ + seatDX*h/b
+	// Задний срез не уходит под пол и не делает контур самопересекающимся:
+	// пятка должна остаться левее среза. На коротком марше (1–3 ступени)
+	// глубина 300 мм физически не помещается, и срез обрезается по маршу —
+	// 1% запаса оставлены на саму пятку, иначе нижнее ребро ложится ровно
+	// на задний срез и профиль перестаёт быть простым многоугольником.
+	if maxDrop := firstZ + lastSeatX*0.99*h/b; drop > maxDrop {
+		drop = maxDrop
+	}
 	floorX := 0.0
 	if h > kerngeo.Precision {
-		floorX = (-firstZ - depth*nz) * b / h
+		floorX = (drop - firstZ) * b / h
 	}
 	if floorX < 0 {
 		floorX = 0
@@ -815,9 +811,37 @@ func plateStringerProfile(n int, b, h, st, yOff, t, depth float64) []kerngeo.Poi
 		kerngeo.NewPoint3(0, yOff, 0),
 		kerngeo.NewPoint3(0, yOff, firstZ),
 		kerngeo.NewPoint3(lastSeatX, yOff, topZ),
-		kerngeo.NewPoint3(lastSeatX, yOff, topZ+depth*nz),
+		kerngeo.NewPoint3(lastSeatX, yOff, topZ-drop),
 		kerngeo.NewPoint3(floorX, yOff, 0),
 	}
+}
+
+// PlateBlankMM — габарит боковой пластины в системе координат, где ось
+// вдоль склона: длина и ширина заготовки лазерного раскроя.
+//
+// Считается из ТОГО ЖЕ профиля, что и геометрия, поэтому деталь в раскрое
+// совпадает с телом в меше. Раньше раскрой брал горизонтальный габарит
+// марша (run) и «глубина + толщина»: для марша 4480×2800 это давало
+// 4480×308 против фактических 5024×300 — деталь короче геометрии на 544 мм
+// и шире её на 8 мм, то есть CAD-деталь не совпадала с моделью.
+func PlateBlankMM(n int, b, h, st, depth float64) (length, width float64) {
+	pts := plateStringerProfile(n, b, h, st, 0, 0, depth)
+	L := math.Hypot(b, h)
+	if L <= kerngeo.Precision {
+		return 0, 0
+	}
+	// Ось вдоль склона (b, h)/L и нормаль вниз (h, −b)/L.
+	ux, uz := b/L, h/L
+	mx, mz := h/L, -b/L
+	sMin, sMax := math.Inf(1), math.Inf(-1)
+	pMin, pMax := math.Inf(1), math.Inf(-1)
+	for _, p := range pts {
+		s := p.X*ux + p.Z*uz
+		q := p.X*mx + p.Z*mz
+		sMin, sMax = math.Min(sMin, s), math.Max(sMax, s)
+		pMin, pMax = math.Min(pMin, q), math.Max(pMax, q)
+	}
+	return sMax - sMin, pMax - pMin
 }
 
 // stringerProfile строит строго простой профиль косоура-гребёнки в

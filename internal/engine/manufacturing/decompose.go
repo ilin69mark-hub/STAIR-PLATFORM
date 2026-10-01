@@ -86,6 +86,9 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 	type spec struct {
 		kind                     dommfg.PartKind
 		thickness, length, width float64
+		// pieces — сколько деталей выходит из одного тела: длинная
+		// пластина косоура режется на части со сварным стыком.
+		pieces int
 	}
 	specs := make([]spec, len(solids))
 	limit := runtime.GOMAXPROCS(0)
@@ -109,10 +112,11 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 				// EDR-0007: развёртка колонны (толщина косоура, H×2πr).
 				s.kind, s.thickness, s.length, s.width = columnPart(cfg, ext)
 			case solid.Role() == "stringer":
-				// Косоур — пилообразная пластина: заготовка это полоса
-				// «длина марша × шаг ступени», а не габаритный блок.
+				// Косоур — боковая пластина (металл) или пила (дерево):
+				// заготовка это габарит самой детали в осях раскроя,
+				// а не блок по габаритам марша.
 				s.kind = dommfg.PartStringer
-				s.thickness, s.length, s.width = stringerBlank(cfg, ext)
+				s.thickness, s.length, s.width, s.pieces = stringerBlank(cfg, ext, solid)
 			default:
 				s.kind, s.thickness, s.length, s.width = classify(ext, solid.Role())
 			}
@@ -128,6 +132,9 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 			if isMetal(solid.Role(), s.thickness) {
 				s.thickness = laserPlateMM(s.thickness)
 			}
+			if s.pieces < 1 {
+				s.pieces = 1
+			}
 			specs[i] = s
 			return nil
 		})
@@ -137,31 +144,38 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 	}
 
 	for i, s := range specs {
-		seq[s.kind]++
-
 		mk := func(v float64) (engineering.Length, error) {
 			return engineering.NewLength(v)
 		}
-		thick, err := mk(s.thickness)
-		if err != nil {
-			return nil, fmt.Errorf("manufacturing: part %d: %w", i, err)
+		for k := 0; k < s.pieces; k++ {
+			seq[s.kind]++
+			// Длинная пластина режется на равные части: каждая влезает в
+			// предел материала, сварной стык — на объекте.
+			pieceLength := s.length
+			if s.pieces > 1 {
+				pieceLength = s.length / float64(s.pieces)
+			}
+			thick, err := mk(s.thickness)
+			if err != nil {
+				return nil, fmt.Errorf("manufacturing: part %d: %w", i, err)
+			}
+			lng, err := mk(pieceLength)
+			if err != nil {
+				return nil, fmt.Errorf("manufacturing: part %d: %w", i, err)
+			}
+			wid, err := mk(s.width)
+			if err != nil {
+				return nil, fmt.Errorf("manufacturing: part %d: %w", i, err)
+			}
+			parts = append(parts, dommfg.Part{
+				Number:     partNumber(s.kind, seq[s.kind]),
+				Kind:       s.kind,
+				Thickness:  thick,
+				Length:     lng,
+				Width:      wid,
+				SolidIndex: i,
+			})
 		}
-		lng, err := mk(s.length)
-		if err != nil {
-			return nil, fmt.Errorf("manufacturing: part %d: %w", i, err)
-		}
-		wid, err := mk(s.width)
-		if err != nil {
-			return nil, fmt.Errorf("manufacturing: part %d: %w", i, err)
-		}
-		parts = append(parts, dommfg.Part{
-			Number:     partNumber(s.kind, seq[s.kind]),
-			Kind:       s.kind,
-			Thickness:  thick,
-			Length:     lng,
-			Width:      wid,
-			SolidIndex: i,
-		})
 	}
 	return parts, nil
 }
@@ -212,7 +226,10 @@ func laserPlateMM(design float64) float64 {
 // стали на марш при ставке 100 ₽/кг. Цена лестницы расходилась с ценой
 // цельного дуба в 9,4 раза, и витрина по умолчанию (стальной каркас)
 // показывала завышенную в десять раз сумму.
-func stringerBlank(cfg *engineering.StairConfiguration, ext [3]float64) (thickness, length, width float64) {
+// stringerBlank возвращает толщину листа, длину и ширину заготовки косоура и
+// число кусков: длинная пластина режется на части со сварным стыком, потому
+// что одна деталь длиннее предела материала не проходит MFG-0012.
+func stringerBlank(cfg *engineering.StairConfiguration, ext [3]float64, solid *kerngeo.Solid) (thickness, length, width float64, pieces int) {
 	// Тонкая ось — это ширина сечения косоура в плане; по ней и определяем
 	// «длину марша»: у прямого и L-образного марша ось подъёма может быть
 	// любой из двух горизонтальных.
@@ -226,28 +243,45 @@ func stringerBlank(cfg *engineering.StairConfiguration, ext [3]float64) (thickne
 	// Ширина заготовки. Два случая:
 	//
 	// 	• Пластина (металлокаркас): сбоку это глухая стенка, а не пила, и
-	//      развёртка — полоса шириной «глубина пластины + толщина». Длину
-	//      берём по горизонтальному габариту марша (run), как и раньше:
-	//      точная длина по склону отличается на несколько процентов и на
-	//      проходимости по листу не сказывается, а вот с честной склонной
-	//      длиной марш выше 5.7 м переставал влезать на лист 10400×6200
-	//      и упирался в MFG-SHEET. Сварной стык длинного косоура — отдельная
-	//      задача, здесь считаем деталь целиком.
+	//      развёртка — габарит самой пластины в осях «вдоль склона» и
+	//      «по нормали». Длина и ширина берутся из ТОГО ЖЕ профиля, что и
+	//      геометрия (geometry.PlateBlankMM), поэтому деталь в раскрое
+	//      совпадает с телом в меше. Раньше здесь стоял горизонтальный
+	//      габарит марша (run) и «глубина + толщина» — для марша
+	//      4480×2800 это было 4480×308 против фактических 5024×300, то
+	//      есть деталь короче геометрии на 544 мм; объём в цене считался
+	//      по ней, и CAD-деталь не совпадала с моделью.
 	// 	• Гребёнка (дерево): полоса шириной в шаг ступени — зубья уходят в
 	//      обрез, как и раньше.
 	//
-	// Раньше здесь стоял только второй случай, поэтому после перехода
-	// металлокаркаса на боковую пластину заготовка считалась в разы
-	// меньше реальной: 16-ступенчатый марш брался полосой «длина × шаг
-	// ступени» вместо «длина × (300 + толщина)».
+	// Толщина листа в ширину заготовки НЕ входит: у плоской детали толщина
+	// и есть толщина листа, а прибавка «глубина + толщина» раздувала
+	// заготовку на лишние миллиметры по всей длине.
 	if enggeo.PlateStringerFrame(cfg) {
 		thickness = thin
-		length = run
-		// Ширина заготовки = глубина пластины + толщина ЛИСТА, а не модельная
-		// толщина сечения: у металла модельная t — конструктивный габарит, и
-		// в материал идёт лист 3–8 мм (то же правило, что по толщине ниже).
-		return thickness, length, enggeo.StringerPlateDepthMM + laserPlateMM(thin)
+		// Габарит заготовки — из САМОГО тела: длина вдоль длиннейшего
+		// ребра (посадочной линии) и ширина по нормали к нему (глубина
+		// пластины). Так одна и та же формула работает и для прямого
+		// марша, и для сегментов Г- и П-образных лестниц, у которых
+		// сегментные параметры отличаются от общих по конфигурации.
+		//
+		// Раньше здесь стоял горизонтальный габарит марша (run) и
+		// «глубина + толщина»: для марша 4480×2800 выходило 4480×308
+		// против фактических 5024×300 — деталь короче геометрии на 544 мм
+		// и шире её на 8 мм, объём в цене считался по ней, и CAD-деталь
+		// не совпадала с моделью.
+		length, width = plateBlankOf(solid)
+		if length <= 0 || width <= 0 {
+			// Вырожденная конфигурация (тесты, пустой марш) — прежнее
+			// поведение, чтобы не получить нулевую площадь детали.
+			length, width = run, enggeo.StringerPlateDepthMM
+		}
+		if width > length {
+			length, width = width, length
+		}
+		return thickness, length, width, blankPieces(length, plateLengthLimitMM(cfg, thin))
 	}
+	pieces = 1
 	width = cfg.StepHeight.Millimeters()
 	if width <= 0 {
 		// Шаг не задан (тестовая/вырожденная конфигурация) — берём высоту
@@ -259,7 +293,67 @@ func stringerBlank(cfg *engineering.StairConfiguration, ext [3]float64) (thickne
 	if width > length {
 		length, width = width, length
 	}
-	return thickness, length, width
+	return thickness, length, width, pieces
+}
+
+// plateBlankOf — габарит заготовки боковой пластины по её телу.
+func plateBlankOf(solid *kerngeo.Solid) (length, width float64) {
+	if solid == nil {
+		return 0, 0
+	}
+	return kerngeo.SolidPlateBlank(solid)
+}
+
+// defaultSteelCode — сталь по умолчанию: ею заполняется каркас, когда
+// материал в конфигурации не задан (лист 3–8 мм выводится в сталь, тот же
+// вывод, что в engine.go).
+const defaultSteelCode = dommfg.MaterialCode("STEEL-S235")
+
+// plateLengthLimitMM — предел длины детали из материала каркаса (у стали
+// MaxHeightMm = 6000, MFG-0012). Ноль означает «без предела».
+//
+// Материал каркаса может быть не задан — тогда он выводится из толщины
+// детали. Без этой ветки длинная пластина уходила одной деталью: предел
+// не находился, куски не резались, и марш высотой 6 м падал на
+// «косоур 10400 мм не помещается на лист 10400 мм» (а он влезает, если
+// разделить на две детали со сварным стыком).
+func plateLengthLimitMM(cfg *engineering.StairConfiguration, thickness float64) float64 {
+	registry, err := DefaultMaterialRegistry()
+	if err != nil {
+		return 0
+	}
+	for _, code := range []dommfg.MaterialCode{
+		dommfg.MaterialCode(cfg.Material),
+		dommfg.MaterialCode(cfg.TreadMaterial),
+		defaultSteelCode,
+	} {
+		if code == "" {
+			continue
+		}
+		if m, ok := registry.Find(code); ok && m.Category == "Steel" {
+			if code == defaultSteelCode && cfg.Material == "" && cfg.TreadMaterial == "" {
+				// Код подобран по толщине: берём его предел только если
+				// толщина действительно листовая.
+				if thickness < laserPlateMinMM || thickness > laserPlateMaxMM {
+					continue
+				}
+			}
+			return m.MaxHeightMm
+		}
+	}
+	return 0
+}
+
+// blankPieces — на сколько частей режется заготовка. Пластина длиннее
+// предела материала не влезает в деталь: её делят на равные части, которые
+// сваривают на объекте. Стык сварной, операция сварки в модель операций не
+// входит (считается только раскрой) — это осознанное упрощение, о котором
+// нужно помнить при переходе на работу сборочного маршрута.
+func blankPieces(length, limit float64) int {
+	if limit <= 0 || length <= limit {
+		return 1
+	}
+	return int(math.Ceil(length / limit))
 }
 
 // columnPart вычисляет габариты развёртки центральной колонны спиральной
@@ -296,10 +390,6 @@ func roleKind(role string) (dommfg.PartKind, bool) {
 		return dommfg.PartRiser, true
 	case "column":
 		return dommfg.PartColumn, true
-	case "top_plate":
-		// Верхняя площадка металлокаркаса: своя деталь и свой материал
-		// (каркас), а не проступь из материала ступеней.
-		return dommfg.PartTopPlate, true
 	default:
 		return "", false
 	}
@@ -361,11 +451,6 @@ func partNumber(kind dommfg.PartKind, seq int) dommfg.PartNumber {
 		prefix = "RSR"
 	case dommfg.PartColumn:
 		prefix = "CLM"
-	case dommfg.PartTopPlate:
-		// Свой префикс: площадка верхняя металлокаркаса. Без него она
-		// брала номер STR-01 и делила его с косоуром — сбой «duplicate
-		// part number» на каждом расчёте металлокаркаса.
-		prefix = "LND"
 	}
 	return dommfg.PartNumber(fmt.Sprintf("%s-%02d", prefix, seq))
 }

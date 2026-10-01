@@ -322,7 +322,11 @@ export const fieldRules: Record<keyof ConfigForm, FieldRule> = {
   flight: {},
   material: {},
   stepHeightMM: { min: 150, max: 200 },
-  stringerThicknessMM: { min: 30 }, // норматив GEO-STRINGER-THICKNESS
+  // Минимум 30 мм — это норматив ПИЛОМАТЕРИАЛА (GEO-STRINGER-THICKNESS).
+  // Для листового каркаса минимум задаёт materialLimits: 3 мм
+  // (GEO-STRINGER-THICKNESS-SHEET, лазерный раскрой 3–8 мм). Правило
+  // сливается по правилам rulesFor, и предел материала перекрывает базовый.
+  stringerThicknessMM: { min: 30 },
   stepThicknessMM: {},
   riser: {},
   clearanceMM: { min: 0, max: 5000, hint: '≥2000, иначе предупреждение' },

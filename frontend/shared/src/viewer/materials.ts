@@ -35,7 +35,14 @@ const BASE: Record<string, { color: number; roughness: number; metalness: number
   'WOOD-WALNUT': { color: 0x6b4630, roughness: 0.5, metalness: 0 },
   'WOOD-ASH': { color: 0xdfc49a, roughness: 0.66, metalness: 0 },
   'WOOD-SOFT': { color: 0xe0c39a, roughness: 0.75, metalness: 0 },
-  'STEEL-S235': { color: 0x9aa3ad, roughness: 0.42, metalness: 0.85 },
+  // Лист после лазерной резки у Ниоры — окрашенная графитовая пластина, а
+  // не полированное зеркало. При metalness 0.85 у металла почти нет
+  // диффузной составляющей, и вид детали целиком задавался отражением
+  // сцены: замер одной и той же стали давал 177,127,89 с одной стороны
+  // пластины и 102,111,125 с другой — тёплая и холодная при одном
+  // материале (это и выглядело как «деревянный косоур»). 0.35/0.6 дают
+  // ровный серый тон с обеих сторон и мягкий блик на кромках.
+  'STEEL-S235': { color: 0x9aa3ad, roughness: 0.6, metalness: 0.35 },
 }
 
 /** Финиши одного материала: меняют вид, но не код материала и не цену. */
@@ -46,9 +53,9 @@ export const FINISHES: Record<string, FinishSpec[]> = {
     { id: 'toned', label: 'Тонировка', color: 0x9a7448, roughnessFactor: 0.55 },
   ],
   'STEEL-S235': [
-    { id: 'raw', label: 'Без покрытия', roughnessFactor: 0.42 },
-    { id: 'black', label: 'Чёрный', color: 0x24262a, roughnessFactor: 0.46 },
-    { id: 'white', label: 'Белый', color: 0xe8e8e6, roughnessFactor: 0.5 },
+    { id: 'raw', label: 'Без покрытия', roughnessFactor: 0.6 },
+    { id: 'black', label: 'Чёрный', color: 0x24262a, roughnessFactor: 0.55 },
+    { id: 'white', label: 'Белый', color: 0xe8e8e6, roughnessFactor: 0.55 },
   ],
 }
 
@@ -172,10 +179,6 @@ const ROLE_DEPTH_BIAS: Record<string, { factor: number; units: number }> = {
   winder: { factor: 2, units: 2 },
   riser: { factor: 3, units: 3 },
   stringer: { factor: 4, units: 4 },
-  // Верхняя площадка идёт по материалу каркаса (не TREAD_ROLES), но по
-  // приоритету это деталь того же узла, что и косоур: иначе на совпадающих
-  // гранях с проступью она уезжает вглубь.
-  top_plate: { factor: 4, units: 4 },
 }
 
 function depthBiasFor(role: string): { polygonOffset: true; polygonOffsetFactor: number; polygonOffsetUnits: number } {
@@ -224,12 +227,13 @@ export function createStairMaterial(opts: StairMaterialOptions): THREE.MeshStand
         roughness,
         metalness,
         side: THREE.DoubleSide,
-        // Металл живёт ОТРАЖЕНИЯМИ: у него почти нет диффузной
-        // составляющей, и при envMapIntensity 1.0 грани, повёрнутые от
-        // источников и от яркой части HDRI, уходили в чёрное — стальной
-        // косоур выглядел дырой в картинке. Дереву и камню 1.15 не нужен:
-        // там отражения — лишь тонкий налёт поверх диффузии.
-        envMapIntensity: metalness > 0.5 ? 1.4 : 1.15,
+        // Отражательная доля окружения. У металла при высокой
+        // металличности её роль была чрезмерной: 1.4 красило стальную
+        // пластину в цвет тёплой половины HDRI, и две грани одной детали
+        // расходились по цвету. 1.15 — уровень дерева и камня: своего
+        // серого тона в кадре остаётся больше, а чёрных «дыр» на гранях,
+        // повёрнутых от источников, не появляется.
+        envMapIntensity: 1.15,
         ...depthBiasFor(opts.role),
       })
 

@@ -18,18 +18,18 @@ func TestPrepareCostMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if ds.PartCount != 33 {
+	if ds.PartCount != 32 {
 		t.Fatalf("part count = %d, want 32", ds.PartCount)
+	}
+	if ds.OperationCount != 64 {
+		t.Fatalf("operation count = %d, want 64", ds.OperationCount)
 	}
 	if ds.FastenerCount != 0 {
 		t.Fatalf("fastener count = %d, want 0", ds.FastenerCount)
 	}
-	// операции: 33 детали × 2 (Cutting + Finishing).
-	if ds.OperationCount != 66 {
-		t.Fatalf("operation count = %d, want 64", ds.OperationCount)
-	}
-	if ds.OperationPlan == nil || len(ds.OperationPlan.Parts) != 33 {
-		t.Fatalf("operation plan must contain 33 part routes, got %+v", ds.OperationPlan)
+	// операции: 32 детали × 2 (Cutting + Finishing).
+	if ds.OperationPlan == nil || len(ds.OperationPlan.Parts) != 32 {
+		t.Fatalf("operation plan must contain 32 part routes, got %+v", ds.OperationPlan)
 	}
 	if len(ds.MaterialConsumption) != 1 || ds.MaterialConsumption[0].MaterialCode != "STEEL-S235" {
 		t.Fatalf("consumption = %+v, want single STEEL-S235", ds.MaterialConsumption)
@@ -49,16 +49,16 @@ func TestPrepareCostMetrics(t *testing.T) {
 		got  float64
 		want float64
 	}{
-		{"part area", ds.PartArea, 7.97256e+06},
+		{"part area", ds.PartArea, 8.199391580733697e+06},
 		{"sheet area", ds.SheetArea, 1.8e+07},
-		{"waste area", ds.WasteArea, 1.002744e+07},
-		{"volume", ds.Volume, 6.378048e+07},
-		{"surface area", ds.SurfaceArea, 1.658704e+07},
-		{"waste percent", ds.WastePercent, 1.002744e+07 / 1.8e+07},
-		{"utilization", ds.Utilization, 7.97256e+06 / 1.8e+07},
-		{"machine time", ds.EstimatedMachineTime, 106.12},
-		{"labor time", ds.EstimatedLaborTime, 99},
-		{"production time", ds.EstimatedProductionTime, 205.12},
+		{"waste area", ds.WasteArea, 9.800608419266302e+06},
+		{"volume", ds.Volume, 6.5595132645869575e+07},
+		{"surface area", ds.SurfaceArea, 1.7050164045773193e+07},
+		{"waste percent", ds.WastePercent, 9.800608419266302e+06 / 1.8e+07},
+		{"utilization", ds.Utilization, 8.199391580733697e+06 / 1.8e+07},
+		{"machine time", ds.EstimatedMachineTime, 104.71130526911233},
+		{"labor time", ds.EstimatedLaborTime, 96},
+		{"production time", ds.EstimatedProductionTime, 200.71130526911233},
 	}
 	for _, c := range checks {
 		if !nearlyEqual(c.got, c.want) {

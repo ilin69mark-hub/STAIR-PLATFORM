@@ -12,8 +12,11 @@ const (
 	GEO_ANGLE              RuleCode = "GEO-ANGLE"
 	GEO_CLEARANCE          RuleCode = "GEO-CLEARANCE"
 	GEO_STRINGER_THICKNESS RuleCode = "GEO-STRINGER-THICKNESS"
-	SAF_RAILING_HEIGHT     RuleCode = "SAF-RAILING-HEIGHT"
-	MFG_SHEET              RuleCode = "MFG-SHEET"
+	// GEO_STRINGER_THICKNESS_SHEET — тот же параметр для листового каркаса:
+	// толщина боковой пластины 3–8 мм (MFG-0005), а не 30–60 как у пиломатериала.
+	GEO_STRINGER_THICKNESS_SHEET RuleCode = "GEO-STRINGER-THICKNESS-SHEET"
+	SAF_RAILING_HEIGHT           RuleCode = "SAF-RAILING-HEIGHT"
+	MFG_SHEET                    RuleCode = "MFG-SHEET"
 )
 
 // Коды входных ошибок решателя (пользовательский ввод не позволяет
@@ -97,18 +100,38 @@ func StandardProfile(name string) *ConstraintSet {
 			Suggest: false,
 		},
 	})
+	// Толщина косоура — правило с классом материала: лист 3–8 мм у металла,
+	// 30–60 мм у пиломатериала. Одно общее правило давало на стальном
+	// изделии ложное «толщина косоура 8 мм, нужно не менее 30 мм».
 	mustAdd(set, &Constraint{
-		Code:     GEO_STRINGER_THICKNESS,
-		Category: "geometry",
-		Severity: SeverityWarning,
-		Range:    Range{Min: 30, HasMin: true, Tolerance: 0.1},
-		Version:  1,
-		Active:   true,
-		Message:  "толщина косоура должна быть не менее 30 мм",
-		Fix:      "увеличьте толщину косоура",
+		Code:          GEO_STRINGER_THICKNESS,
+		Category:      "geometry",
+		Severity:      SeverityWarning,
+		Range:         Range{Min: 30, HasMin: true, Tolerance: 0.1},
+		Version:       1,
+		Active:        true,
+		MaterialClass: MaterialWood,
+		Message:       "толщина косоура должна быть не менее 30 мм",
+		Fix:           "увеличьте толщину косоура",
 		Advice: &ConstraintAdvice{
 			Param:   "Толщина косоура",
 			Guide:   "Толщина косоура {value} мм, нужно не менее {min} мм. Увеличьте поле «Толщина косоура».",
+			Suggest: false,
+		},
+	})
+	mustAdd(set, &Constraint{
+		Code:          GEO_STRINGER_THICKNESS_SHEET,
+		Category:      "geometry",
+		Severity:      SeverityWarning,
+		Range:         Range{Min: 3, Max: 8, HasMin: true, HasMax: true, Tolerance: 0.1},
+		Version:       1,
+		Active:        true,
+		MaterialClass: MaterialMetal,
+		Message:       "толщина боковой пластины косоура должна быть в диапазоне 3-8 мм",
+		Fix:           "задайте толщину листа в пределах 3-8 мм",
+		Advice: &ConstraintAdvice{
+			Param:   "Толщина косоура",
+			Guide:   "Толщина косоура {value} мм: лист лазерного раскроя — от {min} до {max} мм. Увеличьте поле «Толщина косоура» или смените материал изделия.",
 			Suggest: false,
 		},
 	})

@@ -216,23 +216,6 @@
   color: var(--sp-muted);
 }
 
-.viewer__exit {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--sp-muted);
-  cursor: pointer;
-  user-select: none;
-}
-
-.viewer__exit input[type='checkbox'] {
-  width: 14px;
-  height: 14px;
-  accent-color: var(--sp-primary);
-  cursor: pointer;
-}
-
 .spinner {
   color: var(--sp-muted);
   padding: 20px;

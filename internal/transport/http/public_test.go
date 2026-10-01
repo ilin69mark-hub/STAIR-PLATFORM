@@ -46,8 +46,8 @@ func TestPublicQuoteSuccess(t *testing.T) {
 	}
 	// Стальной марш 16 ступеней: см. service_test на происхождение значения
 	// (заготовка — лист лазерного раскроя, а не габаритный блок).
-	if resp.Pricing.FinalPriceRub != 286810.12 {
-		t.Fatalf("final price = %v, want 286810.12", resp.Pricing.FinalPriceRub)
+	if resp.Pricing.FinalPriceRub != 287511.79 {
+		t.Fatalf("final price = %v, want 287511.79", resp.Pricing.FinalPriceRub)
 	}
 
 	// Габаритная ширина марша приходит из конфигурации.
