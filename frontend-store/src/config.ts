@@ -25,5 +25,6 @@ export const CONTACTS = {
   address: norm(env.VITE_CONTACT_ADDRESS, 'Москва, Ленинградский проспект, 36с1'),
 } as const
 
-// Домен «политики» cookie: ключ localStorage согласия.
-export const COOKIE_CONSENT_KEY = 'stair-platform-cookie-consent'
+// Ключ localStorage согласия переехал в @shared/consent (CONSENT_KEY): им
+// пользуются и витрина, и гейт Sentry. Дублировать константу в двух пакетах
+// значило бы однажды получить два разных ключа и «вечное» согласие.

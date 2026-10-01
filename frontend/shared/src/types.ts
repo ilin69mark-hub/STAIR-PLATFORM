@@ -2,6 +2,11 @@
 // документе с PascalCase-ключами (сериализация domain-типов); метаданные
 // расчёта и проекты — snake_case (API-0015).
 
+// DOM-001 (forensic 2026-09-24): тип марша — закрытый набор на бэкенде
+// (engineering.FlightType.Valid()). Строковый тип позволял отправить
+// «diagonal» и получить 500; union отражает контракт на границе.
+export type FlightType = 'straight' | 'l_shape' | 'u_shape' | 'spiral'
+
 export interface Project {
   id: string
   name: string
@@ -92,7 +97,7 @@ export interface Configuration {
   revision: number
   width_mm: number
   height_mm: number
-  flight: string
+  flight: FlightType
   step_height_mm: number
   stringer_thickness_mm: number
   step_thickness_mm: number
@@ -301,8 +306,10 @@ export interface CreateProjectRequest {
 export interface Rates {
   material_per_kg_rub?: {
     'STEEL-S235'?: number
-    'ALUM-5083'?: number
     'WOOD-OAK'?: number
+    'WOOD-WALNUT'?: number
+    'WOOD-ASH'?: number
+    'WOOD-SOFT'?: number
   }
   machine_per_hour_rub?: number
   labor_per_hour_rub?: number
@@ -448,9 +455,31 @@ export interface MeshVertex {
   Z: number
 }
 
+// Текстурная координата: по одной на вершину, в метрах (не 0..1).
+export interface MeshUV {
+  U: number
+  V: number
+}
+
 export interface Mesh {
   Vertices: MeshVertex[]
   Triangles: Array<[number, number, number]>
+  // UV — текстурные координаты. Без них все вершины получают uv=(0,0),
+  // текстура семплит один пиксель, и материал выглядит плоским цветом.
+  // Необязателен: старый API их не слал, тогда вьювер рисует процедурный
+  // материал — прежнее поведение.
+  UV?: MeshUV[]
+  // PartRanges — диапазоны треугольников по телам с ролями (этап 1:
+  // tread/stringer/landing/railing_*). Позволяет назначить деталям разные
+  // PBR-материалы в 3D. Необязателен (старый API мог не слать).
+  PartRanges?: MeshPartRange[]
+}
+
+export interface MeshPartRange {
+  Solid: number
+  Role: string
+  Start: number
+  End: number
 }
 
 export interface Part {
@@ -523,6 +552,34 @@ export interface Manufacturing {
   Nesting: Nesting
 }
 
+// Технологический маршрут детали (MFG-0009). Нужен админке, чтобы показать,
+// из чего складывается цена: без него сводная строка «труд» не объясняет, что
+// добавилась фрезеровка фасок.
+export interface Operation {
+  ID: number
+  PartNumber: string
+  Type: string
+  Sequence: number
+  Machine: string
+  EstimatedTime: number // минуты
+  OperatorRequired: boolean
+}
+
+export interface PartOperationPlan {
+  PartNumber: string
+  Operations: Operation[]
+}
+
+export interface Cost {
+  OperationCount?: number
+  FastenerCount?: number
+  PartCount?: number
+  EstimatedMachineTime?: number
+  EstimatedLaborTime?: number
+  EstimatedProductionTime?: number
+  OperationPlan?: { Parts: PartOperationPlan[] }
+}
+
 export interface CostComponent {
   Name: string
   Category: string
@@ -554,6 +611,10 @@ export interface Snapshot {
   spiral?: SpiralResult
   step_thickness?: number
   railing_height?: number
+  // width — ширина марша для 2D-чертежей (DOM-005). До этого поля не было,
+  // и схемы рисовались при зашитых 900 мм независимо от фактической ширины,
+  // по которой посчитаны объём, масса и цена.
+  width?: number
   riser?: boolean
   stringer_thickness?: number
   // Стороны перил из конфигурации (CONF-RAILING) — для 2D-рендера:
@@ -569,7 +630,7 @@ export interface Snapshot {
   issue_count: number
   manufacturing?: Manufacturing
   pricing?: Pricing
-  cost?: Record<string, unknown>
+  cost?: Cost
 }
 
 export interface Calculation {
@@ -907,4 +968,46 @@ export interface CreateTestimonialRequest {
 export interface CreateConsultationRequest {
   contact: OrderContact
   question: string
+}
+
+// ---- Воронка витрины (миграция 000035) ----
+//
+// Отдельный набор от *Report: те отвечают на вопрос «что делают
+// сотрудники» (проекты, производство, деньги), этот — на вопрос «что делают
+// посетители и где уходят».
+export interface FunnelStep {
+  name: string
+  sessions: number
+  /** Уникальные посетители, дошедшие до шага. 0, если соль не задана. */
+  visitors: number
+  share: number
+  step_share: number
+}
+
+export interface FunnelBlocker {
+  event: string
+  reason: string
+  count: number
+}
+
+export interface FunnelAbandonPoint {
+  last_event: string
+  sessions: number
+  share: number
+  avg_seconds: number
+}
+
+export interface FunnelReport {
+  from: string
+  to: string
+  /** Уникальные посетители окна. */
+  visitors: number
+  /** Считается ли вообще идентификация (задана ли STAIR_ANALYTICS_SALT). */
+  visitor_identity_enabled: boolean
+  sessions: number
+  events: number
+  steps: FunnelStep[]
+  blockers: FunnelBlocker[]
+  abandons: FunnelAbandonPoint[]
+  avg_seconds: number
 }

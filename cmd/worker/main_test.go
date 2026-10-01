@@ -55,7 +55,7 @@ func TestWebhookPolicyAllowHosts(t *testing.T) {
 
 // TestRegistryUnknownJobType: неизвестный тип задания → ошибка (retry).
 func TestRegistryUnknownJobType(t *testing.T) {
-	r := newRegistry(nil, nil, nil, nil, 90)
+	r := newRegistry(nil, nil, nil, nil, 90, nil)
 	job, err := queue.NewJob("unknown.type", nil)
 	if err != nil {
 		t.Fatalf("new job: %v", err)
@@ -65,7 +65,8 @@ func TestRegistryUnknownJobType(t *testing.T) {
 	}
 }
 
-// TestEnqueueCleanup: schedule ставит все три типа заданий очистки.
+// TestEnqueueCleanup: schedule ставит все типы заданий очистки, включая
+// события воронки (миграция 000035).
 func TestEnqueueCleanup(t *testing.T) {
 	q := queue.NewMemoryQueue()
 	ctx := context.Background()
@@ -76,6 +77,7 @@ func TestEnqueueCleanup(t *testing.T) {
 		queue.JobCleanupSessions:  1,
 		queue.JobCleanupSsoStates: 1,
 		queue.JobCleanupAudit:     1,
+		queue.JobCleanupWebEvents: 1,
 	}
 	for i := 0; i < len(want); i++ {
 		job, ok, err := q.Dequeue(ctx)
@@ -104,7 +106,7 @@ func TestProcessJobPermanentFailure(t *testing.T) {
 	// Не должен зависнуть: процесс просто залогирует permanent failure.
 	done := make(chan struct{})
 	go func() {
-		r := newRegistry(nil, nil, nil, nil, 90)
+		r := newRegistry(nil, nil, nil, nil, 90, nil)
 		processJob(ctx, q, r, job)
 		close(done)
 	}()
@@ -122,7 +124,7 @@ func TestConsumeStopsOnCancel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	r := newRegistry(nil, nil, nil, nil, 90)
+	r := newRegistry(nil, nil, nil, nil, 90, nil)
 	done := make(chan struct{})
 	go func() {
 		consume(ctx, q, r)
@@ -152,6 +154,19 @@ func (m *memCalcJobRepo) Create(_ context.Context, j *jobs.Job) error {
 	m.jobs[j.ID] = j
 	return nil
 }
+
+// GetByIDForUser — user-скоупная выборка (SEC-004).
+func (m *memCalcJobRepo) GetByIDForUser(_ context.Context, tenantID, userID, id string) (*jobs.Job, error) {
+	j, err := m.GetByID(context.Background(), tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if j.UserID != "" && j.UserID != userID {
+		return nil, jobs.ErrNotFound
+	}
+	return j, nil
+}
+
 func (m *memCalcJobRepo) GetByID(_ context.Context, tenantID, id string) (*jobs.Job, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -204,7 +219,7 @@ func TestRegistryCalcCalculate(t *testing.T) {
 		return &stair.Result{}, nil
 	}
 	jobsSvc := jobs.NewService(repo, nil, calc)
-	r := newRegistry(nil, nil, nil, jobsSvc, 90)
+	r := newRegistry(nil, nil, nil, jobsSvc, 90, nil)
 
 	jobRec := &jobs.Job{ID: "job-1", TenantID: "t-1", Type: "calc.calculate",
 		Status: jobs.StatusPending, Payload: jobs.Payload{}}
@@ -245,7 +260,7 @@ func TestRegistryCalcCalculateMissingJob(t *testing.T) {
 		t.Fatal("calculator must not run for missing job")
 		return nil, nil
 	})
-	r := newRegistry(nil, nil, nil, jobsSvc, 90)
+	r := newRegistry(nil, nil, nil, jobsSvc, 90, nil)
 	payload, err := json.Marshal(struct {
 		JobID    string `json:"job_id"`
 		TenantID string `json:"tenant_id"`
@@ -373,7 +388,7 @@ func quoteSender(t *testing.T) (*registry, *integrations.Service, *memIntegratio
 		t.Fatalf("create endpoint: %v", err)
 	}
 	svc := integrations.NewService(repo, queue.NewMemoryQueue())
-	r := newRegistry(nil, nil, repo, nil, 90)
+	r := newRegistry(nil, nil, repo, nil, 90, nil)
 	s := &stubSender{}
 	r.overrideWebhook(s)
 	return r, svc, repo, s

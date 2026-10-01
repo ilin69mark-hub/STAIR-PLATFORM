@@ -110,3 +110,24 @@ func TestDeduplicateByKey_BodyHash(t *testing.T) {
 		t.Fatalf("body not restored: %q", rest)
 	}
 }
+
+// TestDeduplicateSkipsAuthEndpoints — параллельный вход из двух вкладок
+// легитимен: auth-ручки не дедуплицируются (у них свои rate-limiter'ы),
+// иначе второй запрос получал 429 «duplicate request in progress».
+func TestDeduplicateSkipsAuthEndpoints(t *testing.T) {
+	for _, path := range []string{
+		"/api/v1/auth/login",
+		"/api/v1/auth/register",
+		"/api/v1/auth/logout",
+	} {
+		r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"a":1}`))
+		if key := DeduplicateByKey(r); key != "" {
+			t.Fatalf("%s не должен дедуплицироваться, ключ %q", path, key)
+		}
+	}
+	// Остальные мутации по-прежнему дедуплицируются.
+	r := httptest.NewRequest(http.MethodPut, "/api/v1/admin/store/prices", strings.NewReader(`{"a":1}`))
+	if DeduplicateByKey(r) == "" {
+		t.Fatal("правка прайса должна дедуплицироваться")
+	}
+}

@@ -244,36 +244,109 @@ func (r *ProjectRepository) RemoveMember(ctx context.Context, tenantID, projectI
 	return nil
 }
 
+// configCols — порядок колонок. DOM-003: девять параметров добавлены
+// миграцией 000030_config_full_persistence. Порядок здесь, в scanConfig и в
+// insertConfiguration обязан совпадать — расхождение даёт тихую порчу данных,
+// поэтому он проверяется тестом TestDOM003_ConfigColumnOrderMatchesScan.
 const configCols = `id, project_id, revision, width_mm, height_mm, flight, step_height_mm,
 	stringer_thickness_mm, step_thickness_mm, riser, clearance_mm, railing_height_mm,
 	comfort_step_mm, landing_width_mm, landing_depth_mm, room_width_mm, room_length_mm,
-	approach_space_mm, lower_step_count, outer_radius_mm, created_at, updated_at`
+	approach_space_mm, lower_step_count, outer_radius_mm,
+	turn_kind, winder_count,
+	railing, railing_lower, railing_landing, railing_upper,
+	direction, spiral_direction, material_code, tread_material_code, riser_thickness_mm,
+	created_at, updated_at`
+
+// nullableStr — TEXT-колонка, допускающая NULL: пустая строка означает
+// «не задано» и совпадает с поведением домена (пустое значение ->
+// дефолт). NULL из исторических строк читается как "".
+func nullableStr(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
+}
 
 func scanConfig(row pgx.Row) (*project.StairConfiguration, error) {
 	var c project.StairConfiguration
+	var turnKind, railing, railingLower, railingLanding, railingUpper *string
+	var direction, spiralDirection, materialCode, treadMaterialCode *string
 	if err := row.Scan(&c.ID, &c.ProjectID, &c.Revision, &c.WidthMM, &c.HeightMM, &c.Flight,
 		&c.StepHeightMM, &c.StringerThicknessMM, &c.StepThicknessMM, &c.Riser, &c.ClearanceMM,
 		&c.RailingHeightMM, &c.ComfortStepMM, &c.LandingWidthMM, &c.LandingDepthMM,
 		&c.RoomWidthMM, &c.RoomLengthMM, &c.ApproachSpaceMM, &c.LowerStepCount,
-		&c.OuterRadiusMM, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		&c.OuterRadiusMM,
+		&turnKind, &c.WinderCount,
+		&railing, &railingLower, &railingLanding, &railingUpper,
+		&direction, &spiralDirection, &materialCode, &treadMaterialCode, &c.RiserThicknessMM,
+		&c.CreatedAt, &c.UpdatedAt); err != nil {
 		return nil, err
 	}
+	c.TurnKind = deref(turnKind)
+	c.Railing = deref(railing)
+	c.RailingLower = deref(railingLower)
+	c.RailingLanding = deref(railingLanding)
+	c.RailingUpper = deref(railingUpper)
+	c.Direction = deref(direction)
+	c.SpiralDirection = deref(spiralDirection)
+	c.MaterialCode = deref(materialCode)
+	c.TreadMaterialCode = deref(treadMaterialCode)
 	return &c, nil
 }
 
+// deref — NULL-колонка TEXT в строку ("" == «не задано»).
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// SaveConfiguration сохраняет конфигурацию проекта (новая ревизия).
+// DB-001 (forensic 2026-09-24): вставка идёт в транзакции с
+// `SELECT ... FOR UPDATE` по строке проекта — иначе конкурентные вызовы
+// вычисляют одинаковую ревизию (MAX+1) и второй падает на
+// UNIQUE(project_id, revision). Блокировка живёт ровно до COMMIT.
 func (r *ProjectRepository) SaveConfiguration(ctx context.Context, c *project.StairConfiguration) error {
-	if err := r.pool.QueryRow(ctx,
+	return WithTx(ctx, r.pool, func(tx pgx.Tx) error {
+		var exists string
+		if err := tx.QueryRow(ctx, `SELECT id FROM projects WHERE id = $1 FOR UPDATE`, c.ProjectID).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
+			return project.ErrNotFound
+		} else if err != nil {
+			return fmt.Errorf("project: lock project: %w", err)
+		}
+		return insertConfiguration(ctx, tx, c)
+	})
+}
+
+// insertConfiguration вставляет конфигурацию с вычислением ревизии внутри
+// уже открытой транзакции (блокировка проекта должна быть взята вызывающим).
+func insertConfiguration(ctx context.Context, tx pgx.Tx, c *project.StairConfiguration) error {
+	// DOM-003: девять параметров добавлены в INSERT (миграция
+	// 000030_config_full_persistence). Пустые строки пишутся как NULL, чтобы
+	// «не задано» совпадало с поведением исторических строк.
+	if err := tx.QueryRow(ctx,
 		`INSERT INTO stair_configurations (project_id, width_mm, height_mm, flight,
 			step_height_mm, stringer_thickness_mm, step_thickness_mm, riser, clearance_mm,
 			railing_height_mm, comfort_step_mm, landing_width_mm, landing_depth_mm,
-			room_width_mm, room_length_mm, approach_space_mm, lower_step_count, outer_radius_mm, revision)
+			room_width_mm, room_length_mm, approach_space_mm, lower_step_count, outer_radius_mm,
+			turn_kind, winder_count,
+			railing, railing_lower, railing_landing, railing_upper,
+			direction, spiral_direction, material_code, tread_material_code, riser_thickness_mm,
+			revision)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
+		        $19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
 		   (SELECT COALESCE(MAX(s.revision),0)+1 FROM stair_configurations s WHERE s.project_id = $1))
 		 RETURNING id, created_at, updated_at, revision`,
 		c.ProjectID, c.WidthMM, c.HeightMM, c.Flight, c.StepHeightMM,
 		c.StringerThicknessMM, c.StepThicknessMM, c.Riser, c.ClearanceMM, c.RailingHeightMM,
 		c.ComfortStepMM, c.LandingWidthMM, c.LandingDepthMM, c.RoomWidthMM, c.RoomLengthMM,
 		c.ApproachSpaceMM, c.LowerStepCount, c.OuterRadiusMM,
+		nullableStr(c.TurnKind), c.WinderCount,
+		nullableStr(c.Railing), nullableStr(c.RailingLower), nullableStr(c.RailingLanding),
+		nullableStr(c.RailingUpper),
+		nullableStr(c.Direction), nullableStr(c.SpiralDirection), nullableStr(c.MaterialCode),
+		nullableStr(c.TreadMaterialCode), c.RiserThicknessMM,
 	).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt, &c.Revision); err != nil {
 		return fmt.Errorf("project: save config: %w", err)
 	}
@@ -407,13 +480,6 @@ func (r *ProjectRepository) SaveCalculation(ctx context.Context, c *project.Calc
 // encoding/json разрешён в infrastructure (ADR-0006). Проверяется, что
 // проект принадлежит tenant'у (SEC-0005).
 func (r *ProjectRepository) SaveCalculationWithConfig(ctx context.Context, tenantID string, cfg *project.StairConfiguration, snap project.Snapshot) (*project.Calculation, error) {
-	var exists string
-	if err := r.pool.QueryRow(ctx,
-		`SELECT id FROM projects WHERE id = $1 AND tenant_id = $2`, cfg.ProjectID, tenantID).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
-		return nil, project.ErrNotFound
-	} else if err != nil {
-		return nil, fmt.Errorf("project: check: %w", err)
-	}
 	payload, err := json.Marshal(snap)
 	if err != nil {
 		return nil, fmt.Errorf("project: marshal snapshot: %w", err)
@@ -431,20 +497,20 @@ func (r *ProjectRepository) SaveCalculationWithConfig(ctx context.Context, tenan
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Проверка принадлежности tenant'у + блокировка строки проекта в одной
+	// транзакции (SEC-0005 + DB-001): FOR UPDATE сериализует конкурентные
+	// сохранения, поэтому MAX(revision)+1 не может совпасть.
+	var exists string
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO stair_configurations (project_id, width_mm, height_mm, flight,
-			step_height_mm, stringer_thickness_mm, step_thickness_mm, riser, clearance_mm,
-			railing_height_mm, comfort_step_mm, landing_width_mm, landing_depth_mm,
-			room_width_mm, room_length_mm, approach_space_mm, lower_step_count, outer_radius_mm, revision)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
-		   (SELECT COALESCE(MAX(s.revision),0)+1 FROM stair_configurations s WHERE s.project_id = $1))
-		 RETURNING id, created_at, updated_at, revision`,
-		cfg.ProjectID, cfg.WidthMM, cfg.HeightMM, cfg.Flight, cfg.StepHeightMM,
-		cfg.StringerThicknessMM, cfg.StepThicknessMM, cfg.Riser, cfg.ClearanceMM, cfg.RailingHeightMM,
-		cfg.ComfortStepMM, cfg.LandingWidthMM, cfg.LandingDepthMM, cfg.RoomWidthMM, cfg.RoomLengthMM,
-		cfg.ApproachSpaceMM, cfg.LowerStepCount, cfg.OuterRadiusMM,
-	).Scan(&cfg.ID, &cfg.CreatedAt, &cfg.UpdatedAt, &cfg.Revision); err != nil {
-		return nil, fmt.Errorf("project: save config: %w", err)
+		`SELECT id FROM projects WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
+		cfg.ProjectID, tenantID).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
+		return nil, project.ErrNotFound
+	} else if err != nil {
+		return nil, fmt.Errorf("project: check: %w", err)
+	}
+
+	if err := insertConfiguration(ctx, tx, cfg); err != nil {
+		return nil, err
 	}
 
 	// Новая конфигурация становится текущей ревизией проекта (EDR-0012).

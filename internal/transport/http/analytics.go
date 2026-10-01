@@ -323,7 +323,7 @@ func handleUsageAnalytics(svc AnalyticsService) http.HandlerFunc {
 			case errors.Is(err, analytics.ErrInvalidRange):
 				writeError(w, http.StatusUnprocessableEntity, "invalid_range", "Параметр from не может быть позже to.")
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+				writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			}
 			return
 		}
@@ -358,7 +358,7 @@ func handleProjectsAnalytics(svc AnalyticsService) http.HandlerFunc {
 			case errors.Is(err, analytics.ErrInvalidRange):
 				writeError(w, http.StatusUnprocessableEntity, "invalid_range", "Параметр from не может быть позже to.")
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+				writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			}
 			return
 		}
@@ -401,7 +401,7 @@ func handleManufacturingAnalytics(svc AnalyticsService) http.HandlerFunc {
 			case errors.Is(err, analytics.ErrInvalidRange):
 				writeError(w, http.StatusUnprocessableEntity, "invalid_range", "Параметр from не может быть позже to.")
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+				writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			}
 			return
 		}
@@ -444,7 +444,7 @@ func handleCostAnalytics(svc AnalyticsService) http.HandlerFunc {
 			case errors.Is(err, analytics.ErrInvalidRange):
 				writeError(w, http.StatusUnprocessableEntity, "invalid_range", "Параметр from не может быть позже to.")
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+				writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			}
 			return
 		}
@@ -454,12 +454,22 @@ func handleCostAnalytics(svc AnalyticsService) http.HandlerFunc {
 
 // queryTime читает параметр как YYYY-MM-DD или RFC3339; пустое значение —
 // дефолт def.
+// queryTime разбирает параметр времени окна. Формат «YYYY-MM-DD» без времени
+// и для `to`, и для `from`.
+//
+// Верхняя граница «YYYY-MM-DD» означает КОНЕЦ этого дня, а не его полночь.
+// Иначе `to=2026-09-29` отсекал всё, что случилось сегодня после 00:00 —
+// отчёт молча терял весь текущий день. На стенде это выглядело как «события
+// есть в базе, а панель показывает ноль», и ложь была именно в панели.
 func queryTime(r *http.Request, name string, def time.Time) (time.Time, error) {
 	raw := r.URL.Query().Get(name)
 	if raw == "" {
 		return def, nil
 	}
 	if t, err := time.Parse("2006-01-02", raw); err == nil {
+		if name == "to" {
+			return t.Add(24*time.Hour - time.Nanosecond), nil
+		}
 		return t, nil
 	}
 	if t, err := time.Parse(time.RFC3339, raw); err == nil {

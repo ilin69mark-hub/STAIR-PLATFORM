@@ -24,6 +24,10 @@ func spiralConfig(t *testing.T) *engineering.StairConfiguration {
 		StringerThickness: mustLength(t, 50),
 		StepThickness:     mustLength(t, 40),
 		OuterRadius:       mustLength(t, 800),
+		// Материал явно: иначе детали выводятся из толщины, а с сужением
+		// стали до выпуска 3–8 мм спираль проверялась бы как дуб.
+		Material:      "STEEL-S235",
+		TreadMaterial: "STEEL-S235",
 	}
 }
 
@@ -72,8 +76,9 @@ func TestManufactureSpiralColumn(t *testing.T) {
 	if col == nil {
 		t.Fatal("column CLM-01 not found")
 	}
-	if !nearlyEqual(col.Thickness.Millimeters(), 50) {
-		t.Errorf("column thickness = %v, want 50 (stringer thickness)", col.Thickness.Millimeters())
+	// Колонна — тоже лист: толщина секции 50 мм в расход материала не идёт.
+	if !nearlyEqual(col.Thickness.Millimeters(), 8) {
+		t.Errorf("column thickness = %v, want 8 (laser plate)", col.Thickness.Millimeters())
 	}
 	if !nearlyEqual(col.Length.Millimeters(), 2700) {
 		t.Errorf("column length = %v, want 2700 (H)", col.Length.Millimeters())

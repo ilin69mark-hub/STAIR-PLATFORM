@@ -25,7 +25,9 @@ import (
 
 	"stairplatform/internal/application/jobs"
 	"stairplatform/internal/application/stair"
+	storeapp "stairplatform/internal/application/store"
 	"stairplatform/internal/infrastructure/database"
+	"stairplatform/internal/infrastructure/envguard"
 	infintegrations "stairplatform/internal/infrastructure/integrations"
 	"stairplatform/internal/infrastructure/queue"
 	"stairplatform/internal/infrastructure/redisconf"
@@ -41,9 +43,10 @@ const tracerName = "stair-platform-worker"
 // isProductionEnv — нормализованный продакшен-детект (production|prod,
 // EqualFold). Неканоничное значение STAIR_ENVIRONMENT не должно отключать
 // SSRF-политику и требование STAIR_SECRETS_KEY (S-104, S-113).
+// Реализация вынесена в internal/infrastructure/envguard (S-151: единый
+// fail-closed детект для api и worker).
 func isProductionEnv(environment string) bool {
-	return strings.EqualFold(environment, "production") ||
-		strings.EqualFold(environment, "prod")
+	return envguard.IsProduction(environment)
 }
 
 // webhookPolicy строит SSRF-политику webhook-доставки (S1-1, S-104).
@@ -67,6 +70,13 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 	slog.Info(version.String())
+
+	// S-151: fail-closed на STAIR_ENVIRONMENT — пустое/неизвестное значение
+	// молча отключало SSRF-политику и требование STAIR_SECRETS_KEY.
+	if _, err := envguard.Validate(os.Getenv("STAIR_ENVIRONMENT")); err != nil {
+		logger.Error("invalid STAIR_ENVIRONMENT", "error", err)
+		os.Exit(1)
+	}
 
 	// Трассировка (OTLP → Jaeger/Tempo; STAIR_TRACING_ENABLED="true").
 	tracingShutdown, err := tracing.InitTracer(context.Background(), tracing.Config{
@@ -121,7 +131,8 @@ func main() {
 	defer backend.Close()
 
 	reg := newRegistry(database.NewAuthRepository(pool), database.NewAuditRepository(pool),
-		database.NewIntegrationRepository(pool), newJobsService(pool), retentionDays)
+		database.NewIntegrationRepository(pool), newJobsService(pool), retentionDays,
+		database.NewFunnelRepository(pool))
 	// S-104: нормализованный продакшен-детект (production|prod, EqualFold).
 	// Неканоничное значение STAIR_ENVIRONMENT не должно отключать SSRF-политику.
 	// S1-1: SSRF-политика webhook-доставки. В проде loopback запрещён,
@@ -130,6 +141,7 @@ func main() {
 		webhookPolicy(os.Getenv("STAIR_ENVIRONMENT"), os.Getenv("STAIR_WEBHOOK_ALLOW_HOSTS"))))
 	// S1-2: шифрование webhook-секретов at rest. Без STAIR_SECRETS_KEY —
 	// legacy-plaintext (dev); в проде ключ обязателен (см. .env.production).
+	// AUDIT-EXCEPTION(E01): мастер-ключ задаёт человек, см. docs/SECURITY_EXCEPTIONS.yml
 	if keyHex := os.Getenv("STAIR_SECRETS_KEY"); keyHex != "" {
 		key, err := secrets.KeyFromHex(keyHex)
 		if err != nil {
@@ -170,8 +182,17 @@ func main() {
 
 // newJobsService создаёт сервис фоновых заданий (EDR-0035) для воркера:
 // только выполнение (calc не nil), очередь не нужна.
+//
+// CRITICAL-03 (2026-09-27): воркер тоже обязан считать по ставкам магазина
+// tenant'а. Без resolver'а асинхронный расчёт (`/stairs:calculate/async`)
+// посчитал бы по встроенным ставкам движка, тогда как синхронный путь — по
+// ставкам магазина: один и тот же расчёт давал бы два разных цены в
+// зависимости от того, синхронный он или фоновый. Tenant приезжает в
+// jobs.Payload.Options.TenantID, который проставляет optionsOrReject.
 func newJobsService(pool *pgxpool.Pool) *jobs.Service {
-	return jobs.NewService(database.NewCalcJobRepository(pool), nil, stair.NewService().Calculate)
+	storeSvc := storeapp.NewService(database.NewStoreRepository(pool))
+	return jobs.NewService(database.NewCalcJobRepository(pool), nil,
+		stair.NewServiceWithRates(storeSvc).Calculate)
 }
 
 // queueBackend оборачивает выбранный бэкенд очереди и его Redis-клиент для
@@ -302,7 +323,10 @@ func scheduleCleanup(ctx context.Context, jobq queue.JobQueue, interval time.Dur
 // enqueueCleanup создаёт и ставит задания очистки (sessions, sso_states,
 // audit) — EDR-0020 §3.3.
 func enqueueCleanup(ctx context.Context, jobq queue.JobQueue) {
-	for _, typ := range []string{queue.JobCleanupSessions, queue.JobCleanupSsoStates, queue.JobCleanupAudit} {
+	for _, typ := range []string{
+		queue.JobCleanupSessions, queue.JobCleanupSsoStates, queue.JobCleanupAudit,
+		queue.JobCleanupWebEvents,
+	} {
 		job, err := queue.NewJob(typ, nil)
 		if err != nil {
 			slog.Error("worker: build cleanup job", "type", typ, "error", err)

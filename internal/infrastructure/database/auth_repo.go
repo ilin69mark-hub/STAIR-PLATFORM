@@ -304,6 +304,71 @@ func (r *AuthRepository) RevokeApiKey(ctx context.Context, tenantID, keyID strin
 	return nil
 }
 
+// DisableUser атомарно блокирует учётную запись (CRITICAL-05, 2026-09-27):
+// статус → disabled, удаление всех сессий и отзыв всех API-ключей в ОДНОЙ
+// транзакции.
+//
+// Раньше это были три независимых вызова, причём ошибки отзыва сессий и
+// ключей глотались (`_ =`) вызывающим. Итог: пользователь помечался
+// disabled, но его Bearer-ключ продолжал работать — и это было видно только
+// по косвенным признакам. Транзакция делает промежуточное состояние
+// недостижимым: либо заблокировано всё, либо ничего.
+//
+// Сессии и ключи — два независимых способа входа (SEC-007): отзыв только
+// сессий оставлял «чёрный вход» через Bearer. Ключи привязаны к created_by
+// (nullable — ключ может быть создан вне user-аккаунта, такие не трогаем).
+func (r *AuthRepository) DisableUser(ctx context.Context, tenantID, userID string) error {
+	if tenantID == "" || userID == "" {
+		return auth.ErrNotFound
+	}
+	return WithTx(ctx, r.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx,
+			`UPDATE users SET status = 'disabled', updated_at = now()
+			 WHERE id = $1 AND tenant_id = $2`, userID, tenantID)
+		if err != nil {
+			return fmt.Errorf("auth: disable user: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return auth.ErrNotFound
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, userID); err != nil {
+			return fmt.Errorf("auth: revoke user sessions: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE api_keys SET revoked_at = now()
+			 WHERE tenant_id = $1 AND created_by = $2 AND revoked_at IS NULL`,
+			tenantID, userID); err != nil {
+			return fmt.Errorf("auth: revoke api keys by user: %w", err)
+		}
+		return nil
+	})
+}
+
+// RevokeApiKeysByUser отзывает все неотозванные API-ключи пользователя.
+//
+// Deprecated: блокировка идёт через DisableUser (CRITICAL-05) — здесь отказ
+// ключей отделён от смены статуса, и сбой одного шага оставлял учётную запись
+// заблокированной, но с живыми ключами.
+//
+// SEC-007 (2026-09-26): при блокировке учётной записи отзывались только
+// сессии, поэтому `Authorization: Bearer <ключ>` того же пользователя
+// продолжал работать с полным набором scopes — то есть disable учётной
+// записи не закрывал второй способ входа. Ключи привязаны к created_by
+// (nullable: ключ может быть создан вне user-аккаунта — такие не трогаем).
+func (r *AuthRepository) RevokeApiKeysByUser(ctx context.Context, tenantID, userID string) error {
+	if tenantID == "" || userID == "" {
+		return nil
+	}
+	if _, err := r.pool.Exec(ctx,
+		`UPDATE api_keys SET revoked_at = now()
+		 WHERE tenant_id = $1 AND created_by = $2 AND revoked_at IS NULL`,
+		tenantID, userID,
+	); err != nil {
+		return fmt.Errorf("auth: revoke api keys by user: %w", err)
+	}
+	return nil
+}
+
 // TouchApiKey обновляет last_used_at (использование ключа).
 func (r *AuthRepository) TouchApiKey(ctx context.Context, keyID string) error {
 	if _, err := r.pool.Exec(ctx, `UPDATE api_keys SET last_used_at = now() WHERE id = $1`, keyID); err != nil {

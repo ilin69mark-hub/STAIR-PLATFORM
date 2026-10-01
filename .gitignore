@@ -27,9 +27,12 @@ tmp/
 node_modules/
 frontend/node_modules/
 frontend-store/node_modules/
+frontend-store-admin/node_modules/
 frontend/dist/
 frontend-store/dist/
+frontend-store-admin/dist/
 frontend/*.tsbuildinfo
+frontend-store-admin/*.tsbuildinfo
 # Local tooling
 .opencode/
 *.bck.yml
@@ -37,3 +40,15 @@ frontend/*.tsbuildinfo
 # Backups
 backups/
 bench.out
+
+# PBR/HDRI ассеты 3D (этап 1): тяжёлые бинарники в git не держим —
+# воспроизводимо скачиваются скриптом hack/fetch_pbr.py. Манифест
+# assets/pbr/SOURCES.md (источник, лицензия CC0, SHA-1) В git остаётся.
+/assets/pbr/**/*.jpg
+/assets/pbr/*.jpg
+/assets/hdri/*.hdr
+
+
+# Playwright (артефакты прогонов)
+/test-results
+/playwright-report

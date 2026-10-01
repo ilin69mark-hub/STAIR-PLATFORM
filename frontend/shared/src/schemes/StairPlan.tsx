@@ -128,30 +128,33 @@ function contentMm(p: Props): { w: number; h: number; pts: Array<{ x: number; y:
       }
     }
     case 'u_shape': {
+      // Раскладка повторяет 3D-модель (EDR-0006 §4.8.1, geometry
+      // uShapePlatformTransforms), а НЕ классический switchback:
+      //   нижний марш  [0, L1]      × [0, W]
+      //   площадка     [L1, L1+W]   × [0, 2W]
+      //   верхний марш [L1−L2, L1] × [W, 2W]
+      // Раньше здесь рисовался switchback (верхний марш [0, L2] над нижним),
+      // из-за чего план показывал лестницу в другом месте, чем 3D-вьювер, а
+      // проверка вписывания в помещение считалась по bbox 3D-модели: одно и
+      // то же выглядело двумя разными лестницами.
       const lr = s.lowerRun ?? f.Run
       const ur = s.upperRun ?? f.Run
-      const lw = s.landingWidth ?? f.Width
-      const gap = Math.max(60, (lw - f.Width) / 2)
+      const W2 = f.Width * 2
       // Свободное пространство перед первой ступенью (EDR-0023) слева от входа
-      // (нижнего марша, x=0); учитывается в габарите по X.
+      // (нижний марш, x=0); учитывается в габарите по X.
       const ap = effectiveApproach(s.approachSpace)
-      const pts = [
-        { x: 0, y: 0 },
-        { x: lr, y: 0 },
-        { x: lr + lw, y: 0 },
-        { x: lr + lw, y: gap + f.Width },
-        { x: ur, y: gap + f.Width },
-        { x: ur, y: gap },
-        { x: 0, y: gap },
-        { x: -ap, y: 0 },
-      ]
-      // Габарит по X: верхний марш (0..ur) может выступать за площадку
-      // (lr..lr+lw) при малом нижнем марше (напр. lower=1, upper=17) —
-      // иначе масштаб завышается и чертёж вылезает за viewBox.
+      const minX = Math.min(0, lr - ur)
+      const maxX = lr + f.Width
       return {
-        w: Math.max(lr + lw, ur) + ap,
-        h: gap + f.Width,
-        pts: pts.map((q) => ({ x: (s.direction === 'left' ? -1 : 1) * q.x, y: q.y })),
+        w: maxX - minX + ap,
+        h: W2,
+        pts: [
+          { x: minX, y: 0 },
+          { x: maxX, y: 0 },
+          { x: maxX, y: W2 },
+          { x: minX, y: W2 },
+          { x: -ap, y: 0 },
+        ].map((q) => ({ x: (s.direction === 'left' ? -1 : 1) * q.x, y: q.y })),
       }
     }
     case 'spiral': {
@@ -526,17 +529,23 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
   } else if (kind === 'u_shape') {
     const lr = s.lowerRun ?? f.Run
     const ur = s.upperRun ?? f.Run
-    const lw = s.landingWidth ?? f.Width
-    const gap = Math.max(60, (lw - f.Width) / 2)
     const wBig = f.Width
+    const wUp = f.Width * 2 // верхняя кромка площадки и верхнего марша
+    // Раскладка как в 3D (EDR-0006 §4.8.1): площадка [lr, lr+wBig] × [0, 2W],
+    // верхний марш [lr−ur, lr] × [W, 2W]. При ur > lr верхний марш выходит
+    // в отрицательные X — ровно как bbox 3D-модели.
+    const upX0 = lr - ur
+    const gap = wBig // отметка, с которой начинается верхний марш
     const ap = effectiveApproach(s.approachSpace)
-    // Направление поворота (CONF-DIRECTION): 'left' зеркалит план по горизонтали.
+    // Направление поворота (CONF-DIRECTION): 'left' зеркалит план по
+    // горизонтали; зеркальство воспроизводит раскладку 3D левого поворота
+    // (площадка [0,W], оба марша [W, W+L]).
     const mp = s.direction === 'left' ? -1 : 1
     const P = (x: number) => px(mp * x)
     const rects: Array<[number, number, number, number]> = [
       [0, 0, lr, wBig],
-      [lr, 0, lw, gap + wBig],
-      [0, gap, ur, wBig],
+      [lr, 0, wBig, wUp],
+      [upX0, gap, ur, wBig],
     ]
     // rail — см. ветку l_shape: 'right' → ВНЕШНЯЯ грань сегмента,
     // 'left' → ВНУТРЕННЯЯ грань сегмента (едино для всех маршей/площадок).
@@ -590,8 +599,8 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
         {rail(
           [
             [lr, 0],
-            [lr + lw, 0],
-            [lr + lw, gap + wBig],
+            [lr + wBig, 0],
+            [lr + wBig, wUp],
           ],
           s.railingLanding,
           'right',
@@ -607,9 +616,9 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
         )}
         {rail(
           [
-            [lr + lw, gap + wBig],
-            [ur, gap + wBig],
-            [0, gap + wBig],
+            [lr, wUp],
+            [upX0, wUp],
+            [upX0, gap],
           ],
           s.railingUpper,
           'right',
@@ -629,30 +638,37 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
         )}
         {Array.from({ length: s.upperStepCount ?? Math.floor(ur / f.TreadDepth) }, (_, i) => i + 1).map((i) =>
           i * f.TreadDepth < ur ? (
-            <line key={`u${i}`} x1={P(i * f.TreadDepth)} y1={py(gap)} x2={P(i * f.TreadDepth)} y2={py(gap + wBig)} className="scheme__tread scheme__tread--upper" />
+            <line
+              key={`u${i}`}
+              x1={P(upX0 + i * f.TreadDepth)}
+              y1={py(gap)}
+              x2={P(upX0 + i * f.TreadDepth)}
+              y2={py(gap + wBig)}
+              className="scheme__tread scheme__tread--upper"
+            />
           ) : null,
         )}
         {dirArrow(P(0), py(wBig / 2), P(lr), py(wBig / 2), 'pln-dir')}
-        {dirArrow(P(ur), py(gap + wBig / 2), P(0), py(gap + wBig / 2), 'pln-dir')}
-        {arrowLine(P(0), py(gap + wBig) - 18, P(lr), py(gap + wBig) - 18, 'pln-arr')}
-        {dim('L₁ ' + fmt(lr), (P(0) + P(lr)) / 2, py(gap + wBig) - 18, 'middle', 0, -1)}
-        {arrowLine(P(0), py(gap) + 18, P(ur), py(gap) + 18, 'pln-arr')}
-        {dim('L₂ ' + fmt(ur), (P(0) + P(ur)) / 2, py(gap) + 18, 'middle', 0, 1)}
-        {arrowLine(P(0) - mp * 18, py(gap + wBig), P(0) - mp * 18, py(gap), 'pln-arr')}
-        {dim('B ' + fmt(wBig), P(0) - mp * 18, (py(gap + wBig) + py(gap)) / 2, 'middle', -1, 0)}
+        {dirArrow(P(lr), py(gap + wBig / 2), P(upX0), py(gap + wBig / 2), 'pln-dir')}
+        {arrowLine(P(0), py(wUp) - 18, P(lr), py(wUp) - 18, 'pln-arr')}
+        {dim('L₁ ' + fmt(lr), (P(0) + P(lr)) / 2, py(wUp) - 18, 'middle', 0, -1)}
+        {arrowLine(P(upX0), py(gap) + 18, P(lr), py(gap) + 18, 'pln-arr')}
+        {dim('L₂ ' + fmt(ur), (P(upX0) + P(lr)) / 2, py(gap) + 18, 'middle', 0, 1)}
+        {arrowLine(P(0) - mp * 18, py(wUp), P(0) - mp * 18, py(0), 'pln-arr')}
+        {dim('B ' + fmt(wBig), P(0) - mp * 18, py(wUp / 2), 'middle', -1, 0)}
         {/* Свободное пространство перед первой ступенью (EDR-0023): зона перед
             входом (нижним маршем, x=0), рисуется слева. */}
         {ap > 0 && (
           <>
             <rect
               x={Math.min(P(0), P(-ap))}
-              y={py(gap + wBig)}
+              y={py(wBig)}
               width={Math.abs(P(0) - P(-ap))}
               height={wBig * scale}
               className="scheme__approach"
             />
-            {arrowLine(P(0), py(gap + wBig / 2), P(-ap), py(gap + wBig / 2), 'pln-arr')}
-            {dim('Свободное место ' + fmt(ap), (P(0) + P(-ap)) / 2, py(gap + wBig / 2), 'middle', 0, 1)}
+            {arrowLine(P(0), py(wBig / 2), P(-ap), py(wBig / 2), 'pln-arr')}
+            {dim('Свободное место ' + fmt(ap), (P(0) + P(-ap)) / 2, py(wBig / 2), 'middle', 0, 1)}
           </>
         )}
       </g>

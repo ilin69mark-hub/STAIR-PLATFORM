@@ -24,6 +24,12 @@ func testDataset(t *testing.T) *dommfg.ManufacturingCostDataset {
 	cfg.StepHeight = mustLength(t, 180)
 	cfg.TreadDepth = mustLength(t, 270)
 	cfg.StringerThickness = mustLength(t, 50)
+	// Материал задаём ЯВНО. Раньше он выводился из толщины: 50 мм подходили
+	// стали (диапазон 2–60), и тесты молча проверяли стальной марш на
+	// конфигурации без материала. С выходом стали на выпуск 3–8 мм такой
+	// вывод стал давать дуб, и тесты проверяли бы не то.
+	cfg.Material = "STEEL-S235"
+	cfg.TreadMaterial = "STEEL-S235"
 	cfg.StepThickness = mustLength(t, 40)
 
 	gen, err := enggeo.Generate(context.Background(), cfg)
@@ -61,6 +67,34 @@ func TestDefaultRates(t *testing.T) {
 	}
 	if r.Currency != domprc.CurrencyRUB {
 		t.Fatalf("default currency = %+v, want RUB", r.Currency)
+	}
+}
+
+// TestEveryCatalogMaterialHasPrice (этап 1, вариант Б) — инвариант:
+// каждый материал встроенного каталога обязан иметь цену в DefaultRates.
+// Без этого новый материал проходит каталог, а расчёт падает в рантайме
+// (nil/0 ₽ за кг) — цена становится фиктивной.
+func TestEveryCatalogMaterialHasPrice(t *testing.T) {
+	reg, err := engmfg.DefaultMaterialRegistry()
+	if err != nil {
+		t.Fatalf("material registry: %v", err)
+	}
+	rates := DefaultRates()
+	for _, m := range reg.Materials() {
+		price, ok := rates.Material[m.Code]
+		if !ok {
+			t.Errorf("material %q has no price in DefaultRates", m.Code)
+			continue
+		}
+		if price.Minor() <= 0 {
+			t.Errorf("material %q has non-positive price %v", m.Code, price)
+		}
+	}
+	// Все цены строго положительны и в разумном диапазоне (₽/кг).
+	for code, price := range rates.Material {
+		if perKg := price.Minor(); perKg < 1000 || perKg > 200000 {
+			t.Errorf("material %q price %d minor units looks implausible", code, perKg)
+		}
 	}
 }
 
@@ -143,16 +177,24 @@ func TestPriceExactValues(t *testing.T) {
 		got  domprc.Money
 		want int64
 	}{
-		{"material", b.Material, 181988783},
-		{"machine", b.Machine, 1482267},
-		{"labor", b.Labor, 480000},
-		{"overhead", b.Overhead, 36790210},
-		{"production", b.ProductionCost, 220741260},
-		{"margin", b.Margin, 66222378},
-		{"discount", b.Discount, 14348182},
-		{"pre-tax", b.PreTax, 272615456},
-		{"tax", b.Tax, 54523091},
-		{"final", b.FinalPrice, 327138547},
+		// Эталон — стальной марш с верхней площадкой: 16 ступеней, лист
+		// лазерного раскроя 8 мм, 33 детали. Материал 113 040 ₽, финал
+		// 234 996,59 ₽.
+		//
+		// До починки заготовки деталей те же конфигурации давали 10 364 кг и
+		// 3 271 385 ₽: косоур брался габаритным блоком 4050×2660×50 мм, то
+		// есть 1,08 м³ стали на один косоур. Правдоподобие массы проверяется
+		// в engine/manufacturing (TestPrepareCostMetrics).
+		{"material", b.Material, 11304000},
+		{"machine", b.Machine, 1414933},
+		{"labor", b.Labor, 495000},
+		{"overhead", b.Overhead, 2642787},
+		{"production", b.ProductionCost, 15856720},
+		{"margin", b.Margin, 4757016},
+		{"discount", b.Discount, 1030687},
+		{"pre-tax", b.PreTax, 19583049},
+		{"tax", b.Tax, 3916610},
+		{"final", b.FinalPrice, 23499659},
 	}
 	for _, c := range checks {
 		if c.got.Minor() != c.want {

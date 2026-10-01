@@ -138,17 +138,19 @@ func TestScrubEvent(t *testing.T) {
 			mut: func(e *sentrysdk.Event) {
 				e.Request = &sentrysdk.Request{
 					Headers: map[string]string{
-						"Authorization":   "Bearer sekrit",
-						"Cookie":          "session=abc",
-						"X-Forwarded-For": "10.0.0.1",
-						"Host":            "api.example.com",
-						"User-Agent":      "curl/8",
+						"Authorization":     "Bearer sekrit",
+						"Cookie":            "session=abc",
+						"X-CSRF-Token":      "TKN",
+						"X-Stair-Signature": "SIG",
+						"X-Forwarded-For":   "10.0.0.1",
+						"Host":              "api.example.com",
+						"User-Agent":        "curl/8",
 					},
 				}
 			},
 			check: func(t *testing.T, e *sentrysdk.Event) {
 				h := e.Request.Headers
-				for _, drop := range []string{"Authorization", "Cookie", "X-Forwarded-For"} {
+				for _, drop := range []string{"Authorization", "Cookie", "X-CSRF-Token", "X-Stair-Signature", "X-Forwarded-For"} {
 					if v, ok := h[drop]; ok {
 						t.Errorf("header %s survived: %q", drop, v)
 					}
@@ -164,7 +166,9 @@ func TestScrubEvent(t *testing.T) {
 				e.Request = &sentrysdk.Request{
 					Data:        `{"password":"hunter2","email":"a@b.c"}`,
 					QueryString: "token=abc123&page=2",
-					Cookies:     "password=quux",
+					// S-143: scope.SetRequest дублирует куки строкой
+					// "session=SECRET; csrf=..." — она маскируется формой.
+					Cookies: "session=SECRET; csrf=TKN",
 				}
 			},
 			check: func(t *testing.T, e *sentrysdk.Event) {
@@ -177,8 +181,13 @@ func TestScrubEvent(t *testing.T) {
 				if strings.Contains(e.Request.QueryString, "abc123") {
 					t.Errorf("token leaked in query: %q", e.Request.QueryString)
 				}
-				if strings.Contains(e.Request.Cookies, "quux") {
-					t.Errorf("password leaked in cookies: %q", e.Request.Cookies)
+				for _, leak := range []string{"SECRET", "TKN"} {
+					if strings.Contains(e.Request.Cookies, leak) {
+						t.Errorf("%s leaked in cookies: %q", leak, e.Request.Cookies)
+					}
+				}
+				if !strings.Contains(e.Request.Cookies, "***") {
+					t.Errorf("cookies not masked: %q", e.Request.Cookies)
 				}
 			},
 		},
@@ -331,6 +340,47 @@ func TestScrubPipeline(t *testing.T) {
 type errSensitive string
 
 func (e errSensitive) Error() string { return string(e) }
+
+// TestCapturePanicScrubsSessionTokens — симуляция паники обработчика с
+// валидными cookie/CSRF (аудит S-141 №2: раньше session=SECRET уходил в
+// Sentry через scope.SetRequest). После CapturePanic → scrub пайплайна в
+// сериализованном событии не должно быть ни SECRET, ни TKN, ни SIG.
+func TestCapturePanicScrubsSessionTokens(t *testing.T) {
+	client, tr := newTestClient(t)
+	hub := sentrysdk.CurrentHub()
+	prev := hub.Client()
+	hub.BindClient(client)
+	defer func() { hub.BindClient(prev) }()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/stairs:calculate", nil)
+	req.AddCookie(&http.Cookie{ //nolint:gosec // тестовая фикстура с Secure-атрибутами
+		Name: "session", Value: "SECRET", Path: "/",
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: true,
+	})
+	req.AddCookie(&http.Cookie{ //nolint:gosec // тестовая фикстура с Secure-атрибутами
+		Name: "csrf", Value: "TKN", Path: "/",
+		HttpOnly: false, SameSite: http.SameSiteLaxMode, Secure: true,
+	})
+	req.Header.Set("X-CSRF-Token", "TKN")
+	req.Header.Set("X-Stair-Signature", "SIG")
+
+	CapturePanic("boom: impossible state", req, []byte("fake stack"))
+	client.Flush(2 * time.Second)
+
+	events := tr.all()
+	if len(events) != 1 {
+		t.Fatalf("transport got %d events, want 1", len(events))
+	}
+	raw, err := json.Marshal(events[0])
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	for _, leak := range []string{"SECRET", "TKN", "SIG"} {
+		if strings.Contains(string(raw), leak) {
+			t.Errorf("panic event leaked %s: %s", leak, string(raw))
+		}
+	}
+}
 
 func TestInitEmptyDSNNoop(t *testing.T) {
 	// to be safe: если другой тест нечаянно инициализировал глобальный хаб,

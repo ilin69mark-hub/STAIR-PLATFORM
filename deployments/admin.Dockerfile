@@ -10,6 +10,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY frontend/package.json ./frontend/package.json
 COPY frontend-store/package.json ./frontend-store/package.json
+COPY frontend-store-admin/package.json ./frontend-store-admin/package.json
 RUN npm ci
 COPY frontend ./frontend
 WORKDIR /app/frontend

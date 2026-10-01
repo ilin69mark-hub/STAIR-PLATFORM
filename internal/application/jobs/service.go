@@ -38,6 +38,15 @@ const (
 // ErrNotFound — запись задания не найдена (в скоупе tenant'а).
 var ErrNotFound = errors.New("jobs: not found")
 
+// ErrAlreadyClaimed — задание уже взято другим воркером (DB-3, 2026-09-27).
+//
+// Отдельная ошибка, а не ErrNotFound: «нет такого задания» и «задание уже
+// обрабатывается» требуют от воркера РАЗНЫХ действий. Первое — задание
+// потеряно, второе — всё в порядке, этот воркер просто должен пропустить
+// его. Смешивать нельзя: воркер, решивший что задания нет, запишет
+// ошибку доставки и запустит ретрай там, где ретрай неуместен.
+var ErrAlreadyClaimed = errors.New("jobs: already claimed")
+
 // ErrInvalid — некорректные входные данные задания.
 var ErrInvalid = errors.New("jobs: invalid input")
 
@@ -71,7 +80,12 @@ type Repository interface {
 	Create(ctx context.Context, j *Job) error
 	// GetByID возвращает задание в скоупе tenant'а; ErrNotFound — нет
 	// записи / не belongs-to-tenant.
+	// Используется воркером (RunCalculate), у которого нет пользователя.
 	GetByID(ctx context.Context, tenantID, id string) (*Job, error)
+	// GetByIDForUser возвращает задание в скоупе tenant'а И владельца
+	// (SEC-004). ErrNotFound — нет записи или она принадлежит другому
+	// пользователю.
+	GetByIDForUser(ctx context.Context, tenantID, userID, id string) (*Job, error)
 	// MarkRunning фиксирует «взято в работу» воркером.
 	MarkRunning(ctx context.Context, tenantID, id string) error
 	// MarkSucceeded сохраняет результат расчёта.
@@ -151,7 +165,25 @@ func (s *Service) SubmitCalculate(ctx context.Context, tenantID, userID string, 
 	return j, nil
 }
 
-// GetJob возвращает задание в скоупе tenant'а (GET /api/v1/jobs/{id}).
+// GetJobForUser возвращает задание в скоупе tenant'а И владельца
+// (GET /api/v1/jobs/{id}).
+//
+// SEC-004: раньше скоуп был только tenant'ным. Поскольку регистрация всегда
+// выдаёт единственный дефолтный tenant, это давало горизонтальный IDOR —
+// любой пользователь читал чужой расчёт вместе с ценой и производственным
+// пакетом. Теперь чужое задание выглядит как отсутствующее (ErrNotFound →
+// 404), без утечки существования.
+func (s *Service) GetJobForUser(ctx context.Context, tenantID, userID, id string) (*Job, error) {
+	if userID == "" {
+		return nil, ErrNotFound
+	}
+	return s.repo.GetByIDForUser(ctx, tenantID, userID, id)
+}
+
+// GetJob возвращает задание в скоупе tenant'а без учёта владельца.
+//
+// ОСТОРОЖНО: только для системных вызывающих (воркер). HTTP-маршрут
+// GET /api/v1/jobs/{id} обязан использовать GetJobForUser.
 func (s *Service) GetJob(ctx context.Context, tenantID, id string) (*Job, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -162,6 +194,12 @@ func (s *Service) GetJob(ctx context.Context, tenantID, id string) (*Job, error)
 // RunCalculate — воркер-сторона (cmd/worker): loads запись по job_id,
 // фиксирует running, выполняет calculateFunc и сохраняет результат/ошибку.
 // Возвращаемая ошибка запускает штатный retry/бакофф очереди.
+//
+// DB-3 (2026-09-27): ErrAlreadyClaimed из MarkRunning означает, что задание
+// уже выполняет другой воркер. Это НЕ ошибка и НЕ повод для ретрая:
+// возвращать её в очередь значило бы запустить третьего исполнителя на то
+// же задание. Вместо этого воркер подтверждает обработку как успешную и
+// выходит — дубль отработает (или уже отработал) его коллега.
 func (s *Service) RunCalculate(ctx context.Context, tenantID, id string) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -174,6 +212,10 @@ func (s *Service) RunCalculate(ctx context.Context, tenantID, id string) error {
 		return fmt.Errorf("jobs: load %s: %w", id, err)
 	}
 	if err := s.repo.MarkRunning(ctx, tenantID, id); err != nil {
+		if errors.Is(err, ErrAlreadyClaimed) {
+			slog.Info("jobs: skipped, already claimed by another worker", "job_id", id)
+			return nil
+		}
 		return fmt.Errorf("jobs: mark running %s: %w", id, err)
 	}
 	res, err := s.calc(ctx, j.Payload.Config, j.Payload.Options)

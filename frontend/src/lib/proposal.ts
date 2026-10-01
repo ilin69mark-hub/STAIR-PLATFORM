@@ -155,7 +155,11 @@ async function renderOffscreen3D(snapshot: Snapshot): Promise<string | null> {
       const m = new THREE.Mesh(g, material)
       return { mesh: m, geo: g }
     }
-    const stairMat = new THREE.MeshStandardMaterial({ color: 0x4f8df7, roughness: 0.55, metalness: 0.12, side: THREE.DoubleSide })
+    // polygonOffset: у марша совпадающие контактные плоскости (седло косоура,
+    // низ проступи и верх подступенка лежат в одной плоскости Z=(k+1)h−st).
+    // Без смещения они делят ячейку буфера глубины, и в PDF-кадре появляются
+    // пятна. Смещение — только рендер, геометрия не меняется.
+    const stairMat = new THREE.MeshStandardMaterial({ color: 0x4f8df7, roughness: 0.55, metalness: 0.12, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })
     const stair = makeMesh(snapshot.mesh, stairMat)
     // зеркалим прямой марш как в GeometryViewer
     const flightKind = snapshot.spiral ? 'spiral' : snapshot.ushape ? 'ushape' : snapshot.lshape ? 'lshape' : 'straight'

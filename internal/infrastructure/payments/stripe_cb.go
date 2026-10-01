@@ -34,6 +34,20 @@ func (a *CBStripeAdapter) CreateCheckout(ctx context.Context, amountMinor int64,
 	return checkoutID, checkoutURL, nil
 }
 
+// Refund выполняет возврат через CircuitBreaker.
+func (a *CBStripeAdapter) Refund(ctx context.Context, providerCheckoutID, idempotencyKey string) (string, error) {
+	var refundID string
+	err := a.cb.Execute(func() error {
+		var cbErr error
+		refundID, cbErr = a.inner.Refund(ctx, providerCheckoutID, idempotencyKey)
+		return cbErr
+	})
+	if err != nil {
+		return "", fmt.Errorf("stripe cb: %w", err)
+	}
+	return refundID, nil
+}
+
 // VerifyWebhookSignature проверяет подпись через CircuitBreaker.
 func (a *CBStripeAdapter) VerifyWebhookSignature(payload []byte, signature string) error {
 	return a.cb.Execute(func() error {

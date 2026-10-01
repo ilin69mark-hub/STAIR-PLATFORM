@@ -22,6 +22,12 @@ func ushapeConfig(t *testing.T) *engineering.StairConfiguration {
 	cfg.StepHeight = mustLength(t, 180)
 	cfg.TreadDepth = mustLength(t, 270)
 	cfg.StringerThickness = mustLength(t, 50)
+	// Материал задаём ЯВНО. Раньше он выводился из толщины: 50 мм подходили
+	// стали (диапазон 2–60), и тесты молча проверяли стальной марш на
+	// конфигурации без материала. С выходом стали на выпуск 3–8 мм такой
+	// вывод стал давать дуб, и тесты проверяли бы не то.
+	cfg.Material = "STEEL-S235"
+	cfg.TreadMaterial = "STEEL-S235"
 	cfg.StepThickness = mustLength(t, 40)
 	cfg.LowerStepCount = 6
 	cfg.LandingWidth = mustLength(t, 1000)
@@ -78,10 +84,10 @@ func TestManufactureUShapeDimensions(t *testing.T) {
 		number dommfg.PartNumber
 		l, wd  float64
 	}{
-		{"STR-01", 1620, 1040},
-		{"STR-02", 1620, 1040},
-		{"STR-03", 2430, 1580},
-		{"STR-04", 2430, 1580},
+		{"STR-01", 1620, 308}, // полоса: длина марша × (глубина пластины + лист)
+		{"STR-02", 1620, 308},
+		{"STR-03", 2430, 308},
+		{"STR-04", 2430, 308},
 		{"TRD-01", 850, 310},
 		{"TRD-07", 1800, 900},
 		{"TRD-08", 850, 310},
@@ -102,10 +108,10 @@ func TestManufactureUShapeDimensions(t *testing.T) {
 	}
 	// толщины: косоуры 50, проступи/подступенки/площадка 40.
 	for _, p := range pkg.Parts {
-		want := 50.0
-		if p.Kind != dommfg.PartStringer {
-			want = 40.0
-		}
+		// Все детали считаются из листа 8 мм: материал выводится из
+		// толщины, а без заданного материала деталь считается стальной, и
+		// модельные 50/40 мм — это габариты секций, а не толщина металла.
+		want := 8.0
 		if !nearlyEqual(p.Thickness.Millimeters(), want) {
 			t.Fatalf("part %q thickness = %v, want %v", p.Number, p.Thickness.Millimeters(), want)
 		}
@@ -137,12 +143,12 @@ func TestManufactureUShapeBOM(t *testing.T) {
 		length   float64
 		width    float64
 	}{
-		{"Stringer", 2, 1620, 1040},
+		{"Stringer", 2, 1620, 308},
 		{"Tread", 15, 850, 310},
 
 		{"Riser", 15, 850, 140},
 		{"Tread", 1, 1800, 900},
-		{"Stringer", 2, 2430, 1580},
+		{"Stringer", 2, 2430, 308},
 	}
 	if len(pkg.BOM.Lines) != len(want) {
 		t.Fatalf("BOM lines = %d, want %d", len(pkg.BOM.Lines), len(want))

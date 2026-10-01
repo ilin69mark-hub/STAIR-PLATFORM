@@ -27,6 +27,31 @@ type GenerationResult struct {
 	RoomMesh    *kerngeo.Mesh
 	Issues      []kerngeo.ValidationIssue
 	Measurement Measurement
+	// MillingFeatures — детали, которым нужна фрезеровная обработка, с
+	// длиной фрезеруемого ребра. Геометрия здесь единственный источник
+	// истины: производство берёт длину отсюда, а не пересчитывает по
+	// конфигурации — иначе расчёт обработки разъехался бы с моделью при
+	// первом же изменении геометрии детали.
+	//
+	// Длина ребра — это и есть объём работы: скругление носка идёт по всей
+	// ширине ступени, поэтому время фрезеровки пропорционально ширине марша,
+	// и именно так оно и тарифицируется.
+	MillingFeatures []MillingFeature
+}
+
+// MillingFeature — одна деталь, требующая фрезеровки.
+type MillingFeature struct {
+	// Role — роль тела в модели ("tread", "landing", …), по ней производство
+	// сопоставляет деталь из раскроя.
+	Role string
+	// EdgeLengthMM — длина фрезеруемого ребра, мм.
+	EdgeLengthMM float64
+	// RadiusMM — радиус скругления, мм. В операцию попадает как описание
+	// работы, на тариф не влияет.
+	RadiusMM float64
+	// Quantity — сколько таких деталей (ступени одинаковые, но считать их
+	// по одной было бы неверно: 15 ступеней — это 15 носов по 900 мм).
+	Quantity int
 }
 
 // Generate строит параметрическую B-Rep модель марша (прямого,
@@ -102,11 +127,17 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 		caches[i] = kerngeo.NewTessellationCache()
 	}
 
+	// Общая точка отсчёта UV для всех деталей: минимальный угол габарита
+	// модели. Считается до параллельной стадии, чтобы все тела мешали
+	// одинаково (см. meshSolid).
+	uvOrigin := kerngeo.BoundingBox(model).Min
+
 	type solidOut struct {
 		issues []kerngeo.ValidationIssue
 		vol    float64
 		area   float64
 		verts  []kerngeo.Point3
+		uvs    []kerngeo.Point2
 		tris   [][3]int
 		err    error
 	}
@@ -124,7 +155,7 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 			o.area, o.err = kerngeo.SurfaceAreaCached(solid, caches[i])
 		}
 		if o.err == nil {
-			o.verts, o.tris, o.err = meshSolid(solid, caches[i])
+			o.verts, o.uvs, o.tris, o.err = meshSolid(solid, caches[i], uvOrigin)
 		}
 		outs[i] = o
 		return o.err
@@ -140,17 +171,30 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 	}
 	result.Measurement.SolidCount = kerngeo.SolidCount(model)
 	result.Measurement.BoundingBox = kerngeo.BoundingBox(model)
+	// Детали под фрезеровку: длина ребра берётся из габарита построенной
+	// модели, поэтому совпадает с тем, что действительно изготовят.
+	result.MillingFeatures = millingFeaturesOf(cfg, model)
 
 	// preview mesh — производная величина, собранная из слотов в порядке тел.
 	result.Mesh = &kerngeo.Mesh{}
 	base := 0
 	for i := range outs {
 		result.Mesh.Vertices = append(result.Mesh.Vertices, outs[i].verts...)
+		result.Mesh.UV = append(result.Mesh.UV, outs[i].uvs...)
+		start := len(result.Mesh.Triangles)
 		for _, tr := range outs[i].tris {
 			if err := result.Mesh.AddTriangle(base+tr[0], base+tr[1], base+tr[2]); err != nil {
 				return nil, err
 			}
 		}
+		// Роль тела (этап 1): 3D-вьювер красит ступени/косоуры/площадку
+		// разными материалами по диапазону треугольников.
+		result.Mesh.PartRanges = append(result.Mesh.PartRanges, kerngeo.PartRange{
+			Solid: i,
+			Role:  solids[i].Role(),
+			Start: start,
+			End:   len(result.Mesh.Triangles),
+		})
 		base += len(outs[i].verts)
 	}
 
@@ -170,10 +214,11 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 		rw := cfg.RoomWidth.Millimeters()
 		rl := cfg.RoomLength.Millimeters()
 		if room := buildRoomSolid(rw, rl); room != nil {
-			if verts, tris, rerr := meshSolid(room, kerngeo.NewTessellationCache()); rerr == nil {
+			if verts, uvs, tris, rerr := meshSolid(room, kerngeo.NewTessellationCache(), kerngeo.Point3{}); rerr == nil {
 				rb := 0
 				result.RoomMesh = &kerngeo.Mesh{}
 				result.RoomMesh.Vertices = append(result.RoomMesh.Vertices, verts...)
+				result.RoomMesh.UV = append(result.RoomMesh.UV, uvs...)
 				for _, tr := range tris {
 					if aerr := result.RoomMesh.AddTriangle(rb+tr[0], rb+tr[1], rb+tr[2]); aerr != nil {
 						return nil, aerr
@@ -196,6 +241,56 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 	}
 
 	return result, nil
+}
+
+// millingFeaturesOf собирает список деталей под фрезеровку по ГОТОВОЙ модели.
+//
+// Количество ступеней берётся подсчётом тел с ролью "tread", а не из
+// конфигурации: у L/П-маршей ступени набираются из двух сегментов, у П-лестницы
+// на поворотных ступенях — из вееров, и любой расчёт «n1 + n2» в конфигурации
+// рано или поздно разошёлся бы с тем, что реально построено. Единственный
+// источник истины — сама модель.
+//
+// Длина ребра носа равна ширине марша: нос идёт по всей ширине проступи, и
+// именно эта длина тарифицируется как работа.
+func millingFeaturesOf(cfg *engineering.StairConfiguration, model *kerngeo.Compound) []MillingFeature {
+	radius := cfg.TreadNoseRadiusMM.Millimeters()
+	if radius <= kerngeo.Precision || model == nil {
+		// Металл (или явный ноль): фасок нет, фрезеровка не нужна.
+		return nil
+	}
+	treads, landings := 0, 0
+	for _, solid := range model.Solids() {
+		switch solid.Role() {
+		case "tread":
+			treads++
+		case "landing":
+			landings++
+		}
+	}
+	if treads == 0 && landings == 0 {
+		return nil
+	}
+	bb := kerngeo.BoundingBox(model)
+	width := bb.Max.Y - bb.Min.Y
+	if width <= kerngeo.Precision {
+		return nil
+	}
+	features := make([]MillingFeature, 0, 2)
+	if treads > 0 {
+		features = append(features, MillingFeature{
+			Role: "tread", EdgeLengthMM: width, RadiusMM: radius, Quantity: treads,
+		})
+	}
+	// Площадка: фрезеруется её ВНЕШНЯЯ кромка вдоль Y, то есть на всю ширину
+	// марша — столько же, сколько нос ступени. Кромка, которой примыкает
+	// верхний марш, не фрезеруется (см. landingRoundSide).
+	if landings > 0 {
+		features = append(features, MillingFeature{
+			Role: "landing", EdgeLengthMM: width, RadiusMM: radius, Quantity: landings,
+		})
+	}
+	return features
 }
 
 // buildRoomSolid строит тонкую декоративную плиту «пола комнаты» размером
@@ -255,16 +350,24 @@ func appendRailingMesh(result *GenerationResult, cfg *engineering.StairConfigura
 			issue.Element = fmt.Sprintf("decor:%s/%s", solid.Role(), issue.Element)
 			result.Issues = append(result.Issues, issue)
 		}
-		verts, tris, err := meshSolid(solid, cache)
+		verts, uvs, tris, err := meshSolid(solid, cache, kerngeo.BoundingBox(result.Model).Min)
 		if err != nil {
 			return fmt.Errorf("geometry: railing mesh: %w", err)
 		}
 		result.RailingMesh.Vertices = append(result.RailingMesh.Vertices, verts...)
+		result.RailingMesh.UV = append(result.RailingMesh.UV, uvs...)
+		start := len(result.RailingMesh.Triangles)
 		for _, tr := range tris {
 			if err := result.RailingMesh.AddTriangle(base+tr[0], base+tr[1], base+tr[2]); err != nil {
 				return fmt.Errorf("geometry: railing mesh triangle: %w", err)
 			}
 		}
+		// Роль декора (поручень/балясина) — для материала ограждения (этап 1).
+		result.RailingMesh.PartRanges = append(result.RailingMesh.PartRanges, kerngeo.PartRange{
+			Role:  solid.Role(),
+			Start: start,
+			End:   len(result.RailingMesh.Triangles),
+		})
 		base += len(verts)
 	}
 	return nil

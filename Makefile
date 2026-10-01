@@ -2,6 +2,15 @@
 # DEV-0009: единый набор команд: setup, run, test, migrate, seed, lint, build
 # DEV-0010: docker-based dev stack: make up / make stop / make fe
 
+# INF (2026-09-26): shell-опции для make. Без них рецепт вида
+# `docker build … 2>&1 | tail -5; exit ${PIPESTATUS[0]}` возвращал 0 при УПАВШЕЙ сборке:
+# пайп без pipefail теряет код возврата, а `|| true` глушит и его. Итог:
+# `make up` был «зелёным» при сломанном образе.
+SHELL       := /bin/bash
+.SHELLFLAGS := -eu -o pipefail -c
+# Тернарный оператор выключает сообщение «Entering directory» в рецептах.
+MAKEFLAGS += --no-print-directory
+
 GO        ?= go
 GOLANGCI  ?= golangci-lint
 COMPOSE   ?= docker compose
@@ -21,26 +30,30 @@ LDFLAGS     := -s -w \
 	-X stairplatform/internal/version.Commit=$(GIT_COMMIT) \
 	-X stairplatform/internal/version.BuildTime=$(BUILD_TIME)
 
-.PHONY: setup up stop run test coverage coverage-check migrate seed lint build build-api fmt vet env-up env-down clean frontend-install frontend-test frontend-build fe store admin frontends store-logs admin-logs bench backup restore backup-check obs-up obs-down obs-config obs-tracing-up version
+.PHONY: setup up stop run test coverage coverage-check helm-check db-integration-ran db-verify migrate seed lint build build-api fmt vet env-up env-down clean frontend-install frontend-test frontend-build fe store admin store-admin frontends store-logs admin-logs store-admin-logs store-admin-fe store-admin-test store-admin-build bench backup restore backup-check obs-up obs-down obs-config obs-tracing-up version
 
-## start the whole stack (PostgreSQL + Redis + API + store + admin frontends),
+## start the whole stack (PostgreSQL + Redis + API + store + admin + store-admin),
 ## rebuild images, apply migrations. Frontends: store :3000, admin :5174.
 up: env-up
 	$(GO) run ./cmd/migrate -dir migrations -database "$(STAIR_DATABASE_URL)"
-	@echo "Stack up: API :8080, store :3000, admin :5174. Frontend dev server: make fe"
+	@echo "Stack up: API :8080, store :3000, admin :5174, store-admin :5177. Frontend dev server: make fe"
 
 ## rebuild & restart the store frontend container (part of the stack)
 store:
-	@docker build --pull=false --network=host -f deployments/store.Dockerfile -t stair-platform-store . 2>&1 | tail -3 || true
+	@docker build --pull=false --network=host -f deployments/store.Dockerfile -t stair-platform-store . 2>&1 | tail -3; exit ${PIPESTATUS[0]}
 	$(COMPOSE) -f deployments/docker-compose.yml up -d store
 
 ## rebuild & restart the admin frontend container (part of the stack)
 admin:
-	@docker build --pull=false --network=host -f deployments/admin.Dockerfile -t stair-platform-admin . 2>&1 | tail -3 || true
+	@docker build --pull=false --network=host -f deployments/admin.Dockerfile -t stair-platform-admin . 2>&1 | tail -3; exit ${PIPESTATUS[0]}
 	$(COMPOSE) -f deployments/docker-compose.yml up -d admin
 
-## rebuild & restart both frontend containers
-frontends: store admin
+store-admin:
+	@docker build --pull=false --network=host -f deployments/store-admin.Dockerfile -t stair-platform-store-admin . 2>&1 | tail -3; exit ${PIPESTATUS[0]}
+	$(COMPOSE) -f deployments/docker-compose.yml up -d store-admin
+
+## rebuild & restart frontend containers
+frontends: store admin store-admin
 
 ## tail logs of the store frontend
 store-logs:
@@ -49,6 +62,18 @@ store-logs:
 ## tail logs of the admin frontend
 admin-logs:
 	$(COMPOSE) -f deployments/docker-compose.yml logs -f admin
+
+store-admin-logs:
+	$(COMPOSE) -f deployments/docker-compose.yml logs -f store-admin
+
+store-admin-fe:
+	$(NPM) --prefix frontend-store-admin run dev
+
+store-admin-test:
+	$(NPM) --prefix frontend-store-admin run test
+
+store-admin-build:
+	$(NPM) --prefix frontend-store-admin run build
 
 ## stop everything (Docker stack)
 stop: env-down
@@ -95,6 +120,33 @@ coverage:
 ## coverage quality gate (default threshold 85%; override with COVERAGE_THRESHOLD)
 coverage-check:
 	./scripts/coverage-check.sh
+
+## Гейт дефектов Helm-чарта (INF-10/11/12): resources: null, селектор Service
+## без component, секрет в ConfigMap. `helm lint` их не ловит.
+helm-check:
+	./scripts/check-helm-templates.sh
+
+## БД-интеграция обязана ВЫПОЛНИТЬСЯ, а не быть скипанной (CRITICAL-01/04/05).
+## Требует STAIR_TEST_DATABASE_URL. В CI это обязательный шаг: без него
+## сломанная схема (например, CHECK, отвергающий демо-данные) проходит зелёной.
+db-integration-ran:
+	./scripts/check-db-integration-ran.sh
+
+## Полная проверка схемы: миграции + сиды. Сиды — сильнейший тест CHECK-констрейнтов,
+## потому что заведены руками и обязаны быть приняты «как есть».
+db-verify:
+	$(GO) run ./cmd/migrate -dir migrations -database "$(STAIR_DATABASE_URL)"
+	$(GO) run ./cmd/migrate -dir migrations/seeds -table schema_migrations_seeds -database "$(STAIR_DATABASE_URL)"
+
+## OpenAPI: проверка, что обе копии спеки совпадают с генератором
+## (API-003/DOC-001). В CI это обязательный шаг: без него
+## `gen_swagger.py --write` стирал бы схемы, добавленные вручную.
+openapi-check:
+	python3 hack/gen_swagger.py
+
+## перегенерировать спеку (после изменения роутов или DTO)
+openapi-write:
+	python3 hack/gen_swagger.py --write
 
 ## performance baseline: Go benchmarks (calc/optimize/generate, memory stats)
 ## save to file: make bench BENCH_OUT=benchmarks/baseline.txt
@@ -164,9 +216,10 @@ frontend-build:
 ## Always rebuilds all images (offline-safe, --pull=false, no registry fetch).
 env-up:
 	@echo "Rebuilding all images (offline-safe, --pull=false)..."
-	@docker build --pull=false --network=host --build-arg VERSION="$(GIT_VERSION)" --build-arg COMMIT="$(GIT_COMMIT)" --build-arg BUILD_TIME="$(BUILD_TIME)" -f deployments/Dockerfile -t stair-platform-api . 2>&1 | tail -5 || true
-	@docker build --pull=false --network=host -f deployments/admin.Dockerfile -t stair-platform-admin . 2>&1 | tail -5 || true
-	@docker build --pull=false --network=host -f deployments/store.Dockerfile -t stair-platform-store . 2>&1 | tail -5 || true
+	@docker build --pull=false --network=host --build-arg VERSION="$(GIT_VERSION)" --build-arg COMMIT="$(GIT_COMMIT)" --build-arg BUILD_TIME="$(BUILD_TIME)" -f deployments/Dockerfile -t stair-platform-api . 2>&1 | tail -5; exit ${PIPESTATUS[0]}
+	@docker build --pull=false --network=host -f deployments/admin.Dockerfile -t stair-platform-admin . 2>&1 | tail -5; exit ${PIPESTATUS[0]}
+	@docker build --pull=false --network=host -f deployments/store.Dockerfile -t stair-platform-store . 2>&1 | tail -5; exit ${PIPESTATUS[0]}
+	@docker build --pull=false --network=host -f deployments/store-admin.Dockerfile -t stair-platform-store-admin . 2>&1 | tail -5; exit ${PIPESTATUS[0]}
 	$(COMPOSE) -f deployments/docker-compose.yml up -d
 
 ## alias for env-up (always rebuild)
@@ -184,4 +237,4 @@ env-down:
 
 clean:
 	rm -f coverage.out coverage.html
-	rm -rf frontend/dist
+	rm -rf frontend/dist frontend-store-admin/dist

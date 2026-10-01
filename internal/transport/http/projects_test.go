@@ -29,6 +29,7 @@ type fakeProjectService struct {
 	configs          []*project.StairConfiguration
 	calc             *project.Calculation
 	cadMesh          *kerngeo.Mesh
+	cadRailings      *kerngeo.Mesh // сетка перил (DOM-003)
 	createErr        error
 	calculateErr     error
 	getErr           error
@@ -300,6 +301,20 @@ func (f *fakeProjectService) Preview(ctx context.Context, tenantID, userID, proj
 	return &snap, nil
 }
 
+// ExportCADWithRailings — экспорт с перилами (DOM-003). Перила возвращаются
+// отдельной сеткой, как это делает application-слой (RailingMesh).
+func (f *fakeProjectService) ExportCADWithRailings(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, *kerngeo.Mesh, error) {
+	mesh, err := f.ExportCAD(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return nil, nil, err
+	}
+	railings := f.cadRailings
+	if railings == nil {
+		railings = &kerngeo.Mesh{Vertices: []kerngeo.Point3{}, Triangles: [][3]int{}}
+	}
+	return mesh, railings, nil
+}
+
 func (f *fakeProjectService) ExportCAD(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, error) {
 	if _, ok := f.projects[projectID]; !ok {
 		return nil, project.ErrNotFound
@@ -432,12 +447,14 @@ func testRouterWithProjects(p ProjectService) http.Handler {
 	return NewRouter(stair.NewService(), p, testAuth{}, DefaultConfig())
 }
 
-// authedRequest строит запрос с session+csrf cookie и заголовком CSRF.
+// authedRequest строит запрос с session+csrf cookie и заголовком CSRF
+// (S-144: Content-Type application/json — decodeJSON требует его для тел).
 func authedRequest(method, path, body string) *http.Request {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	r.AddCookie(testCookie(sessionCookieName, "token-1"))
 	r.AddCookie(testCookie(csrfCookieName, "csrf-1"))
 	r.Header.Set(csrfHeader, "csrf-1")
+	r.Header.Set("Content-Type", "application/json")
 	return r
 }
 

@@ -44,7 +44,9 @@ func handleGetSettings(svc AuthService) http.HandlerFunc {
 		}
 		p, err := svc.GetPolicy(r.Context(), tenantID(r.Context()))
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusOK, toPolicyDTO(p))
@@ -61,8 +63,10 @@ func handleUpdateSettings(svc AuthService, auditSvc AuditService) http.HandlerFu
 			return
 		}
 		var req policyDTO
-		if err := decodeJSON(w, r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
+		// DOM-007: строгий разбор — опечатка в политике безопасности тихо
+		// сбрасывала её на WithDefaults() с ответом 200.
+		if err := decodeJSONStrict(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", jsonErrorMessage(err))
 			return
 		}
 		p := auth.Policy{
@@ -77,18 +81,16 @@ func handleUpdateSettings(svc AuthService, auditSvc AuditService) http.HandlerFu
 				writeInputError(w, "invalid_policy", err)
 				return
 			}
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
-		// Audit: settings updated
-		if auditSvc != nil {
-			_ = auditSvc.Record(r.Context(), &audit.Event{
-				ActorID:  userID(r.Context()),
-				TenantID: tenantID(r.Context()),
-				Action:   audit.ActionSettingsUpdated,
-				Result:   audit.ResultOK,
-			})
-		}
+		// Audit: settings updated (AUDIT-002: recordAudit логирует отказ)
+		recordAudit(r.Context(), auditSvc, &audit.Event{
+			ActorID:  userID(r.Context()),
+			TenantID: tenantID(r.Context()),
+			Action:   audit.ActionSettingsUpdated,
+			Result:   audit.ResultOK,
+		})
 		writeJSON(w, http.StatusOK, toPolicyDTO(p))
 	}
 }
@@ -122,7 +124,9 @@ func handleExport(svc AuthService, projects ProjectService, audits AuditService)
 		case "users":
 			users, err := svc.ListUsers(r.Context(), tenant)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+				// API-002: доменные ошибки больше не превращаются в 500 —
+				// статус и код определяет единый контракт (error_contract.go).
+				writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 				return
 			}
 			writeExport(w, format, "users", users, func(u *auth.User) []string {
@@ -131,7 +135,9 @@ func handleExport(svc AuthService, projects ProjectService, audits AuditService)
 		case "projects":
 			list, err := projects.ListTenantProjects(r.Context(), tenant)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+				// API-002: доменные ошибки больше не превращаются в 500 —
+				// статус и код определяет единый контракт (error_contract.go).
+				writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 				return
 			}
 			writeExport(w, format, "projects", list, func(p *project.Project) []string {
@@ -140,7 +146,9 @@ func handleExport(svc AuthService, projects ProjectService, audits AuditService)
 		case "audit":
 			events, err := audits.ListTenantAudit(r.Context(), tenant)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+				// API-002: доменные ошибки больше не превращаются в 500 —
+				// статус и код определяет единый контракт (error_contract.go).
+				writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 				return
 			}
 			writeExport(w, format, "audit", events, func(e *audit.Event) []string {
@@ -174,8 +182,14 @@ func writeExport[T any](w http.ResponseWriter, format, name string, rows []T, to
 // ---- API-ключи (EDR-0016 §3.3) ----
 
 // apiKeyDTO — представление ключа (без token_hash).
+//
+// Каноническое представление API-ключа: используется и админским списком
+// (GET /api/v1/admin/api-keys), и GET /api/v1/auth/me для Bearer-субъекта
+// (SEC-005). TokenHash здесь нет намеренно — открытый токен отдаётся только
+// один раз при создании.
 type apiKeyDTO struct {
 	ID         string   `json:"id"`
+	TenantID   string   `json:"tenant_id,omitempty"`
 	Name       string   `json:"name"`
 	Scopes     []string `json:"scopes"`
 	CreatedBy  string   `json:"created_by,omitempty"`
@@ -187,6 +201,7 @@ type apiKeyDTO struct {
 func toApiKeyDTO(k *auth.ApiKey) apiKeyDTO {
 	dto := apiKeyDTO{
 		ID:        k.ID,
+		TenantID:  k.TenantID,
 		Name:      k.Name,
 		Scopes:    k.Scopes,
 		CreatedBy: k.CreatedBy,
@@ -221,7 +236,9 @@ func handleListApiKeys(svc AuthService) http.HandlerFunc {
 		}
 		keys, err := svc.ListApiKeys(r.Context(), tenantID(r.Context()))
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		out := make([]apiKeyDTO, 0, len(keys))
@@ -262,7 +279,9 @@ func handleCreateApiKey(svc AuthService) http.HandlerFunc {
 		}
 		key, token, err := svc.CreateApiKey(r.Context(), tenantID(r.Context()), userID(r.Context()), req.Name, scopes)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		resp := createApiKeyResponse{apiKeyDTO: toApiKeyDTO(key), Token: token}
@@ -283,7 +302,7 @@ func handleRevokeApiKey(svc AuthService) http.HandlerFunc {
 				writeError(w, http.StatusNotFound, "not_found", "API-ключ не найден")
 				return
 			}
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

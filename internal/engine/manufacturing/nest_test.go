@@ -200,23 +200,6 @@ var materialCases = []struct {
 		},
 	},
 	{
-		name:     "aluminum",
-		material: "ALUM-5083",
-		parts: []struct {
-			label    string
-			length   float64
-			width    float64
-			feasible bool
-			expectL  float64
-			expectW  float64
-		}{
-			{"единственный лист 3000×1500: деталь 2900×1400", 2900, 1400, true, 3000, 1500},
-			{"плита 6000×3000: деталь 5900×2900", 5900, 2900, true, 6000, 3000},
-			{"плита 9000×4600: деталь 8900×4500", 8900, 4500, true, 9000, 4600},
-			{"over-max алюминий: 9001×4601", 9001, 4601, false, 0, 0},
-		},
-	},
-	{
 		name:     "wood",
 		material: "WOOD-OAK",
 		parts: []struct {
@@ -306,7 +289,6 @@ func TestLargestStockSheetPerMaterial(t *testing.T) {
 		width    float64
 	}{
 		{"STEEL-S235", 10400, 6200},
-		{"ALUM-5083", 9000, 4600},
 		{"WOOD-OAK", 9000, 4600},
 	}
 	for _, tc := range cases {

@@ -71,6 +71,15 @@ type Config struct {
 	// Region — идентификатор региона инстанса (STAIR_REGION, EDR-0019 §3.1);
 	// отражается в /health. Пусто — регион не задан.
 	Region string
+	// CSRFAllowedOrigins — источники, которым разрешён мутирующий запрос с
+	// double-submit CSRF (STAIR_CSRF_ALLOWED_ORIGINS, запятая). Нужен, когда
+	// сайт и API на разных доменах (прод) или запрос идёт через прокси,
+	// подменяющий Host.
+	CSRFAllowedOrigins []string
+	// StaticAssetsDir — каталог публичных версионированных ассетов
+	// (STAIR_STATIC_ASSETS_DIR, этап 1 «студийный 3D»): PBR-текстуры и HDRI
+	// раздаются по /static-assets/. Пусто — маршрут не регистрируется.
+	StaticAssetsDir string
 	// Integrations — сервис интеграций (EDR-0023 §3.4); nil — маршруты
 	// integrations/quote-send не регистрируются.
 	Integrations IntegrationService
@@ -80,12 +89,27 @@ type Config struct {
 	// Payments — сервис платежей (EDR-0027 §3.3); nil — маршруты
 	// payments/checkout/webhook не регистрируются.
 	Payments PaymentService
+	// PaymentAdmin — административные операции с платежами store; nil —
+	// маршруты admin/payments не регистрируются.
+	PaymentAdmin PaymentAdminService
 	// PaymentsWebhookSecret — секрет верификации входящего webhook PSP
 	// (STAIR_PAYMENT_WEBHOOK_SECRET); пусто — webhook отклоняется (401).
 	PaymentsWebhookSecret string
 	// Analytics — сервис аналитики (EDR-0028 §3.4, Phase F); nil —
 	// маршруты analytics не регистрируются.
 	Analytics AnalyticsService
+	// Funnel — сервис воронки витрины (миграция 000035); nil — ни приём
+	// событий, ни admin/analytics/funnel не регистрируются.
+	Funnel FunnelService
+	// FunnelRateLimit — максимум пачек событий с одного IP за окно; по
+	// умолчанию DefaultConfig. Пачка ≤ funnel.MaxBatchEvents, поэтому
+	// «одна пачка» — это и есть верхняя граница телеметрии одного визита.
+	FunnelRateLimit int
+	// FunnelRateWindow — окно rate-limit приёма событий.
+	FunnelRateWindow time.Duration
+	// FunnelVisitorSalt — соль HMAC для псевдонима посетителя
+	// (STAIR_ANALYTICS_SALT). Пусто — посетитель не идентифицируется вовсе.
+	FunnelVisitorSalt string
 	// Jobs — сервис фоновых заданий (EDR-0035, Phase B B4); nil —
 	// маршруты stairs:calculate/async и jobs/{id} не регистрируются.
 	Jobs JobsService
@@ -98,6 +122,9 @@ type Config struct {
 	// Testimonials — сервис отзывов клиентов (клиентский сайт); nil —
 	// маршруты testimonials и admin/testimonials не регистрируются.
 	Testimonials TestimonialService
+	// Store — сервис настроек и прайса магазина (волна 0 «store admin»);
+	// nil — маршруты store-settings, admin/store не регистрируются.
+	Store StoreService
 	// WebSocketHandler — handler для WebSocket подключений; nil —
 	// маршрут /ws не регистрируется.
 	WebSocketHandler *WebSocketHandler
@@ -121,11 +148,16 @@ func DefaultConfig() Config {
 		QuoteRateWindow:    time.Minute,
 		ValidateRateLimit:  120,
 		ValidateRateWindow: time.Minute,
-		AuthRateLimit:      200,
-		AuthRateWindow:     time.Minute,
-		SsoRateLimit:       20,
-		SsoRateWindow:      time.Minute,
-		MaxBodyBytes:       1 << 20, // 1 MiB
+		// 30 пачек в минуту с одного IP: витрина шлёт пачку раз в несколько
+		// секунд активности плюс один beacon на уход, то есть честный визит
+		// укладывается в десяток. Сотня — уже злоупотребление.
+		FunnelRateLimit:  30,
+		FunnelRateWindow: time.Minute,
+		AuthRateLimit:    200,
+		AuthRateWindow:   time.Minute,
+		SsoRateLimit:     20,
+		SsoRateWindow:    time.Minute,
+		MaxBodyBytes:     1 << 20, // 1 MiB
 	}
 }
 
@@ -200,7 +232,7 @@ func bearerToken(r *http.Request) string {
 // заголовок X-CSRF-Token должен совпадать с csrf-cookie приложения
 // (csrfCookieFor(appOrigin(r)) — store: «csrf», admin: «csrf_admin»).
 // Дополнительно (EDR-0014 §3.3) проверяется Origin/Referer запроса.
-func requireCSRF(next http.Handler) http.Handler {
+func requireCSRF(allowedOrigins []string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(csrfCookieFor(appOrigin(r)))
 		if err != nil || cookie.Value == "" {
@@ -211,7 +243,7 @@ func requireCSRF(next http.Handler) http.Handler {
 			writeError(w, http.StatusForbidden, "csrf", "CSRF-токен не совпадает.")
 			return
 		}
-		if !csrfOriginAllowed(r) {
+		if !csrfOriginAllowed(r, allowedOrigins) {
 			writeError(w, http.StatusForbidden, "csrf", "Запрос с другого источника отклонён.")
 			return
 		}
@@ -220,10 +252,15 @@ func requireCSRF(next http.Handler) http.Handler {
 }
 
 // csrfOriginAllowed проверяет источник запроса (EDR-0014 §3.3): Origin,
-// если заголовок есть, иначе Referer. Host источника должен совпадать с
-// host запроса; при отсутствии обоих заголовков (не-браузерный клиент)
-// запрос пропускается.
-func csrfOriginAllowed(r *http.Request) bool {
+// если заголовок есть, иначе Referer. Допускается сам host запроса и явно
+// перечисленные источники (STAIR_CSRF_ALLOWED_ORIGINS): публичный сайт и API
+// в проде живут на разных доменах, а прокси (Vite/Next/CDN) подменяет Host —
+// без allowlist оплата с витрины невозможна. При отсутствии обоих заголовков
+// (не-браузерный клиент) запрос пропускается.
+//
+// Список сравнивается как host[:port] целиком, регистронезависимо; подстановки
+// и wildcard не поддерживаются — только точный список доменов.
+func csrfOriginAllowed(r *http.Request, allowedOrigins []string) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		origin = r.Header.Get("Referer")
@@ -235,7 +272,25 @@ func csrfOriginAllowed(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	return strings.EqualFold(u.Host, r.Host)
+	if strings.EqualFold(u.Host, r.Host) {
+		return true
+	}
+	for _, allowed := range allowedOrigins {
+		allowed = strings.TrimSpace(allowed)
+		if allowed == "" {
+			continue
+		}
+		// Разрешаем и полный origin («https://shop.example»), и его host
+		// («shop.example» / «shop.example:8443»).
+		if strings.EqualFold(allowed, u.Host) {
+			return true
+		}
+		if parsed, err := url.Parse(allowed); err == nil && parsed.Host != "" &&
+			strings.EqualFold(parsed.Host, u.Host) {
+			return true
+		}
+	}
+	return false
 }
 
 // RateLimiter — стратегия лимитирования по ключу (IP). Интерфейс позволяет

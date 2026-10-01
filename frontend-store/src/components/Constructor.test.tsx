@@ -1,4 +1,5 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import type { ReactNode } from 'react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Constructor } from './Constructor'
 import { quoteApi } from '../api/store'
@@ -12,7 +13,7 @@ const viewerProps = vi.hoisted(() => ({ current: {} as Record<string, unknown> }
 vi.mock('@shared/viewer/GeometryViewer', () => ({
   GeometryViewer: (p: Record<string, unknown>) => {
     viewerProps.current = p
-    return null
+    return <div data-testid="mock-3d-viewer">{p.overlay as ReactNode}</div>
   },
 }))
 
@@ -55,6 +56,104 @@ function blockedVariations(cfg: Record<string, string>): QuoteResult {
   }
 }
 
+// --- Работа с аккордеоном -------------------------------------------------
+//
+// Панель — аккордеон с ОДНОЙ открытой секцией, и закрытая секция не рендерит
+// своё тело вообще. Поэтому getByLabelText по полю из закрытой секции падает.
+// Хелперы ниже открывают секции по очереди и находят нужное поле.
+//
+// Раньше форма была плоской, и кода было меньше, но тесты ловили ошибки
+// редизайна только потому, что случайно совпадали с новой разметкой.
+
+// SECTIONS — заголовки в порядке объявления в calcSections.
+const SECTIONS = [
+  'Основные настройки',
+  'Настройки поворота',
+  'Ограждение',
+  'Цвет и материал',
+  'Помещение',
+]
+
+/**
+ * Открыть секцию, если она закрыта. Открытая остаётся открытой.
+ *
+ * Разметка: заголовки лежат в сетке `.accordion__heads`, а тело ОДНО —
+ * `.acc__body` с aria-label открытой секции. Раньше секция была отдельной
+ * карточкой `.acc` со своим телом, поэтому проверять приходилось вложенность.
+ */
+function openSection(title: string) {
+  const head = screen.queryByText(title)
+  if (!head) return
+  if (head.closest('.acc__head')?.getAttribute('aria-expanded') === 'true') return
+  fireEvent.click(head)
+}
+
+/**
+ * Выполнить проверку ВНУТРИ конкретной секции.
+ *
+ * Нужна вместо inSections, когда известно, где искать: одновременно открыта
+ * только одна секция, поэтому перебор «открыть следующую» закрывает
+ * предыдущую, и следующая же проверка не находит элемент.
+ */
+function inSection<T>(title: string, fn: () => T): T {
+  openSection(title)
+  return fn()
+}
+
+/** Найти поле по подписи, при необходимости проходя по секциям. */
+function field(label: string): HTMLElement {
+  for (const title of SECTIONS) {
+    openSection(title)
+    const el = screen.queryByLabelText(label)
+    if (el) return el as HTMLElement
+  }
+  throw new Error(`поле «${label}» не найдено ни в одной секции аккордеона`)
+}
+
+/**
+ * Отрицательный вариант inSections: возвращает null, а не бросает.
+ * Нужен для проверок «такого текста НЕТ ни в одной секции» — там отсутствие
+ * и есть ожидаемый результат, а inSections на отсутствии падает.
+ */
+function maybeInSections<T>(find: () => T | null): T | null {
+  for (const title of SECTIONS) {
+    openSection(title)
+    const found = find()
+    if (found) return found
+  }
+  return null
+}
+
+/** То же, но для текста внутри секции (подсказки, кнопки). */
+function inSections<T>(find: () => T | null): T {
+  for (const title of SECTIONS) {
+    openSection(title)
+    const found = find()
+    if (found) return found
+  }
+  throw new Error('элемент не найден ни в одной секции аккордеона')
+}
+
+// pickTreadWood — ступени из дерева. В металлокаркасе доступна только
+// сталь, поэтому вид ступеней выбирается тумблером, а не произвольным
+// кодом материала; общие пределы по материалам покрыты
+// в shared/src/config.test.ts.
+/** Переключить тип марша кнопкой сегмента (flight — код из config). */
+function pickFlight(label: string) {
+  fireEvent.click(
+    inSections(() => screen.queryByRole('radio', { name: label })),
+  )
+}
+
+function pickTreadWood() {
+  inSections(() => screen.queryByRole('radio', { name: 'Дерево' }))
+  fireEvent.click(inSections(() => screen.queryByRole('radio', { name: 'Дерево' })))
+}
+
+function pickTreadMetal() {
+  fireEvent.click(inSections(() => screen.queryByRole('radio', { name: 'Металл' })))
+}
+
 const okQuote: QuoteResult = {
   validation: { valid: true, blocking: false, issues: [] },
   flight: {
@@ -95,7 +194,7 @@ const blockedWithAdvice: QuoteResult = {
 const validValues: Record<string, string> = {
   'Ширина марша (мм)': '900',
   'Высота (мм)': '2700',
-  'Толщина ступени (мм)': '6',
+  'Толщина ступени (мм)': '40',
   'Просвет (мм)': '2000',
   'Высота перил (мм)': '900',
   'Ширина помещения (мм)': '3000',
@@ -104,7 +203,7 @@ const validValues: Record<string, string> = {
 
 function fillValid() {
   for (const [label, value] of Object.entries(validValues)) {
-    fireEvent.change(screen.getByLabelText(label), { target: { value } })
+    fireEvent.change(field(label), { target: { value } })
   }
 }
 
@@ -116,26 +215,109 @@ describe('Constructor', () => {
   it('показывает форму конструктора', async () => {
     await renderWithAuth(<Constructor />, null)
     expect(screen.getByText('Конструктор лестницы')).toBeInTheDocument()
-    expect(screen.getByLabelText('Тип лестницы')).toBeInTheDocument()
+    expect(field('Тип лестницы')).toBeInTheDocument()
     expect(screen.getByText('Прямой марш')).toBeInTheDocument()
-    expect(screen.getByLabelText('Материал')).toHaveValue('STEEL-S235')
+    // Материал каркаса в калькуляторе только сталь, поэтому показан строкой,
+    // а не кнопкой выбора (одна кнопка — ложный выбор).
+    expect(inSections(() => screen.queryByText('Сталь S235'))).toBeInTheDocument()
+  })
+
+  // Раскладка аккордеона. Пять секций в пять рядов оставляли телу ~280px при
+  // ширине 356px: данные приходилось вводить в маленькое окошко. Теперь
+  // заголовки — компактная сетка, а тело ОДНО под ними на всю высоту панели.
+  // Тест ловит возврат к отдельным карточкам и к «прыгающему» телу.
+  it('все заголовки секций видны сразу, тело открытой — одно', async () => {
+    await renderWithAuth(<Constructor />, null)
+    // «Настройки поворота» у прямого марша скрыта, поэтому сверяемся с тем,
+    // что реально отрисовано, а не со списком SECTIONS.
+    const heads = Array.from(
+      document.querySelectorAll('.accordion__heads .acc__head'),
+    ) as HTMLElement[]
+    expect(heads.length).toBeGreaterThanOrEqual(4)
+    for (const head of heads) {
+      expect(head).toBeVisible()
+      expect(['true', 'false']).toContain(head.getAttribute('aria-expanded'))
+    }
+    expect(heads.map((h) => h.textContent?.trim()).join(' ')).toContain('Основные настройки')
+    expect(heads.map((h) => h.textContent?.trim()).join(' ')).toContain('Помещение')
+
+    // Тело ровно одно — под открытой секцией.
+    expect(document.querySelectorAll('.acc__body')).toHaveLength(1)
+  })
+
+  it('скрытая для прямого марша секция появляется в сетке при повороте', async () => {
+    await renderWithAuth(<Constructor />, null)
+    expect(
+      screen.queryByRole('button', { name: /Настройки поворота/ }),
+    ).not.toBeInTheDocument()
+    pickFlight('L-образная (с площадкой)')
+    // Заголовок встаёт в общую сетку, а не отдельной карточкой.
+    const added = screen.getByRole('button', { name: /Настройки поворота/ })
+    expect(added.closest('.accordion__heads')).not.toBeNull()
+    expect(document.querySelectorAll('.acc__body')).toHaveLength(1)
+  })
+
+  it('переключение секции не оставляет второго тела и не теряет заголовки', async () => {
+    await renderWithAuth(<Constructor />, null)
+    fireEvent.click(screen.getByRole('button', { name: /Помещение/ }))
+    expect(document.querySelectorAll('.acc__body')).toHaveLength(1)
+    // Раскрытая секция подписана своей меткой — иначе при прокрутке не
+    // понять, что за раздел открыт.
+    expect(screen.getByRole('region', { name: 'Помещение' })).toBeInTheDocument()
+    for (const head of Array.from(
+      document.querySelectorAll('.accordion__heads .acc__head'),
+    ) as HTMLElement[]) {
+      expect(head).toBeVisible()
+    }
   })
 
   it('загружается с пустыми полями', async () => {
     await renderWithAuth(<Constructor />, null)
+    // Толщина ступени — единственное числовое поле с дефолтом: дефолт
+    // изделия «сталь + дуб» обязан быть валидным (20–60 мм), иначе
+    // калькулятор открывается с красным полем.
     for (const label of Object.keys(validValues)) {
-      expect(screen.getByLabelText(label)).toHaveValue('')
+      const expected = label === 'Толщина ступени (мм)' ? '40' : ''
+      expect(field(label)).toHaveValue(expected)
     }
+  })
+
+  // Поля панели принимают только целые миллиметры. Буквы и знаки отбрасываются
+  // на входе: иначе «1o00» или «-900» уходили в запрос и отваливались уже на
+  // сервере с 422, вместо того чтобы поле просто не дало их напечатать.
+  it('в числовые поля нельзя ввести буквы и знаки', async () => {
+    await renderWithAuth(<Constructor />, null)
+    const width = field('Ширина марша (мм)')
+
+    for (const [typed, expected] of [
+      ['1o00', '100'],
+      ['абв', ''],
+      ['-900', '900'],
+      ['1 200', '1200'],
+      ['12.5', '125'],
+      ['+800', '800'],
+    ] as const) {
+      fireEvent.change(width, { target: { value: typed } })
+      expect((width as HTMLInputElement).value).toBe(expected)
+    }
+
+    // Пустая строка — валидное промежуточное состояние: из неё печатается
+    // новое число, поэтому фильтр не должен её запрещать.
+    fireEvent.change(width, { target: { value: '' } })
+    expect((width as HTMLInputElement).value).toBe('')
+
+    // Мобильная клавиатура получает numeric, а не decimal: значения целые.
+    expect(width).toHaveAttribute('inputmode', 'numeric')
   })
 
   it('чекбокс подступенка: включён по умолчанию и передаётся в запрос', async () => {
     const spy = vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote)
     await renderWithAuth(<Constructor />, null)
-    const checkbox = screen.getByLabelText('Подступень') as HTMLInputElement
+    const checkbox = field('Подступень') as HTMLInputElement
     expect(checkbox.checked).toBe(true)
 
     fireEvent.click(checkbox)
-    expect((screen.getByLabelText('Подступень') as HTMLInputElement).checked).toBe(false)
+    expect((field('Подступень') as HTMLInputElement).checked).toBe(false)
 
     fillValid()
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
@@ -144,96 +326,288 @@ describe('Constructor', () => {
     })
   })
 
-  it('показывает подсказки для ступени и перил', async () => {
+  // После УСПЕШНОГО расчёта вкладки параметров схлопываются, и под ними
+  // раскрывается результат. Владелец: «раскрытая вкладка должна схлопнутся
+  // с параметрами, и под ними должна отображатся вся эта информация».
+  // Отдельная колонка для результата была попыткой выиграть место по ширине —
+  // вернули результат под параметры.
+  it('после расчёта вкладки схлопываются, результат — под ними в рельсе', async () => {
+    const spy = vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote)
     await renderWithAuth(<Constructor />, null)
-    expect(screen.getByText('Мин 3 / макс 8 мм')).toBeInTheDocument()
-    expect(screen.getByText('Рекомендуем 900–1100 мм')).toBeInTheDocument()
+    // До расчёта раскрыта «Основные настройки».
+    expect(document.querySelector('.acc__body')).not.toBeNull()
+
+    fillValid()
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await waitFor(() => expect(spy).toHaveBeenCalled())
+
+    await waitFor(() => {
+      expect(document.querySelector('.acc__body')).toBeNull()
+    })
+    // Заголовки вкладок остаются на месте — схлопнулось тело, а не панель.
+    expect(document.querySelectorAll('.acc__head').length).toBeGreaterThanOrEqual(4)
+    // Результат лежит В рельсе конструктора, ниже его панели, и цена в нём
+    // первая карточкой: человек, нажавший «Рассчитать», видит сумму сразу.
+    const rail = document.querySelector('.calc__rail') as HTMLElement
+    const price = rail.querySelector('.price-value')
+    expect(price).not.toBeNull()
+    const text = rail.textContent ?? ''
+    expect(text.indexOf('Предварительная цена')).toBeLessThan(text.indexOf('Геометрия марша'))
+    // Порядок в DOM: панель конструктора, потом результат.
+    const children = Array.from(rail.children)
+    const panelAt = children.findIndex((n) => n.classList.contains('panel'))
+    const resultAt = children.findIndex((n) => n.classList.contains('panel--result'))
+    expect(panelAt).toBeGreaterThanOrEqual(0)
+    expect(resultAt).toBeGreaterThan(panelAt)
   })
 
-  it('подсказки ширины и высоты зависят от материала', async () => {
+  // При БЛОКИРУЮЩЕМ ответе вкладки остаются раскрытыми: там наоборот надо
+  // вернуться к полям и поправить их.
+  it('при блокирующем ответе вкладки не схлопываются', async () => {
+    const blocked = { ...okQuote, validation: { valid: false, blocking: true, issues: [] } }
+    const spy = vi.spyOn(quoteApi, 'calculate').mockResolvedValue(blocked)
     await renderWithAuth(<Constructor />, null)
-    // Сталь по умолчанию: макс. высота 6000 мм.
-    expect(screen.getByText('Макс 6000 мм')).toBeInTheDocument()
-    expect(screen.getByText('Макс 3000 мм')).toBeInTheDocument()
-
-    fireEvent.change(screen.getByLabelText('Материал'), { target: { value: 'WOOD-OAK' } })
-    // Дуб: макс. высота 4550 мм, толщина ступени 20–60 мм.
-    expect(screen.getByText('Макс 4550 мм')).toBeInTheDocument()
-    expect(screen.getByText('Мин 20 / макс 60 мм')).toBeInTheDocument()
-
-    fireEvent.change(screen.getByLabelText('Материал'), { target: { value: 'ALUM-5083' } })
-    expect(screen.getByText('Мин 2 / макс 60 мм')).toBeInTheDocument()
+    fillValid()
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await waitFor(() => expect(spy).toHaveBeenCalled())
+    expect(document.querySelector('.acc__body')).not.toBeNull()
   })
 
-  it('валидация учитывает пределы материала', async () => {
+  // Пределы под ползунком НЕ дублируются текстом: минимум и максимум показывает
+  // шкала .slider__scale. Дубли («Мин 20 / макс 60 мм», «Макс 6000 мм») съедали
+  // по строке на каждое поле, а у полей с материал-зависимыми пределами ещё и
+  // вводили в заблуждение. Под ползунком остались только рекомендации.
+  it('под ползунком нет дублей пределов, шкала показывает min/max', async () => {
     await renderWithAuth(<Constructor />, null)
-    fireEvent.change(screen.getByLabelText('Материал'), { target: { value: 'ALUM-5083' } })
-    fireEvent.change(screen.getByLabelText('Высота (мм)'), { target: { value: '5000' } })
-    expect(await screen.findByText('Не более 4550')).toBeInTheDocument()
+    const noRangeDuplicates = [
+      /^Мин \d+/,
+      /^Макс \d+/,
+      /\/ макс /,
+    ]
+    for (const re of noRangeDuplicates) {
+      expect(maybeInSections(() => screen.queryByText(re))).toBeNull()
+    }
+    // Шкала ползунка толщины ступени: по умолчанию дуб, 20–60 мм. Поле
+    // перенесено в «Цвет и материал» под переключатель материала ступеней,
+    // потому что пределы задаёт именно он.
+    const scale = inSection('Цвет и материал', () =>
+      screen.getByLabelText('Толщина ступени (мм), ползунок').parentElement
+        ?.querySelector('.slider__scale'),
+    )
+    expect(scale?.textContent).toBe('2060')
+  })
+
+  // Компактность панели по требованию владельца: убраны подписи, которые
+  // дублировали то, что видно на ползунке, и повторяли единицу измерения.
+  it('убраны лишние подписи и повторы единиц', async () => {
+    await renderWithAuth(<Constructor />, null)
+
+    // Степпер «Количество ступеней» — число выводится геометрией и меняется
+    // перетаскиванием ступени в 3D.
+    expect(screen.queryByText('Количество ступеней')).not.toBeInTheDocument()
+
+    // «Влияет только на вид модели. На цену не влияет.» под палитрами.
+    expect(maybeInSections(() => screen.queryByText(/На цену не влияет/))).toBeNull()
+
+    // Подпись под подступенком убрана целиком: переключатель «Да/Нет»
+    // говорит о поле всё, что нужно, а строка под ним была пустой высотой.
+    expect(maybeInSections(() => screen.queryByText(/Высота равна высоте ступени/))).toBeNull()
+
+    // Пояснения комнатных полей убраны (они были по два предложения каждый).
+    expect(maybeInSections(() => screen.queryByText(/без проверки вписываемости/))).toBeNull()
+    expect(maybeInSections(() => screen.queryByText(/направление марша/))).toBeNull()
+  })
+
+  it('под ползунком остались рекомендации, а не пределы', async () => {
+    await renderWithAuth(<Constructor />, null)
+    // Рекомендация — это не предел, её смысл в другом, и она осталась.
+    expect(inSection('Ограждение', () => screen.queryByText('Рекомендуем 900–1100 мм'))).toBeInTheDocument()
+    expect(inSection('Помещение', () => screen.queryByText('Рекомендуем ≥ 2000 мм'))).toBeInTheDocument()
+  })
+
+  // Требование владельца: толщина ступени стоит в «Цвете и материале», сразу
+  // под выбором «Дерево/Металл». Пределы толщины задаёт именно материал
+  // ступеней (дуб 20–60, сталь 3–8), и в «Основных настройках» человек
+  // ставил 40 мм, переключал на металл и получал отказ сервера.
+  it('толщина ступени живёт в разделе материалов, а не в основных', async () => {
+    await renderWithAuth(<Constructor />, null)
+    expect(inSection('Цвет и материал', () =>
+      screen.queryByLabelText('Толщина ступени (мм)'),
+    )).toBeInTheDocument()
+    expect(inSection('Основные настройки', () =>
+      screen.queryByLabelText('Толщина ступени (мм)'),
+    )).not.toBeInTheDocument()
+  })
+
+  it('пределы ползунка толщины ступени следуют за материалом ступеней', async () => {
+    await renderWithAuth(<Constructor />, null)
+    const scale = () =>
+      inSection('Цвет и материал', () =>
+        screen.getByLabelText('Толщина ступени (мм), ползунок').parentElement
+          ?.querySelector('.slider__scale')?.textContent,
+      )
+    // По умолчанию дуб: 20–60.
+    expect(scale()).toBe('2060')
+    // Металл: 3–8.
+    pickTreadMetal()
+    expect(scale()).toBe('38')
+    // Обратно в дерево.
+    pickTreadWood()
+    expect(scale()).toBe('2060')
+  })
+
+  it('3D: перетаскивание ступени меняет высоту и сразу пересчитывает', async () => {
+    const okQuote3D: QuoteResult = { ...okQuote, mesh: mesh3d }
+    const spy = vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote3D)
+    await renderWithAuth(<Constructor />, null)
+    fillValid()
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await waitFor(() => expect(screen.getByTestId('mock-3d-viewer')).toBeInTheDocument())
+
+    act(() => {
+      ;(viewerProps.current.onDragHeight as (h: number) => void)(3100)
+    })
+    await waitFor(() =>
+      expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ height_mm: 3100 })),
+    )
+    expect(field('Высота (мм)')).toHaveValue('3100')
+  })
+
+  it('3D: горизонтальный drag меняет шаг комфорта и пересчитывает', async () => {
+    const okQuote3D: QuoteResult = { ...okQuote, mesh: mesh3d }
+    const spy = vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote3D)
+    await renderWithAuth(<Constructor />, null)
+    fillValid()
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await waitFor(() => expect(screen.getByTestId('mock-3d-viewer')).toBeInTheDocument())
+
+    act(() => {
+      ;(viewerProps.current.onDragComfortStep as (v: number) => void)(640)
+    })
+    await waitFor(() =>
+      expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ comfort_step_mm: 640 })),
+    )
+  })
+
+  it('3D: у прямого марша кнопки «Развернуть» нет (у API нет направления)', async () => {
+    const okQuote3D: QuoteResult = { ...okQuote, mesh: mesh3d }
+    vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote3D)
+    await renderWithAuth(<Constructor />, null)
+    fillValid()
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await waitFor(() => expect(screen.getByTestId('mock-3d-viewer')).toBeInTheDocument())
+    act(() => {
+      ;(viewerProps.current.onSelectPart as (p: unknown) => void)({ solid: 2, role: 'tread' })
+    })
+    expect(screen.getByText('Ступень 3')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Развернуть' })).not.toBeInTheDocument()
+  })
+
+  it('смена материала на дерево подтягивает толщину ступени в допуск (иначе 422)', async () => {
+    await renderWithAuth(<Constructor />, null)
+    const thickness = field('Толщина ступени (мм)')
+    fireEvent.change(thickness, { target: { value: '6' } })
+    expect(field('Толщина ступени (мм)')).toHaveValue('6')
+    // Переход на дерево подтягивает толщину к минимуму дуба (20 мм).
+    pickTreadWood()
+    expect(field('Толщина ступени (мм)')).toHaveValue('20')
+    pickTreadMetal()
+    expect(Number(field('Толщина ступени (мм)').getAttribute('value') ?? 0)).toBeLessThanOrEqual(8)
+  })
+
+  it('валидация учитывает пределы материала ступеней', async () => {
+    await renderWithAuth(<Constructor />, null)
+    // Металл: ступень 3–8 мм, 2 мм — вне предела.
+    pickTreadMetal()
+    fireEvent.change(field('Толщина ступени (мм)'), { target: { value: '2' } })
+    expect(inSections(() => screen.queryByText('Не менее 3'))).toBeInTheDocument()
+    // Дерево: минимум 20 мм, 10 мм — вне предела.
+    pickTreadWood()
+    fireEvent.change(field('Толщина ступени (мм)'), { target: { value: '10' } })
+    expect(inSections(() => screen.queryByText('Не менее 20'))).toBeInTheDocument()
   })
 
   it('показывает знак справки с тултипом у просвета', async () => {
     await renderWithAuth(<Constructor />, null)
-    const help = screen.getAllByRole('tooltip').find((el) =>
-      el.textContent?.includes('Просвет — вертикальное расстояние'),
+    // Подсказка «?» едет вместе с полем в секции «Помещение», поэтому её
+    // надо найти, открыв секцию.
+    const help = inSections(() =>
+      screen.queryAllByRole('tooltip').find((el) =>
+        el.textContent?.includes('Просвет — вертикальное расстояние'),
+      ),
     )
     expect(help).toBeDefined()
   })
 
   it('прямой марш: один выбор перил с тултипом-подсказкой', async () => {
     await renderWithAuth(<Constructor />, null)
-    const railing = screen.getByRole('combobox', { name: 'Перила' }) as HTMLSelectElement
+    const railing = inSection('Ограждение', () => screen.getByRole('radio', { name: 'С двух сторон' }))
     expect(railing).toBeVisible()
-    expect(railing.value).toBe('both')
-    // Тултип объясняет, как определять стороны перил.
-    const tip = screen.getAllByRole('tooltip').find((el) =>
-      el.textContent?.includes('Слева от вас — левые перила'),
-    )
-    expect(tip).toBeDefined()
-    // Направления — только для маршей с площадкой/спирали.
-    expect(screen.queryByRole('combobox', { name: 'Направление поворота' })).toBeNull()
-    expect(screen.queryByRole('combobox', { name: 'Направление спирали' })).toBeNull()
+    expect(railing).toHaveAttribute('aria-checked', 'true')
+    // Направление поворота — только для L/П, у прямого марша его нет.
+    expect(screen.queryByRole('radio', { name: 'Влево' })).toBeNull()
+    expect(screen.queryByRole('radio', { name: /Против часовой/ })).toBeNull()
+    // Варианты перил доступны все четыре.
+    inSection('Ограждение', () => {
+      for (const label of ['Без перил', 'Слева', 'Справа', 'С двух сторон']) {
+        expect(screen.getByRole('radio', { name: label })).toBeInTheDocument()
+      }
+    })
   })
 
   it('L-образная: перила по сегментам и направление поворота', async () => {
     await renderWithAuth(<Constructor />, null)
-    fireEvent.change(screen.getByLabelText('Тип лестницы'), { target: { value: 'l_shape' } })
-    // Прямой «Перила» скрывается, появляются сегменты.
-    expect(screen.queryByRole('combobox', { name: 'Перила' })).toBeNull()
-    expect(
-      (screen.getByRole('combobox', { name: 'Перила: первый марш' }) as HTMLSelectElement).value,
-    ).toBe('both')
-    expect(screen.getByRole('combobox', { name: 'Перила: площадка' })).toBeVisible()
-    expect(screen.getByRole('combobox', { name: 'Перила: второй марш' })).toBeVisible()
-    const dir = screen.getByRole('combobox', {
-      name: 'Направление поворота',
-    }) as HTMLSelectElement
-    expect(dir).toBeVisible()
-    expect(dir.value).toBe('left')
-    expect(screen.queryByRole('combobox', { name: 'Направление спирали' })).toBeNull()
+    pickFlight('L-образная (с площадкой)')
+    // Прямой «Перила» скрывается, появляются сегменты (кнопки-радио).
+    expect(screen.queryByRole('radio', { name: 'Без перил' })).toBeNull()
+    // Три группы сегментных перил, у каждой своя подпись.
+    for (const legend of ['Перила: первый марш', 'Перила: площадка', 'Перила: второй марш']) {
+      inSection('Ограждение', () => {
+        expect(screen.getByRole('group', { name: legend })).toBeInTheDocument()
+      })
+    }
+    // По умолчанию во всех трёх группах выбрано «С двух сторон».
+    inSection('Ограждение', () => {
+      const checked = screen
+        .queryAllByRole('radio', { name: 'С двух сторон' })
+        .filter((b) => b.getAttribute('aria-checked') === 'true')
+      expect(checked).toHaveLength(3)
+    })
+    // Направление поворота появляется и по умолчанию «влево».
+    const dirLeft = inSection('Настройки поворота', () => screen.getByRole('radio', { name: 'Влево' }))
+    expect(dirLeft).toHaveAttribute('aria-checked', 'true')
+    // Спиральных полей у L-марша нет.
+    expect(screen.queryByRole('radio', { name: /Против часовой/ })).toBeNull()
 
-    fireEvent.change(dir, { target: { value: 'right' } })
+    // Переключаем направление поворота кнопкой сегмента.
+    const dirRight = inSection('Настройки поворота', () =>
+      screen.getByRole('radio', { name: 'Вправо' }),
+    )
+    fireEvent.click(dirRight)
     expect(
-      (screen.getByRole('combobox', { name: 'Направление поворота' }) as HTMLSelectElement)
-        .value,
-    ).toBe('right')
+      inSection('Настройки поворота', () => screen.getByRole('radio', { name: 'Вправо' })),
+    ).toHaveAttribute('aria-checked', 'true')
   })
 
-  it('спираль: направление закрутки и авто-перила от него', async () => {
+  it('спиральный марш скрыт из формы (S-152)', async () => {
     await renderWithAuth(<Constructor />, null)
-    fireEvent.change(screen.getByLabelText('Тип лестницы'), { target: { value: 'spiral' } })
-    const dir = screen.getByRole('combobox', { name: 'Направление спирали' }) as HTMLSelectElement
-    expect(dir).toBeVisible()
-    // Перила автоматически: против часовой → слева (CONF-SPIRAL-RAILING).
-    expect((screen.getByRole('textbox', { name: 'Перила' }) as HTMLInputElement).value).toBe('Слева')
-    fireEvent.change(dir, { target: { value: 'cw' } })
-    expect((screen.getByRole('textbox', { name: 'Перила' }) as HTMLInputElement).value).toBe('Справа')
+    // Тип марша — сегментированные кнопки: спираль в них отсутствует.
+    const flights = inSections(() =>
+      Array.from(
+        document.querySelectorAll('.segmented[data-cols="3"] .segmented__item'),
+      ).map((b) => b.textContent?.trim()),
+    )
+    expect(flights?.length).toBe(3)
+    expect(flights?.join(' ')).not.toMatch(/Спираль/)
+    // Поля спирали (радиус, направление) в форме отсутствуют.
+    expect(screen.queryByLabelText('Радиус (мм)')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Направление спирали')).not.toBeInTheDocument()
   })
 
   it('не вызывает расчёт при ошибках валидации', async () => {
     const spy = vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote)
     await renderWithAuth(<Constructor />, null)
-    const width = screen.getByLabelText('Ширина марша (мм)')
+    const width = field('Ширина марша (мм)')
     fireEvent.change(width, { target: { value: '100' } })
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
     expect(await screen.findByText('Исправьте поля формы перед расчётом')).toBeInTheDocument()
@@ -245,7 +619,7 @@ describe('Constructor', () => {
     await renderWithAuth(<Constructor />, null)
     fillValid()
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
-    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
+    expect(await screen.findByText(/^Результат расчёта/)).toBeInTheDocument()
     expect(screen.getByText('Предварительная цена')).toBeInTheDocument()
     await waitFor(() =>
       expect(quoteApi.calculate).toHaveBeenCalledWith(
@@ -265,7 +639,7 @@ describe('Constructor', () => {
     await renderWithAuth(<Constructor />, null)
     fillValid()
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
-    await screen.findByText(/Результат расчёта/)
+    await screen.findByText(/^Результат расчёта/)
     await waitFor(() => {
       expect(viewerProps.current).toMatchObject({
         flight: 'straight',
@@ -276,7 +650,7 @@ describe('Constructor', () => {
     })
 
     // Правка высоты и повторный расчёт — вьювер получает новое значение.
-    fireEvent.change(screen.getByLabelText('Высота (мм)'), { target: { value: '2750' } })
+    fireEvent.change(field('Высота (мм)'), { target: { value: '2750' } })
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
     await waitFor(() => expect(viewerProps.current.heightMM).toBe(2750))
     expect(viewerProps.current.flight).toBe('straight')
@@ -286,32 +660,35 @@ describe('Constructor', () => {
     vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote)
     await renderWithAuth(<Constructor />, null)
     fillValid()
-    fireEvent.change(screen.getByLabelText('Материал'), { target: { value: 'WOOD-OAK' } })
+    pickTreadWood()
     // Толщина ступени 6 мм допустима для стали, для дуба — нет (min 20).
-    fireEvent.change(screen.getByLabelText('Толщина ступени (мм)'), { target: { value: '30' } })
+    fireEvent.change(field('Толщина ступени (мм)'), { target: { value: '30' } })
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
-    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
+    expect(await screen.findByText(/^Результат расчёта/)).toBeInTheDocument()
+    // Каркас — сталь, ступени — дуб: запрос несёт оба кода раздельно.
     await waitFor(() =>
       expect(quoteApi.calculate).toHaveBeenCalledWith(
-        expect.objectContaining({ material: 'WOOD-OAK' }),
+        expect.objectContaining({ material: 'STEEL-S235', tread_material: 'WOOD-OAK' }),
       ),
     )
-    expect(await screen.findByText('Материал: Дуб')).toBeInTheDocument()
+    expect(await screen.findByText('Материал каркаса: Сталь S235')).toBeInTheDocument()
   })
 
   it('L-образный тип показывает поля площадки', async () => {
     await renderWithAuth(<Constructor />, null)
-    const flight = screen.getByLabelText('Тип лестницы')
-    fireEvent.change(flight, { target: { value: 'l_shape' } })
-    expect(screen.getByLabelText('Ширина площадки (мм)')).toBeInTheDocument()
-    expect(screen.getByLabelText('Нижних ступеней (шт)')).toBeInTheDocument()
+    pickFlight('L-образная (с площадкой)')
+    expect(field('Ширина площадки (мм)')).toBeInTheDocument()
+    expect(field('Нижних ступеней (шт)')).toBeInTheDocument()
   })
 
-  it('прямой марш скрывает поля площадки и радиус', async () => {
+  it('прямой марш скрывает поля площадки, радиуса спирали в форме нет', async () => {
     await renderWithAuth(<Constructor />, null)
-    expect(screen.queryByLabelText('Ширина площадки (мм)')).not.toBeVisible()
-    expect(screen.queryByLabelText('Нижних ступеней (шт)')).not.toBeVisible()
-    expect(screen.queryByLabelText('Радиус (мм)')).not.toBeVisible()
+    // У прямого марша секции поворота нет вовсе, поэтому полей площадки
+    // нет даже после её открытия.
+    expect(screen.queryByText('Настройки поворота')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Ширина площадки (мм)')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Нижних ступеней (шт)')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Радиус (мм)')).not.toBeInTheDocument()
   })
 
   it('высота ступени и шаг комфорта скрыты: рассчитываются автоматически', async () => {
@@ -319,27 +696,43 @@ describe('Constructor', () => {
     expect(screen.queryByLabelText('Высота ступени (мм)')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Шаг комфорта (мм)')).not.toBeInTheDocument()
 
-    const flight = screen.getByLabelText('Тип лестницы')
-    fireEvent.change(flight, { target: { value: 'l_shape' } })
+    pickFlight('L-образная (с площадкой)')
     expect(screen.queryByLabelText('Шаг комфорта (мм)')).not.toBeInTheDocument()
 
-    fireEvent.change(flight, { target: { value: 'spiral' } })
-    expect(screen.queryByLabelText('Шаг комфорта (мм)')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Радиус (мм)')).toBeVisible()
   })
 
-  it('подсвечивает пустые обязательные поля после ввода', async () => {
+  it('пустое обязательное поле краснеет, но текст «Укажите значение» не показывается', async () => {
     await renderWithAuth(<Constructor />, null)
-    // Ошибки показываются после первого изменения поля (touched-подход):
-    // сперва вводим значение ширины, затем очищаем — форма уже touched.
-    const width = screen.getByLabelText('Ширина марша (мм)')
+    const width = field('Ширина марша (мм)')
     fireEvent.change(width, { target: { value: '900' } })
     fireEvent.change(width, { target: { value: '' } })
-    const errors = screen.getAllByText('Укажите значение')
-    expect(errors.length).toBeGreaterThanOrEqual(5)
     expect(width).toHaveClass('field-invalid')
-    // Скрытые поля не участвуют в валидации прямого марша.
-    expect(screen.queryByLabelText('Ширина площадки (мм)')).not.toHaveClass('field-invalid')
+    expect(screen.queryByText('Укажите значение')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Ширина площадки (мм)')).not.toBeInTheDocument()
+  })
+
+  // Регрессия: touched был одним флагом на всю форму, поэтому сдвиг ЛЮБОГО
+  // ползунка показывал ошибки под всеми пустыми полями — «Укажите значение»
+  // вылезал под «Шириной марша», которую пользователь не трогал. Теперь
+  // помечается конкретное поле.
+  it('сдвиг чужого ползунка не трогает соседние пустые поля', async () => {
+    await renderWithAuth(<Constructor />, null)
+    const height = field('Высота (мм)')
+    expect(height).not.toHaveClass('field-invalid')
+    expect(field('Ширина марша (мм)')).not.toHaveClass('field-invalid')
+
+    fireEvent.change(height, { target: { value: '2500' } })
+
+    // «Ширина марша» пуста и не тронута — красной рамки и текста быть не должно.
+    expect(field('Ширина марша (мм)')).not.toHaveClass('field-invalid')
+    expect(screen.queryByText('Укажите значение')).not.toBeInTheDocument()
+
+    // А вот очистка «Ширины марша» — уже её собственная ошибка: поле краснеет.
+    const width = field('Ширина марша (мм)')
+    fireEvent.change(width, { target: { value: '900' } })
+    fireEvent.change(width, { target: { value: '' } })
+    expect(width).toHaveClass('field-invalid')
+    expect(screen.queryByText('Укажите значение')).not.toBeInTheDocument()
   })
 
   it('ошибки пропадают после заполнения обязательных полей', async () => {
@@ -353,18 +746,18 @@ describe('Constructor', () => {
     await renderWithAuth(<Constructor />, null)
     fillValid()
     // Очищаем габариты помещения, чтобы сработал запрос подтверждения.
-    fireEvent.change(screen.getByLabelText('Ширина помещения (мм)'), { target: { value: '' } })
-    fireEvent.change(screen.getByLabelText('Длина помещения (мм)'), { target: { value: '' } })
+    fireEvent.change(field('Ширина помещения (мм)'), { target: { value: '' } })
+    fireEvent.change(field('Длина помещения (мм)'), { target: { value: '' } })
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
     expect(await screen.findByText(/Корректный расчёт/)).toBeInTheDocument()
     expect(spy).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: 'Продолжить без площади' }))
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
-    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
+    expect(await screen.findByText(/^Результат расчёта/)).toBeInTheDocument()
 
     // Выбор запоминается на сессию: повторный расчёт не спрашивает снова.
-    fireEvent.change(screen.getByLabelText('Высота (мм)'), { target: { value: '2800' } })
+    fireEvent.change(field('Высота (мм)'), { target: { value: '2800' } })
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2))
   })
@@ -373,24 +766,25 @@ describe('Constructor', () => {
     const spy = vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote)
     await renderWithAuth(<Constructor />, null)
     fillValid()
-    fireEvent.change(screen.getByLabelText('Ширина помещения (мм)'), { target: { value: '' } })
-    fireEvent.change(screen.getByLabelText('Длина помещения (мм)'), { target: { value: '' } })
+    fireEvent.change(field('Ширина помещения (мм)'), { target: { value: '' } })
+    fireEvent.change(field('Длина помещения (мм)'), { target: { value: '' } })
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
     await screen.findByText(/Корректный расчёт/)
 
     fireEvent.click(screen.getByRole('button', { name: 'Внести данные площади' }))
     expect(screen.queryByText(/Корректный расчёт/)).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Ширина помещения (мм)')).toHaveClass('field-invalid')
-    expect(screen.getByLabelText('Длина помещения (мм)')).toHaveClass('field-invalid')
-    expect(screen.getAllByText(/Укажите (ширину|длину) помещения/)).toHaveLength(2)
+    // Подсказки-инструкции убраны намеренно: пустые комнатные поля помечаются
+    // только красной рамкой (field-invalid), без текста «Укажите ширину…».
+    expect(field('Ширина помещения (мм)')).toHaveClass('field-invalid')
+    expect(field('Длина помещения (мм)')).toHaveClass('field-invalid')
+    expect(screen.queryByText(/Укажите (ширину|длину) помещения/)).not.toBeInTheDocument()
     expect(spy).not.toHaveBeenCalled()
 
-    fireEvent.change(screen.getByLabelText('Ширина помещения (мм)'), { target: { value: '3000' } })
-    expect(screen.queryByText('Укажите ширину помещения')).not.toBeInTheDocument()
-    fireEvent.change(screen.getByLabelText('Длина помещения (мм)'), { target: { value: '4200' } })
+    fireEvent.change(field('Ширина помещения (мм)'), { target: { value: '3000' } })
+    fireEvent.change(field('Длина помещения (мм)'), { target: { value: '4200' } })
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
-    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
+    expect(await screen.findByText(/^Результат расчёта/)).toBeInTheDocument()
   })
 
   it('кнопка «Применить» подставляет значения и снимает блокировку', async () => {
@@ -402,33 +796,33 @@ describe('Constructor', () => {
 
     fillValid()
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
-    await screen.findByText(/Расчёт остановлен/)
+    await screen.findByText('Расчёт остановлен: обнаружены блокирующие нарушения.')
 
     fireEvent.click(screen.getByRole('button', { name: 'Применить эти значения' }))
 
     await waitFor(() =>
       expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ step_height_mm: 166.7 })),
     )
-    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
+    expect(await screen.findByText(/^Результат расчёта/)).toBeInTheDocument()
     // Высота ступени больше не показывается полем ввода — применяется скрытый таргет.
     expect(screen.queryByLabelText('Высота ступени (мм)')).not.toBeInTheDocument()
   })
 
-  it('спираль: «Применить» подставляет ширину и радиус и снимает блокировку', async () => {
-    const blockedSpiral: QuoteResult = {
+  it('«Применить» подставляет предложение советника и снимает блокировку', async () => {
+    const blocked: QuoteResult = {
       validation: {
         valid: false,
         blocking: true,
         issues: [
           {
-            code: 'GEO-SPIRAL-TREAD',
+            code: 'GEO-TREAD',
             severity: 'error',
-            element: 'configuration',
-            message: 'проступь у колонны < 100 мм',
-            guide: 'Проступь 20 мм вне нормы (нужно ≥ 100 мм). Уменьшите ширину марша.',
-            param: 'Радиус спирали',
+            element: 'tread_depth',
+            message: 'проступь вне нормы',
+            guide: 'Проступь 240 мм вне диапазона 260–320 мм. Увеличьте шаг комфорта.',
+            param: 'Шаг комфорта',
             suggestions: [
-              { step_count: 32, step_height_mm: 187.5, tread_depth_mm: 265, angle_deg: 35.3, outer_radius_mm: 1773, width_mm: 1263 },
+              { step_count: 16, step_height_mm: 168.75, tread_depth_mm: 300, angle_deg: 29.3 },
             ],
           },
         ],
@@ -436,27 +830,19 @@ describe('Constructor', () => {
     }
     const spy = vi
       .spyOn(quoteApi, 'calculate')
-      .mockResolvedValueOnce(blockedSpiral)
+      .mockResolvedValueOnce(blocked)
       .mockResolvedValue(okQuote)
     await renderWithAuth(<Constructor />, null)
-
-    const flight = screen.getByLabelText('Тип лестницы')
-    fireEvent.change(flight, { target: { value: 'spiral' } })
     fillValid()
-    fireEvent.change(screen.getByLabelText('Радиус (мм)'), { target: { value: '3100' } })
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
-    await screen.findByText(/Расчёт остановлен/)
+    await screen.findByText('Расчёт остановлен: обнаружены блокирующие нарушения.')
 
     fireEvent.click(screen.getByRole('button', { name: 'Применить эти значения' }))
 
     await waitFor(() =>
-      expect(spy).toHaveBeenLastCalledWith(
-        expect.objectContaining({ width_mm: 1263, outer_radius_mm: 1773, flight: 'spiral' }),
-      ),
+      expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ flight: 'straight' })),
     )
-    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
-    expect(screen.getByLabelText('Ширина марша (мм)')).toHaveValue('1263')
-    expect(screen.getByLabelText('Радиус (мм)')).toHaveValue('1773')
+    expect(await screen.findByText(/^Результат расчёта/)).toBeInTheDocument()
   })
 
   it('вариация (straight) подставляет высоту ступени и пересчитывает', async () => {
@@ -469,7 +855,7 @@ describe('Constructor', () => {
     await renderWithAuth(<Constructor />, null)
     fillValid()
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
-    await screen.findByText(/Расчёт остановлен/)
+    await screen.findByText('Расчёт остановлен: обнаружены блокирующие нарушения.')
     fireEvent.click(screen.getByRole('button', { name: /Угол 30°/ }))
     await waitFor(() =>
       expect(spy).toHaveBeenLastCalledWith(
@@ -479,7 +865,7 @@ describe('Constructor', () => {
     // Шаг комфорта из варианта не применяется — дефолт 630 на бэкенде.
     const lastCall = spy.mock.calls[spy.mock.calls.length - 1][0] as Record<string, unknown>
     expect(lastCall['comfort_step_mm']).toBeUndefined()
-    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
+    expect(await screen.findByText(/^Результат расчёта/)).toBeInTheDocument()
   })
 
   it('вариация (l_shape) меняет тип марша и подставляет площадку', async () => {
@@ -495,7 +881,7 @@ describe('Constructor', () => {
     await renderWithAuth(<Constructor />, null)
     fillValid()
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
-    await screen.findByText(/Расчёт остановлен/)
+    await screen.findByText('Расчёт остановлен: обнаружены блокирующие нарушения.')
     fireEvent.click(screen.getByRole('button', { name: /Угол 30°/ }))
     await waitFor(() =>
       expect(spy).toHaveBeenLastCalledWith(
@@ -507,7 +893,7 @@ describe('Constructor', () => {
     )
     const lastCall = spy.mock.calls[spy.mock.calls.length - 1][0] as Record<string, unknown>
     expect(lastCall['comfort_step_mm']).toBeUndefined()
-    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
+    expect(await screen.findByText(/^Результат расчёта/)).toBeInTheDocument()
   })
 
   it('вариация (u_shape) меняет тип марша и подставляет площадку', async () => {
@@ -523,7 +909,7 @@ describe('Constructor', () => {
     await renderWithAuth(<Constructor />, null)
     fillValid()
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
-    await screen.findByText(/Расчёт остановлен/)
+    await screen.findByText('Расчёт остановлен: обнаружены блокирующие нарушения.')
     fireEvent.click(screen.getByRole('button', { name: /Угол 30°/ }))
     await waitFor(() =>
       expect(spy).toHaveBeenLastCalledWith(
@@ -535,7 +921,7 @@ describe('Constructor', () => {
     )
     const lastCall = spy.mock.calls[spy.mock.calls.length - 1][0] as Record<string, unknown>
     expect(lastCall['comfort_step_mm']).toBeUndefined()
-    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
+    expect(await screen.findByText(/^Результат расчёта/)).toBeInTheDocument()
   })
 
   it('вариация не затирает выбор перил пустыми полями (clobbering)', async () => {
@@ -555,7 +941,7 @@ describe('Constructor', () => {
     await renderWithAuth(<Constructor />, null)
     fillValid()
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
-    await screen.findByText(/Расчёт остановлен/)
+    await screen.findByText('Расчёт остановлен: обнаружены блокирующие нарушения.')
     fireEvent.click(screen.getByRole('button', { name: /Угол 30°/ }))
     await waitFor(() =>
       expect(spy).toHaveBeenLastCalledWith(
@@ -569,7 +955,7 @@ describe('Constructor', () => {
     expect(lastCall['railing']).toBe('both')
     expect(lastCall['direction']).toBeUndefined()
     expect(lastCall['comfort_step_mm']).toBeUndefined()
-    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
+    expect(await screen.findByText(/^Результат расчёта/)).toBeInTheDocument()
   })
 
   it('исходный марш остаётся в галерее и возвращается по клику', async () => {
@@ -586,18 +972,29 @@ describe('Constructor', () => {
     await renderWithAuth(<Constructor />, null)
     fillValid()
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
-    await screen.findByText(/Расчёт остановлен/)
+    await screen.findByText('Расчёт остановлен: обнаружены блокирующие нарушения.')
 
-    // Галерея: исходный «Прямой марш» (выбран) + альтернатива от бэкенда.
-    expect(screen.getByText('Выбран')).toBeInTheDocument()
+    // Список вариантов: исходный «Прямой марш» + альтернатива от бэкенда.
+    // Метки «Выбран» нет: снапшот ИСХОДНОГО (заблокированного) конфига не
+    // считается применённым вариантом — он как раз тот, от чего предлагают
+    // уйти, и раньше именно он помечался «Выбран».
+    expect(screen.queryByText('Выбран')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Прямой марш/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Угол 30°/ })).toBeInTheDocument()
 
-    // Выбираем L-образный вариант — он становится снапшотом, прямой остаётся.
+    // Выбираем L-образный вариант — он применяется, и всё остальное скрывается:
+    // это подтверждение выбора (владелец: «как мне подтвердить этот выбор,
+    // чтобы все остальное скрылось»).
     fireEvent.click(screen.getByRole('button', { name: /Угол 30°/ }))
     await waitFor(() =>
       expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ flight: 'l_shape' })),
     )
+    // Применённый вариант показан строкой (она некликабельна) + «Изменить».
+    expect(screen.getByText('L-образный марш')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Прямой марш/ })).not.toBeInTheDocument()
+
+    // «Изменить» возвращает полный список — история конфигураций на месте.
+    fireEvent.click(screen.getByRole('button', { name: 'Изменить' }))
     expect(screen.getByRole('button', { name: /Прямой марш/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /L-образный марш/ })).toBeInTheDocument()
 
@@ -608,24 +1005,26 @@ describe('Constructor', () => {
         expect.objectContaining({ width_mm: 900, height_mm: 2700, flight: 'straight' }),
       ),
     )
-    expect(await screen.findByText(/Результат расчёта/)).toBeInTheDocument()
+    expect(await screen.findByText(/^Результат расчёта/)).toBeInTheDocument()
   })
 })
 // ---- Живая валидация при вводе (S-P5) ----
 // Мок ответа публичного :validate: спираль, радиус меньше ширины марша.
-const liveBlockedSpiral = {
+// Блокирующая живая валидация на прямом марше: проступь вне диапазона и
+// готовое предложение советника (спираль отключена, S-152).
+const liveBlockedStraight = {
   valid: false,
   blocking: true,
   issues: [
     {
-      code: 'GEO-SPIRAL-RADIUS',
+      code: 'GEO-TREAD',
       severity: 'error',
-      element: 'configuration',
-      message: 'Радиус спирали не превышает ширину марша',
-      param: 'Радиус спирали',
-      guide: 'Наружный радиус спирали должен быть больше ширины марша.',
+      element: 'tread_depth',
+      message: 'проступь вне диапазона 260–320 мм',
+      param: 'Шаг комфорта',
+      guide: 'Проступь 240 мм вне диапазона 260–320 мм.',
       suggestions: [
-        { step_count: 18, step_height_mm: 150, tread_depth_mm: 290, angle_deg: 31.3, outer_radius_mm: 1050, width_mm: 900 },
+        { step_count: 16, step_height_mm: 168.75, tread_depth_mm: 300, angle_deg: 29.3 },
       ],
     },
   ],
@@ -636,45 +1035,40 @@ const LIVE_DEBOUNCE = 700
 
 describe('Constructor · живая валидация (S-P5)', () => {
   it('вызывает :validate при изменении полей и показывает баннер блокировки', async () => {
-    const validateSpy = vi.spyOn(quoteApi, 'validate').mockResolvedValue(liveBlockedSpiral)
+    const validateSpy = vi.spyOn(quoteApi, 'validate').mockResolvedValue(liveBlockedStraight)
     vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote)
     await renderWithAuth(<Constructor />, null)
 
     fillValid()
-    fireEvent.change(screen.getByLabelText('Тип лестницы'), { target: { value: 'spiral' } })
-    fireEvent.change(screen.getByLabelText('Радиус (мм)'), { target: { value: '800' } })
+    // Спираль отключена (S-152) — блокировку показываем на прямом марше
+    // по проступи, применяя предложение советника.
+    fireEvent.change(field('Ширина марша (мм)'), { target: { value: '1000' } })
 
     await waitFor(() => expect(validateSpy).toHaveBeenCalledTimes(1), { timeout: 2500 })
-    // Тело запроса: спираль с заполненными габаритами.
     const body = validateSpy.mock.calls[0][0] as Record<string, unknown>
-    expect(body.flight).toBe('spiral')
-    expect(body.width_mm).toBe(900)
-    expect(body.outer_radius_mm).toBe(800)
+    expect(body.flight).toBe('straight')
+    expect(body.width_mm).toBe(1000)
 
-    // Баннер блокировки с guide и подсветка подсвеченного поля.
-    // Текст guide должен появиться дважды: как ошибка поля «Радиус (мм)»
-    // и в баннере блокировки (S-P5).
+    // Баннер блокировки с guide и подсветка поля (S-P5).
     await waitFor(() => {
-      const matches = screen.getAllByText(/Наружный радиус спирали должен быть больше ширины марша/)
-      expect(matches.length).toBeGreaterThanOrEqual(2)
+      expect(screen.getAllByText(/Проступь 240 мм вне диапазона/).length).toBeGreaterThanOrEqual(1)
     }, { timeout: 2500 })
     expect(validateSpy).toHaveBeenCalledTimes(1)
 
     // Кнопка «Применить» из баннера: вариант советника подставляется в форму
     // и запускается полный расчёт с новым радиусом/шириной.
-    fireEvent.click(screen.getByText(/Применить: 18 ступ/))
+    fireEvent.click(screen.getByText(/Применить: 16 ступ/))
     await waitFor(() => expect(quoteApi.calculate).toHaveBeenCalledTimes(1), { timeout: 2500 })
     const calcBody = (quoteApi.calculate as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<string, unknown>
-    expect(calcBody.flight).toBe('spiral')
-    expect(calcBody.width_mm).toBe(900)
-    expect(calcBody.outer_radius_mm).toBe(1050)
+    expect(calcBody.flight).toBe('straight')
+    expect(calcBody.step_height_mm).toBeCloseTo(168.75, 1)
   })
 
   it('не дёргает :validate, пока форма имеет локальные ошибки', async () => {
-    const validateSpy = vi.spyOn(quoteApi, 'validate').mockResolvedValue(liveBlockedSpiral)
+    const validateSpy = vi.spyOn(quoteApi, 'validate').mockResolvedValue(liveBlockedStraight)
     await renderWithAuth(<Constructor />, null)
     // Высота пустая — локальная ошибка «Укажите значение».
-    fireEvent.change(screen.getByLabelText('Высота (мм)'), { target: { value: '9999' } })
+    fireEvent.change(field('Высота (мм)'), { target: { value: '9999' } })
     await sleep(LIVE_DEBOUNCE + 200)
     expect(validateSpy).not.toHaveBeenCalled()
   })

@@ -13,16 +13,16 @@ import (
 // клиент получает только геометрию, валидацию, предварительную цену,
 // габаритную ширину и preview-сетку (mesh) для 3D-визуализации.
 type publicQuoteDTO struct {
-	Validation  validationDTO `json:"validation"`
-	Flight      flightDTO     `json:"flight"`
-	LShape      *lshapeDTO    `json:"lshape,omitempty"`
-	UShape      *ushapeDTO    `json:"ushape,omitempty"`
-	Spiral      *spiralDTO    `json:"spiral,omitempty"`
-	Geometry    geometryDTO   `json:"geometry"`
-	Pricing     *pricingDTO   `json:"pricing,omitempty"`
-	Mesh        *kerngeo.Mesh `json:"mesh,omitempty"`
-	RailingMesh *kerngeo.Mesh `json:"railing_mesh,omitempty"`
-	RoomMesh    *kerngeo.Mesh `json:"room_mesh,omitempty"`
+	Validation  validationDTO     `json:"validation"`
+	Flight      flightDTO         `json:"flight"`
+	LShape      *lshapeDTO        `json:"lshape,omitempty"`
+	UShape      *ushapeDTO        `json:"ushape,omitempty"`
+	Spiral      *spiralDTO        `json:"spiral,omitempty"`
+	Geometry    geometryDTO       `json:"geometry"`
+	Pricing     *publicPricingDTO `json:"pricing,omitempty"`
+	Mesh        *kerngeo.Mesh     `json:"mesh,omitempty"`
+	RailingMesh *kerngeo.Mesh     `json:"railing_mesh,omitempty"`
+	RoomMesh    *kerngeo.Mesh     `json:"room_mesh,omitempty"`
 }
 
 // handlePublicQuote — POST /api/v1/public/stairs:quote.
@@ -33,10 +33,10 @@ type publicQuoteDTO struct {
 //
 //	200 — успешный расчёт;
 //	400 — некорректный JSON;
-//	422 — невалидный вход;
+//	422 — невалидный вход, отключённый марш или rates в теле (волна 0);
 //	429 — превышен rate-limit;
 //	500 — внутренняя ошибка.
-func handlePublicQuote(svc StairService) http.HandlerFunc {
+func handlePublicQuote(svc StairService, storeSvc StoreService, authSvc AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req calculateRequest
 		if err := decodeJSON(w, r, &req); err != nil {
@@ -44,16 +44,40 @@ func handlePublicQuote(svc StairService) http.HandlerFunc {
 			return
 		}
 
-		cfg := toConfig(req)
-		opts, err := toOptions(req)
-		if err != nil {
-			writeInputError(w, "invalid_rates", err)
+		// Ставки цены задаёт магазин (волна 0): клиент не может прислать
+		// rates и занизить предварительную цену.
+		//
+		// SEC-001 (2026-09-26): до этого фикса защита была ТОЛЬКО здесь, на
+		// публичном пути, а девять авторизованных маршрутов принимали любые
+		// ставки из тела — аутентифицированный клиент обнулял цену. Теперь
+		// отказ единый для всех маршрутов (rejectClientRates).
+		if rejectClientRates(w, req) {
 			return
 		}
 
+		if rejectDisabledFlight(w, req.Flight) {
+			return
+		}
+
+		cfg := toConfig(req)
+		opts, ok := toOptions(req)
+		if !ok {
+			// unreachable: rejectClientRates выше уже отсек непустой rates.
+			// Оставлено как защита от будущего изменения порядка.
+			writeError(w, http.StatusUnprocessableEntity, "rates_not_allowed",
+				clientRatesNotAllowedMessage)
+			return
+		}
+		// CRITICAL-03 (2026-09-27): выбор источника ставок больше не
+		// решается транспортом. Раньше здесь подкладывались ставки
+		// магазина (publicStoreRates), а девять авторизованных маршрутов —
+		// нет, и те падали в engprc.DefaultRates(). Теперь транспорт только
+		// называет контекст, а источник выбирает stair.Service.resolveRates.
+		opts.TenantID = publicStoreTenant(r, authSvc)
+
 		res, err := svc.Calculate(r.Context(), cfg, opts)
 		if err != nil {
-			mapStairError(w, err)
+			mapStairError(w, r, err)
 			return
 		}
 
@@ -67,7 +91,7 @@ func handlePublicQuote(svc StairService) http.HandlerFunc {
 // проставляется во все варианты flight-результата из конфигурации.
 func toPublicQuote(res *stair.Result, cfg stair.Config) publicQuoteDTO {
 	out := publicQuoteDTO{
-		Validation: toValidationResult(res),
+		Validation: toValidationResult(res, true),
 	}
 	if res.Validation.Blocking || res.Price == nil {
 		return out
@@ -90,7 +114,9 @@ func toPublicQuote(res *stair.Result, cfg stair.Config) publicQuoteDTO {
 		out.Spiral.WidthMm = w
 	}
 	out.Geometry = toGeometry(*res)
-	price := toPricing(res.Price)
+	// Только валюта и итог: маржа/накладные/себестоимость — не для
+	// анонимного посетителя (см. publicPricingDTO).
+	price := toPublicPricing(res.Price)
 	out.Pricing = &price
 	out.Mesh = res.Mesh
 	out.RailingMesh = res.RailingMesh

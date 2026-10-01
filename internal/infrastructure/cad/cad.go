@@ -60,6 +60,37 @@ func ParseFormat(s string) (Format, error) {
 // ErrEmptyMesh — сетка не содержит вершин/граней.
 var ErrEmptyMesh = errors.New("cad: empty mesh")
 
+// Merge объединяет несколько сеток в одну (DOM-003).
+//
+// Нужен потому, что перила строятся ОТДЕЛЬНЫМ телом и в основной меш
+// лестницы не входят (RailingMesh в geometry.Generate). Экспорт без слияния
+// терял перила: пользователь задавал их, видел в 3D, а в DXF/STL/SVG их не
+// было. Merge сдвигает индексы треугольников на текущий размер буфера
+// вершин и склеивает PartRanges с корректным сдвигом Start.
+func Merge(meshes ...*kerngeo.Mesh) *kerngeo.Mesh {
+	out := &kerngeo.Mesh{}
+	for _, m := range meshes {
+		if m == nil || len(m.Vertices) == 0 {
+			continue
+		}
+		vertexBase := len(out.Vertices)
+		triBase := len(out.Triangles)
+		out.Vertices = append(out.Vertices, m.Vertices...)
+		for _, t := range m.Triangles {
+			out.Triangles = append(out.Triangles, [3]int{vertexBase + t[0], vertexBase + t[1], vertexBase + t[2]})
+		}
+		for _, pr := range m.PartRanges {
+			out.PartRanges = append(out.PartRanges, kerngeo.PartRange{
+				Solid: pr.Solid,
+				Role:  pr.Role,
+				Start: triBase + pr.Start,
+				End:   triBase + pr.End,
+			})
+		}
+	}
+	return out
+}
+
 // Write сериализует сетку в выбранный формат (EDR-0022 §3.3).
 func Write(w io.Writer, m *kerngeo.Mesh, f Format) error {
 	if m == nil || len(m.Vertices) == 0 || len(m.Triangles) == 0 {

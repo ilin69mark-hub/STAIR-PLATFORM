@@ -1,0 +1,189 @@
+# =============================================================================
+# SECURITY_EXCEPTIONS — реестр принятых рисков «требует человека» (список A).
+# Формат: YAML (строго парсится скриптом + читается людьми). Один файл —
+# единственное место решений; в коде рядом с местом — только короткий маркер
+#   // AUDIT-EXCEPTION(E01): <слаг>, см. docs/SECURITY_EXCEPTIONS.yml
+#   (# — для yml/sh/conf/env; пример маркера здесь намеренно БЕЗ кода: E00)
+#
+# Контракт будущего аудита (человек или скрипт):
+#   1. Сначала прочитать этот реестр; совпавшие файл:строка+ID — пропустить.
+#   2. Остальное проверять как обычно (реестр — не индульгенция на новое).
+# Контракт CI: hack/check_audit_exceptions.py — каждый маркер AUDIT-EXCEPTION
+#   в коде обязан иметь парный ID в реестре, иначе fail. Проверка живёт в
+#   джобе lint (.github/workflows/ci.yml).
+# Правила ведения:
+#   - ID стабильны (E01..): запись не удалять, а закрывать (status: lifted +
+#     lifted_at/после чего). Нумерация только растёт.
+#   - requires_human: true — без срока, но prod_gate обязателен: прод без
+#     этого НЕ запускать (проверяется чек-листом релиза вручную).
+#   - Поля записи: id | title | anchors (file+line маркеров) | risk |
+#     why | accepted_by | accepted_at | requires_human | prod_gate |
+#     lift_condition | status (active|lifted).
+# Отклонение от doc-conventions: лежит в корне docs/ (а не 16_SECURITY/) —
+#   осознанно: стабильный короткий путь для CI-скрипта, аудиторов и маркеров.
+# =============================================================================
+
+version: 1
+owner: human
+updated_at: "2026-09-24"
+
+exceptions:
+  - id: E01
+    title: "JWT/мастер-ключ приложения (STAIR_SECRETS_KEY, 64 hex)"
+    anchors:
+      - { file: cmd/api/main.go, line: 156 }
+      - { file: cmd/worker/main.go, line: 133 }
+    risk: high
+    why: "Сессии — opaque crypto/rand-токены (JWT нет); шифрование webhook-секретов
+      at rest держится на одном мастер-ключе. Код fail-fast в проде (S-104), но
+      значение ключа существует только в голове/хранилище человека."
+    accepted_by: human
+    accepted_at: "2026-09-24"
+    requires_human: true
+    prod_gate: "Прод без заданного STAIR_SECRETS_KEY (64 hex) не запускать: api и
+      worker упадут на fail-fast — это by design."
+    lift_condition: "Не снимается (секрет вечен); ротация — вручную новым значением."
+    status: active
+
+  - id: E02
+    title: "Telegram-канал алертов (bot token)"
+    anchors:
+      - { file: deployments/observability/alertmanager/alertmanager.yml, line: 26 }
+    risk: medium
+    why: "Alertmanager шлёт в dev-заглушку alert-sink; prod-канала (TG-бот) нет в
+      коде — заводит человек вместе с токеном."
+    accepted_by: human
+    accepted_at: "2026-09-24"
+    requires_human: true
+    prod_gate: "Прод без рабочего канала алертов не запускать (слепой on-call)."
+    lift_condition: "Снять когда TG-бот заведён и тестовый алерт доставлен."
+    status: active
+
+  - id: E03
+    title: "Telegram Stars (provider token, будущие платежи)"
+    anchors:
+      - { file: .env.example, line: 66 }
+    risk: medium
+    why: "Интеграции нет в коде; каноническое имя STAIR_STARS_PROVIDER_TOKEN
+      зафиксировано здесь, чтобы ключ было некуда захардкодить кроме env."
+    accepted_by: human
+    accepted_at: "2026-09-24"
+    requires_human: true
+    prod_gate: "Прод со Stars без токена от BotFather не запускать."
+    lift_condition: "Снять когда Stars-интеграция вмержена и токен задан на VPS."
+    status: active
+
+  - id: E04
+    title: "WebPush VAPID-ключи (будущие пуши)"
+    anchors:
+      - { file: .env.example, line: 68 }
+    risk: medium
+    why: "Пушей нет в коде; канонические STAIR_VAPID_PUBLIC_KEY/PRIVATE_KEY
+      зафиксированы здесь."
+    accepted_by: human
+    accepted_at: "2026-09-24"
+    requires_human: true
+    prod_gate: "Прод с пушами без VAPID-пары не запускать."
+    lift_condition: "Снять когда VAPID сгенерирован (npx web-push generate-vapid-keys) и задан на VPS."
+    status: active
+
+  - id: E05
+    title: "Bootstrap ADMIN_TOKEN (аварийный доступ)"
+    anchors:
+      - { file: .env.example, line: 71 }
+    risk: high
+    why: "Механизма нет в коде; имя STAIR_ADMIN_TOKEN зафиксировано, чтобы
+      аварийный доступ не появился ad-hoc без реестра."
+    accepted_by: human
+    accepted_at: "2026-09-24"
+    requires_human: true
+    prod_gate: "Прод без заданного (или осознанно пустого) STAIR_ADMIN_TOKEN не запускать."
+    lift_condition: "Снять когда механизм вмержен и токен задан/ротирован."
+    status: active
+
+  - id: E06
+    title: "Пароль PostgreSQL (POSTGRES_PASSWORD)"
+    anchors:
+      - { file: deployments/docker-compose.yml, line: 13 }
+      - { file: deployments/.env.example, line: 6 }
+    risk: high
+    why: "Compose fail-fast (${VAR:?}), но значение — у человека. В примере
+      changeme_in_production."
+    accepted_by: human
+    accepted_at: "2026-09-24"
+    requires_human: true
+    prod_gate: "Прод с дефолтным/слабым паролем БД не запускать."
+    lift_condition: "Снять когда пароль задан через secrets-менеджмент (не .env-файл)."
+    status: active
+
+  - id: E07
+    title: "Allowlist Telegram-ID администраторов (STAIR_ADMIN_TG_IDS)"
+    anchors:
+      - { file: .env.example, line: 73 }
+    risk: medium
+    why: "Механизма нет в коде; имя и формат (CSV TG-ID) зафиксированы здесь."
+    accepted_by: human
+    accepted_at: "2026-09-24"
+    requires_human: true
+    prod_gate: "Прод с TG-админкой без allowlist не запускать."
+    lift_condition: "Снять когда список задан на VPS."
+    status: active
+
+  - id: E08
+    title: "UFW/firewall VPS (80/443/ssh-only)"
+    anchors:
+      - { file: deployments/nginx/store.conf, line: 3 }
+      - { file: deployments/nginx/admin.conf, line: 3 }
+    risk: high
+    why: "Nginx слушает 80 открытым; пакетный фильтр — уровень хоста, в репо
+      ему нечего делать кроме маркера. Прямой доступ к :8080/5432/6379 с LAN
+      режет только firewall."
+    accepted_by: human
+    accepted_at: "2026-09-24"
+    requires_human: true
+    prod_gate: "Прод без UFW (deny-in, allow 80/443/ssh) не запускать."
+    lift_condition: "Снять когда правила применены и проверены сканом снаружи."
+    status: active
+
+  - id: E09
+    title: "TLS-сертификаты (certbot) на VPS"
+    anchors:
+      - { file: deployments/nginx/store.conf, line: 4 }
+      - { file: deployments/nginx/admin.conf, line: 4 }
+    risk: high
+    why: "В конфигах только listen 80; TLS-терминация (certbot/ingress) — руками
+      на хосте. HSTS без TLS бессмыслен (см. E10)."
+    accepted_by: human
+    accepted_at: "2026-09-24"
+    requires_human: true
+    prod_gate: "Прод без валидного TLS не запускать."
+    lift_condition: "Снять когда certbot выпустил серт и autorenew проверен."
+    status: active
+
+  - id: E10
+    title: "HSTS включается человеком (STAIR_HSTS_ENABLED)"
+    anchors:
+      - { file: internal/transport/http/security.go, line: 14 }
+    risk: medium
+    why: "Код поддерживает HSTS, но default-off (нужен TLS-edge, см. E09);
+      в проде включается env. Helm-чарт уже default-true (S-105)."
+    accepted_by: human
+    accepted_at: "2026-09-24"
+    requires_human: true
+    prod_gate: "Прод без HSTS (после E09) не запускать."
+    lift_condition: "Снять когда HSTS включён и заголовок проверен curl."
+    status: active
+
+  - id: E11
+    title: "GPG-шифрование бэкапов БД"
+    anchors:
+      - { file: scripts/db-backup.sh, line: 3 }
+    risk: high
+    why: "Дампы лежат plaintext (checksum+retention есть, шифрования нет).
+      GPG-ключ — у человека; до provision — физическая защита хоста."
+    accepted_by: human
+    accepted_at: "2026-09-24"
+    requires_human: true
+    prod_gate: "Прод без шифрования дампов не запускать (или принять риск письменно)."
+    lift_condition: "Снять когда GPG-ключ заведён и db-backup.sh шифрует (gpg --encrypt)."
+    status: active

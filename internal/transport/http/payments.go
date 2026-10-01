@@ -14,10 +14,21 @@ import (
 // PaymentService — прикладной интерфейс платежей (EDR-0027 §3.3), ожидаемый
 // транспортным слоем.
 type PaymentService interface {
-	CreateCheckout(ctx context.Context, tenantID, projectID, userID string, amountMinor int64, currency string) (*payments.PaymentIntent, error)
+	// CreateCheckout принимает tier_id, а не сумму: цена — серверная
+	// (application/payments.Catalog, S-150).
+	CreateCheckout(ctx context.Context, tenantID, projectID, userID, tierID string) (*payments.PaymentIntent, error)
 	ListByProject(ctx context.Context, tenantID, projectID string) ([]*payments.PaymentIntent, error)
-	Get(ctx context.Context, tenantID, id string) (*payments.PaymentIntent, error)
+	// GetByUser — интент в скоупе tenant'а И плательщика (SEC-004).
+	// HTTP-маршрут GET /api/v1/payments/{id} обязан использовать его,
+	// а не tenant-only Get.
+	GetByUser(ctx context.Context, tenantID, userID, id string) (*payments.PaymentIntent, error)
 	HandleWebhook(ctx context.Context, secret, tsUnix, sigValue string, body []byte) (*payments.PaymentEvent, error)
+	// ListTiers — серверный прайс услуг для публичной витрины (этап 4).
+	ListTiers() []payments.Tier
+	// CreateServiceCheckout — оплата услуги клиентом сайта (без проекта).
+	CreateServiceCheckout(ctx context.Context, tenantID, userID, tierID string) (*payments.PaymentIntent, error)
+	// ListByUser — покупки пользователя для кабинета.
+	ListByUser(ctx context.Context, tenantID, userID string) ([]*payments.PaymentIntent, error)
 }
 
 // StripeWebhookService — интерфейс для Stripe-специфичной обработки webhook.
@@ -56,17 +67,21 @@ func toPaymentIntentDTO(p *payments.PaymentIntent) paymentIntentDTO {
 	return d
 }
 
+// checkoutRequest — тело checkout (S-150: только tier_id; amount_minor/
+// currency больше не принимаются — цена серверная, из application/payments.
+// Catalog). Старые поля оставлены в структуре с json:"-", чтобы запрос
+// с amount_minor не падал как «неизвестное поле», а получал 422 «unknown tier».
 type checkoutRequest struct {
-	AmountMinor int64  `json:"amount_minor"`
-	Currency    string `json:"currency"`
+	TierID string `json:"tier_id"`
 }
 
 // ---- handlers ----
 
 // handleCheckout — POST /api/v1/projects/{id}/checkout (auth, член проекта).
 // Создаёт платёжный интент через PSP и возвращает checkout URL.
+// Тело: {"tier_id":"basic|pro"} — цена серверная (S-150, Catalog).
 // 201 — создано; 400 — невалидный JSON; 403 — нет прав; 404 — нет проекта;
-// 422 — невалидная сумма/валюта.
+// 422 — неизвестный/пустой tier_id.
 func handleCheckout(projects ProjectService, svc PaymentService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		projectID := r.PathValue("id")
@@ -83,7 +98,7 @@ func handleCheckout(projects ProjectService, svc PaymentService) http.HandlerFun
 				writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 				return
 			}
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 
@@ -93,13 +108,19 @@ func handleCheckout(projects ProjectService, svc PaymentService) http.HandlerFun
 			return
 		}
 
-		p, err := svc.CreateCheckout(ctx, tenant, projectID, user, req.AmountMinor, req.Currency)
+		if req.TierID == "" {
+			writeInputError(w, "invalid_input", errors.New("tier_id is required"))
+			return
+		}
+		p, err := svc.CreateCheckout(ctx, tenant, projectID, user, req.TierID)
 		if errors.Is(err, payments.ErrInvalid) {
 			writeInputError(w, "invalid_input", err)
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusCreated, toPaymentIntentDTO(p))
@@ -124,13 +145,15 @@ func handleListPayments(projects ProjectService, svc PaymentService) http.Handle
 				writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 				return
 			}
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 
 		list, err := svc.ListByProject(ctx, tenant, projectID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		out := make([]paymentIntentDTO, 0, len(list))
@@ -141,17 +164,25 @@ func handleListPayments(projects ProjectService, svc PaymentService) http.Handle
 	}
 }
 
-// handleGetPayment — GET /api/v1/payments/{id} (auth, tenant-скоуп).
-// 200 — статус интента; 404 — не найден.
+// handleGetPayment — GET /api/v1/payments/{id} (auth, скоуп tenant'а И
+// плательщика).
+// 200 — статус интента; 404 — не найден или принадлежит другому пользователю.
+//
+// SEC-004: раньше был только tenant-скоуп. Поскольку регистрация всегда
+// выдаёт единственный дефолтный tenant, любой пользователь читал чужие
+// платежи. Чужой интент отдаётся как 404, без утечки существования.
 func handleGetPayment(svc PaymentService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		p, err := svc.Get(r.Context(), tenantID(r.Context()), r.PathValue("id"))
+		// SEC-004: скоуп по плательщику, не только по tenant'у.
+		p, err := svc.GetByUser(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
 		if errors.Is(err, payments.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "Платёж не найден.")
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusOK, toPaymentIntentDTO(p))
@@ -182,8 +213,19 @@ func handlePaymentWebhook(svc PaymentService, secret string) http.HandlerFunc {
 			writeError(w, http.StatusNotFound, "not_found", "Платёж не найден.")
 		case errors.Is(err, payments.ErrInvalid):
 			writeError(w, http.StatusConflict, "invalid_input", userInputMessage(err))
+		case errors.Is(err, payments.ErrStatusConflict):
+			// CRITICAL-04 (2026-09-27): поздний или повторный webhook на уже
+			// терминальный интент — ШТАТНАЯ ситуация при неупорядоченной
+			// доставке, а не ошибка. Подтверждаем 200, чтобы PSP не слал
+			// ретраи: переход отброшен БД, интент сохранил прежний статус, и
+			// в журнал НЕ записано событие, которого не было.
+			//
+			// Отвечать 4xx/5xx здесь нельзя: повторная доставка того же
+			// события будет отвергаться так же, и PSP будет ретраить до
+			// отказа от платежа.
+			writeJSON(w, http.StatusOK, map[string]string{"status": "ignored_terminal_status"})
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 		default:
 			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 		}
@@ -216,7 +258,7 @@ func handleStripeWebhook(svc StripeWebhookService) http.HandlerFunc {
 		case errors.Is(err, payments.ErrInvalid):
 			writeError(w, http.StatusConflict, "invalid_input", userInputMessage(err))
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 		default:
 			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 		}

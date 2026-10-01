@@ -131,6 +131,7 @@ func TestRegisterHandler(t *testing.T) {
 	router := authTestRouter(newFakeAuth())
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
 		strings.NewReader(`{"email":"new@example.com","name":"Новый","password":"secret123"}`))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
@@ -154,6 +155,7 @@ func TestRegisterEmailExists(t *testing.T) {
 	router := authTestRouter(a)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
 		strings.NewReader(`{"email":"dup@example.com","name":"A","password":"secret123"}`))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusConflict {
@@ -165,6 +167,7 @@ func TestRegisterSetsCookies(t *testing.T) {
 	router := authTestRouter(newFakeAuth())
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
 		strings.NewReader(`{"email":"new@example.com","name":"Новый","password":"secret123"}`))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
@@ -184,6 +187,7 @@ func TestLoginSetsCookies(t *testing.T) {
 	router := authTestRouter(newFakeAuth())
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
 		strings.NewReader(`{"email":"a@b.co","password":"secret123"}`))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -206,6 +210,7 @@ func TestLoginReturnsUserAndToken(t *testing.T) {
 	router := authTestRouter(newFakeAuth())
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
 		strings.NewReader(`{"email":"a@b.co","password":"secret123"}`))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -233,6 +238,7 @@ func TestLoginInvalidCredentials(t *testing.T) {
 	router := authTestRouter(a)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
 		strings.NewReader(`{"email":"a@b.co","password":"wrong"}`))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
@@ -343,6 +349,7 @@ func TestRateLimitLogin(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
 			strings.NewReader(`{"email":"a@b.co","password":"secret123"}`))
+		req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
@@ -351,6 +358,7 @@ func TestRateLimitLogin(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login",
 		strings.NewReader(`{"email":"a@b.co","password":"secret123"}`))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusTooManyRequests {
@@ -388,6 +396,7 @@ func TestRateLimitRegister(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
 			strings.NewReader(`{"email":"r@example.com","name":"A","password":"secret123"}`))
+		req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 		if rec.Code != http.StatusCreated {
@@ -396,6 +405,7 @@ func TestRateLimitRegister(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register",
 		strings.NewReader(`{"email":"r2@example.com","name":"B","password":"secret123"}`))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusTooManyRequests {
@@ -421,7 +431,7 @@ func TestCSRFOriginAllowed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/v1/projects",
 		strings.NewReader(`{"name":"A"}`))
 	req.Header.Set("Origin", "http://localhost")
-	if !csrfOriginAllowed(req) {
+	if !csrfOriginAllowed(req, nil) {
 		t.Fatal("same-origin Origin must be allowed")
 	}
 }
@@ -430,7 +440,7 @@ func TestCSRFCrossOriginRejected(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/v1/projects",
 		strings.NewReader(`{"name":"A"}`))
 	req.Header.Set("Origin", "http://evil.example")
-	if csrfOriginAllowed(req) {
+	if csrfOriginAllowed(req, nil) {
 		t.Fatal("cross-origin Origin must be rejected")
 	}
 }
@@ -439,7 +449,7 @@ func TestCSRFRefererAllowed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/v1/projects",
 		strings.NewReader(`{"name":"A"}`))
 	req.Header.Set("Referer", "http://localhost/app")
-	if !csrfOriginAllowed(req) {
+	if !csrfOriginAllowed(req, nil) {
 		t.Fatal("same-host Referer must be allowed")
 	}
 }
@@ -447,7 +457,7 @@ func TestCSRFRefererAllowed(t *testing.T) {
 func TestCSRFNoOriginAllowed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://localhost/api/v1/projects",
 		strings.NewReader(`{"name":"A"}`))
-	if !csrfOriginAllowed(req) {
+	if !csrfOriginAllowed(req, nil) {
 		t.Fatal("request without Origin/Referer must be allowed (non-browser client)")
 	}
 }

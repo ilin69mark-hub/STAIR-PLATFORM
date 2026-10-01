@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -178,13 +179,16 @@ func TestUsageAnalyticsRangeError(t *testing.T) {
 }
 
 func TestUsageAnalyticsServerError(t *testing.T) {
+	// API-002: context.DeadlineExceeded больше не маскируется под 500 —
+	// unified error contract отдаёт 504 timeout, иначе нормальная отмена/таймаут
+	// считалась бы аварией сервиса в мониторинге.
 	svc := &fakeAnalyticsService{err: context.DeadlineExceeded}
 	req := authedRequest(http.MethodGet, "/api/v1/admin/analytics/usage", "")
 	rec := httptest.NewRecorder()
 	testRouterWithAnalytics(svc).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected 504 for deadline, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -258,8 +262,8 @@ func TestProjectsAnalyticsServerError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	testRouterWithAnalytics(svc).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected 504 for deadline, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -330,8 +334,8 @@ func TestManufacturingAnalyticsServerError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	testRouterWithAnalytics(svc).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected 504 for deadline, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -402,8 +406,8 @@ func TestCostAnalyticsServerError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	testRouterWithAnalytics(svc).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected 504 for deadline, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -423,5 +427,76 @@ func TestAnalyticsNotRegisteredWhenNil(t *testing.T) {
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("%s: expected 404, got %d", path, rec.Code)
 		}
+	}
+}
+
+// TestAnalyticsRealInternalErrorStill500 — не-контекстная ошибка обязана
+// оставаться 500 (и содержать request_id), чтобы unified error contract
+// не стал «всё подряд 504».
+func TestAnalyticsRealInternalErrorStill500(t *testing.T) {
+	svc := &fakeAnalyticsService{err: errors.New("pq: connection reset by peer")}
+	req := authedRequest(http.MethodGet, "/api/v1/admin/analytics/usage", "")
+	rec := httptest.NewRecorder()
+	testRouterWithAnalytics(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+	// Внутренний текст ошибки БД наружу не отдаётся.
+	if strings.Contains(rec.Body.String(), "connection reset") {
+		t.Fatalf("internal error text leaked: %s", rec.Body.String())
+	}
+	// request_id обязателен: по нему инцидент связывается со строкой лога.
+	var body struct {
+		Error struct {
+			Code      string `json:"code"`
+			RequestID string `json:"request_id"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Error.RequestID == "" {
+		t.Error("500 must carry a non-empty request_id (API-002/API-004)")
+	}
+}
+
+// queryTime: «to=YYYY-MM-DD» — это конец дня, а не полночь. С полночью
+// отчёт молча терял весь текущий день: события есть, а панель показывает
+// ноль, и виновата выглядит не панель, а данные.
+func TestQueryTime_DateOnlyBounds(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/x?to=2026-09-29&from=2026-08-30", nil)
+
+	from, err := queryTime(r, "from", time.Time{})
+	if err != nil {
+		t.Fatalf("from: %v", err)
+	}
+	if !from.Equal(time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("from = %v, хочу начало 2026-08-30", from)
+	}
+
+	to, err := queryTime(r, "to", time.Time{})
+	if err != nil {
+		t.Fatalf("to: %v", err)
+	}
+	if to.Day() != 29 || to.Hour() != 23 || to.Minute() != 59 {
+		t.Errorf("to = %v, хочу конец 2026-09-29 (23:59)", to)
+	}
+	// Событие внутри сегодняшнего дня обязано попасть в окно.
+	inside := time.Date(2026, 9, 29, 11, 46, 42, 0, time.UTC)
+	if inside.Before(from) || inside.After(to) {
+		t.Errorf("событие %v вне окна %v..%v", inside, from, to)
+	}
+}
+
+// RFC3339 не трогаем: там время задано явно.
+func TestQueryTime_RFC3339Untouched(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/x?to=2026-09-29T10:00:00Z", nil)
+	to, err := queryTime(r, "to", time.Time{})
+	if err != nil {
+		t.Fatalf("to: %v", err)
+	}
+	if !to.Equal(time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC)) {
+		t.Errorf("to = %v, хочу ровно 10:00", to)
 	}
 }

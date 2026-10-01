@@ -5,9 +5,9 @@ info:
   version: "1.0.0"
 
 servers:
-  - url: "http://localhost:8080"
+  - url: "http://localhost:8080/api/v1"
     description: "Local development"
-  - url: "https://api.stairplatform.com"
+  - url: "https://api.stairplatform.com/api/v1"
     description: "Production"
 
 tags:
@@ -42,178 +42,310 @@ paths:
   /admin/analytics/cost:
     get:
       tags: ["admin"]
-      summary: "Аналитика: стоимость"
+      summary: "Получить cost"
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
+  /admin/analytics/funnel:
+    get:
+      tags: ["admin"]
+      summary: "Получить funnel"
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        200:
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: "Internal error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /admin/analytics/manufacturing:
     get:
       tags: ["admin"]
-      summary: "Аналитика: производство"
+      summary: "Получить manufacturing"
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /admin/analytics/projects:
     get:
       tags: ["admin"]
-      summary: "Аналитика: проекты"
+      summary: "Получить projects"
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /admin/analytics/usage:
     get:
       tags: ["admin"]
-      summary: "Аналитика: использование"
+      summary: "Получить usage"
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /admin/api-keys:
     get:
       tags: ["admin"]
-      summary: "API-ключи (админ)"
+      summary: "Получить api-keys"
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
     post:
       tags: ["admin"]
-      summary: "Создать API-ключ"
+      summary: "Создать api-keys"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
       requestBody:
         required: true
         content:
@@ -222,140 +354,240 @@ paths:
               type: object
       responses:
         201:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /admin/api-keys/{id}:
     delete:
       tags: ["admin"]
-      summary: "Отозвать API-ключ"
+      summary: "Удалить {id}"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "Ключ отозван"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         403:
-          description: Forbidden
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /admin/export:
     get:
       tags: ["admin"]
-      summary: "Экспорт данных (админ)"
+      summary: "Выгрузка данных (CSV/JSON)"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          description: "Область выгрузки"
+          schema:
+            type: string
+            enum: [users, projects, audit]
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /admin/orders:
     get:
       tags: ["admin"]
-      summary: "Заказы (админ)"
+      summary: "Получить orders"
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /admin/orders/{id}/status:
     patch:
       tags: ["admin"]
-      summary: "Сменить статус заказа"
+      summary: "Изменить status"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -364,105 +596,276 @@ paths:
               type: object
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         403:
-          description: Forbidden
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /admin/overview:
     get:
       tags: ["admin"]
-      summary: "Обзор метрик АП (сводка)"
+      summary: "Получить overview"
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
+  /admin/payments:
+    get:
+      tags: ["admin"]
+      summary: "Список платежей (admin)"
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        200:
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminPaymentList"
+        401:
+          description: "Unauthorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: "Internal error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /admin/payments/{id}/refund:
+    post:
+      tags: ["admin"]
+      summary: "Оформить возврат платежа"
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
+      requestBody:
+        required: false
+      responses:
+        200:
+          description: "Возврат оформлен"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminPayment"
+        401:
+          description: "Unauthorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: "Internal error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /admin/settings:
     get:
       tags: ["admin"]
-      summary: "Настройки (админ)"
+      summary: "Получить settings"
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
     put:
       tags: ["admin"]
-      summary: "Обновить настройки"
+      summary: "Обновить settings"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
       requestBody:
         required: true
         content:
@@ -471,71 +874,398 @@ paths:
               type: object
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         403:
-          description: Forbidden
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
+  /admin/store/prices:
+    get:
+      tags: ["admin"]
+      summary: "Получить prices"
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        200:
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: "Internal error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      tags: ["admin"]
+      summary: "Обновить prices"
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: "Internal error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /admin/store/prices/{code}:
+    delete:
+      tags: ["admin"]
+      summary: "Удалить {code}"
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: "Идентификатор code"
+          schema:
+            type: string
+      responses:
+        204:
+          description: "Цена удалена"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: "Internal error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /admin/store/settings:
+    get:
+      tags: ["admin"]
+      summary: "Получить settings"
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        200:
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: "Internal error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      tags: ["admin"]
+      summary: "Обновить settings"
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: "Internal error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /admin/testimonials:
     get:
       tags: ["admin"]
-      summary: "Отзывы (админ)"
+      summary: "Получить testimonials"
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
     post:
       tags: ["admin"]
-      summary: "Добавить отзыв (админ)"
+      summary: "Создать testimonials"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
       requestBody:
         required: true
         content:
@@ -544,71 +1274,131 @@ paths:
               type: object
       responses:
         201:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /admin/testimonials/{id}:
     delete:
       tags: ["admin"]
-      summary: "Удалить отзыв"
+      summary: "Удалить {id}"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       responses:
-        200:
-          description: OK
-        400:
-          description: Invalid request
+        204:
+          description: "Отзыв удалён"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         403:
-          description: Forbidden
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
     patch:
       tags: ["admin"]
-      summary: "Обновить отзыв (модерация)"
+      summary: "Изменить {id}"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -617,72 +1407,118 @@ paths:
               type: object
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         403:
-          description: Forbidden
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /admin/users:
     get:
       tags: ["admin"]
-      summary: "Пользователи (админ)"
+      summary: "Получить users"
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /admin/users/{id}:
     patch:
       tags: ["admin"]
-      summary: "Изменить пользователя (роль/блокировка)"
+      summary: "Изменить {id}"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -691,111 +1527,237 @@ paths:
               type: object
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         403:
-          description: Forbidden
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
+  /assistant/memory:
+    delete:
+      tags: ["assistant"]
+      summary: "Удалить memory"
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      responses:
+        200:
+          description: "История очищена"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: "Internal error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /assistant/{kind}:
     post:
       tags: ["assistant"]
       summary: "Создать {kind}"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          description: "Идентификатор kind"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-      responses:
-        201:
-          description: OK
-        400:
-          description: Invalid request
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        422:
-          description: Validation error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        500:
-          description: Internal error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-
-  /audit:
-    get:
-      tags: ["audit"]
-      summary: "Журнал аудита"
-      security:
-        - bearerAuth: []
+              $ref: "#/components/schemas/StairConfigInput"
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "Ответ консультанта по конфигурации"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         403:
-          description: Forbidden
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
-    post:
+  /audit:
+    get:
       tags: ["audit"]
-      summary: "Запись в журнал аудита"
+      summary: "Получить audit"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        200:
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: "Internal error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags: ["audit"]
+      summary: "Создать audit"
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
       requestBody:
         required: true
         content:
@@ -804,32 +1766,53 @@ paths:
               type: object
       responses:
         201:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /auth/login:
     post:
       tags: ["auth"]
@@ -841,107 +1824,145 @@ paths:
             schema:
               type: object
       responses:
-        201:
-          description: OK
+        200:
+          description: "Сессия создана, установлена session cookie"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
         400:
-          description: Invalid request
+          description: "Invalid request"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /auth/logout:
     post:
       tags: ["auth"]
       summary: "Выйти из системы"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
       requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
+        required: false
       responses:
-        201:
-          description: OK
-        400:
-          description: Invalid request
+        204:
+          description: "Сессия завершена"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /auth/me:
     get:
       tags: ["auth"]
       summary: "Текущий пользователь"
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubjectMe"
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /auth/register:
     post:
       tags: ["auth"]
@@ -954,199 +1975,232 @@ paths:
               type: object
       responses:
         201:
-          description: OK
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
         400:
-          description: Invalid request
+          description: "Invalid request"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /auth/sso:
     get:
       tags: ["auth"]
       summary: "Начать SSO-вход (redirect на провайдера)"
       responses:
-        200:
-          description: OK
+        302:
+          description: "Редирект на SSO-провайдера"
+          content:
+            application/json:
+              schema:
+                type: object
         400:
-          description: Invalid request
+          description: "Invalid request"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /auth/sso/callback:
     get:
       tags: ["auth"]
       summary: "Callback SSO-провайдера"
       responses:
-        200:
-          description: OK
+        302:
+          description: "Редирект обратно в приложение"
+          content:
+            application/json:
+              schema:
+                type: object
         400:
-          description: Invalid request
+          description: "Invalid request"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /auth/sso/config:
     get:
       tags: ["auth"]
       summary: "Настройки SSO для фронтенда"
       responses:
         200:
-          description: OK
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
         400:
-          description: Invalid request
+          description: "Invalid request"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /health:
     get:
       tags: ["health"]
-      summary: "Живучесть сервиса"
+      summary: "Проверка живости"
       responses:
         200:
-          description: OK
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
         400:
-          description: Invalid request
+          description: "Invalid request"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /integrations/endpoints:
     get:
       tags: ["integrations"]
-      summary: "Эндпоинты интеграций"
+      summary: "Получить endpoints"
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
     post:
       tags: ["integrations"]
-      summary: "Зарегистрировать endpoint"
+      summary: "Создать endpoints"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
       requestBody:
         required: true
         content:
@@ -1155,171 +2209,266 @@ paths:
               type: object
       responses:
         201:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /integrations/endpoints/{id}:
     delete:
       tags: ["integrations"]
-      summary: "Удалить endpoint"
+      summary: "Удалить {id}"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       responses:
-        200:
-          description: OK
-        400:
-          description: Invalid request
+        204:
+          description: "Эндпоинт удалён"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         403:
-          description: Forbidden
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /jobs/{id}:
     get:
       tags: ["jobs"]
-      summary: "Статус асинхронной задачи"
+      summary: "Получить {id}"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /metrics:
     get:
       tags: ["metrics"]
-      summary: "Prometheus-метрики"
+      summary: "Метрики Prometheus"
       responses:
         200:
-          description: OK
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
         400:
-          description: Invalid request
+          description: "Invalid request"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /orders:
     get:
       tags: ["orders"]
-      summary: "Заказы пользователя"
+      summary: "Получить orders"
       security:
         - bearerAuth: []
+        - cookieAuth: []
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
     post:
       tags: ["orders"]
-      summary: "Создать заказ"
+      summary: "Создать orders"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
       requestBody:
         required: true
         content:
@@ -1328,181 +2477,308 @@ paths:
               type: object
       responses:
         201:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
+  /payments/mine:
+    get:
+      tags: ["payments"]
+      summary: "Получить mine"
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        200:
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: "Internal error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /payments/stripe/webhook:
     post:
       tags: ["payments"]
-      summary: "Webhook Stripe"
+      summary: "Создать webhook"
       requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
+        required: false
       responses:
-        201:
-          description: OK
+        200:
+          description: "Webhook принят"
+          content:
+            application/json:
+              schema:
+                type: object
         400:
-          description: Invalid request
+          description: "Invalid request"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /payments/webhook:
     post:
       tags: ["payments"]
-      summary: "Webhook платёжного провайдера"
+      summary: "Создать webhook"
       requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
+        required: false
       responses:
-        201:
-          description: OK
+        200:
+          description: "Webhook принят"
+          content:
+            application/json:
+              schema:
+                type: object
         400:
-          description: Invalid request
+          description: "Invalid request"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /payments/{id}:
     get:
       tags: ["payments"]
-      summary: "Платёж по ID"
+      summary: "Получить {id}"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects:
     get:
       tags: ["projects"]
       summary: "Список проектов"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: per_page
+          in: query
+          required: false
+          description: "Размер страницы (максимум 100)"
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: page
+          in: query
+          required: false
+          description: "Номер страницы, начиная с 1"
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000000
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
     post:
       tags: ["projects"]
       summary: "Создать проект"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
       requestBody:
         required: true
         content:
@@ -1511,180 +2787,325 @@ paths:
               type: object
       responses:
         201:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}:
     get:
       tags: ["projects"]
-      summary: "Проект по ID"
+      summary: "Получить проект"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/approvals:
     get:
       tags: ["projects"]
-      summary: "Согласования проекта"
+      summary: "Получить approvals"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
+        - name: per_page
+          in: query
+          required: false
+          description: "Размер страницы (максимум 100)"
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: page
+          in: query
+          required: false
+          description: "Номер страницы, начиная с 1"
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000000
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/audit:
     get:
       tags: ["projects"]
-      summary: "Аудит действий по проекту"
+      summary: "Получить audit"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/calculate:
     post:
       tags: ["projects"]
-      summary: "Рассчитать проект (сквозной конвейер)"
+      summary: "Рассчитать конфигурацию проекта"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
+              $ref: "#/components/schemas/StairConfigInput"
       responses:
-        201:
-          description: OK
-        400:
-          description: Invalid request
+        200:
+          description: "Расчёт выполнен"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/checkout:
     post:
       tags: ["projects"]
-      summary: "Оформить заказ/оплату проекта"
+      summary: "Создать checkout"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -1693,71 +3114,140 @@ paths:
               type: object
       responses:
         201:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/comments:
     get:
       tags: ["projects"]
-      summary: "Комментарии проекта"
+      summary: "Получить comments"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
+        - name: per_page
+          in: query
+          required: false
+          description: "Размер страницы (максимум 100)"
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: page
+          in: query
+          required: false
+          description: "Номер страницы, начиная с 1"
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000000
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
     post:
       tags: ["projects"]
-      summary: "Добавить комментарий"
+      summary: "Создать comments"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -1766,174 +3256,327 @@ paths:
               type: object
       responses:
         201:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/comments/{commentID}:
     delete:
       tags: ["projects"]
-      summary: "Удалить комментарий"
+      summary: "Удалить {commentID}"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
+        - name: commentID
+          in: path
+          required: true
+          description: "Идентификатор commentID"
+          schema:
+            type: string
       responses:
-        200:
-          description: OK
-        400:
-          description: Invalid request
+        204:
+          description: "Комментарий удалён"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         403:
-          description: Forbidden
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/configurations:
     get:
       tags: ["projects"]
-      summary: "Конфигурации проекта"
+      summary: "История ревизий конфигурации"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/configurations/{configID}:
     get:
       tags: ["projects"]
-      summary: "Конфигурация проекта"
+      summary: "Получить {configID}"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
+        - name: configID
+          in: path
+          required: true
+          description: "Идентификатор configID"
+          schema:
+            type: string
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/configurations/{configID}/approval:
     get:
       tags: ["projects"]
-      summary: "Статус согласования конфигурации"
+      summary: "Получить approval"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
+        - name: configID
+          in: path
+          required: true
+          description: "Идентификатор configID"
+          schema:
+            type: string
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/configurations/{configID}/approve:
     post:
       tags: ["projects"]
-      summary: "Согласовать конфигурацию"
+      summary: "Создать approve"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
+        - name: configID
+          in: path
+          required: true
+          description: "Идентификатор configID"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -1942,38 +3585,74 @@ paths:
               type: object
       responses:
         201:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/configurations/{configID}/restore:
     post:
       tags: ["projects"]
-      summary: "Восстановить конфигурацию"
+      summary: "Восстановить ревизию конфигурации"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
+        - name: configID
+          in: path
+          required: true
+          description: "Идентификатор configID"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -1981,39 +3660,69 @@ paths:
             schema:
               type: object
       responses:
-        201:
-          description: OK
-        400:
-          description: Invalid request
+        200:
+          description: "Ревизия восстановлена"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/crm-sync:
     post:
       tags: ["projects"]
-      summary: "Синхронизировать проект с CRM"
+      summary: "Создать crm-sync"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -2021,107 +3730,197 @@ paths:
             schema:
               type: object
       responses:
-        201:
-          description: OK
-        400:
-          description: Invalid request
+        202:
+          description: "Задача синхронизации принята"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/export:
     get:
       tags: ["projects"]
-      summary: "Экспорт проекта (JSON)"
+      summary: "Получить export"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/export/cad:
     get:
       tags: ["projects"]
-      summary: "Экспорт CAD (DWG)"
+      summary: "Выгрузить чертёж (DXF/STL/SVG)"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
+        - name: format
+          in: query
+          required: true
+          description: "Формат выгрузки"
+          schema:
+            type: string
+            enum: [dxf, stl, svg]
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/export/cad/store:
     post:
       tags: ["projects"]
-      summary: "Записать CAD-чертёж в хранилище"
+      summary: "Выгрузить чертёж и сохранить в Storage"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
+        - name: format
+          in: query
+          required: true
+          description: "Формат выгрузки"
+          schema:
+            type: string
+            enum: [dxf, stl, svg]
       requestBody:
         required: true
         content:
@@ -2130,71 +3929,124 @@ paths:
               type: object
       responses:
         201:
-          description: OK
-        400:
-          description: Invalid request
+          description: "Объект сохранён в Storage"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/members:
     get:
       tags: ["projects"]
-      summary: "Участники проекта"
+      summary: "Получить members"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
     post:
       tags: ["projects"]
-      summary: "Пригласить участника"
+      summary: "Создать members"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -2203,71 +4055,143 @@ paths:
               type: object
       responses:
         201:
-          description: OK
-        400:
-          description: Invalid request
+          description: "Участник добавлен"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/members/{userID}:
     delete:
       tags: ["projects"]
-      summary: "Удалить участника"
+      summary: "Удалить {userID}"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
+        - name: userID
+          in: path
+          required: true
+          description: "Идентификатор userID"
+          schema:
+            type: string
       responses:
-        200:
-          description: OK
-        400:
-          description: Invalid request
+        204:
+          description: "Участник удалён"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         403:
-          description: Forbidden
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
     patch:
       tags: ["projects"]
-      summary: "Изменить роль участника"
+      summary: "Изменить {userID}"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
+        - name: userID
+          in: path
+          required: true
+          description: "Идентификатор userID"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -2276,78 +4200,138 @@ paths:
               type: object
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         403:
-          description: Forbidden
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/optimize:
     post:
       tags: ["projects"]
-      summary: "Оптимизация вальсы-нормативов"
+      summary: "Подобрать оптимальную конфигурацию"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
+              $ref: "#/components/schemas/StairConfigInput"
       responses:
-        201:
-          description: OK
-        400:
-          description: Invalid request
+        200:
+          description: "Оптимизация выполнена"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/order-send:
     post:
       tags: ["projects"]
-      summary: "Передать проект в производство"
+      summary: "Создать order-send"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -2355,113 +4339,196 @@ paths:
             schema:
               type: object
       responses:
-        201:
-          description: OK
-        400:
-          description: Invalid request
+        202:
+          description: "Задача отправки заказа принята"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/payments:
     get:
       tags: ["projects"]
-      summary: "Платежи проекта"
+      summary: "Получить payments"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/preview:
     post:
       tags: ["projects"]
-      summary: "Каркас решения для предпросмотра"
+      summary: "Предпросмотр без сохранения"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
+              $ref: "#/components/schemas/StairConfigInput"
       responses:
-        201:
-          description: OK
-        400:
-          description: Invalid request
+        200:
+          description: "Предпросмотр выполнен"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/quote-send:
     post:
       tags: ["projects"]
-      summary: "Отправить КП клиенту"
+      summary: "Создать quote-send"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -2469,39 +4536,69 @@ paths:
             schema:
               type: object
       responses:
-        201:
-          description: OK
-        400:
-          description: Invalid request
+        202:
+          description: "Задача отправки КП принята"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/review:
     post:
       tags: ["projects"]
-      summary: "Запрос ревью проекта"
+      summary: "Создать review"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -2510,72 +4607,147 @@ paths:
               type: object
       responses:
         201:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/reviews:
     get:
       tags: ["projects"]
-      summary: "Ревью и подписи проекта"
+      summary: "Получить reviews"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
+        - name: per_page
+          in: query
+          required: false
+          description: "Размер страницы (максимум 100)"
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - name: page
+          in: query
+          required: false
+          description: "Номер страницы, начиная с 1"
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000000
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/reviews/{reviewID}/changes:
     post:
       tags: ["projects"]
-      summary: "Правки по ревью"
+      summary: "Создать changes"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
+        - name: reviewID
+          in: path
+          required: true
+          description: "Идентификатор reviewID"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -2584,38 +4756,74 @@ paths:
               type: object
       responses:
         201:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /projects/{id}/reviews/{reviewID}/sign-off:
     post:
       tags: ["projects"]
-      summary: "Подпись ревью"
+      summary: "Создать sign-off"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "Идентификатор id"
+          schema:
+            type: string
+        - name: reviewID
+          in: path
+          required: true
+          description: "Идентификатор reviewID"
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -2624,36 +4832,92 @@ paths:
               type: object
       responses:
         201:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
+  /public/materials:
+    get:
+      tags: ["stairs"]
+      summary: "Получить materials"
+      responses:
+        200:
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialList"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: "Internal error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /public/orders:
     post:
       tags: ["stairs"]
-      summary: "Публичная заявка на расчёт"
+      summary: "Создать orders"
       requestBody:
         required: true
         content:
@@ -2662,163 +4926,408 @@ paths:
               type: object
       responses:
         201:
-          description: OK
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
         400:
-          description: Invalid request
+          description: "Invalid request"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        401:
-          description: Unauthorized
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
+  /public/payment-tiers:
+    get:
+      tags: ["stairs"]
+      summary: "Получить payment-tiers"
+      responses:
+        200:
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentTierList"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: "Internal error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /public/services/checkout:
+    post:
+      tags: ["stairs"]
+      summary: "Создать checkout"
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        201:
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        403:
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: "Internal error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /public/store-settings:
+    get:
+      tags: ["stairs"]
+      summary: "Получить store-settings"
+      responses:
+        200:
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: "Internal error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /public/testimonials:
     get:
       tags: ["stairs"]
-      summary: "Публичные отзывы"
+      summary: "Получить testimonials"
       responses:
         200:
-          description: OK
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
         400:
-          description: Invalid request
+          description: "Invalid request"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
   /ready:
     get:
       tags: ["ready"]
-      summary: "Готовность (независимые проверки)"
+      summary: "Проверка готовности"
       responses:
         200:
-          description: OK
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
         400:
-          description: Invalid request
+          description: "Invalid request"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
+  /static-assets/:
+    get:
+      tags: ["other"]
+      summary: "Получить static-assets"
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        200:
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        422:
+          description: "Validation error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        500:
+          description: "Internal error"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /storage/{key}:
     delete:
       tags: ["projects"]
-      summary: "Удалить файл из хранилища"
+      summary: "Удалить {key}"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+        - csrfToken: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          description: "Идентификатор key"
+          schema:
+            type: string
       responses:
-        200:
-          description: OK
-        400:
-          description: Invalid request
+        204:
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         403:
-          description: Forbidden
+          description: "Forbidden (в т.ч. CSRF-токен)"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
     get:
       tags: ["projects"]
-      summary: "Загрузка файла из хранилища"
+      summary: "Получить {key}"
       security:
         - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          description: "Идентификатор key"
+          schema:
+            type: string
       responses:
         200:
-          description: OK
-        400:
-          description: Invalid request
+          description: "OK"
+          content:
+            application/json:
+              schema:
+                type: object
+        401:
+          description: "Unauthorized"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        403:
-          description: Forbidden
+        429:
+          description: "Rate limit exceeded"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        400:
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        404:
+          description: "Not found"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         422:
-          description: Validation error
+          description: "Validation error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         500:
-          description: Internal error
+          description: "Internal error"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-
 
   # Нестандартные RPC-маршруты с ":" в пути (см. x-rpc-routes) не могут быть ключами paths в OpenAPI 3.
 x-rpc-routes:
@@ -2828,26 +5337,137 @@ x-rpc-routes:
   - "POST /stairs:validate"
   - "POST /public/stairs:quote"
   - "POST /public/stairs:validate"
+  - "POST /public/analytics:events"
 
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: "bearer"
-      description: "Токен из ответа /auth/login или API-ключ"
+      description: "API-ключ (Authorization: Bearer) — EDR-0016"
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session
+      description: "Сессионная cookie (httpOnly, SameSite=Strict); для admin — session_admin"
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: "Double-submit CSRF: значение cookie csrf (csrf_admin) должно быть продублировано в этом заголовке для всех изменяющих запросов"
+  headers:
+    X-CSRF-Token:
+      description: "CSRF-токен (double-submit, cookie csrf / csrf_admin)"
+      schema:
+        type: string
   schemas:
     Error:
       type: object
       required: [error]
       properties:
         error:
-          type: string
-          description: Описание ошибки
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: "Машинный код ошибки (not_found, forbidden, validation_error, invalid_input, rates_not_allowed, csrf, internal и др.)"
+            message:
+              type: string
+              description: Человекочитаемое сообщение
+            request_id:
+              type: string
+              description: "Идентификатор запроса (только для 5xx)"
         request_id:
           type: string
-          description: Идентификатор запроса для поддержки
+          description: "Идентификатор запроса для поддержки"
+    StairConfigInput:
+      type: object
+      required: [width_mm, height_mm, flight, step_height_mm, stringer_thickness_mm, step_thickness_mm, riser, clearance_mm, railing_height_mm]
+      properties:
+        width_mm:
+          type: number
+          format: double
+        height_mm:
+          type: number
+          format: double
+        flight:
+          type: string
+          enum: [straight, l_shape, u_shape, spiral]
+        material:
+          type: string
+          enum: [STEEL-S235, WOOD-OAK, WOOD-WALNUT, WOOD-ASH, WOOD-SOFT]
+        step_height_mm:
+          type: number
+          format: double
+        stringer_thickness_mm:
+          type: number
+          format: double
+        step_thickness_mm:
+          type: number
+          format: double
+        riser:
+          type: boolean
+        clearance_mm:
+          type: number
+          format: double
+        railing_height_mm:
+          type: number
+          format: double
+        comfort_step_mm:
+          type: number
+          format: double
+        landing_width_mm:
+          type: number
+          format: double
+        landing_depth_mm:
+          type: number
+          format: double
+        room_width_mm:
+          type: number
+          format: double
+        room_length_mm:
+          type: number
+          format: double
+        approach_space_mm:
+          type: number
+          format: double
+        lower_step_count:
+          type: integer
+          format: int32
+        outer_radius_mm:
+          type: number
+          format: double
+        turn_kind:
+          type: string
+          enum: [platform, winder]
+        winder_count:
+          type: integer
+          format: int32
+        railing:
+          type: string
+          enum: [none, left, right, both]
+        railing_lower:
+          type: string
+          enum: [none, left, right, both]
+        railing_landing:
+          type: string
+          enum: [none, left, right, both]
+        railing_upper:
+          type: string
+          enum: [none, left, right, both]
+        direction:
+          type: string
+          enum: [left, right]
+        spiral_direction:
+          type: string
+          enum: [cw, ccw]
+        rates:
+          type: object
+          description: "Не принимается: цена считается только по серверным ставкам (SEC-001). Любое значение → 422 rates_not_allowed."
     User:
       type: object
+      required: [id, email, role]
       properties:
         id:
           type: string
@@ -2857,3 +5477,130 @@ components:
           format: email
         name:
           type: string
+        role:
+          type: string
+          enum: [user, admin]
+        tenant_id:
+          type: string
+          format: uuid
+    SubjectMe:
+      type: object
+      required: [subject_type]
+      properties:
+        subject_type:
+          type: string
+          enum: [user, api_key]
+        user:
+          $ref: "#/components/schemas/User"
+        api_key:
+          $ref: "#/components/schemas/ApiKey"
+    ApiKey:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+    Session:
+      type: object
+      required: [user]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        token:
+          type: string
+          description: "Сессионный токен. Дублирует httpOnly cookie session (session_admin) и нужен только небраузерным клиентам; CSRF-токен берётся из cookie csrf и дублируется в заголовке X-CSRF-Token"
+    Material:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        name_ru:
+          type: string
+        category:
+          type: string
+        density:
+          type: number
+        min_thickness:
+          type: number
+        max_thickness:
+          type: number
+        max_width_mm:
+          type: number
+        max_height_mm:
+          type: number
+    PaymentTier:
+      type: object
+      required: [id, price_minor, currency]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        price_minor:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        features:
+          type: array
+          items:
+            type: string
+    AdminPayment:
+      type: object
+      required: [id, amount_minor, currency, status, provider, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tier_id:
+          type: string
+        project_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        amount_minor:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        status:
+          type: string
+          enum: [pending, paid, failed, refunded]
+        provider:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        paid_at:
+          type: string
+          format: date-time
+    MaterialList:
+      type: array
+      items:
+        $ref: "#/components/schemas/Material"
+    PaymentTierList:
+      type: array
+      items:
+        $ref: "#/components/schemas/PaymentTier"
+    AdminPaymentList:
+      type: array
+      items:
+        $ref: "#/components/schemas/AdminPayment"

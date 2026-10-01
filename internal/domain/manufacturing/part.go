@@ -19,12 +19,17 @@ const (
 	// вертикальный цилиндр, представляемый в раскрое как развёртка
 	// (длина = высота H, ширина = периметр 2πr, толщина = косоура t).
 	PartColumn PartKind = "column"
+	// PartTopPlate — верхняя горизонтальная площадка прямого марша
+	// металлокаркаса: отдельная стальная пластина, приваренная к косоурам
+	// (сварка после раскроя). Это НЕ площадка поворота: та идёт по
+	// материалу ступеней (PartTread), эта — по материалу каркаса.
+	PartTopPlate PartKind = "top_plate"
 )
 
 // IsValid проверяет корректность типа детали.
 func (k PartKind) IsValid() bool {
 	switch k {
-	case PartStringer, PartTread, PartRiser, PartColumn:
+	case PartStringer, PartTread, PartRiser, PartColumn, PartTopPlate:
 		return true
 	}
 	return false
@@ -45,4 +50,18 @@ type Part struct {
 	Length     engineering.Length // мм — наибольший габарит в плоскости
 	Width      engineering.Length // мм — наименьший габарит в плоскости
 	SolidIndex int                // трассировка к твёрдому телу модели
+	// MillEdgeLengthMM — длина кромки, которую на детали фрезеруют (0 = фрезеровка
+	// не нужна). Заполняется из GenerationResult.MillingFeatures, то есть из
+	// геометрии: длина ребра — не характеристика заготовки, а объём работы.
+	//
+	// Заготовка при этом остаётся прямоугольной: скругление носа снимается
+	// сверху, поэтому раскрой и закупка листа не меняются, меняется только
+	// техмаршрут и время.
+	MillEdgeLengthMM float64
+	// MillRadiusMM — радиус скругления, мм. В тариф не входит, но хранится
+	// рядом с длиной: по детали должно быть видно, ЧТО именно фрезеровали.
+	MillRadiusMM float64
 }
+
+// NeedsMilling сообщает, требует ли деталь фрезеровной операции.
+func (p Part) NeedsMilling() bool { return p.MillEdgeLengthMM > 0 }

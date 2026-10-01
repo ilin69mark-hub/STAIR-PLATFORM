@@ -212,6 +212,34 @@ func TestSSRFAllowlistOverridesBlock(t *testing.T) {
 	}
 }
 
+// TestSSRFAllowlistNeverUnlocksLinkLocal (S-151) — red-team «утечка AWS-ключей
+// через SSRF 169.254.169.254»: даже allowlist-хост не может резолвиться в
+// link-local (IMDS-эндпоинт облака). Приватные адреса allowlist по-прежнему
+// открывает (внутренние сервисы), link-local — никогда.
+func TestSSRFAllowlistNeverUnlocksLinkLocal(t *testing.T) {
+	c := NewPolicyClient(0, Policy{AllowHosts: []string{"imds.evil.example", "internal.erp.local"}})
+	c.resolve = func(_ context.Context, h string) ([]net.IP, error) {
+		switch h {
+		case "imds.evil.example":
+			return []net.IP{ip("169.254.169.254")}, nil
+		case "internal.erp.local":
+			return []net.IP{ip("10.1.2.3")}, nil
+		}
+		return []net.IP{ip("8.8.8.8")}, nil
+	}
+
+	if err := c.validateTarget(context.Background(), "https://imds.evil.example/latest/meta-data/"); err == nil {
+		t.Fatal("link-local (IMDS) must stay blocked for allowlisted host")
+	}
+	if _, err := c.resolveDialIP(context.Background(), "imds.evil.example"); err == nil {
+		t.Fatal("dial to link-local must be blocked for allowlisted host")
+	}
+	// Приватный адрес allowlist-хота — по-прежнему разрешён (регрессия S-104).
+	if err := c.validateTarget(context.Background(), "https://internal.erp.local/hook"); err != nil {
+		t.Fatalf("allowlist private must still work: %v", err)
+	}
+}
+
 func TestSSRFConsidersAllResolvedIPs(t *testing.T) {
 	// Если хотя бы один A-запись публичная — пропускаем (не все IP приватные).
 	c := NewPolicyClient(0, Policy{})

@@ -461,12 +461,17 @@ func itoa(n int) string {
 
 func testConfig() stair.Config {
 	return stair.Config{
-		Width:             engineering.Length(900),
-		Height:            engineering.Length(2700),
-		Flight:            engineering.FlightStraight,
-		StepHeight:        engineering.Length(180),
-		StringerThickness: engineering.Length(50),
-		StepThickness:     engineering.Length(40),
+		Width:      engineering.Length(900),
+		Height:     engineering.Length(2700),
+		Flight:     engineering.FlightStraight,
+		StepHeight: engineering.Length(180),
+		// Стальной каркас: обе детали — лист лазерного раскроя 3–8 мм.
+		// Деревянные варианты (cosоур/проступь из дуба) эти значения
+		// поднимают под свой материал — см. woodTreads/steelTreads.
+		StringerThickness: engineering.Length(8),
+		StepThickness:     engineering.Length(6),
+		Material:          "STEEL-S235",
+		TreadMaterial:     "STEEL-S235",
 		Clearance:         engineering.Length(80),
 		RailingHeight:     engineering.Length(900),
 	}

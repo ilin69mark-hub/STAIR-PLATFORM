@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -115,10 +116,15 @@ type Client struct {
 	send       chan []byte
 	hub        *Hub
 	userID     string
+	ip         string
 	role       string
 	authorizer SubscriberAuthorizer
 	rooms      map[string]bool
 	mu         sync.RWMutex
+	// msgCount/msgWindowStart — счётчик входящих сообщений в скользящем
+	// окне (S-147, флуд-контроль): превышение закрывает соединение.
+	msgCount       int
+	msgWindowStart time.Time
 }
 
 // SubscriberAuthorizer проверяет право клиента подписаться на комнату
@@ -145,6 +151,22 @@ func WithSubscriberAuthorizer(a SubscriberAuthorizer) ConnectOption {
 	return func(c *Client) { c.authorizer = a }
 }
 
+// Лимиты WebSocket (S-147, S-141 №10, CWE-400): upgrade плодит pumps +
+// hub-записи без бюджета на клиента — флуд upgrade с валидной сессией
+// растит горутины/память хаба. Cap'ы щедрые (легитимный клиент — вкладки
+// браузера, единицы коннектов), но конечные.
+const (
+	// defaultMaxWSConnsPerUser — максимум одновременных коннектов одного userID.
+	defaultMaxWSConnsPerUser = 32
+	// defaultMaxWSConnsPerIP — максимум одновременных коннектов с одного IP
+	// (RemoteAddr-only, симметрично EDR-0014 §3.2.1).
+	defaultMaxWSConnsPerIP = 128
+	// maxWSMessagesPerWindow — максимум входящих сообщений от клиента за окно.
+	maxWSMessagesPerWindow = 200
+	// wsMessageWindow — окно флуд-контроля входящих сообщений.
+	wsMessageWindow = time.Minute
+)
+
 // Hub — центральный хаб для управления клиентами.
 type Hub struct {
 	clients    map[*Client]bool
@@ -154,18 +176,41 @@ type Hub struct {
 	unregister chan *Client
 	stop       chan struct{}
 	mu         sync.RWMutex
+	// maxPerUser/maxPerIP — cap'ы коннектов (S-147); 0 = без лимита
+	// (только для тестов, в проде всегда заданы дефолты).
+	maxPerUser int
+	maxPerIP   int
 }
 
-// NewHub создаёт новый хаб.
-func NewHub() *Hub {
-	return &Hub{
+// HubOption настраивает Hub при создании.
+type HubOption func(*Hub)
+
+// WithMaxConnsPerUser задаёт cap коннектов на userID.
+func WithMaxConnsPerUser(n int) HubOption {
+	return func(h *Hub) { h.maxPerUser = n }
+}
+
+// WithMaxConnsPerIP задаёт cap коннектов на IP.
+func WithMaxConnsPerIP(n int) HubOption {
+	return func(h *Hub) { h.maxPerIP = n }
+}
+
+// NewHub создаёт новый хаб (с дефолтными лимитами S-147).
+func NewHub(opts ...HubOption) *Hub {
+	h := &Hub{
 		clients:    make(map[*Client]bool),
 		broadcast:  make(chan []byte, 256),
 		rooms:      make(map[string]map[*Client]bool),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 		stop:       make(chan struct{}),
+		maxPerUser: defaultMaxWSConnsPerUser,
+		maxPerIP:   defaultMaxWSConnsPerIP,
 	}
+	for _, o := range opts {
+		o(h)
+	}
+	return h
 }
 
 // Run запускает хаб.
@@ -183,6 +228,20 @@ func (h *Hub) Run() {
 			return
 
 		case client := <-h.register:
+			if h.overConnLimit(client) {
+				// S-147 (S-141 №10): cap исчерпан — upgrade уже выполнен,
+				// поэтому рвём соединение и не регистрируем: pumps клиента
+				// завершатся (writePump — на закрытом send, readPump — на
+				// закрытом conn), горутины/память не растут. Close-кадр
+				// отсюда НЕ пишем: конкурентный WriteMessage с writePump —
+				// паника gorilla (один writer на conn).
+				log.Printf("WS: connection rejected: over limit (user=%s ip=%s)", client.userID, client.ip)
+				close(client.send)
+				if client.conn != nil {
+					_ = client.conn.Close()
+				}
+				continue
+			}
 			h.mu.Lock()
 			h.clients[client] = true
 			h.mu.Unlock()
@@ -255,6 +314,52 @@ func (h *Hub) ClientCountByUser(userID string) int {
 		}
 	}
 	return count
+}
+
+// ClientCountByIP возвращает количество клиентов с IP (S-147).
+func (h *Hub) ClientCountByIP(ip string) int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	count := 0
+	for client := range h.clients {
+		if client.ip == ip {
+			count++
+		}
+	}
+	return count
+}
+
+// overConnLimit — исчерпан ли cap коннектов для клиента (S-147, S-141
+// №10): лимит на userID или на IP. Пустой IP не считается (юнит-клиенты
+// без сети); 0-лимит = без ограничения. Небольшой TOCTOU между проверкой
+// и регистрацией допустим: задача cap'а — сдержать флуд порядков, а не
+// дать строгую семафорную гарантию.
+func (h *Hub) overConnLimit(c *Client) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.maxPerUser > 0 {
+		n := 0
+		for client := range h.clients {
+			if client.userID == c.userID {
+				n++
+			}
+		}
+		if n >= h.maxPerUser {
+			return true
+		}
+	}
+	if h.maxPerIP > 0 && c.ip != "" {
+		n := 0
+		for client := range h.clients {
+			if client.ip == c.ip {
+				n++
+			}
+		}
+		if n >= h.maxPerIP {
+			return true
+		}
+	}
+	return false
 }
 
 // ClientCount возвращает количество подключенных клиентов.
@@ -358,6 +463,7 @@ func HandleWebSocket(hub *Hub, w http.ResponseWriter, r *http.Request, userID st
 		send:   make(chan []byte, 256),
 		hub:    hub,
 		userID: userID,
+		ip:     remoteIP(r),
 		rooms:  make(map[string]bool),
 	}
 	for _, o := range opts {
@@ -368,6 +474,33 @@ func HandleWebSocket(hub *Hub, w http.ResponseWriter, r *http.Request, userID st
 
 	go client.writePump()
 	go client.readPump()
+}
+
+// remoteIP извлекает IP из RemoteAddr запроса (S-147): только host-часть,
+// без порта. Доверяем только RemoteAddr (XFF не читаем — симметрично
+// EDR-0014 §3.2.1 и S-112; за L7-прокси это IP балансировщика, cap всё
+// равно ограничивает суммарный флуд).
+func remoteIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// allowMessage — флуд-контроль входящих сообщений (S-147, S-141 №10):
+// не более maxWSMessagesPerWindow за wsMessageWindow. Превышение → false
+// (readPump закрывает соединение). Чистая от conn — unit-тестируема.
+func (c *Client) allowMessage() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := time.Now()
+	if now.Sub(c.msgWindowStart) >= wsMessageWindow {
+		c.msgWindowStart = now
+		c.msgCount = 0
+	}
+	c.msgCount++
+	return c.msgCount <= maxWSMessagesPerWindow
 }
 
 // readPump читает сообщения от клиента.
@@ -390,6 +523,15 @@ func (c *Client) readPump() {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("WS: read error: %v", err)
 			}
+			break
+		}
+
+		// S-147 (S-141 №10): флуд входящих сообщений — дроп соединения
+		// (defer закроет conn + снимет регистрацию). Close-кадр отсюда НЕ
+		// пишем: writer на conn — только writePump (конкурентный
+		// WriteMessage — паника gorilla); клиент увидит abnormal closure.
+		if !c.allowMessage() {
+			log.Printf("WS: message rate exceeded, closing connection (user=%s)", c.userID)
 			break
 		}
 

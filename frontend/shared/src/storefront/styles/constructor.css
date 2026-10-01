@@ -1,0 +1,465 @@
+/* ---- Constructor ---- */
+
+.panel {
+  background: var(--sp-card);
+  border: 1px solid var(--sp-border);
+  border-radius: 14px;
+  /* 16px вместо 22px: панель держит пять секций, и каждый лишний сантиметр
+     отступов съедал высоту тела открытой секции. */
+  padding: 16px;
+}
+
+.panel + .panel {
+  margin-top: 18px;
+}
+
+.panel h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+
+.panel .sub {
+  margin: 0 0 12px;
+  color: var(--sp-muted);
+  font-size: 13px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+/* Поля формы сгруппированы в блоки: заголовок секции + сетка полей.
+   Секции отделены друг от друга, чтобы глазами разбить форму на части. */
+.form-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.form-section__title {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: var(--sp-text);
+  border-bottom: 1px solid var(--sp-border);
+  padding-bottom: 6px;
+}
+
+/* Предупреждение о расчёте без габаритов помещения: текст + две кнопки. */
+.room-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.room-prompt__actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  /* min-width: 0 — иначе .field не сжимается и длинная подпись ползунка
+     распирает секцию (см. .field-label). */
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Атрибут hidden (скрытие нерелевантных полей марша) не должен
+   перекрываться правилом выше. */
+.field[hidden] {
+  display: none;
+}
+
+.field label {
+  font-size: 13px;
+  color: var(--sp-muted);
+}
+
+.field-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* min-width: 0 обязателен. Флекс-потомок по умолчанию имеет min-width: auto,
+     то есть не сжимается уже своего контента. В шапке ползунка .slider__label
+     — nowrap, поэтому длинная подпись («Свободное место перед маршем»)
+     распирала .field-label, тот — .slider__head, и тело секции получало
+     горизонтальную полосу прокрутки. */
+  min-width: 0;
+}
+
+.field-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--sp-border);
+  color: var(--sp-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: help;
+  user-select: none;
+}
+
+.field-help:focus-visible {
+  outline: 2px solid var(--sp-primary);
+  outline-offset: 1px;
+}
+
+.field-help-tip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 240px;
+  padding: 8px 10px;
+  background: #2b2f36;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.field-help:hover .field-help-tip,
+.field-help:focus-visible .field-help-tip {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Базовые отступы — ТОЛЬКО для обычных текстовых полей.
+   Селекторы :not() здесь не косметика: правило с specificity (0,2,3)
+   перебивает .slider__number (0,1,0) и .slider__range, из-за чего оба
+   получали padding 10px 12px и унаследованный шрифт 14px. В боксе 42px
+   оставалось 16px контента, и четырёхзначные числа обрезались; у
+   ползунка padding съедал всю высоту дорожки, а у галочки 14px — больше,
+   чем сумма отступов.
+   :not(.slider__number) обязателен отдельно: числовой чип ползунка — это
+   type="text", а не checkbox и не range, так что два первых :not() его НЕ
+   исключали. На живой странице чип получал padding 10px 12px и font:
+   inherit (16px) — 54×46.8px вместо расчётных 54×16.4px, content-box 28px,
+   и четырёхзначные значения обрезались. Специфичность, порядок правил и
+   правки самого controls.css от этого не спасали. */
+.field input:not([type='checkbox']):not([type='range']):not(.slider__number),
+.field select {
+  padding: 10px 12px;
+  border: 1px solid var(--sp-border);
+  border-radius: 8px;
+  font: inherit;
+  background: #fff;
+}
+
+.field input.field-invalid {
+  border-color: var(--sp-error);
+}
+
+.field .checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* 3px 8px вместо 10px 12px: блок в 38px высотой съедал строку ради
+     одного слова «Да». */
+  padding: 3px 8px;
+  border: 1px solid var(--sp-border);
+  border-radius: 6px;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.field .checkbox input[type='checkbox'] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--sp-primary);
+  cursor: pointer;
+}
+
+/* Подпись и переключатель в одну строку — для «Подступень» это экономит
+   ~20px высоты панели. */
+.field--inline {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.field input:focus,
+.field select:focus {
+  outline: 2px solid var(--sp-primary);
+  outline-offset: -1px;
+}
+
+.field .error {
+  font-size: 12px;
+  color: var(--sp-error);
+}
+
+.issue {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 0;
+}
+
+.issue-param {
+  font-size: 13px;
+  color: var(--sp-muted);
+}
+
+.issue-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px dashed var(--sp-border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+
+.alert {
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 12px 0;
+  font-size: 14px;
+}
+
+.alert--error {
+  background: #fdecea;
+  border: 1px solid #f5c6c2;
+  color: var(--sp-error);
+}
+
+.alert--warn {
+  background: #fdecec;
+  border: 1px solid #f2c9c6;
+  color: var(--sp-warn);
+}
+
+.rescue {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-gap);
+  flex-wrap: wrap;
+}
+
+.rescue__text {
+  max-width: 60ch;
+}
+
+.alert--ok {
+  background: #e9f7f0;
+  border: 1px solid #c3e8d5;
+  color: var(--sp-primary-dark);
+}
+
+/* ---- Готовые решения (пресеты) ---- */
+
+/* ---- Выбор материала (реальные PBR-текстуры) ---- */
+
+.material-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: var(--sp-gap-sm);
+}
+
+.material-picker__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--sp-border, #d8dde3);
+  border-radius: var(--sp-radius, 8px);
+  background: var(--sp-surface, #fff);
+  cursor: pointer;
+  text-align: center;
+}
+
+.material-picker__item:hover {
+  border-color: var(--sp-primary, #2f6fd0);
+}
+
+.material-picker__item.is-active {
+  border-color: var(--sp-primary, #2f6fd0);
+  box-shadow: 0 0 0 2px rgba(47, 111, 208, 0.18);
+}
+
+.material-picker__swatch {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #eceff3;
+}
+
+.material-picker__label {
+  font-size: 0.82rem;
+  line-height: 1.15;
+}
+
+.material-picker__hint {
+  font-size: 0.7rem;
+  opacity: 0.6;
+}
+
+/* ---- Варианты A/B/C (галерея) ---- */
+
+.variation-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+/* Варианты — простой список строк во всю ширину. Галерея «главная карточка +
+   миниатюры» (58%/42%) в панели 460px сжимала главную до ~250px, и подписи
+   вариантов наезжали друг на друга и обрезались. */
+.variation-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.variation-picker__row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  /* min-width: 0 обязателен: flex-потомок с min-width:auto по содержимому не
+     сжимается, и длинная подпись распирала строку за пределы панели. */
+  min-width: 0;
+  padding: 6px 8px;
+  text-align: left;
+  font: inherit;
+  color: var(--sp-text);
+  background: var(--sp-card);
+  border: 1px solid var(--sp-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.variation-picker__row:hover {
+  border-color: #c3d2cc;
+  background: rgba(11, 110, 79, 0.04);
+}
+
+.variation-picker__row--plain {
+  cursor: default;
+  border-color: rgba(11, 110, 79, 0.28);
+  background: rgba(11, 110, 79, 0.05);
+}
+
+.variation-picker__row--plain:hover {
+  border-color: rgba(11, 110, 79, 0.28);
+  background: rgba(11, 110, 79, 0.05);
+}
+
+.variation-picker__title {
+  font-size: 12.5px;
+  font-weight: 600;
+  /* Перенос по словам: заголовок варианта — единственное, что нельзя резать. */
+  overflow-wrap: anywhere;
+}
+
+.variation-picker__summary {
+  font-size: 11.5px;
+  color: var(--sp-muted);
+  overflow-wrap: anywhere;
+}
+
+/* Применённый вариант: строка + кнопка «Изменить» рядом. */
+.variation-picker--applied {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.variation-picker--applied .variation-picker__row {
+  flex: 1 1 auto;
+}
+
+.variation-picker__change {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  font-size: 11.5px;
+  border-radius: 7px;
+}
+
+/* ---- Result / price ---- */
+
+.price-box {
+  background: linear-gradient(135deg, var(--sp-primary), var(--sp-primary-dark));
+  color: #fff;
+  border-radius: 14px;
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.price-box .price-label {
+  opacity: 0.85;
+  font-size: 14px;
+}
+
+.price-box .price-value {
+  font-size: 32px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px 20px;
+  margin: 14px 0 0;
+}
+
+.kv > div {
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px dashed var(--sp-border);
+  padding: 6px 0;
+}
+
+.kv dt {
+  color: var(--sp-muted);
+}
+
+.kv dd {
+  margin: 0;
+  font-weight: 600;
+}
+

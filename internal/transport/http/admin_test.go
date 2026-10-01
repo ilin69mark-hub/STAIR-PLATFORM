@@ -86,6 +86,9 @@ func (a *adminErrAuth) RevokeApiKey(ctx context.Context, tenantID, actorID, keyI
 	return nil
 }
 
+// RevokeApiKeysByUser — отзыв всех ключей пользователя (SEC-007).
+func (a *adminErrAuth) RevokeApiKeysByUser(context.Context, string, string) error { return nil }
+
 func TestUpdateUserStatusAsAdmin(t *testing.T) {
 	router := NewRouter(nil, nil, adminAuth{}, DefaultConfig())
 	req := authedRequest(http.MethodPatch, "/api/v1/admin/users/u-2", `{"status":"disabled"}`)

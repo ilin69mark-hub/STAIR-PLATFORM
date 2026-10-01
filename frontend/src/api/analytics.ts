@@ -2,7 +2,13 @@
 // Все эндпоинты требуют admin + право analytics.read.
 
 import { get } from './client'
-import type { CostReport, ManufacturingReport, ProjectReport, UsageReport } from '@shared/types'
+import type {
+  CostReport,
+  FunnelReport,
+  ManufacturingReport,
+  ProjectReport,
+  UsageReport,
+} from '@shared/types'
 
 export interface UsageQuery {
   from?: string
@@ -36,4 +42,10 @@ export const analyticsApi = {
 
   cost: (query: UsageQuery = {}) =>
     get<CostReport>(`/api/v1/admin/analytics/cost${qs(query)}`),
+
+  // Воронка витрины: куда идёт трафик, где затык и где бросают. Не
+  // «аналитика использования» из БД: там операционные таблицы, здесь —
+  // события посетителей, собранные после его согласия.
+  funnel: (query: RangeQuery = {}) =>
+    get<FunnelReport>(`/api/v1/admin/analytics/funnel${qs(query)}`),
 }

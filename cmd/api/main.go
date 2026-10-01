@@ -18,18 +18,22 @@ import (
 	appast "stairplatform/internal/application/assistant"
 	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/auth"
+	"stairplatform/internal/application/funnel"
 	"stairplatform/internal/application/integrations"
 	"stairplatform/internal/application/jobs"
 	orderapp "stairplatform/internal/application/order"
 	"stairplatform/internal/application/payments"
 	"stairplatform/internal/application/project"
+	storeapp "stairplatform/internal/application/store"
 	testimonialapp "stairplatform/internal/application/testimonial"
 	domevents "stairplatform/internal/domain/events"
 	"stairplatform/internal/infrastructure/circuitbreaker"
+	"stairplatform/internal/infrastructure/envguard"
 
 	"stairplatform/internal/application/stair"
 	appstorage "stairplatform/internal/application/storage"
 	"stairplatform/internal/infrastructure/database"
+	"stairplatform/internal/infrastructure/database/migguard"
 	"stairplatform/internal/infrastructure/events"
 	"stairplatform/internal/infrastructure/health"
 	"stairplatform/internal/infrastructure/oidc"
@@ -121,10 +125,23 @@ func main() {
 	}()
 
 	// Применяем миграции при старте (идемпотентно).
+	//
+	// DB-001 (forensic 2026-09-27): отказ здесь не означает «сбой БД» —
+	// часто это dirty-состояние, в которое схема попала из-за ПРОШЛОЙ
+	// неудачной миграции, и которое оператор обязан снять явно. Раньше
+	// выводилось общее «database migrate failed», и единственным известным
+	// способом выйти было писать SQL руками (флага -force в CLI не было).
+	// Теперь сообщение называет конкретные команды.
 	migrateCtx, migrateCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer migrateCancel()
 	if err := database.Migrate(migrateCtx, pool, "migrations", "up"); err != nil {
-		slog.Error("database migrate failed", "error", err)
+		if errors.Is(err, migguard.ErrDirtyState) {
+			slog.Error("database migration blocked: dirty schema version",
+				"error", err,
+				"action", "см. сообщение: preflight → устранить нарушения → -force <version> -yes")
+		} else {
+			slog.Error("database migrate failed", "error", err)
+		}
 		os.Exit(1)
 	}
 
@@ -133,12 +150,34 @@ func main() {
 	// Analytics (EDR-0028, Phase F): read-only агрегации Usage Analytics.
 	analyticsSvc := analytics.NewService(database.NewAnalyticsRepository(pool))
 
+	// Воронка витрины (миграция 000035): приём клиентских событий и отчёт.
+	// Отдельный сервис, а не часть business-аналитики: там источник — БД, тут
+	// — события, которые присылает посетитель после согласия.
+	funnelSvc := funnel.NewService(database.NewFunnelRepository(pool), nil)
+	// Соль псевдонима посетителя. Без неё уникальных посетителей посчитать
+	// нечем (у всех visitor=''), и это осознанный режим приватности, а не
+	// поломка: соль живёт в окружении, а не в коде.
+	funnelVisitorSalt := os.Getenv("STAIR_ANALYTICS_SALT")
+	funnelSvc.SetVisitorIdentity(funnelVisitorSalt != "")
+	if funnelVisitorSalt == "" {
+		slog.Warn("api: STAIR_ANALYTICS_SALT не задан — уникальные посетители не считаются")
+	}
+
 	// Readyness/честная очередь заданий (EDR-0020): Redis-бэкенд при наличии
 	// STAIR_REDIS_ADDR, иначе in-memory (single-instance). Queue нужна
 	// интеграциям (ERP quote, EDR-0023) и воркеру.
 	queueBackend := newAPIQueueBackend(os.Getenv("STAIR_REDIS_ADDR"))
 
-	stairSvc := stair.NewService()
+	// Store (волна 0 «store admin»): настройки магазина и прайс материалов в ₽/кг.
+	// Отсюда берут ставки И витрина, И расчёт — цена на сайте и в расчёте не
+	// расходится (CRITICAL-03: раньше подкладывал ставки только публичный путь,
+	// а девять авторизованных маршрутов падали в engprc.DefaultRates()).
+	storeSvc := storeapp.NewService(database.NewStoreRepository(pool))
+
+	// Ставки магазина подключены к сервису расчёта: transport больше не решает,
+	// откуда брать цены, — источник выбирает stair.Service.resolveRates по
+	// Options.TenantID.
+	stairSvc := stair.NewServiceWithRates(storeSvc)
 	projectSvc := project.NewService(
 		database.NewProjectRepository(pool),
 		stairSvc,
@@ -149,10 +188,17 @@ func main() {
 	intSvc := integrations.NewService(database.NewIntegrationRepository(pool), queueBackend.Queue())
 	// S-104: нормализованный продакшен-детект (используется S1-2-гардом
 	// и Stripe-guard'ом ниже).
-	env := os.Getenv("STAIR_ENVIRONMENT")
-	isProduction := strings.EqualFold(env, "production") || strings.EqualFold(env, "prod")
+	// S-151: пустое/неизвестное STAIR_ENVIRONMENT — fail-fast: опечатка
+	// молча отключала прод-гарды (шифрование секретов, Stripe, SSRF).
+	env, envErr := envguard.Validate(os.Getenv("STAIR_ENVIRONMENT"))
+	if envErr != nil {
+		slog.Error("invalid STAIR_ENVIRONMENT", "error", envErr)
+		os.Exit(1)
+	}
+	isProduction := envguard.IsProduction(env)
 	// S1-2: шифрование webhook-секретов at rest (STAIR_SECRETS_KEY, hex 64).
 	// S-104: в проде ключ обязателен — без него webhook-секреты лежат plaintext.
+	// AUDIT-EXCEPTION(E01): мастер-ключ задаёт человек, см. docs/SECURITY_EXCEPTIONS.yml
 	if keyHex := os.Getenv("STAIR_SECRETS_KEY"); keyHex != "" {
 		key, err := secrets.KeyFromHex(keyHex)
 		if err != nil {
@@ -200,7 +246,9 @@ func main() {
 	//     сам деградирует в FTS (не проваливает ответ).
 	// Память: TTL-очистка STAIR_AI_MEMORY_TTL (default 30 суток) фоновой
 	// горутиной; в контекст ответа попадают последние history_limit сообщений
-	// проекта (D1–D4, скоуп проверяется хранилищем по FK tenant+project).
+	// проекта (D1–D4). Доступ гейтится членством вызывающего в проекте
+	// (S-142, WithProjectAuthz ниже); хранилище дополнительно скоупит по
+	// tenant+project (FK).
 	aiRepo := database.NewAIRepository(pool)
 	var ragRetriever appast.Retriever
 	if embedBase := os.Getenv("STAIR_AI_EMBED_BASE_URL"); embedBase != "" {
@@ -221,7 +269,17 @@ func main() {
 	}
 	assistantSvc = assistantSvc.
 		WithRAG(ragRetriever, envInt("STAIR_AI_RAG_TOP_K", 5)).
-		WithMemory(aiRepo)
+		WithMemory(aiRepo).
+		// S-142 (IDOR-фикс S-141 №1): conversation-memory скоупится по
+		// project_id из тела запроса — гейтим членством в проекте.
+		WithProjectAuthz(projectSvc)
+	// S-148 (S-141 №14): глобальный дневной лимит LLM-попыток — защита счёта
+	// OpenRouter от мультиаккаунтного обхода per-user лимита. 0/unset =
+	// без лимита; исчерпан — только локальный бэкенд + метрика для алерта.
+	if dailyBudget := envInt("STAIR_AI_DAILY_LLM_BUDGET", 0); dailyBudget > 0 {
+		assistantSvc = assistantSvc.WithBudget(appast.NewBudget(int64(dailyBudget)))
+		slog.Info("assistant: daily LLM budget enforced", "max_calls", dailyBudget)
+	}
 
 	// Фоновая TTL-очистка conversation-memory (S-135): запускаем при старте
 	// и далее раз в memoryTTL. Best-effort: сбой prune не валит процесс.
@@ -296,12 +354,14 @@ func main() {
 		paymentProvider = paymentsinfra.NewMockProvider(envString("STAIR_PAYMENT_BASE_URL", "http://localhost:8080"))
 		slog.Info("payments: using mock provider (dev only)")
 	}
+	paymentRepo := database.NewPaymentRepository(pool)
 	paymentSvc := payments.NewService(
-		database.NewPaymentRepository(pool),
+		paymentRepo,
 		paymentProvider,
 		paymentsinfra.NewVerifier(),
 		0,
 	)
+	paymentAdminSvc := payments.NewAdminService(paymentRepo, paymentProvider)
 	// Stripe webhook: подключаем application payments.Service как обработчик
 	// интентов (подпись проверяет ad-hoc Stripe-реализация). Совместимость с
 	// тестами сохранена — процессор подключается отдельным сеттером.
@@ -350,8 +410,19 @@ func main() {
 	corsOrigins := envStringSlice("STAIR_CORS_ORIGINS", []string{"http://localhost:3000"})
 	wsOrigins := wsAllowedOrigins(corsOrigins)
 
+	// SEC-006 (2026-09-26): сессионная cookie без флага Secure передаётся по
+	// любому HTTP-участку пути, поэтому в проде это обязательный параметр.
+	// Гард по образцу STAIR_SECRETS_KEY / STAIR_STRIPE_SECRET_KEY: в проде
+	// отсутствие переменной — повод не стартовать, а не предупреждение.
+	cookieSecure := envBool("STAIR_COOKIE_SECURE", false)
+	if isProduction && !cookieSecure {
+		slog.Error("STAIR_COOKIE_SECURE must be true in production " +
+			"(session cookie without Secure flag is sent over plain HTTP)")
+		os.Exit(1)
+	}
+
 	cfg := transporthttp.Config{
-		CookieSecure:       envBool("STAIR_COOKIE_SECURE", false),
+		CookieSecure:       cookieSecure,
 		LoginRateLimit:     envInt("STAIR_LOGIN_RATE_LIMIT", 10),
 		LoginRateWindow:    time.Minute,
 		RegisterRateLimit:  envInt("STAIR_REGISTER_RATE_LIMIT", 5),
@@ -366,21 +437,35 @@ func main() {
 		SsoRateWindow:      time.Minute,
 		// S-120: доверенные L7-прокси (CIDR/IP через запятую) — только от них
 		// per-IP rate-limiter принимает X-Forwarded-For; пусто — XFF игнор (S-112).
-		TrustedProxies:        os.Getenv("STAIR_TRUSTED_PROXIES"),
-		RedisAddr:             os.Getenv("STAIR_REDIS_ADDR"),
-		MaxBodyBytes:          1 << 20,
-		InstanceID:            instanceID,
-		ShutdownTimeout:       shutdownTimeout,
-		Region:                region,
-		Integrations:          intSvc,
-		Storage:               storageSvc,
+		TrustedProxies:  os.Getenv("STAIR_TRUSTED_PROXIES"),
+		RedisAddr:       os.Getenv("STAIR_REDIS_ADDR"),
+		MaxBodyBytes:    1 << 20,
+		InstanceID:      instanceID,
+		ShutdownTimeout: shutdownTimeout,
+		Region:          region,
+		Integrations:    intSvc,
+		Storage:         storageSvc,
+		// Этап 1 «студийный 3D»: раздача PBR-текстур и HDRI по
+		// /static-assets/ (иммутабельный кэш, только GET/HEAD).
+		StaticAssetsDir: envOr("STAIR_STATIC_ASSETS_DIR", "assets"),
+		// Этап 4: источники сайта, которым разрешён мутирующий запрос с
+		// double-submit CSRF. Сайт (Next.js) и API в проде на разных доменах,
+		// а прокси подменяет Host — без списка оплата с витрины даёт 403.
+		CSRFAllowedOrigins:    envStringSlice("STAIR_CSRF_ALLOWED_ORIGINS", nil),
 		Payments:              paymentSvc,
+		PaymentAdmin:          paymentAdminSvc,
 		PaymentsWebhookSecret: paymentWebhookSecret,
+		Store:                 storeSvc,
 		Analytics:             analyticsSvc,
-		Jobs:                  jobsSvc,
-		Assistant:             assistantSvc,
-		Orders:                ordersSvc,
-		Testimonials:          testimonialSvc,
+		Funnel:                funnelSvc,
+		// Соль псевдонима посетителя. Пусто — посетитель не идентифицируется
+		// (visitor=''), остаются только session_id. Задаётся переменной
+		// окружения, а не константой: секрет не должен попадать в репозиторий.
+		FunnelVisitorSalt: funnelVisitorSalt,
+		Jobs:              jobsSvc,
+		Assistant:         assistantSvc,
+		Orders:            ordersSvc,
+		Testimonials:      testimonialSvc,
 		SecurityConfig: &transporthttp.SecurityConfig{
 			AllowedOrigins: corsOrigins,
 			EnableHSTS:     envBool("STAIR_HSTS_ENABLED", false),

@@ -50,10 +50,22 @@ const (
 	PermissionOrdersList Permission = "orders.list"
 	// PermissionOrdersManage — смена статуса заказа (Store).
 	PermissionOrdersManage Permission = "orders.manage"
+	// PermissionPaymentsList — просмотр платежей tenant (админ).
+	PermissionPaymentsList Permission = "payments.list"
+	// PermissionPaymentsManage — ручной возврат платежа (админ).
+	PermissionPaymentsManage Permission = "payments.manage"
 	// PermissionTestimonialsList — просмотр отзывов клиентов (Store).
 	PermissionTestimonialsList Permission = "testimonials.list"
 	// PermissionTestimonialsManage — создание/редактирование отзывов (Store).
 	PermissionTestimonialsManage Permission = "testimonials.manage"
+	// PermissionStoreSettingsRead — чтение настроек магазина (волна 0).
+	PermissionStoreSettingsRead Permission = "store.settings.read"
+	// PermissionStoreSettingsWrite — правка настроек магазина (волна 0).
+	PermissionStoreSettingsWrite Permission = "store.settings.write"
+	// PermissionStorePricesRead — чтение прайса материалов магазина (волна 0).
+	PermissionStorePricesRead Permission = "store.prices.read"
+	// PermissionStorePricesWrite — правка прайса материалов магазина (волна 0).
+	PermissionStorePricesWrite Permission = "store.prices.write"
 )
 
 // AllPermissions возвращает полный набор известных прав системы.
@@ -65,7 +77,10 @@ func AllPermissions() []Permission {
 		PermissionUsersManage, PermissionSettingsRead, PermissionSettingsWrite,
 		PermissionDataExport, PermissionApiKeysManage, PermissionIntegrationsManage,
 		PermissionAnalyticsRead, PermissionOrdersList, PermissionOrdersManage,
+		PermissionPaymentsList, PermissionPaymentsManage,
 		PermissionTestimonialsList, PermissionTestimonialsManage,
+		PermissionStoreSettingsRead, PermissionStoreSettingsWrite,
+		PermissionStorePricesRead, PermissionStorePricesWrite,
 	}
 }
 
@@ -89,7 +104,10 @@ func (r Role) Permissions() []Permission {
 			PermissionUsersManage, PermissionSettingsRead, PermissionSettingsWrite,
 			PermissionDataExport, PermissionApiKeysManage, PermissionIntegrationsManage,
 			PermissionAnalyticsRead, PermissionOrdersList, PermissionOrdersManage,
+			PermissionPaymentsList, PermissionPaymentsManage,
 			PermissionTestimonialsList, PermissionTestimonialsManage,
+			PermissionStoreSettingsRead, PermissionStoreSettingsWrite,
+			PermissionStorePricesRead, PermissionStorePricesWrite,
 		}
 	case RoleUser:
 		return nil
@@ -306,6 +324,27 @@ type Repository interface {
 	GetApiKeyByTokenHash(ctx context.Context, tokenHash string) (*ApiKey, error)
 	// RevokeApiKey отзывает ключ (мягко: revoked_at); ErrNotFound — нет.
 	RevokeApiKey(ctx context.Context, tenantID, keyID string) error
+	// RevokeApiKeysByUser отзывает ВСЕ API-ключи пользователя (мягко:
+	// revoked_at = now). Вызывается при блокировке учётной записи вместе с
+	// DeleteUserSessions: сессии и ключи — два независимых способа войти,
+	// и отзыв только сессий оставлял «чёрный вход» через Bearer.
+	//
+	// Deprecated: для блокировки используйте DisableUser — здесь отказ ключей
+	// отделён от смены статуса отдельным вызовом, и сбой одного из них
+	// оставлял учётную запись в промежуточном состоянии (CRITICAL-05).
+	RevokeApiKeysByUser(ctx context.Context, tenantID, userID string) error
+	// DisableUser АТОМАРНО блокирует учётную запись: статус → disabled,
+	// удаление всех сессий и отзыв всех API-ключей в одной транзакции
+	// (CRITICAL-05, 2026-09-27).
+	//
+	// Почему одна транзакция: раньше UpdateUser вызывал UpdateUserStatus,
+	// DeleteUserSessions и RevokeApiKeysByUser тремя отдельными вызовами, при
+	//чём ошибки последних двух глотались через `_ =`. Сбой отзыва ключей при
+	// уже применённой блокировке давал «заблокированного» пользователя с
+	// работающим Bearer-ключом, и заметить это можно было только в логах.
+	//
+	// ErrNotFound — пользователя нет в tenant (или вовсе).
+	DisableUser(ctx context.Context, tenantID, userID string) error
 	// TouchApiKey обновляет last_used_at (использование ключа).
 	TouchApiKey(ctx context.Context, keyID string) error
 

@@ -47,7 +47,7 @@ func TestAuditInsertAndList(t *testing.T) {
 		}
 	}
 
-	byProject, err := ar.ListByProject(ctx, tenant, p.ID)
+	byProject, err := ar.ListByProject(ctx, tenant, p.ID, 0)
 	if err != nil {
 		t.Fatalf("ListByProject: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestAuditInsertAndList(t *testing.T) {
 		t.Fatalf("expected newest first (ProjectModified), got %q", byProject[0].Action)
 	}
 
-	byTenant, err := ar.ListByTenant(ctx, tenant)
+	byTenant, err := ar.ListByTenant(ctx, tenant, 0)
 	if err != nil {
 		t.Fatalf("ListByTenant: %v", err)
 	}
@@ -79,12 +79,18 @@ func TestAuditListForeignTenant(t *testing.T) {
 	if err := repo.CreateProject(ctx, tenant, owner, p); err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	if err := ar.Insert(ctx, &audit.Event{TenantID: tenant, ProjectID: p.ID, Action: audit.ActionProjectCreated}); err != nil {
+	// Result обязателен: audit.Event.Validate() отвергает пустой результат
+	// («unknown result ""»). Все 12 production-сайтов аудита задают его явно
+	// (fail-closed), фикстура должна делать то же.
+	if err := ar.Insert(ctx, &audit.Event{
+		TenantID: tenant, ProjectID: p.ID,
+		Action: audit.ActionProjectCreated, Result: audit.ResultOK,
+	}); err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
 
 	// Чужой tenant (не существует) не видит события проекта.
-	byProject, err := ar.ListByProject(ctx, "00000000-0000-0000-0000-000000000000", p.ID)
+	byProject, err := ar.ListByProject(ctx, "00000000-0000-0000-0000-000000000000", p.ID, 0)
 	if err != nil {
 		t.Fatalf("ListByProject: %v", err)
 	}

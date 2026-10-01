@@ -23,6 +23,18 @@ func (f *fakeRepo) Create(_ context.Context, j *Job) error {
 	return nil
 }
 
+// GetByIDForUser — user-скоупная выборка (SEC-004).
+func (f *fakeRepo) GetByIDForUser(_ context.Context, tenantID, userID, id string) (*Job, error) {
+	j, err := f.GetByID(context.Background(), tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if j.UserID != "" && j.UserID != userID {
+		return nil, ErrNotFound
+	}
+	return j, nil
+}
+
 func (f *fakeRepo) GetByID(_ context.Context, tenantID, id string) (*Job, error) {
 	j, ok := f.jobs[id]
 	if !ok || j.TenantID != tenantID {

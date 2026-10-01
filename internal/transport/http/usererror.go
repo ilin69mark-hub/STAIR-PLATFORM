@@ -79,6 +79,13 @@ func userInputMessage(err error) string {
 		return "Высота перил не может быть отрицательной."
 	case strings.Contains(msg, "landing width must not be negative"):
 		return "Ширина площадки не может быть отрицательной."
+	case strings.Contains(msg, "machine_per_hour_rub must not be negative"),
+		strings.Contains(msg, "labor_per_hour_rub must not be negative"):
+		return "Ставка станка или труда не может быть отрицательной."
+	case strings.Contains(msg, "must be within 0..100"):
+		return "Процент накладных, маржи, скидки или НДС должен быть от 0 до 100."
+	case strings.Contains(msg, "unknown material"):
+		return "Такого материала нет в каталоге."
 	}
 	return "Некорректный запрос. Проверьте переданные параметры."
 }

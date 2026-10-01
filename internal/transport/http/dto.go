@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"encoding/json"
 	"math"
 
@@ -8,7 +9,6 @@ import (
 	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
 	domprc "stairplatform/internal/domain/pricing"
-	engprc "stairplatform/internal/engine/pricing"
 	"stairplatform/internal/engine/solver"
 )
 
@@ -35,30 +35,49 @@ type calculateRequest struct {
 	LowerStepCount      int     `json:"lower_step_count,omitempty"`
 	OuterRadiusMM       float64 `json:"outer_radius_mm,omitempty"`
 	Material            string  `json:"material,omitempty"`
+	// TreadMaterial — материал СТУПЕНЕЙ (проступи, площадки, поворотные
+	// ступени), отдельно от материала каркаса. Пусто → наследуется от
+	// material (лестница из одного материала). Нужен потому, что у дерева
+	// минимальная толщина 20 мм, а стальной косоур бывает 6–10 мм: одним
+	// полем материал оба случая не описать.
+	TreadMaterial string `json:"tread_material,omitempty"`
+	// RiserThicknessMM — толщина подступенка. Пусто → равна толщине ступени.
+	// Отдельно, потому что подступенок — деталь каркаса: стальной подступенок
+	// под деревянной проступью должен остаться тонким.
+	RiserThicknessMM float64 `json:"riser_thickness_mm,omitempty"`
+	// Тип поворота маршей с площадкой (DOM-001, CONF-TURN-KIND) и число
+	// поворотных ступеней.
+	//
+	// ДО 2026-09-26 этих полей НЕ БЫЛО в DTO, хотя вся функциональность
+	// поворотных ступеней была реализована в солвере, геометрии, построителе
+	// перил и advisor'е. Клиент, отправивший turn_kind=winder, молча получал
+	// HTTP 200 valid:true и лестницу С ПЛОЩАДКОЙ вместо поворотных ступеней
+	// (воспроизведено: upper_step_count=10 вместо n1=7 + nw=5 + n2=5).
+	TurnKind    string `json:"turn_kind,omitempty"`    // platform|winder (пусто = platform)
+	WinderCount int    `json:"winder_count,omitempty"` // nw, >= 3, только при turn_kind=winder
 	// Перила и направления (CONF-RAILING/DIRECTION/SPIRAL).
-	Railing         string    `json:"railing,omitempty"`          // прямой: none|left|right|both
-	RailingLower    string    `json:"railing_lower,omitempty"`    // L/U: первый марш
-	RailingLanding  string    `json:"railing_landing,omitempty"`  // L/U: площадка
-	RailingUpper    string    `json:"railing_upper,omitempty"`    // L/U: второй марш
-	Direction       string    `json:"direction,omitempty"`        // L/U: left|right (поворот площадки)
-	SpiralDirection string    `json:"spiral_direction,omitempty"` // спираль: cw|ccw
-	Rates           *ratesDTO `json:"rates,omitempty"`
-}
-
-// ratesDTO — опциональное переопределение ставок цены (в руб/натуральной
-// единице); пустые поля наследуются от DefaultRates.
-type ratesDTO struct {
-	MaterialPerKg struct {
-		STEEL_S235 float64 `json:"STEEL-S235"`
-		ALUM_5083  float64 `json:"ALUM-5083"`
-		WOOD_OAK   float64 `json:"WOOD-OAK"`
-	} `json:"material_per_kg_rub"`
-	MachinePerHour  float64 `json:"machine_per_hour_rub,omitempty"`
-	LaborPerHour    float64 `json:"labor_per_hour_rub,omitempty"`
-	OverheadPercent float64 `json:"overhead_percent,omitempty"`
-	MarginPercent   float64 `json:"margin_percent,omitempty"`
-	DiscountPercent float64 `json:"discount_percent,omitempty"`
-	TaxPercent      float64 `json:"tax_percent,omitempty"`
+	Railing         string `json:"railing,omitempty"`          // прямой: none|left|right|both
+	RailingLower    string `json:"railing_lower,omitempty"`    // L/U: первый марш
+	RailingLanding  string `json:"railing_landing,omitempty"`  // L/U: площадка
+	RailingUpper    string `json:"railing_upper,omitempty"`    // L/U: второй марш
+	Direction       string `json:"direction,omitempty"`        // L/U: left|right (поворот площадки)
+	SpiralDirection string `json:"spiral_direction,omitempty"` // спираль: cw|ccw
+	// Rates — СТАВКИ ЦЕНЫ, ПРИНИМАЕМЫЕ ИЗ ТЕЛА ЗАПРОСА, ЗАПРЕЩЕНЫ (SEC-001).
+	//
+	// Поле намеренно осталось в DTO, но ТОЛЬКО как детектор присутствия:
+	// значение НИКОГДА не декодируется и не применяется к расчёту. Любой
+	// непустой `rates` отклоняется 422 rates_not_allowed во всех маршрутах
+	// расчёта (см. rejectClientRates).
+	//
+	// До 2026-09-26 поле было *ratesDTO и подставлялось в stair.Options.Rates
+	// на 9 авторизованных маршрутах. Аутентифицированный клиент мог отправить
+	// margin=0.0001, discount=99.999, tax=0.0001, material_per_kg=0.01 и
+	// получить цену 0 руб вместо 3 832 042 руб (воспроизведено на
+	// POST /api/v1/stairs:calculate). Публичный quote был защищён явно
+	// (public.go), аутентифицированные пути — нет. Источником ставок теперь
+	// может быть только сервер: engprc.DefaultRates() либо ставки магазина
+	// (store_rates через publicStoreRates).
+	Rates json.RawMessage `json:"rates,omitempty"`
 }
 
 // optimizeRequest — запрос оптимизации конфигурации (POST /api/v1/stairs:optimize).
@@ -185,6 +204,10 @@ type configEcho struct {
 	RailingUpper        string
 	Direction           string
 	SpiralDirection     string
+	// DOM-001: эхо типа поворота и числа поворотных ступеней, чтобы клиент
+	// видел, ЧТО ИМЕННО посчитано (а не угадывал по upper_step_count).
+	TurnKind    string
+	WinderCount int
 }
 
 func flightEcho(r stair.Result) configEcho {
@@ -199,6 +222,8 @@ func flightEcho(r stair.Result) configEcho {
 		RailingUpper:        string(r.RailingUpper),
 		Direction:           string(r.Direction),
 		SpiralDirection:     string(r.SpiralDir),
+		TurnKind:            string(r.TurnKind),
+		WinderCount:         r.WinderCount,
 	}
 }
 
@@ -257,6 +282,11 @@ type ushapeDTO struct {
 	RailingLanding string `json:"railing_landing,omitempty"`
 	RailingUpper   string `json:"railing_upper,omitempty"`
 	Direction      string `json:"direction,omitempty"`
+	// DOM-001: тип поворота и число поворотных ступеней. При turn_kind=winder
+	// upper_step_count = n − n1 − nw, и без этих полей клиент не может
+	// отличить веер от площадки.
+	TurnKind    string `json:"turn_kind,omitempty"`
+	WinderCount int    `json:"winder_count,omitempty"`
 }
 
 // spiralDTO — результат Solver для спиральной лестницы (EDR-0007).
@@ -406,6 +436,29 @@ type pricingDTO struct {
 	Lines             []costComponentDTO `json:"lines"`
 }
 
+// publicPricingDTO — цена для анонимного витринного расчёта.
+//
+// Публичный маршрут /api/v1/public/stairs:quote НЕ аутентифицирован, поэтому
+// отдавать полную pricingDTO нельзя: margin_rub, overhead_rub,
+// production_cost_rub и построчные lines — это себестоимость и наценка
+// продавца. Любой посетитель мог их прочитать одним curl, и на этом строилась
+// вся «калькуляция» цены конкурента. Комментарий над publicQuoteDTO обещал
+// «только предварительную цену» — реализация этому не соответствовала.
+//
+// Покупателю отдаём ровно то, что нужно витрине: валюта и итог. Полная
+// разбивка остаётся в авторизованном /api/v1/stairs:calculate (админка).
+type publicPricingDTO struct {
+	Currency      string  `json:"currency"`
+	FinalPriceRub float64 `json:"final_price_rub"`
+}
+
+func toPublicPricing(b *domprc.PriceBreakdown) publicPricingDTO {
+	return publicPricingDTO{
+		Currency:      b.Currency.Code,
+		FinalPriceRub: b.FinalPrice.Major(b.Currency),
+	}
+}
+
 // calculateResponse — полный результат конвейера.
 type calculateResponse struct {
 	Validation    validationDTO    `json:"validation"`
@@ -420,7 +473,11 @@ type calculateResponse struct {
 
 // ---- converters: domain/engine → DTO ----
 
-func toValidationResult(r *stair.Result) validationDTO {
+// toValidationResult конвертирует результат валидации в DTO. dropDisabledFlights
+// включает фильтрацию вариантов отключённых типов марша (S-152): публичные
+// ручки передают true, внутренние — false, чтобы поведение не зависело от
+// глобального состояния и было безопасно при параллельных запросах.
+func toValidationResult(r *stair.Result, dropDisabledFlights bool) validationDTO {
 	issues := make([]validationIssueDTO, 0, len(r.Validation.Issues))
 	for _, i := range r.Validation.Issues {
 		dto := validationIssueDTO{
@@ -442,10 +499,19 @@ func toValidationResult(r *stair.Result) validationDTO {
 		if len(i.Variations) > 0 {
 			dto.Variations = make([]variationDTO, 0, len(i.Variations))
 			for _, v := range i.Variations {
+				// Публичному расчёту спираль недоступна (S-152): вариант
+				// «C: спиральная» не показываем, иначе кнопка «Спасти расчёт»
+				// увела бы в 422. Внутренний расчёт варианты сохраняет.
+				if dropDisabledFlights && v.Config["flight"] == string(engineering.FlightSpiral) {
+					continue
+				}
 				dto.Variations = append(dto.Variations, variationDTO{
 					ID: v.ID, Title: v.Title, Description: v.Description,
 					Config: v.Config, Fits: v.Fits, Summary: v.Summary,
 				})
+			}
+			if len(dto.Variations) == 0 {
+				dto.Variations = nil
 			}
 		}
 		issues = append(issues, dto)
@@ -500,6 +566,7 @@ func toUShape(u *solver.UShapeResult, e configEcho) *ushapeDTO {
 		StringerThicknessMm: e.StringerThicknessMm,
 		RailingLower:        e.RailingLower, RailingLanding: e.RailingLanding,
 		RailingUpper: e.RailingUpper, Direction: e.Direction,
+		TurnKind: e.TurnKind, WinderCount: e.WinderCount,
 	}
 }
 
@@ -633,6 +700,10 @@ func toConfig(req calculateRequest) stair.Config {
 		LowerStepCount:    req.LowerStepCount,
 		OuterRadius:       engineering.Length(req.OuterRadiusMM),
 		Material:          dommfg.MaterialCode(req.Material),
+		TreadMaterial:     dommfg.MaterialCode(req.TreadMaterial),
+		RiserThickness:    engineering.Length(req.RiserThicknessMM),
+		TurnKind:          engineering.TurnKind(req.TurnKind),
+		WinderCount:       req.WinderCount,
 		Railing:           engineering.RailingSide(req.Railing),
 		RailingLower:      engineering.RailingSide(req.RailingLower),
 		RailingLanding:    engineering.RailingSide(req.RailingLanding),
@@ -643,59 +714,42 @@ func toConfig(req calculateRequest) stair.Config {
 	return cfg
 }
 
-func toOptions(req calculateRequest) (stair.Options, error) {
+// toOptions собирает серверные опции расчёта из DTO.
+//
+// SEC-001 (2026-09-26): функция БОЛЬШЕ НЕ принимает ставки цены от клиента.
+// Раньше здесь декодировался `rates` и результат писался в
+// stair.Options.Rates, из-за чего любой аутентифицированный клиент мог
+// обнулить цену (воспроизведено: 3 832 042 руб -> 0 руб). Ставки теперь
+// задаются исключительно сервером: nil -> движок берёт
+// engprc.DefaultRates(), а витрина подкладывает ставки магазина через
+// publicStoreRates (public.go).
+//
+// Возвращаемое значение — (Options, bool ok): ok=false означает, что клиент
+// прислал запрещённое поле `rates` (см. rejectClientRates), и вызывающий
+// обязан ответить 422. Сигнатура без error, потому что иных ошибочных
+// веток не осталось: ошибочный JSON отсекает decodeJSON, а невалидные
+// числа отсекает json.Unmarshal.
+func toOptions(req calculateRequest) (stair.Options, bool) {
 	opts := stair.Options{}
 	if req.ComfortStepMM > 0 {
 		opts.ComfortStep = req.ComfortStepMM
 	}
-	if req.Rates == nil {
-		return opts, nil
+	return opts, !clientRatesPresent(req.Rates)
+}
+
+// clientRatesPresent — признак того, что клиент прислал непустое поле
+// `rates`. Трактовка:
+//   - отсутствует / пустой массив байт / JSON null / "false" -> false;
+//   - "true", объект, массив, число, строка -> true.
+//
+// Всё, что не является «полем не передано», считаем попыткой
+// переопределить цену и отклоняем: fail-closed.
+func clientRatesPresent(raw json.RawMessage) bool {
+	t := bytes.TrimSpace(raw)
+	if len(t) == 0 || string(t) == "null" || string(t) == "false" {
+		return false
 	}
-	r := req.Rates
-	rates := engprc.DefaultRates()
-	for code, price := range map[dommfg.MaterialCode]float64{
-		"STEEL-S235": r.MaterialPerKg.STEEL_S235,
-		"ALUM-5083":  r.MaterialPerKg.ALUM_5083,
-		"WOOD-OAK":   r.MaterialPerKg.WOOD_OAK,
-	} {
-		if price > 0 {
-			m, err := domprc.CurrencyRUB.FromMajor(price)
-			if err != nil {
-				return opts, err
-			}
-			rates.Material[code] = m
-		}
-	}
-	if r.MachinePerHour > 0 {
-		m, err := domprc.CurrencyRUB.FromMajor(r.MachinePerHour)
-		if err != nil {
-			return opts, err
-		}
-		rates.MachinePerHour = m
-	}
-	if r.LaborPerHour > 0 {
-		m, err := domprc.CurrencyRUB.FromMajor(r.LaborPerHour)
-		if err != nil {
-			return opts, err
-		}
-		rates.LaborPerHour = m
-	}
-	for pct, dst := range map[float64]*domprc.Rate{
-		r.OverheadPercent: &rates.OverheadPercent,
-		r.MarginPercent:   &rates.MarginPercent,
-		r.DiscountPercent: &rates.DiscountPercent,
-		r.TaxPercent:      &rates.TaxPercent,
-	} {
-		if pct > 0 {
-			rt, err := domprc.NewRate(pct)
-			if err != nil {
-				return opts, err
-			}
-			*dst = rt
-		}
-	}
-	opts.Rates = &rates
-	return opts, nil
+	return true
 }
 
 // toOptimizeRequest собирает параметры поиска из DTO. Не указанные границы

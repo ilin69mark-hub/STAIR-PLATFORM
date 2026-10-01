@@ -10,7 +10,7 @@ async function openConstructor(page: import('@playwright/test').Page) {
   await expect(page.getByRole('heading', { name: 'Конструктор лестницы' })).toBeVisible()
 }
 
-test('невписываемый прямой марш: RU-таблица, вариант C: спиральная и превью по клику', async ({ page }) => {
+test('невписываемый прямой марш: RU-таблица, вариант «C: П-образная» и превью по клику', async ({ page }) => {
   await openConstructor(page)
 
   // Прямая 1100×2700, помещение 4500×900 (ширина×длина) — марш не вписывается.
@@ -26,12 +26,19 @@ test('невписываемый прямой марш: RU-таблица, ва�
 
   await page.getByRole('button', { name: 'Рассчитать' }).click()
 
-  // Элемент «Помещение» с русским текстом рекомендации.
-  await expect(page.getByText('Помещение', { exact: true })).toBeVisible()
-  await expect(page.getByText(/Лестница не помещается в помещение 4500×900/)).toBeVisible()
+  // Элемент «Помещение» с русским текстом рекомендации. Текст может
+  // показаться дважды — в живом баннере и в результате расчёта, поэтому
+  // берём первое вхождение (иначе strict-mode ругается на дубликаты).
+  await expect(page.getByText('Помещение', { exact: true }).first()).toBeVisible({ timeout: 15_000 })
+  await expect(
+    page.getByText(/Лестница не помещается в помещение 4500×900/).first(),
+  ).toBeVisible({ timeout: 15_000 })
 
-  // Галерея вариантов: title содержит «C:», применяется по клику.
-  await expect(page.getByText('Выберите вариант — применится как превью:')).toBeVisible()
+  // Галерея вариантов: title содержит «C:», применяется по клику. Спиральных
+  // вариантов в списке нет — публичный расчёт их не отдаёт (S-152).
+  await expect(page.getByText('Выберите вариант — применится как превью:')).toBeVisible({
+    timeout: 15_000,
+  })
   const optionCards = page.locator('.variation-picker__item')
   await expect(optionCards.first()).toBeVisible()
   await expect(page.locator('.variation-picker__title', { hasText: 'C:' }).first()).toBeVisible()
@@ -40,8 +47,9 @@ test('невписываемый прямой марш: RU-таблица, ва�
   // «Выбран» и становится крупной (main). В store-лендинге нет отдельного
   // заголовка «Превью варианта» (он только в админке ProjectDetail).
   // Клик по карточке применяет вариант как превью: активная помечается
-  // «Выбран» и становится крупной (main). Кликаем именно спиральную «C:».
-  await page.locator('.variation-picker__item', { hasText: 'C: спиральная' }).first().click()
+  // «Выбран» и становится крупной (main). Спиральные варианты скрыты
+  // вместе с типом марша (S-152), берём П-образный «C:».
+  await page.locator('.variation-picker__item', { hasText: 'C: П-образная' }).first().click()
   await expect(page.getByText('Выбран')).toBeVisible()
-  await expect(page.locator('.variation-gallery__main')).toContainText('Спираль')
+  await expect(page.locator('.variation-gallery__main')).toContainText('П-образный марш')
 })

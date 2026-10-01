@@ -16,12 +16,14 @@ import (
 // (минуя middleware), чтобы проверить ветки authUser==nil и др.
 func preAuthRequest(method, path, body string) *http.Request {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	return r.WithContext(withAuthUser(r.Context(), &auth.User{ID: "u-1", TenantID: "t-1"}))
 }
 
 func TestCreateProjectUnauthorized(t *testing.T) {
 	h := handleCreateProject(newFakeProjectService())
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"x"}`))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	h(rec, req)
 	if rec.Code != http.StatusUnauthorized {

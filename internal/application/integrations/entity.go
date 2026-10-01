@@ -81,6 +81,12 @@ var ErrForbidden = errors.New("integrations: forbidden")
 // ErrNoEndpoint — нет активного эндпоинта нужного kind.
 var ErrNoEndpoint = errors.New("integrations: no endpoint")
 
+// ErrConflict — нарушение уникальности: в tenant уже есть эндпоинт такого
+// вида. Модель интеграций — «один активный эндпоинт на вид» (см.
+// Repository.FindEndpointByKind), поэтому второй эндпоинт того же kind
+// отвергается, а не создаётся вслепую (DB-001, миграция 000031).
+var ErrConflict = errors.New("integrations: conflict")
+
 // Repository — хранилище эндпоинтов и событий (инверсия зависимостей).
 type Repository interface {
 	// CreateEndpoint сохраняет новый эндпоинт; ID присваивается внутри.

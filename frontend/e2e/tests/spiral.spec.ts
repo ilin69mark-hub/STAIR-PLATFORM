@@ -10,6 +10,10 @@ function uniqueName(prefix: string): string {
 }
 
 test('Спиральный марш: настройка → расчёт → панель спирального результата', async ({ page }) => {
+  // Тип марша скрыт в форме, пока SPIRAL_ENABLED = false (S-152, EDR-0007).
+  // Код движка, каталог и тест не удалены — вернутся вместе со спиралью.
+  test.skip(true, 'Спиральный марш отключён (S-152): нет опции в #cfg-flight')
+
   const name = uniqueName('E2E-SP')
 
   await register(page, uniqueEmail())

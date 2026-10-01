@@ -19,6 +19,10 @@ const (
 	JobCleanupSessions  = "sys.cleanup_sessions"
 	JobCleanupSsoStates = "sys.cleanup_sso_states"
 	JobCleanupAudit     = "sys.cleanup_audit"
+	// JobCleanupWebEvents — очистка событий воронки витрины (миграция
+	// 000035). Срок короче, чем у аудита: события нужны для разбора оттока
+	// «почему бросили», а не как доказательство на годы.
+	JobCleanupWebEvents = "sys.cleanup_web_events"
 	// JobQuoteSend — доставка коммерческого предложения в ERP (EDR-0023).
 	// Payload: {event_id, endpoint_id}.
 	JobQuoteSend = "erp.quote_send"

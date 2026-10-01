@@ -1,0 +1,465 @@
+/* Калькулятор в одном окне: 3D-сцена слева, панель управления со сметой
+   справа. Страница не скроллится — скроллится только правая колонка.
+   Референс-подход (niora.ru/calculator/metal): фиксированный вьюпорт,
+   стек absolute-слоёв, внутренние scroll-регионы, карточки-панели. */
+
+:root {
+  --sp-radius: 12px;
+  --sp-radius-sm: 8px;
+  --sp-gap: 14px;
+  --sp-gap-sm: 8px;
+  --sp-space-1: 4px;
+  --sp-space-2: 8px;
+  --sp-space-3: 12px;
+  --sp-space-4: 16px;
+  --sp-space-5: 24px;
+  --sp-space-6: 32px;
+  /* 460px. Было 380px (ширина панели у niora): в колонке 356px после
+     отступов подпись «Рекомендуем 900–1100 мм» переносилась в три строки
+     и съедала высоту, а тело открытой секции получало окно 356×283px —
+     вводить данные в такое «маленькое окошко» неудобно. Узкая колонка
+     отдавала высоту полотну 3D ценой читаемости формы; на 1440px
+     сцена и так получает больше 900px, поэтому 460px — свободно. */
+  --sp-rail-w: 460px;
+  --sp-stage-min: 320px;
+  --sp-header-h: 61px;
+}
+
+/* --- Оболочка: страница не скроллится, только колонка панели --- */
+
+.store--calc {
+  height: 100svh;
+  min-height: 100svh;
+  max-height: 100svh;
+  overflow: hidden;
+}
+
+.store--calc .store-header {
+  position: static;
+  flex: 0 0 auto;
+  min-height: var(--sp-header-h);
+  padding: 10px 20px;
+}
+
+.store--calc .store-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Футер на маршруте калькулятора только мешает: он внизу, а страница
+   не скроллится — то есть недоступен. Скрываем, а контакты остаются
+   в шапке. */
+.store--calc .store-footer {
+  display: none;
+}
+
+/* --- Сетка калькулятора --- */
+
+/* Флекс, а не грид: сцена тянется, рельс с конструктором и результатом
+   держит свою ширину. С гридом пришлось бы дублировать колонки в
+   медиазапросах, а здесь достаточно одного правила на рельс. */
+.calc {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  background: var(--sp-stage-bg, #f4f6f7);
+}
+
+.calc__stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: var(--sp-stage-min);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--sp-stage-bg, #f4f6f7);
+  border-right: 1px solid var(--sp-border);
+}
+
+.calc__stage .viewer {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Сцена внутри сцены: растягиваем канвас на всю высоту колонки. */
+.calc__stage .viewer__stage {
+  height: 100%;
+  min-height: 0;
+}
+
+.calc__stage-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-space-3);
+  padding: var(--sp-space-6);
+  text-align: center;
+  color: var(--sp-muted);
+}
+
+.calc__stage-empty h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  color: var(--sp-text);
+}
+
+.calc__stage-empty p {
+  margin: 0;
+  max-width: 42ch;
+  font-size: 14px;
+}
+
+/* Панель справа. СКРОЛЛА У ПАНЕЛИ НЕТ — требование владельца продукта:
+   всё управление помещается в один экран, а открытие секции ничего не
+   выталкивает за нижний край.
+   Раньше здесь стоял overflow-y: auto, то есть панель прокручивалась и при
+   открытии «Цвет и материал» (два сегмента + две палитры) заголовки нижних
+   вкладок уезжали вниз. Теперь прокручивается ТОЛЬКО тело открытой секции
+   (.acc__body), а все заголовки закреплены и всегда видны.
+
+   min-height: 0 на всех flex-потомках обязателен: без него flex-элемент не
+   даёт ужаться содержимому и overflow:hidden обрезает его вместо того,
+   чтобы отдать место секции. */
+.calc__rail {
+  flex: 0 0 var(--sp-rail-w);
+  min-width: 0;
+  min-height: 0;
+  /* overflow-y: auto, а не hidden: пока расчёта нет, рельс ровно по контенту
+     и полосы не видно. С появлением результата карточек становится больше,
+     чем высота рельса, и при hidden они просто обрезались бы снизу.
+     Раньше плюс к этому ВСЕ карточки результата наследовали от .panel
+     `flex: 1 1 auto; min-height: 0`, из-за чего рельс сжимал их, а
+     содержимое панели конструктора (аккордеон и кнопки) вылезало поверх
+     карточек — «мешанина» вместо результата. */
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  /* gap: 0 — карточки результата склеены в один блок (см. .panel--result),
+     а отступы между блоками заданы полями. С flex-gap они разъезжались на
+     16px каждый, и пять карточек результата снова требовали прокрутки ради
+     последней. */
+  gap: 0;
+  padding: var(--sp-gap);
+  background: var(--sp-bg);
+  /* Панель уезжает вбок, а не исчезает: переход по ширине и прозрачности.
+     Без него переключение выглядело бы как «щёлкнул — полстолы пропало». */
+  transition:
+    flex-basis 0.26s ease,
+    padding 0.26s ease,
+    opacity 0.18s ease;
+}
+
+/* Убранная панель. Ширина в ноль, а не display: none — иначе сцена не
+   «выдвигается» на её место, а подпрыгивает. Внутри — inert (см. JSX),
+   поэтому скрытые поля не мешают клавиатурной навигации. */
+.calc--rail-hidden .calc__rail {
+  flex: 0 0 0;
+  padding-left: 0;
+  padding-right: 0;
+  opacity: 0;
+  overflow: hidden;
+}
+
+/* Границы между колонками на свёрнутой панели тоже лишние: кромка сцены
+   становится внешней стороной окна. */
+.calc--rail-hidden .calc__stage {
+  border-right: none;
+}
+
+/* Ручка панели на кромке сцены. Только стрелка: слово «Панель» на кромке
+   перекрывало изделие (решение владельца), поэтому подпись убрана в
+   aria-label/title, а сама кнопка сжата до размера иконки. */
+.calc__rail-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* translateY вместо margin: кнопка не должна смещать соседей и не
+     участвует в потоке колонки сцены. */
+  transform: translateY(-50%);
+  padding: 7px 3px;
+  border: 1px solid var(--sp-border);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--sp-text);
+  cursor: pointer;
+  box-shadow: -2px 0 10px rgba(15, 23, 42, 0.08);
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.calc__rail-toggle:hover {
+  background: #fff;
+  box-shadow: -2px 0 14px rgba(15, 23, 42, 0.16);
+}
+
+.calc__rail-toggle__chevron {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.calc__rail .panel {
+  margin: 0;
+  /* Панель занимает всю высоту рельса и сама раскладывается на
+     «резиновую» часть (аккордеон) и негибкие (кнопки, баннеры). */
+  flex: 1 1 auto;
+  /* 380px — пол панели конструктора. Без него при появлении результата
+     рельс сжимал панель почти в ноль: заголовки вкладок и кнопки
+     «Рассчитать/Сбросить» выдавливались наружу и ложились поверх
+     карточек. Ниже 380px панель всё равно нечитаема — аккордеону негде
+     развернуться, — поэтому дальше не сжимаем, а прокручиваем рельс. */
+  min-height: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Карточки результата (QuoteResult) живут в том же рельсе. Им нужна
+   СВОЯ высота: растягивать их нечего, а сжимать нельзя — строки «Ступеней»,
+   «Угол наклона» и цена наезжали бы друг на друга. */
+.calc__rail .panel--result {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.calc__rail .panel > h2,
+.calc__rail .panel > .sub {
+  flex: 0 0 auto;
+}
+
+.calc__rail .panel > form {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Переключатель изделий не сжимается и не уезжает: он всегда на виду. */
+.calc__rail .product-tabs {
+  flex: 0 0 auto;
+}
+
+/* Аккордеон забирает остаток высоты; его тело прокручивается, если
+   содержимое секции объективно не помещается (низкое окно, длинный
+   раздел). Заголовки при этом неподвижны. */
+/* Аккордеон забирает остаток высоты: заголовки фиксированы (три ряда
+   по 30px), а тело открытой секции растягивается на всё остальное, чтобы
+   ползунок прокрутки не появлялся там, где содержимое уже помещается. */
+.calc__rail .accordion {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Обёртка забирает остаток высоты панели, тело внутри неё — оставшееся:
+   рост задаёт обёртка (position: relative), а правило на .acc__body ниже
+   осталось в силе для flex/min-height внутри обёртки. */
+.calc__rail .acc__body-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.calc__rail .acc__body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Кнопка «Рассчитать» — постоянный футер панели. Раньше она держалась
+   на position: sticky; при отсутствии скролла sticky не работает и вместо
+   закрепления просто создавал лишний слой, поэтому здесь обычный блок.
+   justify-content: center — кнопки по центру формы (решение владельца);
+   правило остаётся локальным ради .calc__rail, потому что .actions в
+   OrderForm/AuthForm/Лендинге выравнивать по центру не нужно. */
+.calc__rail .actions {
+  flex: 0 0 auto;
+  z-index: 3;
+  margin: 0;
+  padding: 4px 0 0;
+  border-top: 1px solid var(--sp-border);
+  background: none;
+  justify-content: center;
+}
+
+/* Есть результат → панель параметров по своей высоте, место отдаётся
+   результату. Вкладки после расчёта свёрнуты, поэтому панель — это заголовок,
+   две строки вкладок и кнопки; растягивать её незачем. Если пользователь
+   раскроет секцию — панель отдаст контент, и рельс прокрутится. */
+.calc__rail--result .panel {
+  flex: 0 0 auto;
+  min-height: 0;
+  /* Отступ от панели параметров до блока результата: gap у рельса убран. */
+  margin-bottom: 6px;
+}
+
+/* Кнопки расчёта — компактные (требование владельца: «уменьши по высоте,
+   шрифт внутри уменьши в разы»). Было 45px и 15px внутри: на панели высотой
+   в экран каждая кнопка съедала строку, которая нужна результату. */
+.calc__rail .actions .sp-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 12px;
+  font-size: 12px;
+  border-radius: 7px;
+}
+
+/* Карточки результата — тоже компактные: они раскрываются под вкладками, и
+   пять карточек стандартного размера в рельс высотой в экран не влезали —
+   приходилось прокручивать до цены, ради которой считали. */
+/* Карточки результата СКЛЕЕНЫ в один блок: между ними ноль отступа, общая
+   рамка и тонкие разделители. Пять карточек, разнесённых на 8–18px, требовали
+   прокрутки ради последней (владелец: «прилепи друг к другу с минимальным
+   видимым отступом, чтобы я меньше скролил»). Скругления остаются только у
+   верхней и нижней карточки блока. */
+.calc__rail .panel--result {
+  padding: 8px 10px;
+  margin-top: 0;
+  border-radius: 0;
+  border-top: none;
+}
+
+/* Первая карточка блока — после панели конструктора: у неё своя рамка и
+   скругления сверху. */
+.calc__rail .panel:not(.panel--result) + .panel--result {
+  margin-top: 6px;
+  border-top: 1px solid var(--sp-border);
+  border-radius: 10px 10px 0 0;
+}
+
+/* Последняя карточка блока скругляется снизу. Если дальше идёт форма заказа
+   (она отдельная .panel без --result), рамка у этой карточки остаётся
+   прямоугольной — блок честно обрывается. */
+.calc__rail .panel--result:last-child {
+  border-radius: 0 0 10px 10px;
+}
+
+.calc__rail .panel--result h2 {
+  font-size: 13px;
+  margin: 0 0 2px;
+}
+
+.calc__rail .panel--result .sub {
+  font-size: 11.5px;
+  line-height: 1.4;
+  margin: 0 0 6px;
+}
+
+.calc__rail .panel--result .kv {
+  margin: 6px 0 0;
+  gap: 0 16px;
+  grid-template-columns: 1fr;
+}
+
+.calc__rail .panel--result .kv > div {
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+/* Цена: бокс ниже и уже, число 20px. 32px в рельсе 460px с пятью карточками
+   ниже не помещалось, а многоточием цену резать нельзя. */
+/* Цена: по центру и ещё компактнее. Владелец: «предварительную цену тоже
+   подубавь в размерах, выровни по центру». Подпись сверху, число под ней —
+   обе по центру бокса, иначе в склеенном блоке цифры смотрелись прижатыми к
+   левому краю карточки. */
+.calc__rail .panel--result .price-box {
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0;
+  padding: 8px 12px 9px;
+  border-radius: 8px;
+}
+
+.calc__rail .panel--result .price-box .price-label {
+  font-size: 10.5px;
+}
+
+.calc__rail .panel--result .price-box .price-value {
+  font-size: 18px;
+}
+
+/* --- Мобильная раскладка: панель поверх сцены (drawer) --- */
+
+/* Узкий экран: сцена сверху, конструктор с результатом снизу. Раньше здесь
+   стоял грид с фиксированными рядами, и рельс уезжал за правый край под
+   обрезкой .store-main (overflow: hidden) — конструктор просто исчезал. */
+@media (max-width: 900px) {
+  .calc {
+    flex-direction: column;
+    /* Здесь уже не «всё в один экран»: сцена сверху, под ней конструктор с
+       результатом. Делить высоту между блоками нельзя — рельсу нужно
+       минимум столько, чтобы влезли вкладки и кнопки. Поэтому прокручивается
+       вся колонка, а блоки берут свою естественную высоту. */
+    overflow-y: auto;
+  }
+
+  .calc__stage {
+    flex: 0 0 38%;
+    min-height: 220px;
+    border-right: none;
+    border-bottom: 1px solid var(--sp-border);
+  }
+
+  .calc__rail {
+    flex: 0 0 auto;
+    /* 560px — минимум, при котором аккордеон и кнопки «Рассчитать/Сбросить»
+       ещё помещаются, и человек не прокручивает форму ради кнопки. */
+    min-height: 560px;
+    overflow-y: visible;
+  }
+
+  /* Ручки панели в мобильной раскладке нет: там панель лежит ПОД сценой,
+     и убирать её вбок некуда — да и незачем, колонка и так прокручивается. */
+  .calc__rail-toggle {
+    display: none;
+  }
+
+  /* Раз ручки нет, панель обязана остаться на месте: иначе состояние
+     calc--rail-hidden (а его могли выставить до сужения окна) убрал бы
+     форму из мобильной раскладки навсегда. */
+  .calc--rail-hidden .calc__rail {
+    flex: 0 0 auto;
+    padding-left: var(--sp-gap);
+    padding-right: var(--sp-gap);
+    opacity: 1;
+    overflow-y: visible;
+  }
+}
+
+/* Сцена в сплите: заголовок не нужен — колонка и так называется задачей,
+   а height:100% обязателен, иначе канвас схлопнется по контенту. */
+.scheme-3d--stage {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+}
+
+.scheme-3d--stage .viewer {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.scheme-3d--stage .viewer__stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+/* Пустая сцена до первого расчёта. */
+.calc__stage .viewer--fallback {
+  height: 100%;
+}

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # db-backup.sh — резервная копия PostgreSQL в custom-формате (+ checksum + метаданные).
+# AUDIT-EXCEPTION(E11): GPG-шифрование дампов — человек, см. docs/SECURITY_EXCEPTIONS.yml
 #
 # Режимы доступа:
 #   - host:  если в PATH есть pg_dump — используется он и STAIR_DATABASE_URL;

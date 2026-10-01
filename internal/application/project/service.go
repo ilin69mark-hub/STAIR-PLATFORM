@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/stair"
@@ -54,12 +55,20 @@ func NewService(repo Repository, calc *stair.Service, rules RuleSet, auditSvc ..
 }
 
 // record пишет событие аудита (best-effort, EDR-0013 §4.1).
+//
+// AUDIT-002 (2026-09-27): отказ записи логируется с action/tenant/actor/
+// request_id, а не выбрасывается через `_ =`. Это самая частая точка записи
+// аудита в проектах (вызывается на create/modify/review/restore), и раньше
+// именно здесь молча терялись события: операция проходила, в журнале не
+// появлялось ничего, обнаружить это было нечем. Business-операция при этом
+// НЕ отменяется — аудит не должен ронять расчёт, но его пробел обязан быть
+// виден в логах.
 func (s *Service) record(ctx context.Context, tenantID, userID, projectID string, action audit.Action, result audit.Result, detail string) {
 	if s.audit == nil {
 		return
 	}
 	m := audit.MetaFrom(ctx)
-	_ = s.audit.Record(ctx, &audit.Event{
+	e := &audit.Event{
 		ActorID:   userID,
 		TenantID:  tenantID,
 		ProjectID: projectID,
@@ -68,7 +77,13 @@ func (s *Service) record(ctx context.Context, tenantID, userID, projectID string
 		Detail:    detail,
 		RequestID: m.RequestID,
 		IP:        m.IP,
-	})
+	}
+	if err := s.audit.Record(ctx, e); err != nil {
+		slog.Error("audit: event not recorded",
+			"action", string(e.Action), "tenant_id", e.TenantID,
+			"actor_id", e.ActorID, "project_id", e.ProjectID,
+			"request_id", e.RequestID, "error", err)
+	}
 }
 
 // CreateProject создаёт проект с именем и описанием в tenant (BC-001)
@@ -213,6 +228,16 @@ func (s *Service) member(ctx context.Context, tenantID, userID, projectID string
 	return nil, false, err
 }
 
+// IsMember возвращает true, если пользователь является членом проекта
+// (EDR-0008). Публичный порт членства для кросс-сервисной авторизации
+// (S-142): AI-ассистенты гейтят conversation-memory проверкой членства
+// (IDOR-фикс S-141 №1). Чужой/несуществующий проект — (false, nil);
+// сбой хранилища — (false, err).
+func (s *Service) IsMember(ctx context.Context, tenantID, userID, projectID string) (bool, error) {
+	_, ok, err := s.member(ctx, tenantID, userID, projectID)
+	return ok, err
+}
+
 // AddComment добавляет комментарий к проекту (EDR-0009). Требуется
 // членство (owner/editor/viewer). Возвращает созданный комментарий.
 func (s *Service) AddComment(ctx context.Context, tenantID, userID, projectID, body string) (*Comment, error) {
@@ -330,37 +355,56 @@ func (s *Service) GetResult(ctx context.Context, tenantID, userID, projectID str
 // пересчитывается детерминированно из параметрической модели. Требуется
 // членство с правом project.read.
 func (s *Service) ExportCAD(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, error) {
+	// DOM-003: сетка лестницы без перил (совместимость с прежним поведением).
+	// Новым вызывающим следует использовать ExportCADWithRailings.
+	mesh, _, err := s.ExportCADWithRailings(ctx, tenantID, userID, projectID)
+	return mesh, err
+}
+
+// ExportCADWithRailings возвращает сетку лестницы И сетку перил.
+//
+// DOM-003 (2026-09-26): ExportCAD отдавал только res.Mesh, а перила
+// строятся отдельным телом (RailingMesh, CONF-RAILING) и в основной меш не
+// входят. В результате экспортируемые DXF/STL/SVG НЕ СОДЕРЖАЛИ ПЕРИЛ ВООБЩЕ,
+// хотя пользователь их задавал и видел в 3D. Отдельный метод нужен, чтобы не
+// ломать существующую сигнатуру ExportCAD (её использует порт ProjectService).
+func (s *Service) ExportCADWithRailings(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, *kerngeo.Mesh, error) {
 	me, ok, err := s.member(ctx, tenantID, userID, projectID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if !ok {
-		return nil, ErrNotFound
+		return nil, nil, ErrNotFound
 	}
 	if !me.Role.HasPermission(PermissionProjectRead) {
-		return nil, ErrForbidden
+		return nil, nil, ErrForbidden
 	}
 
 	sc, err := s.repo.GetLatestConfiguration(ctx, tenantID, projectID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if sc == nil {
-		return nil, ErrNotFound
+		return nil, nil, ErrNotFound
 	}
+	// DOM-003: fromConfigEntity теперь восстанавливает тип поворота, стороны
+	// перил, направления и материал, поэтому экспорт совпадает с тем, что
+	// пользователь рассчитал и утвердил.
 	cfg, opts, err := fromConfigEntity(sc)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	res, err := s.calc.Calculate(ctx, cfg, opts)
 	if err != nil {
-		return nil, fmt.Errorf("project: export cad: %w", err)
+		return nil, nil, fmt.Errorf("project: export cad: %w", err)
 	}
 	if res.Mesh == nil {
-		return nil, fmt.Errorf("project: export cad: %w", ErrConflict)
+		return nil, nil, fmt.Errorf("project: export cad: %w", ErrConflict)
 	}
 	s.record(ctx, tenantID, userID, projectID, audit.ActionProjectModified, audit.ResultOK, "cad export")
-	return res.Mesh, nil
+	// DOM-003: перила возвращаются отдельным мешем; при railing=none он
+	// пустой (не nil), чтобы транспорт не путал «нет перил» с «ошибка».
+	return res.Mesh, res.RailingMesh, nil
 }
 
 // GetLatestConfig возвращает текущую (или последнюю) сохранённую

@@ -29,15 +29,22 @@ func mustLengthHelper(mm float64) engineering.Length {
 // Pricing Engine: H=2700, h0=180, шаг комфорта 630 → h=180, b=270, n=15).
 func referenceConfig() Config {
 	return Config{
-		Width:             mustLengthHelper(900),
-		Height:            mustLengthHelper(2700),
-		Flight:            engineering.FlightStraight,
-		StepHeight:        mustLengthHelper(180),
-		StringerThickness: mustLengthHelper(50),
-		StepThickness:     mustLengthHelper(40),
-		Riser:             true,
-		Clearance:         mustLengthHelper(2500),
-		RailingHeight:     mustLengthHelper(1000),
+		Width:      mustLengthHelper(900),
+		Height:     mustLengthHelper(2700),
+		Flight:     engineering.FlightStraight,
+		StepHeight: mustLengthHelper(180),
+		// Стальной каркас: косоур и ступень — листы лазерного раскроя 3–8 мм.
+		StringerThickness: mustLengthHelper(8),
+		StepThickness:     mustLengthHelper(6),
+		// Материалы заданы явно. Раньше они выводились из толщины: 50 мм
+		// подходили стали (2–60), и эталон молча проверял сталь на конфигурации
+		// без материала. С выходом стали на выпуск 3–8 мм такой вывод стал
+		// давать дуб, и эталон проверял уже не то изделие.
+		Material:      "STEEL-S235",
+		TreadMaterial: "STEEL-S235",
+		Riser:         true,
+		Clearance:     mustLengthHelper(2500),
+		RailingHeight: mustLengthHelper(1000),
 	}
 }
 
@@ -95,12 +102,23 @@ func TestCalculateValidPipeline(t *testing.T) {
 		t.Fatal("price breakdown must be present")
 	}
 
-	// Финальная цена эталонного конвейера (100 ₽/кг, ставки по умолчанию).
-	if res.Price.FinalPrice.Minor() != 327138547 {
-		t.Fatalf("final price = %d, want 327138547", res.Price.FinalPrice.Minor())
+	// Финальная цена эталонного конвейера (100 ₽/кг, ставки по умолчанию):
+	// стальной марш 16 ступеней из листа 8 мм, 277 814,63 ₽.
+	//
+	// Два предыдущих значения были неверными по разным причинам. Сначала
+	// 3 271 385,47 ₽ — заготовка деталей бралась по габаритному блоку, и
+	// металла выходило 10,4 тонны. Потом 234 751,18 ₽ — эталон задавал
+	// косоур 50 мм, и она схлопывалась в 8 мм правилом листа; теперь
+	// толщина в конфигурации сразу 8 мм, и геометрия честно тоньше.
+	// Далее 277 814,63 ₽ — косоур был пилообразной гребёнкой (спинка шириной
+	// в толщину металла). Теперь косоур металлокаркаса — боковая пластина
+	// 300 мм (копия решения Ниоры): металла в заготовке больше, поэтому
+	// цена выше, а вот время лазерной резки меньше — у пластины нет зубьев.
+	if res.Price.FinalPrice.Minor() != 28681012 {
+		t.Fatalf("final price = %d, want 28681012", res.Price.FinalPrice.Minor())
 	}
-	if res.Price.FinalPrice.Major(domprc.CurrencyRUB) != 3271385.47 {
-		t.Fatalf("final price = %.2f rub, want 3271385.47", res.Price.FinalPrice.Major(domprc.CurrencyRUB))
+	if res.Price.FinalPrice.Major(domprc.CurrencyRUB) != 286810.12 {
+		t.Fatalf("final price = %.2f rub, want 286810.12", res.Price.FinalPrice.Major(domprc.CurrencyRUB))
 	}
 }
 
@@ -125,8 +143,8 @@ func TestCalculateCustomRates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Стоимость стали удвоена → финальная цена выше дефолтной.
-	if res.Price.Material.Minor() <= 182033277 {
+	// Стоимость стали удвоена → материал выше дефолтных 113 040 ₽.
+	if res.Price.Material.Minor() <= 11304000 {
 		t.Fatalf("material with doubled rate must exceed default, got %d", res.Price.Material.Minor())
 	}
 }
@@ -205,6 +223,12 @@ func assertBlockingInput(t *testing.T, res *Result, wantCode constraint.RuleCode
 
 // TestCalculateExceedsMaxHeight — высота за пределами поддерживаемого
 // энелопа (6000 мм) возвращается как блокирующая подсказка, а не ошибка.
+//
+// Код MFG-MATERIAL, а не GEO_HEIGHT: у эталона материал задан явно (сталь), а
+// предел стали по высоте — те же 6000 мм, что и глобальный энелоп. Проверка
+// материала срабатывает раньше и даёт более точную подсказку с названием
+// материала. Предел, общий для всех материалов, проверяется отдельно —
+// TestCalculateExceedsMaterialMaxHeight (дуб 4550 мм).
 func TestCalculateExceedsMaxHeight(t *testing.T) {
 	s := NewService()
 	cfg := referenceConfig()
@@ -213,16 +237,19 @@ func TestCalculateExceedsMaxHeight(t *testing.T) {
 	if err != nil {
 		t.Fatalf("input issues must not be hard errors: %v", err)
 	}
-	assertBlockingInput(t, res, constraint.GEO_HEIGHT, "6000 мм")
+	assertBlockingInput(t, res, constraint.MFG_MATERIAL, "6000 мм")
 }
 
 // TestCalculateExceedsMaterialMaxHeight — высота в пределах глобального
-// энелопа (6000 мм), но выше предела конкретного алюминия (4550 мм),
-// возвращается как блокирующая подсказка по материалу.
+// энелопа (6000 мм), но выше предела конкретного материала (у древесины
+// 4550 мм), возвращается как блокирующая подсказка по материалу.
+// Предел ниже глобального энелопа есть только у древесины.
 func TestCalculateExceedsMaterialMaxHeight(t *testing.T) {
 	s := NewService()
 	cfg := referenceConfig()
-	cfg.Material = dommfg.MaterialCode("ALUM-5083")
+	cfg.Material = dommfg.MaterialCode("WOOD-OAK")
+	// Доска 50 мм: эталонные 8 мм — стальной лист, а дуб выпускается 20–60.
+	cfg.StringerThickness = mustLengthHelper(50)
 	cfg.Height = mustLengthHelper(5000)
 	res, err := s.Calculate(context.Background(), cfg, Options{})
 	if err != nil {
@@ -354,12 +381,18 @@ func TestCalculateWithinMaterialLimits(t *testing.T) {
 	s := NewService()
 	limits := map[dommfg.MaterialCode]struct{ height, width int }{
 		"STEEL-S235": {6000, 3000},
-		"ALUM-5083":  {4550, 3000},
 		"WOOD-OAK":   {4550, 3000},
+		"WOOD-SOFT":  {4550, 3000},
 	}
 	for code, lim := range limits {
 		cfgH := referenceConfig()
 		cfgH.Material = code
+		cfgH.TreadMaterial = code
+		// Доска для дерева, лист для стали: эталонные 8 мм дуб не принимает.
+		if code != "STEEL-S235" {
+			cfgH.StringerThickness = mustLengthHelper(50)
+			cfgH.StepThickness = mustLengthHelper(40)
+		}
 		cfgH.Height = mustLengthHelper(float64(lim.height))
 		resH, err := s.Calculate(context.Background(), cfgH, Options{})
 		if err != nil {
@@ -372,6 +405,12 @@ func TestCalculateWithinMaterialLimits(t *testing.T) {
 
 		cfgW := referenceConfig()
 		cfgW.Material = code
+		cfgW.TreadMaterial = code
+		// Доска для дерева, лист для стали: эталонные 8 мм дуб не принимает.
+		if code != "STEEL-S235" {
+			cfgW.StringerThickness = mustLengthHelper(50)
+			cfgW.StepThickness = mustLengthHelper(40)
+		}
 		cfgW.Width = mustLengthHelper(float64(lim.width))
 		resW, err := s.Calculate(context.Background(), cfgW, Options{})
 		if err != nil {
@@ -459,14 +498,17 @@ func TestCalculateLShapePipeline(t *testing.T) {
 	}
 	// полный конвейер: 35 деталей, 4 косоура, 16 проступей, 15 подступенков
 	// подступенков.
-	if res.Package == nil || len(res.Package.Parts) != 35 {
-		t.Fatalf("parts = %d, want 35", len(res.Package.Parts))
+	// Плюс верхняя площадка на каждый марш: их 37, а не 35.
+	if res.Package == nil || len(res.Package.Parts) != 37 {
+		t.Fatalf("parts = %d, want 37", len(res.Package.Parts))
 	}
 	if res.Mesh == nil || len(res.Mesh.Vertices) == 0 {
 		t.Fatal("l_shape pipeline must produce preview mesh")
 	}
-	if math.Abs(res.Measurement.Volume-331300172.899) > 1 {
-		t.Fatalf("volume = %v, want 331300172.899", res.Measurement.Volume)
+	// Объём упал с 331 300 173 до 48 109 490: косоур стал листом 8 мм
+	// вместо блока 50 мм, а косоуры в объёме марша и есть почти всё.
+	if math.Abs(res.Measurement.Volume-5.908131996111381e+07) > 1 {
+		t.Fatalf("volume = %v, want 5.908131996111381e+07", res.Measurement.Volume)
 	}
 	if res.Price == nil || res.Price.FinalPrice.Minor() <= 0 {
 		t.Fatal("l_shape pipeline must produce price")
@@ -526,8 +568,8 @@ func TestCalculateUShapeWinderPipeline(t *testing.T) {
 		t.Fatal("winder pipeline must produce preview mesh")
 	}
 	// деталей: 4 косоура + 12 проступей + 12 подступенков + 3 поворотные = 31.
-	if res.Package == nil || len(res.Package.Parts) != 31 {
-		t.Fatalf("parts = %d, want 31", len(res.Package.Parts))
+	if res.Package == nil || len(res.Package.Parts) != 33 {
+		t.Fatalf("parts = %d, want 33", len(res.Package.Parts))
 	}
 	// эхо поворота в результате.
 	if res.TurnKind != engineering.TurnWinder || res.WinderCount != 3 {
@@ -566,14 +608,15 @@ func TestCalculateUShapePipeline(t *testing.T) {
 	}
 	// полный конвейер: 35 деталей, 4 косоура, 16 проступей, 15 подступенков
 	// подступенков.
-	if res.Package == nil || len(res.Package.Parts) != 35 {
-		t.Fatalf("parts = %d, want 35", len(res.Package.Parts))
+	// Плюс верхняя площадка на каждый марш: их 37, а не 35.
+	if res.Package == nil || len(res.Package.Parts) != 37 {
+		t.Fatalf("parts = %d, want 37", len(res.Package.Parts))
 	}
 	if res.Mesh == nil || len(res.Mesh.Vertices) == 0 {
 		t.Fatal("u_shape pipeline must produce preview mesh")
 	}
-	if math.Abs(res.Measurement.Volume-346600172.899) > 1 {
-		t.Fatalf("volume = %v, want 346600172.899", res.Measurement.Volume)
+	if math.Abs(res.Measurement.Volume-6.116031996111266e+07) > 1 {
+		t.Fatalf("volume = %v, want 6.116031996111266e+07", res.Measurement.Volume)
 	}
 	if res.Price == nil || res.Price.FinalPrice.Minor() <= 0 {
 		t.Fatal("u_shape pipeline must produce price")
@@ -724,11 +767,19 @@ func TestCalculateCancelled(t *testing.T) {
 
 func TestCalculateMaterialSelection(t *testing.T) {
 	s := NewService()
-	materials := []dommfg.MaterialCode{"STEEL-S235", "ALUM-5083", "WOOD-OAK"}
+	materials := []dommfg.MaterialCode{"STEEL-S235", "WOOD-OAK", "WOOD-SOFT"}
+	// Толщина косоура зависит от материала каркаса: сталь 3–8, дерево
+	// 20–60. Один эталон на всех не годится.
 	prices := make(map[dommfg.MaterialCode]int64)
 	for _, m := range materials {
 		cfg := referenceConfig()
 		cfg.Material = m
+		cfg.TreadMaterial = m
+		// Доска для дерева, лист для стали: 8 мм дуб не принимает.
+		if m != "STEEL-S235" {
+			cfg.StringerThickness = mustLengthHelper(50)
+			cfg.StepThickness = mustLengthHelper(40)
+		}
 		res, err := s.Calculate(context.Background(), cfg, Options{})
 		if err != nil {
 			t.Fatalf("%s: %v", m, err)
@@ -754,7 +805,7 @@ func TestCalculateMaterialSelection(t *testing.T) {
 			t.Fatalf("%s: nesting missing", m)
 		}
 	}
-	if prices["STEEL-S235"] == prices["ALUM-5083"] || prices["STEEL-S235"] == prices["WOOD-OAK"] {
+	if prices["STEEL-S235"] == prices["WOOD-SOFT"] || prices["STEEL-S235"] == prices["WOOD-OAK"] {
 		t.Fatalf("prices must differ across materials, got %v", prices)
 	}
 }
@@ -780,6 +831,8 @@ func TestCalculateMaterialValidation(t *testing.T) {
 	// Дуб не поддерживает косоур 150 мм — блокирующий MFG-MATERIAL.
 	cfg = referenceConfig()
 	cfg.Material = "WOOD-OAK"
+	// Доска 50 мм: эталонные 8 мм — стальной лист, а дуб выпускается 20–60.
+	cfg.StringerThickness = mustLengthHelper(50)
 	cfg.StringerThickness = mustLengthHelper(150)
 	res, err = s.Calculate(context.Background(), cfg, Options{})
 	if err != nil {
@@ -800,6 +853,8 @@ func TestCalculateMaterialValidation(t *testing.T) {
 	// блокирующая подсказка про предельную высоту материала.
 	cfg = referenceConfig()
 	cfg.Material = "WOOD-OAK"
+	// Доска 50 мм: эталонные 8 мм — стальной лист, а дуб выпускается 20–60.
+	cfg.StringerThickness = mustLengthHelper(50)
 	cfg.Height = mustLengthHelper(5000)
 	res, err = s.Calculate(context.Background(), cfg, Options{})
 	if err != nil {

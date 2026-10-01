@@ -17,14 +17,15 @@ import (
 //   - весь payload события (message, extra, contexts, tags, request data,
 //     exception-строки) прогоняется через redaction.Sensitive — маскируются
 //     значения password/secret/token/authorization/cookie/api_key/
-//     client_secret;
+//     client_secret/session/csrf (включая session_admin/csrf_admin);
 //   - email-адреса (в user, extra, contexts, tags — где бы ни встретились) —
 //     только SHA-256 хеш (первые 12 hex): достаточно для группировки по
 //     пользователю, но не раскрывает адрес;
 //   - IP-адреса (user.ip_address, REMOTE_ADDR, заголовки X-Forwarded-For и
 //     аналоги) — дроп;
 //   - username/name — дроп (потенциально PII; id-пользователя достаточно);
-//   - заголовки Authorization/Cookie/API-ключи — дроп целиком.
+//   - заголовки Authorization/Cookie/API-ключи и CSRF-токены
+//     (X-CSRF-Token, X-Stair-Signature) — дроп целиком.
 //
 // Хук вызывается перед отправкой события (client.processEvent): после
 // prepareEvent (scope применяется) и до сериализации в transport.go, поэтому
@@ -141,11 +142,15 @@ func isEmailKey(k string) bool {
 // чувствительные заголовки запроса: значения дропаются целиком.
 // (дроп, а не маска — в заголовки может попасть что угодно, включая
 // нестандартные схемы токенов, которые регулярка не поймает).
+// x-csrf-token / x-stair-signature — S-143 (S-141 №2): double-submit CSRF
+// и подпись запросов тоже не должны попадать в Sentry.
 var droppedHeaders = map[string]struct{}{
 	"authorization":       {},
 	"proxy-authorization": {},
 	"cookie":              {},
 	"x-api-key":           {},
+	"x-csrf-token":        {},
+	"x-stair-signature":   {},
 	"x-forwarded-for":     {},
 	"x-real-ip":           {},
 	"cf-connecting-ip":    {},
@@ -156,8 +161,8 @@ var droppedHeaders = map[string]struct{}{
 }
 
 // scrubRequest чистит Request-часть события: дроп чувствительных и
-// IP-заголовков (Authorization/Cookie/X-Forwarded-For и т.п.), маска
-// redaction.Sensitive для query-строки, cookies и прочих заголовков,
+// IP-заголовков (Authorization/Cookie/X-Forwarded-For/X-CSRF-Token и т.п.),
+// маска redaction.Sensitive для query-строки, cookies и прочих заголовков,
 // дроп REMOTE_ADDR/REMOTE_PORT из env.
 func scrubRequest(req *sentrysdk.Request) *sentrysdk.Request {
 	for k, v := range req.Headers {

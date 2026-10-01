@@ -358,11 +358,65 @@ describe('StairPlan', () => {
     expect(right.fills[1].x).toBeCloseTo(right.fills[0].x + right.fills[0].w, 6)
     expect(left.fills[1].x).toBeLessThan(left.fills[0].x)
     // Зеркальность: каждый 'right'-прямоугольник и его 'left'-двойник
-    // равноудалены от центра канваса (620): левая кромка left = 620 − правая
-    // кромка right.
+    // равноудалены от общей оси зеркала.
+    //
+    // Раньше здесь жёстко стояло `r.x + r.w + left.x ≈ 620` (центр канваса).
+    // Это работало только для прежней раскладки — классического switchback,
+    // у которого bbox симметричен относительно x=0. После перехода на
+    // раскладку 3D-модели (EDR-0006 §4.8.1) верхний марш начинается с
+    // L1−L2 и при L2 > L1 выходит в отрицательные X, поэтому ось зеркала
+    // больше не совпадает с центром канваса: зона подхода (EDR-0023) живёт
+    // слева от входа в варианте 'right' и справа — в варианте 'left', из-за
+    // чего центрирование содержимого сдвигается на ap/2 в разные стороны.
+    // Инвариант проверяется через ось: середина между правыми кромками
+    // 'right' и 'left' — одна и та же точка для всех трёх сегментов.
+    const axis =
+      (right.fills[0].x + right.fills[0].w + left.fills[0].x +
+        right.fills[1].x + right.fills[1].w + left.fills[1].x +
+        right.fills[2].x + right.fills[2].w + left.fills[2].x) /
+      6
     right.fills.forEach((r, i) => {
-      expect(r.x + r.w + left.fills[i].x).toBeCloseTo(620, 6)
+      expect(2 * axis - (left.fills[i].x + left.fills[i].w)).toBeCloseTo(r.x, 6)
     })
+  })
+
+  it('U план повторяет раскладку 3D-модели (EDR-0006 §4.8.1)', () => {
+    // Регрессия S2 (найдена вместе с DOM-004): план рисовал классический
+    // switchback (верхний марш над нижним, план [0, L2]), тогда как 3D строит
+    // верхний марш в [L1−L2, L1] × [W, 2W] (площадка [L1, L1+W] × [0, 2W]).
+    // Одно и то же выглядело двумя разными лестницами, при том что проверка
+    // вписывания в помещение считалась по bbox 3D-модели.
+    const solver: PlanExtras = {
+      lowerStepCount: 6,
+      upperStepCount: 9,
+      landingWidth: 1000,
+      lowerRun: 1620,
+      upperRun: 2430,
+      direction: 'right',
+    }
+    const { container } = render(<StairPlan flight={base} kind="u_shape" solver={solver} />)
+    const fills = [...container.querySelectorAll('rect.scheme__fill')].map((r) => ({
+      x: Number(r.getAttribute('x')),
+      y: Number(r.getAttribute('y')),
+      w: Number(r.getAttribute('width')),
+      h: Number(r.getAttribute('height')),
+    }))
+    expect(fills.length).toBe(3)
+    const [lower, landing, upper] = fills
+    // Площадка: план [L1, L1+W] × [0, 2W] — ширина по X равна ШИРИНЕ МАРША W
+    // (а не Wp), высота вдвое больше ширины марша; примыкает к нижнему маршу.
+    const wMm = base.Width
+    expect(landing.w).toBeCloseTo(lower.w * (wMm / solver.lowerRun!), 6)
+    expect(landing.h).toBeCloseTo(lower.h * 2, 6)
+    expect(landing.x).toBeCloseTo(lower.x + lower.w, 6)
+    // Верхний марш начинается левее нижнего, когда L2 > L1 (отрицательные X
+    // в координатах модели), и заканчивается у правой кромки площадки.
+    expect(upper.x).toBeLessThan(lower.x)
+    expect(upper.x + upper.w).toBeCloseTo(landing.x, 6)
+    // Верхний марш занимает Y ∈ [W, 2W], то есть делит верхнюю кромку
+    // площадки (обе верхние границы совпадают), а его ширина равна W.
+    expect(upper.y).toBeCloseTo(landing.y, 6)
+    expect(upper.h).toBeCloseTo(lower.h, 6)
   })
 
   it('рендерит план спиральной лестницы', () => {

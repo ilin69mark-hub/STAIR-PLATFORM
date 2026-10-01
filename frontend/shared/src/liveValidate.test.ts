@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { defaultConfig } from './config'
+import { defaultConfig, toRequest, validateForm, type ConfigForm } from './config'
 import {
   VALIDATE_DEBOUNCE_MS,
   LiveValidator,
@@ -281,5 +281,103 @@ describe('adaptValidation · регистр ключей', () => {
     expect(v.issues[0].fix).toBe('Увеличьте радиус спирали')
     expect(v.issues[0].suggestions?.[0].outerRadiusMm).toBe(1050)
     expect(v.fieldErrors.outerRadiusMM).toBe('Наружный радиус спирали должен быть больше ширины марша.')
+  })
+})
+
+// DOM-002 (2026-09-26): вариация GEO-ANGLE обязана реально снимать
+// блокировку, для чего шаг комфорта из вариации ОБЯЗАН применяться.
+//
+// Контракт бэкенда (internal/engine/variation/variation.go):
+//   ForAngle перебирает S ∈ {600, 620, 640} и считает проступь b = S − 2h,
+//   угол α = atan(h/b). Обещание в summary («Угол 30.2°») верно ТОЛЬКО при
+//   том S, который вернулся в config.comfortStepMM.
+//
+// Регрессия: applyVariation выбрасывал comfortStepMM с комментарием «он всегда
+// дефолтный (630)», из-за чего на витрине вариации давали 29,3°/29,3°/36,3°
+// вместо 30,2°/32,0°/35,3° и НЕ снимали GEO-ANGLE (а третья ломала проступь).
+describe('applyVariation применяет шаг комфорта (DOM-002)', () => {
+  // Реальные значения из серверного сценария H=3000, h0=158, S=630:
+  // n=19 → блокирующий GEO-ANGLE (26,7°), три вариации со S = 620/600/640.
+  const angleVariations = [
+    { id: 'angle_30', title: 'Угол 30°', config: { stepHeightMM: '166.66666666666666', comfortStepMM: '620', widthMM: '1000', heightMM: '3000' } },
+    { id: 'angle_32', title: 'Угол 32°', config: { stepHeightMM: '166.66666666666666', comfortStepMM: '600', widthMM: '1000', heightMM: '3000' } },
+    { id: 'angle_35', title: 'Угол 35°', config: { stepHeightMM: '187.5', comfortStepMM: '640', widthMM: '1000', heightMM: '3000' } },
+  ] as const
+
+  it('шаг комфорта из вариации доходит до формы', () => {
+    const prev: ConfigForm = { ...defaultConfig, flight: 'straight', heightMM: '3000', stepHeightMM: '158', comfortStepMM: '630' }
+    for (const v of angleVariations) {
+      const next = applyVariation(prev, { ...v, description: '', fits: true, summary: '' })
+      expect(next.comfortStepMM).toBe(v.config.comfortStepMM)
+      expect(next.stepHeightMM).toBe(v.config.stepHeightMM)
+    }
+  })
+
+  it('применённая вариация даёт угол в норме 30–45° (а не 29,3°/36,3°)', () => {
+    const prev: ConfigForm = { ...defaultConfig, flight: 'straight', heightMM: '3000', stepHeightMM: '158', comfortStepMM: '630' }
+    for (const v of angleVariations) {
+      const next = applyVariation(prev, { ...v, description: '', fits: true, summary: '' })
+      const h = Number(next.stepHeightMM)
+      const comfort = Number(next.comfortStepMM)
+      const b = comfort - 2 * h
+      const angle = (Math.atan(h / b) * 180) / Math.PI
+      expect(b).toBeGreaterThanOrEqual(260) // проступь в норме
+      expect(b).toBeLessThanOrEqual(320)
+      expect(angle).toBeGreaterThanOrEqual(30) // GEO-ANGLE снят
+      expect(angle).toBeLessThanOrEqual(45)
+      // Форма остаётся валидной: validateForm не должен блокировать расчёт.
+      expect(validateForm(next)).toEqual({})
+      // И запрос уходит с этими значениями (точный контракт с бэкендом).
+      const req = toRequest(next)
+      expect(req.comfort_step_mm).toBe(Number(next.comfortStepMM))
+      expect(req.step_height_mm).toBe(h)
+    }
+  })
+
+  it('пустые значения вариации по-прежнему не затирают выбор пользователя', () => {
+    const prev: ConfigForm = { ...defaultConfig, railing: 'left' }
+    const next = applyVariation(prev, {
+      id: 'room_fit',
+      title: 't',
+      description: '',
+      fits: true,
+      summary: '',
+      config: { railing: '', comfortStepMM: '640' },
+    })
+    expect(next.railing).toBe('left')
+    expect(next.comfortStepMM).toBe('640')
+  })
+})
+
+// DOM-002: имена ключей вариации обязаны совпадать с полями ConfigForm.
+// Раньше бэкенд отдавал heightMm/clearanceMm/railingMm/
+// stringerThicknessMm/stepThicknessMm/winderCount — таких полей в форме нет,
+// поэтому эти параметры не применялись ни в одной форме.
+describe('ключи вариации совпадают с полями ConfigForm', () => {
+  it('applyVariation применяет высоту, просвет, высоту перил, толщины и winder', () => {
+    const prev: ConfigForm = { ...defaultConfig, flight: 'u_shape' }
+    const next = applyVariation(prev, {
+      id: 'angle',
+      title: 't',
+      description: '',
+      fits: true,
+      summary: '',
+      config: {
+        heightMM: '3200',
+        clearanceMM: '2100',
+        railingHeightMM: '950',
+        stringerThicknessMM: '60',
+        stepThicknessMM: '8',
+        turnKind: 'winder',
+        winderCountMM: '3',
+      },
+    })
+    expect(next.heightMM).toBe('3200')
+    expect(next.clearanceMM).toBe('2100')
+    expect(next.railingHeightMM).toBe('950')
+    expect(next.stringerThicknessMM).toBe('60')
+    expect(next.stepThicknessMM).toBe('8')
+    expect(next.turnKind).toBe('winder')
+    expect(next.winderCountMM).toBe('3')
   })
 })

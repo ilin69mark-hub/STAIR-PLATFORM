@@ -220,11 +220,11 @@ func (a *auditRepo) Insert(_ context.Context, e *audit.Event) error {
 	return nil
 }
 
-func (a *auditRepo) ListByProject(_ context.Context, _, _ string) ([]*audit.Event, error) {
+func (a *auditRepo) ListByProject(_ context.Context, _, _ string, _ int) ([]*audit.Event, error) {
 	return nil, a.err
 }
 
-func (a *auditRepo) ListByTenant(_ context.Context, _ string) ([]*audit.Event, error) {
+func (a *auditRepo) ListByTenant(_ context.Context, _ string, _ int) ([]*audit.Event, error) {
 	return nil, a.err
 }
 
@@ -353,5 +353,55 @@ func TestCreateProjectRequiresOwner(t *testing.T) {
 	svc := NewService(newFakeRepo(), stair.NewService(), DefaultRules())
 	if _, err := svc.CreateProject(context.Background(), testTenant, "", "P", ""); err == nil {
 		t.Fatal("expected error for empty owner")
+	}
+}
+
+func TestIsMember(t *testing.T) {
+	// S-142: публичный member-порт, которым AI-ассистенты гейтят
+	// conversation-memory (IDOR-фикс S-141 №1).
+	repo := newFakeRepo()
+	svc := NewService(repo, stair.NewService(), DefaultRules())
+	ctx := context.Background()
+	p, err := svc.CreateProject(ctx, testTenant, testOwner, "P", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	// Владелец — член.
+	ok, err := svc.IsMember(ctx, testTenant, testOwner, p.ID)
+	if err != nil || !ok {
+		t.Fatalf("IsMember owner: ok=%v err=%v", ok, err)
+	}
+
+	// Добавленный viewer — член.
+	if err := svc.AddMember(ctx, testTenant, testOwner, p.ID, "u-viewer", RoleViewer); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	ok, err = svc.IsMember(ctx, testTenant, "u-viewer", p.ID)
+	if err != nil || !ok {
+		t.Fatalf("IsMember viewer: ok=%v err=%v", ok, err)
+	}
+
+	// Чужой пользователь — не член: (false, nil), а не ошибка — это ключевое
+	// различие для гейта (не-член → 403, сбой проверки → 500 на вызывающей
+	// стороне).
+	ok, err = svc.IsMember(ctx, testTenant, "u-stranger", p.ID)
+	if err != nil {
+		t.Fatalf("IsMember stranger: %v", err)
+	}
+	if ok {
+		t.Fatal("stranger must not be a member")
+	}
+
+	// Несуществующий проект — не член.
+	ok, err = svc.IsMember(ctx, testTenant, testOwner, "missing")
+	if err != nil || ok {
+		t.Fatalf("IsMember missing project: ok=%v err=%v", ok, err)
+	}
+
+	// Сбой хранилища распространяется (fail-closed на вызывающей стороне).
+	broken := NewService(memberErrRepo{fakeRepo: repo, err: errBoom}, stair.NewService(), DefaultRules())
+	if _, err := broken.IsMember(ctx, testTenant, testOwner, p.ID); !errors.Is(err, errBoom) {
+		t.Fatalf("IsMember boom: expected errBoom, got %v", err)
 	}
 }

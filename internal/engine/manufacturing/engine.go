@@ -41,16 +41,50 @@ func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResu
 	if err != nil {
 		return nil, err
 	}
+	// Фрезеровка: длина кромки берётся из геометрии (MillingFeatures), а не
+	// пересчитывается здесь — иначе расчёт работы разошёлся бы с моделью при
+	// первом же изменении геометрии детали. Признак ставится по роли детали:
+	// скругление носа есть у ступеней, у косоуров и подступенков — нет.
+	for _, f := range gen.MillingFeatures {
+		if f.EdgeLengthMM <= 0 {
+			continue
+		}
+		for i := range parts {
+			if string(parts[i].Kind) != f.Role {
+				continue
+			}
+			parts[i].MillEdgeLengthMM = f.EdgeLengthMM
+			parts[i].MillRadiusMM = f.RadiusMM
+		}
+	}
 	registry, err := DefaultMaterialRegistry()
 	if err != nil {
 		return nil, fmt.Errorf("manufacturing: default registry: %w", err)
 	}
 	for i := range parts {
-		// Выбранный материал (MFG-0005, конструктор): применяется ко всем
-		// деталям, пока поддерживает их толщину; иначе — автоназначение по
-		// толщине (первый материал каталога, поддерживающий толщину).
-		if cfg.Material != "" {
-			if m, ok := registry.Find(dommfg.MaterialCode(cfg.Material)); ok && m.SupportsThickness(parts[i].Thickness.Millimeters()) {
+		// Материал детали берётся из материала ЕЁ РОЛИ, а не «один материал
+		// на всю лестницу». Каркас (косоуры, колонна) идёт по cfg.Material,
+		// ступени (проступи, площадки, поворотные ступени) — по
+		// cfg.TreadMaterial. decompose сводит площадку и поворотные ступени к
+		// PartTread, поэтому отдельных PartKind для них не нужно.
+		//
+		// Подступенок идёт по cfg.TreadMaterial ВМЕСТЕ со ступенями: он
+		// примыкает к проступи и виден вместе с ней, поэтому «деревянные
+		// ступени на стальном каркасе» означают деревянные подступенки, а не
+		// стальные. Раньше подступенок попадал в ветку каркаса и резался из
+		// cfg.Material — это давало деревянные ступени со стальными
+		// подступенками и не совпадало с тем, что человек выбирает в
+		// конструкторе.
+		// Верхняя площадка металлокаркаса (PartTopPlate) — каркасная
+		// деталь: стальная пластина, приваренная к косоурам, поэтому идёт
+		// по cfg.Material, как и сами косоуры.
+		preferred := dommfg.MaterialCode(cfg.Material)
+		switch parts[i].Kind {
+		case dommfg.PartTread, dommfg.PartRiser:
+			preferred = dommfg.MaterialCode(cfg.TreadMaterial)
+		}
+		if preferred != "" {
+			if m, ok := registry.Find(preferred); ok && m.SupportsThickness(parts[i].Thickness.Millimeters()) {
 				parts[i].Material = m.Code
 				continue
 			}

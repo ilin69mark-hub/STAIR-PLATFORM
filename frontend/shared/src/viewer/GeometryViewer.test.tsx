@@ -1,10 +1,35 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { GeometryViewer } from './GeometryViewer'
+import * as THREE from 'three'
+import { GeometryViewer, stairPartsOf } from './GeometryViewer'
 
 const empty = (): any => ({ Vertices: [], Triangles: [] })
 
 const WALLS = ['В', 'Н', 'П', 'Л'] as const
+
+describe('из чего собирается марш в сцене', () => {
+  // Регрессия: PBR-меш по ролям добавлялся в сцену, а потом в ту же группу
+  // доставался ещё и синий монолит с общей геометрией — и закрывал текстуры
+  // ровно на тех же треугольниках. В кадре оставался один синий марш.
+  it('берёт PBR-меш по ролям, а не монолит', () => {
+    const mono = new THREE.Mesh()
+    const pbr = new THREE.Mesh()
+    expect(stairPartsOf(mono, [pbr])).toEqual([pbr])
+  })
+
+  it('без PartRanges (старый API) остаётся монолит', () => {
+    const mono = new THREE.Mesh()
+    expect(stairPartsOf(mono, [])).toEqual([mono])
+  })
+
+  it('монолит и PBR-меш никогда не попадают в сцену вместе', () => {
+    const mono = new THREE.Mesh()
+    const pbr = new THREE.Mesh()
+    const parts = stairPartsOf(mono, [pbr])
+    expect(parts).not.toContain(mono)
+    expect(parts).toHaveLength(1)
+  })
+})
 
 describe('GeometryViewer walls widget', () => {
   it('renders 4 wall segment buttons and exit checkbox', () => {
@@ -70,5 +95,45 @@ describe('GeometryViewer walls widget', () => {
     expect(exit).not.toBeChecked()
     fireEvent.click(exit)
     expect(exit).toBeChecked()
+  })
+})
+
+describe('подсказка про мышь над сценой', () => {
+  // Регрессия: после смены управления нижняя подпись продолжала врать
+  // («Вращение — ЛКМ»), а покупатель по привычке жал правую кнопку и ждал
+  // контекстное меню. Расшифровка обязана стоять в сцене и говорить ровно
+  // то, что делают кнопки.
+  it('рассказывает, что ЛКМ двигает сцену, а ПКМ крутит', () => {
+    render(<GeometryViewer mesh={empty()} />)
+    expect(screen.getByText('двигать сцену')).toBeInTheDocument()
+    expect(screen.getByText('крутить')).toBeInTheDocument()
+    expect(screen.getByText('ЛКМ')).toBeInTheDocument()
+    expect(screen.getByText('ПКМ')).toBeInTheDocument()
+  })
+
+  it('объясняет зум колесом к курсору', () => {
+    render(<GeometryViewer mesh={empty()} />)
+    expect(screen.getByText('зум к курсору')).toBeInTheDocument()
+  })
+
+  it('рисунки мыши не мешают сцене: подсказка не перехватывает указатель', () => {
+    // pointer-events: none в .viewer__mouse-hint — без него первые пиксели
+    // сдвига сцены съедал бы сам хинт, и левая кнопка «не работала бы»
+    // у самого края окна.
+    render(<GeometryViewer mesh={empty()} />)
+    const hint = screen.getByText('двигать сцену').closest('.viewer__mouse-hint')
+    expect(hint).not.toBeNull()
+    expect(hint!.querySelectorAll('svg')).toHaveLength(2)
+  })
+})
+
+describe('кнопка «Вернуть вид»', () => {
+  it('есть в интерфейсе и не падает без собранной сцены', () => {
+    render(<GeometryViewer mesh={empty()} />)
+    const btn = screen.getByRole('button', { name: 'Вернуть вид' })
+    expect(btn).toBeInTheDocument()
+    // Сцена в тесте не собирается (нет WebGL-контекста) — кнопка обязана
+    // быть безопасным no-op, а не бросать на мёртвую камеру.
+    expect(() => fireEvent.click(btn)).not.toThrow()
   })
 })

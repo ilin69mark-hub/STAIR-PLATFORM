@@ -1,10 +1,12 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { AuthForm } from './AuthForm'
+import { AuthForm } from '@shared/storefront/components/AuthForm'
 
 const login = vi.fn(() => Promise.resolve({ id: 'u1' } as any))
 const register = vi.fn(() => Promise.resolve({ id: 'u1' } as any))
-vi.mock('../auth/context', () => ({
+// Мок на реальный модуль общего пакета: AuthForm переехал туда и берёт
+// useAuth именно оттуда (фасад магазина не участвует в графе импортов).
+vi.mock('@shared/storefront/auth/context', () => ({
   useAuth: () => ({ login, register }),
 }))
 

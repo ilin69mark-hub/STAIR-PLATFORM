@@ -1,14 +1,33 @@
 // 3D-вьювер геометрии (FE-0017, ENG-GEO-0008): отображение preview mesh
-// из снапшота. Вращение — ЛКМ, панорама — ПКМ/средняя, зум — колесо.
+// из снапшота. Сдвиг сцены — ЛКМ, вращение — ПКМ, зум к курсору — колесо.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js'
 import type { Mesh as ApiMesh } from '../types'
 import { toThreePositions } from './projection'
 import { computePlacement } from '../placement'
 import { approachZoneCenterX, EXIT_BLOCK_H, exitSlabBox, exitWallSide, stairTopLineX, wallBox, wallBoundsOf, type Box3Like, type BoxSpec, type WallSide } from './layout'
 import { ANNOTATE, edgeColor, WALLS } from '../scheme-annot'
+import { createRailingMaterialForRole, createStairMaterial } from './materials'
+import { createPostFX, acesWhitePoint } from './postfx'
+import { MouseHint } from './MouseHint'
+import {
+  dragAxisIsHorizontal,
+  dragComfortStep,
+  dragHeight,
+  dragLandingMM,
+  compactTriangles,
+  groupsFromRanges,
+  isDragDistance,
+  railingPartsOf,
+  isEditablePart,
+  pickPart,
+  type PartGroup,
+} from './picking'
+import { fieldRules, rulesFor } from '../config'
 
 interface Props {
   mesh: ApiMesh
@@ -42,6 +61,64 @@ interface Props {
   // Высота марша из ввода пользователя (поле «Высота», мм). Задаёт верхнюю
   // кромку стен; при отстуствии берётся геометрический верх меша (sb.max.y).
   heightMM?: number
+  // environmentHDRI — URL студийного HDRI (Poly Haven, CC0) для отражений.
+  // Необязателен: при ошибке загрузки остаётся процедурный RoomEnvironment.
+  environmentHDRI?: string
+  // materialCode — код материала деталей (WOOD-OAK, STEEL-S235, …) из
+  // пользовательского ввода: определяет PBR-набор в 3D (этап 1).
+  materialCode?: string
+  // treadMaterialCode — материал ступеней отдельно от каркаса. Без него
+  // все детали рисуются одним материалом, и металлокаркас с деревянными
+  // ступенями выглядит как цельная деревянная лестница. Пусто → материал
+  // каркаса (лестница из одного материала).
+  treadMaterialCode?: string
+  // finishId — финиш поверх материала (масло/лак/краска): меняет вид,
+  // но не код материала и не цену.
+  finishId?: string
+  // treadFinishId — финиш материала СТУПЕНЕЙ. Отдельный от finishId, потому
+  // что каркас и ступени могут быть из разных материалов с разной палитрой.
+  treadFinishId?: string
+  // riserFinishId — финиш ПОДСТУПЕНКОВ. Подступенок идёт по материалу
+  // ступеней, но отделить его по цвету можно: для дерева отделка выбирается
+  // своим рядом, для металла подступенок красится в цвет ступеней и
+  // riserFinishId не передаётся. Пусто → отделка ступеней.
+  riserFinishId?: string
+  // railingMetal — ограждение металлом вместо стекла.
+  railingMetal?: boolean
+  // debugOverlay — служебная разметка поверх сцены: сетка пола, фиолетовая
+  // линия верха марша и жёлтая зона подхода. Это инженерные инструменты
+  // (проверить вписывание в помещение и границу марша), а не часть
+  // товара: покупателю они показывали «чертёж», а не лестницу. По умолчанию
+  // выключены — витрина отдаёт чистую сцену.
+  debugOverlay?: boolean
+  // Этап 2 «конструктор»: выбор детали марша в 3D. interactive включает
+  // raycast, onSelectPart сообщает React о выбранной детали (или null).
+  interactive?: boolean
+  // overlay — панель поверх 3D (HUD конструктора: действия над выбранной
+  // деталью). Рендерится внутри .viewer, сцена при этом не пересобирается.
+  overlay?: ReactNode
+  selectedPart?: { solid: number; role: string } | null
+  onSelectPart?: (part: { solid: number; role: string } | null) => void
+  // Этап 2: перетаскивание ступени по вертикали меняет высоту марша.
+  // onDragPreview — живое значение во время перетаскивания, onDragHeight —
+  // зафиксированный результат (сервер авторитетен, пересчёт за Конструктором).
+  // Горизонтальный drag правит шаг комфорта (2h + b) — им сервер управляет
+  // проступью и забегом; вертикальный — высоту марша.
+  onDragPreview?: (value: {
+    heightMM: number
+    comfortStepMM: number
+    landingWidthMM?: number
+    landingDepthMM?: number
+  } | null) => void
+  onDragHeight?: (heightMM: number) => void
+  onDragComfortStep?: (comfortStepMM: number) => void
+  comfortStepMM?: number
+  onDragLandingWidth?: (widthMM: number) => void
+  onDragLandingDepth?: (depthMM: number) => void
+  landingWidthMM?: number
+  landingDepthMM?: number
+  // castShadow — принимают ли лестница/перила/пол тень (этап 1, студийный вид).
+  castShadow?: boolean
 }
 
 // Временная метка-буква для 3D-разметки (debug, см. scheme-annot.ts): рисуем
@@ -104,6 +181,94 @@ function mirrorX(geo: THREE.BufferGeometry) {
 // Превью WebGL-контекста: не каждый браузер/устройство поддерживает трёхмерный
 // рендер (P0-6). Проверяем доступность контекста заранее, чтобы не создавать
 // THREE.WebGLRenderer без поддержки.
+// buildRoleGroups (этап 1) — разрезает геометрию марша на группы по ролям
+// деталей (tread/stringer/landing/…) и надевает на каждую свой PBR-материал.
+// Треугольники делятся между материалами (geometry.addGroup) — вершины и
+// нормали остаются общими, память не дублируется. Пустой массив → вызывающий
+// оставляет монолитный меш (старый API без PartRanges).
+function buildRoleGroups(
+  geo: THREE.BufferGeometry,
+  api: ApiMesh,
+  opts: {
+    materialCode: string
+    treadMaterialCode?: string
+    finishId?: string
+    treadFinishId?: string
+    riserFinishId?: string
+    castShadow: boolean
+  },
+): THREE.Mesh[] {
+  const ranges = api.PartRanges
+  if (!ranges?.length) return []
+  const total = api.Triangles.length
+  const groups: { start: number; count: number; role: string }[] = []
+  for (const r of ranges) {
+    const start = Math.max(0, Math.min(r.Start, total))
+    const end = Math.max(start, Math.min(r.End, total))
+    if (end <= start) continue
+    groups.push({ start, count: end - start, role: r.Role || 'stair' })
+  }
+  if (!groups.length) return []
+
+  const box = geo.boundingBox
+  const sizeMM = box
+    ? Math.max(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z)
+    : 1000
+
+  const materials: THREE.Material[] = []
+  for (const g of groups) {
+    geo.addGroup(g.start, g.count, materials.length)
+    const isTread = treadRole(g.role)
+    // Подступенок идёт по материалу ступеней (так его и режет бэк:
+    // PartRiser в ветке cfg.TreadMaterial), иначе деревянные ступени на
+    // стальном каркасе выглядели бы со стальными подступенками.
+    const isRiser = g.role === 'riser'
+    materials.push(
+      createStairMaterial({
+        // Материал детали — по её роли. Каркас (косоуры, колонна) идёт по
+        // materialCode, ступени (проступи, площадка, поворотные ступени) и
+        // подступенки — по treadMaterialCode. Роли приходят из backend
+        // PartRanges, поэтому разделение здесь не расходится с тем, по чему
+        // детали реально изготовлены и посчитаны в цене.
+        code: isTread || isRiser ? (opts.treadMaterialCode ?? opts.materialCode) : opts.materialCode,
+        finishId: isTread
+          ? (opts.treadFinishId ?? opts.finishId)
+          : isRiser
+            ? (opts.riserFinishId ?? opts.treadFinishId ?? opts.finishId)
+            : opts.finishId,
+        role: g.role,
+        sizeMM,
+      }),
+    )
+  }
+  const m = new THREE.Mesh(geo, materials)
+  m.castShadow = opts.castShadow
+  m.receiveShadow = opts.castShadow
+  return [m]
+}
+
+/**
+ * Что кладём в группу марша: PBR-меш по ролям, если бэкенд отдал PartRanges,
+ * иначе монолит. Ровно ОДИН из них — они делят одну и ту же BufferGeometry, и
+ * непрозрачный синий монолит, добавленный вместе с PBR-мешом, закрывал его
+ * треугольник в треугольник: текстуры и HDRI грузились и применялись, а в
+ * кадре оставался синий «схематичный» марш. Отдельная функция, потому что
+ * проверить это в jsdom нельзя (WebGL нет), а правило обязано быть
+ * зафиксировано тестом.
+ */
+export function stairPartsOf(stairMesh: THREE.Mesh, roleGroups: THREE.Mesh[]): THREE.Mesh[] {
+  return roleGroups.length > 0 ? roleGroups : [stairMesh]
+}
+
+// Роли деталей, изготовляемых из материала СТУПЕНЕЙ. Повторяет разбивку
+// manufacturing/decompose.go: площадка и поворотные ступени там сводятся к
+// PartTread, поэтому в дереве они role='landing'/'winder'.
+const TREAD_ROLES = new Set(['tread', 'landing', 'winder'])
+
+function treadRole(role: string): boolean {
+  return TREAD_ROLES.has(role)
+}
+
 function webglSupported(): boolean {
   try {
     const canvas = document.createElement('canvas')
@@ -121,6 +286,27 @@ export function GeometryViewer({
   flight,
   direction,
   roomWidth,
+  environmentHDRI,
+  materialCode = 'STEEL-S235',
+  treadMaterialCode,
+  finishId,
+  treadFinishId,
+  riserFinishId,
+  railingMetal = false,
+  debugOverlay = false,
+  interactive = false,
+  selectedPart = null,
+  onSelectPart,
+  onDragPreview,
+  onDragHeight,
+  onDragComfortStep,
+  comfortStepMM,
+  onDragLandingWidth,
+  onDragLandingDepth,
+  landingWidthMM,
+  landingDepthMM,
+  overlay,
+  castShadow = true,
   roomLength,
   approachSpace,
   stepThickness = 40,
@@ -151,11 +337,84 @@ export function GeometryViewer({
     left: null,
   })
   const exitRef = useRef<THREE.Object3D | null>(null)
+  // Полупрозрачный периметр помещения (room_mesh) — тот же контекст, что и
+  // стены: он показывает, куда лестница вписана, и по умолчанию выключен
+  // вместе с ними. Раньше он рисовался всегда, и на белом «циклораме»
+  // полупрозрачная оранжевая плоскость читалась как кремовая плита, парящая
+  // в кадре, — покупатель видел артефакт вместо лестницы.
+  const roomRef = useRef<THREE.Object3D | null>(null)
   // Актуальные значения тумблеров для эффекта построения сцены: туда они НЕ
   // входят зависимостями (переключение не должно пересобирать сцену), поэтому
   // начальную видимость читаем из зеркальных рефов.
   const wallsStateRef = useRef(walls)
   const showExitStateRef = useRef(showExit)
+  // Этап 2: выбранная деталь хранится в рефе — сцена не пересобирается при
+  // выборе, а applySelectionRef переключает подсветку материала.
+  const selectedPartRef = useRef(selectedPart)
+  const applySelectionRef = useRef<(part: { solid: number; role: string } | null) => void>(
+    () => {},
+  )
+  // Посадка камеры для кнопки «Вернуть вид». Границ зума нет (решение
+  // владельца), поэтому сцену можно увести куда угодно и потерять изделие;
+  // вернуть его можно только той же посадкой, что и при сборке сцены.
+  const resetViewRef = useRef<(() => void) | null>(null)
+  // Положение камеры переживает пересборку сцены. Эффект сцены тянет за собой
+  // и renderer, и camera, поэтому без этого снимка любой клик по детали или
+  // движение ползунка возвращали взгляд на исходный ракурс — то есть «сброс
+  // камеры» происходил сам, а кнопка «Вернуть вид» была не единственным
+  // источником сброса. Ключ shapeKey: смена формы лестницы (прямая / L / U /
+  // спираль) кадрирует заново, всё остальное — нет.
+  const camStateRef = useRef<{
+    x: number
+    y: number
+    z: number
+    tx: number
+    ty: number
+    tz: number
+    shapeKey: string
+  } | null>(null)
+  // Колбэки перетаскивания — в рефе: пересчёт меняет данные, сцена стабильна.
+  const dragCallbacksRef = useRef({
+    onDragPreview,
+    onDragHeight,
+    onDragComfortStep,
+    onDragLandingWidth,
+    onDragLandingDepth,
+  })
+  const heightRef = useRef(heightMM)
+  const comfortRef = useRef(comfortStepMM)
+  const landingWidthRef = useRef(landingWidthMM)
+  const landingDepthRef = useRef(landingDepthMM)
+  const materialRef = useRef(materialCode)
+
+  useEffect(() => {
+    selectedPartRef.current = selectedPart
+    applySelectionRef.current(selectedPart)
+  }, [selectedPart])
+
+  useEffect(() => {
+    dragCallbacksRef.current = {
+      onDragPreview,
+      onDragHeight,
+      onDragComfortStep,
+      onDragLandingWidth,
+      onDragLandingDepth,
+    }
+  }, [onDragPreview, onDragHeight, onDragComfortStep, onDragLandingWidth, onDragLandingDepth])
+
+  useEffect(() => {
+    heightRef.current = heightMM
+    materialRef.current = materialCode
+  }, [heightMM, materialCode])
+
+  useEffect(() => {
+    comfortRef.current = comfortStepMM
+  }, [comfortStepMM])
+
+  useEffect(() => {
+    landingWidthRef.current = landingWidthMM
+    landingDepthRef.current = landingDepthMM
+  }, [landingWidthMM, landingDepthMM])
 
   useEffect(() => {
     wallsStateRef.current = walls
@@ -163,6 +422,11 @@ export function GeometryViewer({
     if (wallsRef.current.bottom) wallsRef.current.bottom.visible = walls.bottom
     if (wallsRef.current.right) wallsRef.current.right.visible = walls.right
     if (wallsRef.current.left) wallsRef.current.left.visible = walls.left
+    // Периметр помещения живёт по тем же тумблерам, что и стены: пока не
+    // включена ни одна сторона, показывать «где помещение» нечем.
+    if (roomRef.current) {
+      roomRef.current.visible = walls.top || walls.bottom || walls.right || walls.left
+    }
   }, [walls])
 
   useEffect(() => {
@@ -183,12 +447,25 @@ export function GeometryViewer({
     const height = container.clientHeight || 380
 
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color('#f7f9fc')
+    // Продуктовый «белый циклорамный» фон: белый, а не серый — на белом
+    // фоне металл читается как металл, а не как пластик. Серый #f7f9fc
+    // съедал контраст бликов и делал сцену «мутной».
+    scene.background = new THREE.Color('#ffffff')
 
-    const camera = new THREE.PerspectiveCamera(45, width / height, 1, 100000)
+    // Продуктовый кадр: 32° вместо 45°. Широкий угол «раздувает» лестницу
+    // к зрителю и даёт эффект рыбий глаз на ступенях — для съёмки изделия
+    // нужен длиннофокусный вид, как у 50–85 мм на фотокамере. Марш в кадре
+    // становится «вещественным», а не диорамой.
+    const camera = new THREE.PerspectiveCamera(32, width / height, 1, 100000)
     let renderer: THREE.WebGLRenderer
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        preserveDrawingBuffer: true,
+        // Этап 1 «студийный 3D»: явный high-performance — влияет на выбор
+        // GPU и на мобильных (Android/iOS переключают браузер на старый GL).
+        powerPreference: 'high-performance',
+      })
     } catch (err) {
       console.error('WebGL renderer init failed:', err)
       setWebglError(true)
@@ -196,11 +473,56 @@ export function GeometryViewer({
     }
     renderer.setSize(width, height)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+    // Студийная цветокоррекция: ACES сжимает яркие блики металла/дерева без
+    // выгорания, SRGB — правильная гамма для вывода на экран (до этого
+    // сцена рендерилась в линейном пространстве и выглядела «бледно»).
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.05
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    // Фон проходит через пост-обработку наравне с геометрией: линейный
+    // «белый» 1.0 после ACES становится 0.8, и белый циклорамный фон
+    // уезжал в светло-серый. Отсюда — белая точка, а не 1.0.
+    scene.background = new THREE.Color().setScalar(acesWhitePoint(renderer.toneMappingExposure))
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
     container.appendChild(renderer.domElement)
 
+    // Границы зума задаются ПОСЛЕ того, как известен габарит сцены (см. ниже,
+    // рядом с fitDist): без них колесо уводило камеру сквозь лестницу в
+    // пустоту, а несколько прокруток назад — теряли марш за кадром. Здесь
+    // только скорость, границы — на своих местах.
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
     controls.dampingFactor = 0.08
+    // Зум идёт ТУДА, где стоит указатель, а не к центру сцены. Без этого
+    // колесо всегда тянуло к центру кадра, и рассмотреть конкретный узел
+    // (стык проступи с косоуром, фаску, кромку стекла) было невозможно:
+    // объект уходил из-под курсора.
+    controls.zoomToCursor = true
+    // Сдвиг сцены в плоскости экрана, а не в плоскости пола: «зажал и повёл»
+    // должно вести себя как в карте — лестница едет за курсором в любую
+    // сторону, включая вверх-вниз. По умолчанию для перспективной камеры
+    // сдвиг идёт по земле, и вертикально сцену было не сдвинуть.
+    controls.screenSpacePanning = true
+    // Кнопки мыши (решение владельца): левая — двигать сцену, правая —
+    // вращать. Вращение на правой кнопке не мешает контекстному меню:
+    // OrbitControls его подавляет сам.
+    //
+    // Перетаскивание ступени (смена высоты марша) с левой кнопки по
+    // существующей логике отключает controls на время drag — захватили
+    // деталь, тянем высоту; захватили пустое место, двигаем сцену.
+    controls.mouseButtons = {
+      LEFT: THREE.MOUSE.PAN,
+      MIDDLE: THREE.MOUSE.DOLLY,
+      RIGHT: THREE.MOUSE.ROTATE,
+    }
+    // Тач: одним пальцем вращаем (осматриваем изделие), двумя — зум и сдвиг.
+    controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }
+    // Колесо зумит сцену, а не прокручивает страницу: без preventDefault
+    // жест уходит в скролл, и на тачпадах зума нет вовсе. Зум доступен
+    // всегда — он не часть выбора детали, поэтому флаг `interactive` здесь
+    // не участвует.
+    renderer.domElement.addEventListener('wheel', (e) => e.preventDefault(), { passive: false })
     // Сохраняем последний кадр для КП — вариант А (твой ракурс)
     const saveLastFrame = () => {
       try {
@@ -210,13 +532,99 @@ export function GeometryViewer({
       } catch {}
     }
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0xbfc8d8, 1))
-    const dir = new THREE.DirectionalLight(0xffffff, 1.4)
-    dir.position.set(2000, 4000, 3000)
-    scene.add(dir)
-    const dir2 = new THREE.DirectionalLight(0xffffff, 0.5)
-    dir2.position.set(-2000, -1000, -3000)
-    scene.add(dir2)
+    // Студийный свет (этап 1): IBL даёт мягкие отражения и заполняющие
+    // полутона, Directional — чёткую тень. HDRI грузится асинхронно; пока он
+    // не готов (или не загрузился вовсе), работает процедурный RoomEnvironment
+    // из three — сцена никогда не остаётся «чёрной».
+    const pmrem = new THREE.PMREMGenerator(renderer)
+    const roomEnv = new RoomEnvironment()
+    const roomTarget = pmrem.fromScene(roomEnv, 0.04)
+    scene.environment = roomTarget.texture
+    // Ресурсы IBL живут дольше одного эффекта: эффект пересоздаётся на
+    // каждом изменении меша/параметров, а PMREM-рендертаргет — это GPU-память.
+    // Без dispose на каждый чих слайдера текстура окружения накапливалась.
+    const envTargets: THREE.WebGLRenderTarget[] = [roomTarget]
+    roomEnv.dispose()
+    let disposed = false
+    scene.environmentIntensity = 1.15
+
+    // Световая схема «студийный циклорам» — та же логика, что у продуктовой
+    // съёмки на белом фоне: ключевой сверху-сбоку (даёт тень и форму),
+    // заполняющий с противоположной стороны (гасит провалы в тенях) и
+    // отражающий снизу («от пола»). HemisphereLight убран: при белом
+    // окружении он красил нижние грани в синеву.
+    //
+    // ГЛАВНОЕ для металла. Сталь (metalness 0.85) почти не имеет диффузной
+    // составляющей: её освещают ИСКЛЮЧИТЕЛЬНО отражения, и грани, повёрнутые
+    // от источников и от яркой части HDRI, честно уходят в чёрный. На
+    // белом циклораме это выглядит как дыра в картинке: дальний косоур
+    // пропадал. Лечится двумя вещами:
+    //   1) заполняющий источник идёт СО СТОРОНЫ КАМЕРЫ (от «объектива»), а не
+    //      сзади — тогда у металла всегда есть блик в видимой плоскости;
+    //   2) общий IBL поднят, чтобы диффузная часть деталей не проседала.
+    const key = new THREE.DirectionalLight(0xffffff, 2.1)
+    key.position.set(2200, 3600, 2600)
+    key.castShadow = true
+    key.shadow.mapSize.set(2048, 2048)
+    // Тени у лестницы: ортокамера по габаритам сцены (выставляется ниже,
+    // когда известен bounding box марша).
+    key.shadow.camera.near = 100
+    key.shadow.camera.far = 20000
+    // Смещение нужно, потому что ступени/подступенки/косоуры стоят друг на
+    // друге с нулевым зазором: без bias их контактные грани дают acne.
+    key.shadow.bias = -0.0008
+    key.shadow.normalBias = 0.6
+    scene.add(key)
+
+    // Заполняющий с противоположной стороны — гасит провалы, но НЕ светит
+    // в кадр, поэтому металл с этой стороны оставался бы тёмным.
+    const fill = new THREE.DirectionalLight(0xffffff, 0.75)
+    fill.position.set(-2400, 1500, -1800)
+    scene.add(fill)
+
+    // Отражение от «пола» циклорамы.
+    const bounce = new THREE.DirectionalLight(0xffffff, 0.28)
+    bounce.position.set(0, -1800, 600)
+    scene.add(bounce)
+
+    // «Подсветка из объектива»: едет вместе с камерой, поэтому при любом
+    // ракурсе блик на металле есть. Направленный, а не точечный — иначе
+    // свет падал бы пятном и ловил блики с неверной перспективой.
+    const front = new THREE.DirectionalLight(0xffffff, 0.62)
+    scene.add(front)
+    scene.add(front.target)
+    front.target.position.set(0, 0, 0)
+    // Позиция обновляется вместе с камерой (см. ниже, где считается кадр).
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.18))
+
+    // Студийный HDRI (Poly Haven, CC0) — необязательный: при ошибке сети
+    // остаётся RoomEnvironment, разница только в характере бликов.
+    const hdrUrl = environmentHDRI
+    if (hdrUrl) {
+      new RGBELoader().load(
+        hdrUrl,
+        (hdr: THREE.Texture) => {
+          const target = pmrem.fromEquirectangular(hdr)
+          envTargets.push(target)
+          scene.environment = target.texture
+          // Та же интенсивность, что и у процедурного окружения выше: если
+          // HDRI грузится с другой яркостью, металл на двух путях загрузки
+          // выглядел бы по-разному.
+          scene.environmentIntensity = 1.15
+          hdr.dispose()
+          // Рендертаргет попал в список ПОСЛЕ того, как могла отработать
+          // очистка (HDRI грузится асинхронно) — если эффект уже разобран,
+          // освобождаем его сразу, иначе он утечёт навсегда.
+          if (disposed) target.dispose()
+          needsRender = true
+        },
+        undefined,
+        () => {
+          console.warn('3D: HDRI не загружен, используется процедурное окружение')
+        },
+      )
+    }
 
     const makeMesh = (api: ApiMesh, material: THREE.Material) => {
       if (!api?.Vertices || !api?.Triangles) return null as unknown as { mesh: THREE.Mesh; geo: THREE.BufferGeometry }
@@ -230,19 +638,57 @@ export function GeometryViewer({
       const g = new THREE.BufferGeometry()
       g.setAttribute('position', new THREE.BufferAttribute(positions, 3))
       g.setIndex(new THREE.BufferAttribute(indices, 1))
+      // Текстурные координаты натягиваются ТОЛЬКО если backend их прислал и их
+      // столько же, сколько вершин. Иначе атрибут был бы короче геометрии, и
+      // three.js читал бы за границу буфера: без проверки это молчаливый
+      // мусор в памяти вместо внятной процедурной заливки.
+      if (api.UV && api.UV.length === api.Vertices.length) {
+        const uvs = new Float32Array(api.UV.length * 2)
+        api.UV.forEach((t, i) => {
+          uvs[i * 2] = t.U
+          uvs[i * 2 + 1] = t.V
+        })
+        g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+      }
       g.computeVertexNormals()
       g.computeBoundingBox()
       const m = new THREE.Mesh(g, material)
       return { mesh: m, geo: g }
     }
 
-    const stairMat = new THREE.MeshStandardMaterial({
+    // Этап 1: материалы по ролям деталей. Бэкенд отдаёт PartRanges
+    // (Solid, Role, Start, End) — ступени/косоуры/площадка получают свои
+    // PBR-пресеты. Если PartRanges нет (старый API) — один материал на весь
+    // марш, как раньше.
+    const stair = makeMesh(mesh, new THREE.MeshStandardMaterial({
       color: 0x4f8df7,
       roughness: 0.55,
       metalness: 0.12,
       side: THREE.DoubleSide,
+    }))
+    if (castShadow) {
+      stair.mesh.castShadow = true
+      stair.mesh.receiveShadow = true
+    }
+    const roleGroups = buildRoleGroups(stair.geo, mesh, {
+      materialCode,
+      treadMaterialCode,
+      finishId,
+      treadFinishId,
+      riserFinishId,
+      castShadow,
     })
-    const stair = makeMesh(mesh, stairMat)
+    // Группы по ролям НЕ добавляем в сцену здесь: stairGroup собирается
+    // ниже, и туда кладётся либо PBR-меш по ролям, либо монолит (если
+    // PartRanges нет — старый API). Раньше группы добавлялись в сцену
+    // сразу, а потом в stairGroup доставался ещё и монолит с той же
+    // геометрией: непрозрачный синий MeshStandardMaterial закрывал
+    // PBR-меши ровно на тех же треугольниках, и в кадре оставался один
+    // синий «схематичный» марш, хотя текстуры и HDRI грузились и
+    // применялись (см. материал STEEL-S235 на скриншоте: грузится 200,
+    // на экране — синий).
+    // Этап 2: те же диапазоны — карта «треугольник → деталь» для выбора в 3D.
+    const partGroups: PartGroup[] = groupsFromRanges(mesh.PartRanges)
 
     // ADR: 2D-план рисует первый шаг на +X, а 3D-меш генерирует первый шаг на
     // −X (зеркально). Чтобы 2D и 3D совпадали (один угол ВЛ, одна сторона
@@ -267,38 +713,106 @@ export function GeometryViewer({
         side: THREE.DoubleSide,
       })
       room = makeMesh(roomMesh, roomMat)
+      // Видимость применяем ЗДЕСЬ, а не только в эффекте на `walls`: тот
+      // эффект на первом рендере отрабатывает раньше, чем сцена создала меш,
+      // и правило не срабатывало ни разу — периметр помещения так и висел
+      // на экране поверх «белого циклорама».
+      const w0 = wallsStateRef.current
+      room.mesh.visible = w0.top || w0.bottom || w0.right || w0.left
+      roomRef.current = room.mesh
       scene.add(room.mesh)
     }
 
-    // Перила — отдельный меш БЕЗ каркаса (Issue 1): сплошной материал, без
+    // Перила — отдельные меши БЕЗ каркаса (Issue 1): сплошной материал, без
     // EdgesGeometry, чтобы между балясинами и поручнями не рисовались лишние
     // линии. Координаты совпадают с телом марша, поэтому для прямого марша
     // зеркалим так же, как stair.geo.
-    let railing: { mesh: THREE.Mesh; geo: THREE.BufferGeometry } | null = null
-    if (railingMesh?.Vertices?.length && railingMesh?.Triangles) {
-      const railMat = new THREE.MeshStandardMaterial({
-        color: 0x9aa7b8,
-        roughness: 0.5,
-        metalness: 0.2,
-        side: THREE.DoubleSide,
-      })
-      const positions = new Float32Array(toThreePositions(railingMesh.Vertices))
-      const indices = new Uint32Array(railingMesh.Triangles.length * 3)
-      railingMesh.Triangles.forEach((t, i) => {
-        indices[i * 3] = t[0]
-        indices[i * 3 + 1] = t[1]
-        indices[i * 3 + 2] = t[2]
-      })
-      const g = new THREE.BufferGeometry()
-      g.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-      g.setIndex(new THREE.BufferAttribute(indices, 1))
-      g.computeVertexNormals()
-      g.computeBoundingBox()
-      const m = new THREE.Mesh(g, railMat)
-      if (flight === 'straight') {
-        mirrorX(g)
+    //
+    // Роли разводятся на ОТДЕЛЬНЫЕ МЕШИ, а не в группы одного меша: стекло
+    // должно быть и другим материалом, и другим правилом теней. У
+    // MeshPhysicalMaterial с transmission three.js по-прежнему рисует
+    // непрозрачную тень, поэтому стеклянные панели отбрасывали бы на ступени
+    // чёрную полосу — ровно то, чего на реальном ограждении нет.
+    //
+    // Поручень и стойки по умолчанию ДЕРЕВЯННЫЕ — в цвет ступеней. Раньше всё
+    // ограждение без флага railingMetal красилось «стеклом», то есть поручень
+    // вместе с балясинами становился полупрозрачным: он просвечивал насквозь и
+    // исчезал за стеклянной панелью. Флаг railingMetal переключает и
+    // заполнение, и профиль ограждения на металл.
+    const railingMaterialFor = (role: string): THREE.Material => {
+      if (role === 'railing_glass' || railingMetal) {
+        return createRailingMaterialForRole(role, railingMetal)
       }
-      railing = { mesh: m, geo: g }
+      return createStairMaterial({
+        code: treadMaterialCode ?? materialCode,
+        finishId: treadFinishId ?? finishId,
+        role,
+        sizeMM: stair.geo.boundingBox
+          ? Math.max(
+              stair.geo.boundingBox.max.x - stair.geo.boundingBox.min.x,
+              stair.geo.boundingBox.max.y - stair.geo.boundingBox.min.y,
+              stair.geo.boundingBox.max.z - stair.geo.boundingBox.min.z,
+            )
+          : 1000,
+      })
+    }
+    const railings: { mesh: THREE.Mesh; geo: THREE.BufferGeometry }[] = []
+    if (railingMesh?.Vertices?.length && railingMesh?.Triangles) {
+      const positions = new Float32Array(toThreePositions(railingMesh.Vertices))
+      const uvs =
+        railingMesh.UV && railingMesh.UV.length === railingMesh.Vertices.length
+          ? (() => {
+              const out = new Float32Array(railingMesh.UV!.length * 2)
+              railingMesh.UV!.forEach((t, i) => {
+                out[i * 2] = t.U
+                out[i * 2 + 1] = t.V
+              })
+              return out
+            })()
+          : null
+      for (const part of railingPartsOf(railingMesh)) {
+        // Геометрия КОМПАКТИФИЦИРУЕТСЯ по треугольникам части.
+        //
+        // Раньше все части ограждения делили один буфер вершин всей сетки и
+        // отличались только индексом. Так нельзя: computeBoundingBox/
+        // computeBoundingSphere в three.js смотрят на ВЕСЬ массив position, а
+        // не на то, какие вершины реально использует индекс. У всех частей
+        // получался одинаковый габарит — габарит всего ограждения — и
+        // одинаковая сфера с центром в середине марша. Стоило камере
+        // приблизиться так, что середина марша оказывалась за кадром, как
+        // frustumCulled отсекал панели стекла: они были в сцене, с корректным
+        // материалом и индексом — и не рисовались вообще (renderer.info.calls
+        // не менялся при frustumCulled=false). Поручень с той же сферой
+        // рисовался только потому, что попадал в кадр целиком.
+        //
+        // Собственный буфер на часть решает и это, и лишнюю память.
+        const compact = compactTriangles(positions, uvs, part.triangles)
+        if (!compact) continue
+        const g = new THREE.BufferGeometry()
+        g.setAttribute('position', new THREE.BufferAttribute(compact.positions, 3))
+        if (compact.uvs) g.setAttribute('uv', new THREE.BufferAttribute(compact.uvs, 2))
+        g.setIndex(new THREE.BufferAttribute(compact.indices, 1))
+        g.computeVertexNormals()
+        g.computeBoundingBox()
+        g.computeBoundingSphere()
+        if (flight === 'straight') {
+          mirrorX(g)
+          // Границы ПОСЛЕ зеркала: иначе сфера остаётся в старой половине
+          // марша, и меш снова вылетает из кадра (та же ошибка, что описана
+          // выше, только на уровне transform).
+          g.computeBoundingBox()
+          g.computeBoundingSphere()
+        }
+        const isGlass = part.role === 'railing_glass'
+        const m = new THREE.Mesh(g, railingMaterialFor(part.role))
+        m.name = part.role
+        // Стекло тени не отбрасывает: см. комментарий выше. У непрозрачных
+        // деталей ограждения тень нужна — она приземляет поручень на
+        // площадку.
+        m.castShadow = castShadow && !isGlass
+        m.receiveShadow = castShadow
+        railings.push({ mesh: m, geo: g })
+      }
     }
 
     // Размещение лестницы у дальней стены/угла помещения (placement.ts):
@@ -318,6 +832,22 @@ export function GeometryViewer({
         roomLength,
         heightMM,
       })
+    }
+    if (sb) {
+      // Ортокамера теней по габаритам сцены (этап 1): иначе тень либо не
+      // попадает в кадр, либо «мылится» на большой лестнице.
+      const span = Math.max(
+        sb.max.x - sb.min.x,
+        sb.max.y - sb.min.y,
+        sb.max.z - sb.min.z,
+        1000,
+      )
+      const cam = key.shadow.camera
+      cam.left = -span * 1.2
+      cam.right = span * 1.2
+      cam.top = span * 1.2
+      cam.bottom = -span * 1.2
+      cam.updateProjectionMatrix()
     }
     if (sb) {
       let rw = roomWidth ?? 0
@@ -344,8 +874,8 @@ export function GeometryViewer({
       )
     }
     const stairGroup = new THREE.Group()
-    stairGroup.add(stair.mesh)
-    if (railing) stairGroup.add(railing.mesh)
+    for (const m of stairPartsOf(stair.mesh, roleGroups)) stairGroup.add(m)
+    for (const r of railings) stairGroup.add(r.mesh)
     // ADR-0008: трёхмерные оси — X=подъём(2D +X), Z=ширина(2D +Y), Y=высота.
     // Сдвиг placement.offsetX идёт вдоль подъёма (X), offsetY — вдоль ширины (Z).
     stairGroup.position.set(offset.offsetX, 0, offset.offsetY)
@@ -375,26 +905,55 @@ export function GeometryViewer({
       ctxMax.x += WALL_T
       ctxMax.z += WALL_T
     }
-    // Кадрируем камеру по объединённому габариту «лестница (со сдвигом) ∪
-    // помещение ∪ стены/выход», чтобы было видно, что лестница прижата к
-    // нужной стене/углу.
+    // Кадр строим по САМОМУ ИЗДЕЛИЮ: лестница (со сдвигом placement) ∪
+    // плита выхода ∪ стены, плюс половина габарита помещения с каждой
+    // стороны, чтобы было видно, к какой стене лестница прижата.
+    //
+    // Раньше в кадр входило помещение ЦЕЛИКОМ, и при комнате 6000×7000
+    // против лестницы 4480×2800 изделие уезжало в угол кадра: сфера
+    // описывала пустые стены, а лестница занимала меньше трети полотна.
+    // Считать кадр по изделию — то же, что делает Ниора: показывает
+    // лестницу, а помещение оставляет контекстом по краям.
     const unionMin = new THREE.Vector3(ctxMin.x + offset.offsetX, ctxMin.y, ctxMin.z + offset.offsetY)
     const unionMax = new THREE.Vector3(ctxMax.x + offset.offsetX, ctxMax.y, ctxMax.z + offset.offsetY)
     if (room && room.geo.boundingBox) {
-      unionMin.min(room.geo.boundingBox.min)
-      unionMax.max(room.geo.boundingBox.max)
+      const rb = room.geo.boundingBox
+      const roomSize = rb.getSize(new THREE.Vector3())
+      // Половина комнаты с каждой стороны изделия: стена остаётся в кадре,
+      // но не раздувает кадр вчетверо.
+      const half = roomSize.clone().multiplyScalar(0.5)
+      unionMin.min(rb.min.clone().add(half))
+      unionMax.max(rb.max.clone().sub(half))
     }
     const center = unionMin.clone().add(unionMax).multiplyScalar(0.5)
     const radius = Math.max(unionMax.clone().sub(unionMin).length() / 2, 1000)
 
+    // Пол-приёмник теней: невидимая плоскость, на которой лестница
+    // «стоит». Без неё модель висит в белом пространстве и не читается как
+    // объект — пропадает главный признак фотореализма (контакт с плоскостью
+    // и падающая тень). Техника та же, что на продуктовой съёмке:
+    // ShadowMaterial рисует ТОЛЬКО тень, сам пол невидим.
+    const shadowFloorSize = Math.min(radius * 12, 40000)
+    const shadowFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(shadowFloorSize, shadowFloorSize),
+      new THREE.ShadowMaterial({ opacity: 0.16, transparent: true }),
+    )
+    shadowFloor.rotation.x = -Math.PI / 2
+    // Чуть ниже габарита лестницы, чтобы ступени не «утопали» в плоскости.
+    shadowFloor.position.y = unionMin.y - 1
+    shadowFloor.receiveShadow = true
+    scene.add(shadowFloor)
+
     // Пол — большая «бесконечная» сетка (визуализация; проверка вписывания
     // в комнату выполняется расчётом независимо). Размер ограничен дальней
     // плоскостью камеры (far = 100000), чтобы сетка не обрезалась.
-    const gridSize = Math.min(radius * 30, 90000)
-    const gridDiv = Math.min(200, Math.max(20, Math.round(gridSize / 500)))
-    const grid = new THREE.GridHelper(gridSize, gridDiv, 0x94a3b8, 0xcdd6e0)
-    grid.position.y = unionMin.y
-    scene.add(grid)
+    if (debugOverlay) {
+      const gridSize = Math.min(radius * 30, 90000)
+      const gridDiv = Math.min(200, Math.max(20, Math.round(gridSize / 500)))
+      const grid = new THREE.GridHelper(gridSize, gridDiv, 0xc2cdd8, 0xe0e7ec)
+      grid.position.y = unionMin.y
+      scene.add(grid)
+    }
 
     // Фиолетовая линия: горизонтально на уровне пола (z = box.min.z), ровно
     // под местом, где заканчивается марш (для straight меш зеркалится по X,
@@ -407,12 +966,14 @@ export function GeometryViewer({
       const y0 = box.min.y
       const y1 = box.max.y
       const z = box.min.z
-      const lg = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(x, y0, z),
-        new THREE.Vector3(x, y1, z),
-      ])
-      topLine = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: 0x9b5de5 }))
-      stairGroup.add(topLine)
+      if (debugOverlay) {
+        const lg = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(x, y0, z),
+          new THREE.Vector3(x, y1, z),
+        ])
+        topLine = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: 0x9b5de5 }))
+        stairGroup.add(topLine)
+      }
     }
 
     // Зона свободного пространства перед первой ступенью (EDR-0023): полупрозрачная
@@ -423,7 +984,7 @@ export function GeometryViewer({
     // Run + approach она упирается ровно в стену П, ничего не вылезая.
     // Добавляем в stairGroup, чтобы зона ехала вместе со сдвигом размещения.
     let approachMesh: THREE.Mesh | null = null
-    if (sb) {
+    if (sb && debugOverlay) {
       const widthZ = Math.max(1, sb.max.z - sb.min.z)
       const apGeo = new THREE.PlaneGeometry(ap, widthZ)
       const apMat = new THREE.MeshBasicMaterial({
@@ -564,24 +1125,376 @@ export function GeometryViewer({
       }
     }
 
-    camera.position.copy(center).add(new THREE.Vector3(radius * 1.4, radius * 1.2, radius * 1.6))
-    controls.target.copy(center)
-    controls.update()
-
-    // Экономия CPU (P1-7): рендерим только при фактическом изменении, а не в
-    // постоянном цикле с фиксированной частотой. OrbitControls помечает
-    // needsRender при взаимодействии; в покое лишние кадры не генерируются.
+    // Кадрируем камеру по ГАБАРИТУ СФЕРЫ и УГЛУ ОБЗОРА, а не константой.
+    //
+    // Расстояние, с которого сфера радиуса R помещается в кадр, равно
+    // R / sin(fov/2). При 32° это 3.63·R, а при прежних 45° — 2.61·R. Со
+    // сменой объектива на длиннофокусный кадр физически стал «уже», и лестница
+    // начала уезжать за край: константа расстояния здесь и была ошибкой.
+    // Запас не нужен: в сферу уже входят плита выхода и зона подхода, то
+    // есть запас заложен габаритом.
+    const fitFov = (camera.fov * Math.PI) / 180
+    // 0.88 от кадра сферы. Изделие — длинная диагональ в кадре, и полный
+    // кадр сферы оставлял слева пустую треть полотна; 12% — компромисс,
+    // при котором плита выхода и низ марша остаются в кадре целиком.
+    const fitDist = (radius / Math.sin(fitFov / 2)) * 0.88
+    // Границ зума НЕТ: покупатель сам решает, насколько близко и под каким
+    // углом смотреть. Ограничения стояли здесь по сугубо внутренним
+    // соображениям («не улетать в пустоту»), но ломали ожидаемое поведение
+    // просмотра изделия: рассмотреть узел вблизи было нельзя.
+    // Направление взгляда — то же, что даёт привычный трёхчетвертной ракурс
+    // (сверху, сбоку, спереди), только длина вектора считается от FOV.
+    //
+    // Экономия CPU (P1-7) объявлена ДО посадки: resetView уже дёргает
+    // needsRender, и объявление ниже давало бы Temporal Dead Zone.
     let needsRender = true
+    // Ракурс посадки — по решению владельца: низкий, примерно уровень
+    // ступеней, как у Ниоры. Раньше смотрели с 29° над полом при
+    // viewDir (1.4, 1.2, 1.6), и вертикальная боковая пластина косоура
+    // вставала почти ребром: её ширина по кадру была 0.49 от полной, то
+    // есть стальной каркас — главный элемент изделия — почти не читался,
+    // и лестница выглядела деревянной. (Отдельно проверено раскраской
+    // ролей: широкая коричневая полоса в кадре — это ДЕРЕВОЯННЫЕ ступени,
+    // а не косоур.)
+    //
+    // Теперь (1.0, 1.62, 0.62): доля боковой нормали 0.82 — пластина стоит
+    // почти лицом, подъём 19° над полом — ступени видно сбоку, как в
+    // референсе, и лёгкий боковой разворот по X, чтобы марш не сжимался
+    // в точку и оставался трёхчетвертным.
+    const viewDir = new THREE.Vector3(radius * 1.0, radius * 1.62, radius * 0.62).normalize()
+    const shapeKey = String(flight)
+    const saveCamState = () => {
+      camStateRef.current = {
+        x: camera.position.x,
+        y: camera.position.y,
+        z: camera.position.z,
+        tx: controls.target.x,
+        ty: controls.target.y,
+        tz: controls.target.z,
+        shapeKey,
+      }
+    }
+    const resetView = () => {
+      // viewDir копируем: сама посадка ниже умножает вектор на расстояние,
+      // а повторный вызов (кнопка «Вернуть вид») не должен укорачивать его.
+      camera.position.copy(center).add(viewDir.clone().multiplyScalar(fitDist))
+      controls.target.copy(center)
+      controls.update()
+      needsRender = true
+      saveCamState()
+    }
+    const prevCam = camStateRef.current
+    if (prevCam && prevCam.shapeKey === shapeKey) {
+      // Та же форма лестницы: возвращаем взгляд покупателя, а не сбрасываем.
+      camera.position.set(prevCam.x, prevCam.y, prevCam.z)
+      controls.target.set(prevCam.tx, prevCam.ty, prevCam.tz)
+      controls.update()
+      needsRender = true
+    } else {
+      resetView()
+    }
+    resetViewRef.current = resetView
+
     let lastCapture = 0
     const onChange = () => {
       needsRender = true
+      saveCamState()
     }
     controls.addEventListener('change', onChange)
+
+    // ---- Этап 2 «конструктор»: выбор детали в 3D ----
+    // Подсветка делается на материале группы (у каждой детали свой материал),
+    // поэтому достаточно поменять emissive. Клик отличаем от вращения камеры
+    // по смещению указателя: иначе каждый поворот сцены «выбирал» бы деталь.
+    const pickTargets: THREE.Object3D[] = [...roleGroups]
+    for (const r of railings) pickTargets.push(r.mesh)
+    const raycaster = new THREE.Raycaster()
+    const pointerNDC = new THREE.Vector2()
+    let hoveredGroup = -1
+    let selectedGroup = -1
+    const baseEmissive = new Map<number, THREE.Color>()
+
+    const setEmissive = (groupIndex: number, on: boolean) => {
+      const mats = roleGroups[0]?.material
+      if (!mats) return
+      const mat = (Array.isArray(mats) ? mats : [mats])[groupIndex] as
+        | THREE.MeshStandardMaterial
+        | undefined
+      if (!mat || !('emissive' in mat)) return
+      if (!baseEmissive.has(groupIndex)) baseEmissive.set(groupIndex, mat.emissive.clone())
+      const base = baseEmissive.get(groupIndex)!
+      mat.emissive = on ? new THREE.Color(0x2f6fd0) : base
+      needsRender = true
+    }
+
+    const refreshSelection = () => {
+      for (const idx of [hoveredGroup, selectedGroup]) {
+        if (idx >= 0) setEmissive(idx, true)
+      }
+    }
+
+    const cast = (event: PointerEvent) => {
+      const rect = renderer.domElement.getBoundingClientRect()
+      if (!rect.width || !rect.height) return null
+      pointerNDC.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      pointerNDC.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+      raycaster.setFromCamera(pointerNDC, camera)
+      const hits = raycaster.intersectObjects(pickTargets, false)
+      for (const hit of hits) {
+        if (hit.faceIndex == null) continue
+        // Ограждение приходит отдельным мешем с собственными PartRanges —
+        // кликаем по нему так же, но без редактирования.
+        const groups =
+          hit.object === roleGroups[0] ? partGroups : groupsFromRanges(railingMesh?.PartRanges)
+        if (!groups.length) continue
+        const picked = pickPart(groups, hit.faceIndex)
+        if (picked) {
+          return { picked, groupIndex: picked.groupIndex, object: hit.object, point: hit.point }
+        }
+      }
+      return null
+    }
+
+    let downX = 0
+    let downY = 0
+    // Активное перетаскивание: плоскость через точку захвата, перпендикулярная
+    // взгляду камеры, и стартовая высота марша.
+    // mode: flight — вертикаль правит высоту, горизонталь шаг комфорта;
+    // landing — плоскость пола, X правит глубину, Z ширину площадки.
+    let drag: {
+      mode: 'flight' | 'landing'
+      plane: THREE.Plane
+      start: THREE.Vector3
+      startHeight: number
+      startComfort: number
+      moved: boolean
+    } | null = null
+    const heightBounds = () => {
+      const rule = rulesFor('heightMM', materialRef.current as never)
+      return { min: rule.min ?? 1200, max: rule.max ?? 6000 }
+    }
+    const comfortBounds = () => {
+      const rule = fieldRules.comfortStepMM
+      return { min: rule.min ?? 600, max: rule.max ?? 640 }
+    }
+    const landingBounds = () => ({
+      width: {
+        min: fieldRules.landingWidthMM.min ?? 600,
+        max: fieldRules.landingWidthMM.max ?? 3000,
+      },
+      depth: {
+        min: fieldRules.landingDepthMM.min ?? 600,
+        max: fieldRules.landingDepthMM.max ?? 5000,
+      },
+    })
+    const onPointerDown = (e: PointerEvent) => {
+      downX = e.clientX
+      downY = e.clientY
+      if (!interactive) return
+      const hit = cast(e)
+      const startHeight = heightRef.current
+      if (!hit || !isEditablePart(hit.picked.role) || !startHeight) {
+        drag = null
+        return
+      }
+      // Захват на детали марша: отключаем вращение камеры и готовим drag.
+      // Площадку тянем по полу (нормаль Y) — иначе её габарит не выразить.
+      const landing = hit.picked.role === 'landing'
+      const normal = landing ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3()
+      if (!landing) camera.getWorldDirection(normal)
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, hit.point)
+      drag = {
+        mode: landing ? 'landing' : 'flight',
+        plane,
+        start: hit.point.clone(),
+        startHeight,
+        startComfort: comfortRef.current ?? 0,
+        moved: false,
+      }
+      controls.enabled = false
+    }
+    const onPointerMove = (e: PointerEvent) => {
+      if (!interactive) return
+      if (drag) {
+        const rect = renderer.domElement.getBoundingClientRect()
+        if (!rect.width || !rect.height) return
+        pointerNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+        pointerNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+        raycaster.setFromCamera(pointerNDC, camera)
+        const p = new THREE.Vector3()
+        if (raycaster.ray.intersectPlane(drag.plane, p)) {
+          const dx = p.x - drag.start.x
+          const dy = p.y - drag.start.y
+          const dz = p.z - drag.start.z
+          if (isDragDistance(dx) || isDragDistance(dy) || isDragDistance(dz)) drag.moved = true
+          if (drag.moved && drag.mode === 'landing') {
+            const b = landingBounds()
+            const byZ = Math.abs(dz) > Math.abs(dx)
+            dragCallbacksRef.current.onDragPreview?.({
+              heightMM: drag.startHeight,
+              comfortStepMM: drag.startComfort,
+              landingWidthMM: byZ
+                ? dragLandingMM(landingWidthRef.current ?? b.width.min, dz, b.width)
+                : undefined,
+              landingDepthMM: byZ
+                ? undefined
+                : dragLandingMM(landingDepthRef.current ?? b.depth.min, dx, b.depth),
+            })
+            return
+          }
+          if (drag.moved) {
+            // Доминирующая ось решает, что правим: вверх-вниз — высоту,
+            // вбок — шаг комфорта (проступь/забег).
+            const horizontal = dragAxisIsHorizontal(dx, dy)
+            const value = horizontal
+              ? {
+                  heightMM: drag.startHeight,
+                  comfortStepMM: dragComfortStep(drag.startComfort, dx, comfortBounds()),
+                }
+              : {
+                  heightMM: dragHeight(drag.startHeight, dy, heightBounds()),
+                  comfortStepMM: drag.startComfort,
+                }
+            dragCallbacksRef.current.onDragPreview?.(value)
+            needsRender = true
+          }
+        }
+        return
+      }
+      const hit = cast(e)
+      // Подсветка наведения — только на редактируемых деталях (ступень,
+      // косоур, площадка поворота). Раньше синий emissive вставал на любую
+      // деталь под курсором, включая подступенки, ограждение и новую верхнюю
+      // площадку: человек видел «выбрано», а клик по такой детали ничего не
+      // делал. Теперь нередактируемая деталь подсвечивается только если она
+      // реально выбрана.
+      const nextGroup = hit && isEditablePart(hit.picked.role) ? hit.groupIndex : -1
+      if (nextGroup !== hoveredGroup) {
+        if (hoveredGroup >= 0 && hoveredGroup !== selectedGroup) setEmissive(hoveredGroup, false)
+        hoveredGroup = nextGroup
+        if (hoveredGroup >= 0 && hoveredGroup !== selectedGroup) {
+          setEmissive(hoveredGroup, true)
+        }
+      }
+      refreshSelection()
+      renderer.domElement.style.cursor = hit
+        ? isEditablePart(hit.picked.role)
+          ? 'ns-resize'
+          : 'pointer'
+        : 'grab'
+    }
+    const onPointerUp = (e: PointerEvent) => {
+      if (!interactive) return
+      const wasDrag = drag
+      drag = null
+      controls.enabled = true
+      if (wasDrag?.moved) {
+        const rect = renderer.domElement.getBoundingClientRect()
+        if (rect.width && rect.height) {
+          pointerNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+          pointerNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+          raycaster.setFromCamera(pointerNDC, camera)
+          const p = new THREE.Vector3()
+          if (raycaster.ray.intersectPlane(wasDrag.plane, p)) {
+            const dx = p.x - wasDrag.start.x
+            const dy = p.y - wasDrag.start.y
+            const dz = p.z - wasDrag.start.z
+            const {
+              onDragHeight,
+              onDragComfortStep,
+              onDragPreview,
+              onDragLandingWidth,
+              onDragLandingDepth,
+            } = dragCallbacksRef.current
+            onDragPreview?.(null)
+            if (wasDrag.mode === 'landing') {
+              const b = landingBounds()
+              const byZ = Math.abs(dz) > Math.abs(dx)
+              if (byZ) {
+                onDragLandingWidth?.(
+                  dragLandingMM(landingWidthRef.current ?? b.width.min, dz, b.width),
+                )
+              } else {
+                onDragLandingDepth?.(
+                  dragLandingMM(landingDepthRef.current ?? b.depth.min, dx, b.depth),
+                )
+              }
+              return
+            }
+            if (dragAxisIsHorizontal(dx, dy) && onDragComfortStep) {
+              onDragComfortStep(dragComfortStep(wasDrag.startComfort, dx, comfortBounds()))
+            } else if (onDragHeight) {
+              onDragHeight(dragHeight(wasDrag.startHeight, dy, heightBounds()))
+            }
+            return
+          }
+        }
+        dragCallbacksRef.current.onDragPreview?.(null)
+        return
+      }
+      if (!onSelectPart) return
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 4) return
+      const hit = cast(e)
+      if (!hit || !isEditablePart(hit.picked.role)) {
+        if (selectedGroup >= 0) setEmissive(selectedGroup, false)
+        selectedGroup = -1
+        onSelectPart(null)
+        return
+      }
+      if (hit.groupIndex === selectedGroup) {
+        onSelectPart(null)
+        if (selectedGroup >= 0) setEmissive(selectedGroup, false)
+        selectedGroup = -1
+        return
+      }
+      if (selectedGroup >= 0) setEmissive(selectedGroup, false)
+      selectedGroup = hit.groupIndex
+      setEmissive(selectedGroup, true)
+      onSelectPart({ solid: hit.picked.solid, role: hit.picked.role })
+    }
+
+    if (interactive) {
+      renderer.domElement.addEventListener('pointermove', onPointerMove)
+      renderer.domElement.addEventListener('pointerdown', onPointerDown)
+      renderer.domElement.addEventListener('pointerup', onPointerUp)
+    }
+    const detachPicking = () => {
+      renderer.domElement.removeEventListener('pointermove', onPointerMove)
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown)
+      renderer.domElement.removeEventListener('pointerup', onPointerUp)
+      applySelectionRef.current = () => {}
+    }
+
+    // Внешняя подсветка: React меняет selectedPart, сцена при этом не
+    // пересобирается — только материал выбранной группы.
+    const highlightSelection = (part: { solid: number; role: string } | null) => {
+      const idx = part
+        ? partGroups.findIndex((g) => g.solid === part.solid && g.role === part.role)
+        : -1
+      if (idx === selectedGroup) return
+      if (selectedGroup >= 0) setEmissive(selectedGroup, false)
+      selectedGroup = idx
+      if (idx >= 0) setEmissive(idx, true)
+    }
+    applySelectionRef.current = highlightSelection
+    highlightSelection(selectedPartRef.current)
+    // Пост-обработка (затенение контактов) собирается здесь, а не на старте
+    // эффекта: радиус затенения выводится из габарита сцены, который известен
+    // только после расчёта габаритов.
+    const postfx = createPostFX(renderer, scene, camera, width, height, radius)
     renderer.setAnimationLoop(() => {
       controls.update()
+      // «Подсветка из объектива» едет вместе с камерой: ставим её на
+      // расстоянии от цели вдоль направления взгляда, иначе при повороте
+      // сцены блик на металле уезжал бы вбок.
+      front.position.copy(camera.position)
+      front.target.position.copy(controls.target)
+      front.target.updateMatrixWorld()
       if (!needsRender) return
       needsRender = false
-      renderer.render(scene, camera)
+      // Именно composer, а не renderer.render: без него AO не считается,
+      // а тонмаппинг ACES применяется дважды (в рендер-таргет и в вывод).
+      postfx.composer.render()
       // Кадр для КП сохраняем только ПОСЛЕ фактической отрисовки и не чаще
       // 150 мс при непрерывном вращении — фиксированного PNG-цикла больше нет.
       const now = performance.now()
@@ -597,23 +1510,54 @@ export function GeometryViewer({
       camera.aspect = w / h
       camera.updateProjectionMatrix()
       renderer.setSize(w, h)
+      // Без этого цепочка пост-обработки продолжала бы считать AO в прежнем
+      // разрешении: после смены размера полотна картинка мылилась бы по краям.
+      postfx.setSize(w, h)
+      // Кадр обязателен: цикл рендерит только по needsRender, а resize не
+      // меняет положение камеры и не вызывает controls 'change'. Без этого
+      // после смены размера (в т.ч. первого расклада в сплите) на канвасе
+      // оставался пустой/устаревший кадр до первого поворота мыши.
+      needsRender = true
     })
     ro.observe(container)
 
     return () => {
+      disposed = true
       renderer.setAnimationLoop(null)
+      detachPicking()
       ro.disconnect()
+      // Кнопка «Вернуть вид» не должна дёргать камеру снятой сцены.
+      resetViewRef.current = null
       controls.removeEventListener('change', onChange)
       controls.dispose()
-      stairMat.dispose()
+      // Рендертаргеты AO и буферов денойзинга: эффект пересоздаётся на каждое
+      // изменение параметров, без освобождения GPU-память текла.
+      postfx.dispose()
+      // IBL: рендертаргеты окружения и сам генератор. Эффект пересоздаётся
+      // на каждое изменение параметров, поэтому без освобождения GPU-память
+      // росла с каждым движением ползунка.
+      for (const t of envTargets) t.dispose()
+      pmrem.dispose()
+      shadowFloor.geometry.dispose()
+      ;(shadowFloor.material as THREE.Material).dispose()
+      for (const mat of Array.isArray(stair.mesh.material) ? stair.mesh.material : [stair.mesh.material]) {
+        mat.dispose()
+      }
       stair.geo.dispose()
       if (room) {
         ;(room.mesh.material as THREE.Material).dispose()
         room.geo.dispose()
       }
-      if (railing) {
-        ;(railing.mesh.material as THREE.Material).dispose()
-        railing.geo.dispose()
+      for (const r of railings) {
+        ;(r.mesh.material as THREE.Material).dispose()
+        r.geo.dispose()
+      }
+      if (roleGroups.length > 0) {
+        for (const group of roleGroups) {
+          for (const mat of Array.isArray(group.material) ? group.material : [group.material]) {
+            mat.dispose()
+          }
+        }
       }
       renderer.dispose()
       if (topLine) {
@@ -641,7 +1585,12 @@ export function GeometryViewer({
         container.removeChild(renderer.domElement)
       }
     }
-  }, [mesh, roomMesh, railingMesh, approachSpace, roomWidth, roomLength, direction, stairTop, flight, stepThickness, secondFloorDepth, heightMM])
+    // materialCode/treadMaterialCode/finishId в зависимостях СОЗНАТЕЛЬНО:
+    // сцена собирает материалы по ролям деталей, и без пересборки смены
+    // материала не пересобираются — пользователь выбирал бы цвет, а картинка
+    // молчала бы. Материал меняется по клику, а не каждый кадр, поэтому
+    // лишняя пересборка незаметна.
+  }, [mesh, roomMesh, railingMesh, approachSpace, roomWidth, roomLength, direction, stairTop, flight, stepThickness, secondFloorDepth, heightMM, materialCode, treadMaterialCode, finishId, treadFinishId, riserFinishId])
 
   const SIDES: WallSide[] = ['top', 'bottom', 'right', 'left']
   const WALL_LABELS: Record<WallSide, string> = {
@@ -667,7 +1616,13 @@ export function GeometryViewer({
 
   return (
     <div className="viewer">
-      <div className="viewer__stage" ref={containerRef} />
+      {/* Подсказка лежит ВНУТРИ полотна: она ничего не занимает по высоте,
+          то есть канвас не теряет ни пикселя, а полоса всегда висит в
+          верхней части окна сцены. */}
+      <div className="viewer__stage" ref={containerRef}>
+        <MouseHint />
+      </div>
+      {overlay && <div className="viewer__overlay">{overlay}</div>}
       <div className="viewer__controls">
         <div className="viewer__walls" role="group" aria-label="Стены">
           {SIDES.map((s) => (
@@ -700,8 +1655,15 @@ export function GeometryViewer({
           />
           <span>Выход на 2-й этаж</span>
         </label>
+        <button
+          type="button"
+          className="viewer__reset-view"
+          onClick={() => resetViewRef.current?.()}
+          title="Вернуть посадочный кадр"
+        >
+          Вернуть вид
+        </button>
       </div>
-      <p className="viewer__hint">Вращение — ЛКМ · панорама — ПКМ/средняя · зум — колесо</p>
     </div>
   )
 }

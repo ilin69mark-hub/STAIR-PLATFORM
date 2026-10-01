@@ -175,3 +175,68 @@ func TestFormatMetadata(t *testing.T) {
 		t.Errorf("SVG metadata wrong")
 	}
 }
+
+// TestMergeCombinesMeshesAndShiftsIndices — регрессия DOM-003.
+//
+// Перила строятся отдельным телом (RailingMesh) и в основной меш лестницы не
+// входят. Экспорт обязан сливать их в один файл, иначе в DXF/STL/SVG перил нет.
+// Merge сдвигает индексы вершин и треугольников и PartRanges.
+func TestMergeCombinesMeshesAndShiftsIndices(t *testing.T) {
+	a := &kerngeo.Mesh{
+		Vertices:  []kerngeo.Point3{{X: 0}, {X: 1}, {X: 0, Y: 1}},
+		Triangles: [][3]int{{0, 1, 2}},
+		PartRanges: []kerngeo.PartRange{
+			{Solid: 0, Role: "tread", Start: 0, End: 1},
+		},
+	}
+	b := &kerngeo.Mesh{
+		Vertices:  []kerngeo.Point3{{X: 5}, {X: 6}, {X: 5, Y: 6}},
+		Triangles: [][3]int{{0, 1, 2}},
+		PartRanges: []kerngeo.PartRange{
+			{Solid: 1, Role: "railing", Start: 0, End: 1},
+		},
+	}
+
+	got := Merge(a, b)
+	if len(got.Vertices) != 6 {
+		t.Fatalf("vertices: got %d, want 6", len(got.Vertices))
+	}
+	if len(got.Triangles) != 2 {
+		t.Fatalf("triangles: got %d, want 2", len(got.Triangles))
+	}
+	// Второй треугольник обязан ссылаться на сдвинутые индексы вершин.
+	if got.Triangles[1] != [3]int{3, 4, 5} {
+		t.Fatalf("second triangle indices not shifted: %v", got.Triangles[1])
+	}
+	if len(got.PartRanges) != 2 {
+		t.Fatalf("part ranges: got %d, want 2", len(got.PartRanges))
+	}
+	if got.PartRanges[1].Start != 1 || got.PartRanges[1].End != 2 {
+		t.Fatalf("railing part range not shifted: %+v", got.PartRanges[1])
+	}
+	// Слитая сетка обязана сериализоваться без ошибок (все индексы в границах).
+	var buf bytes.Buffer
+	if err := Write(&buf, got, DXF); err != nil {
+		t.Fatalf("Write merged mesh: %v", err)
+	}
+	if buf.Len() == 0 {
+		t.Fatal("merged mesh produced empty output")
+	}
+}
+
+// TestMergeSkipsEmptyAndNilMeshes — railing=none даёт пустую сетку перил;
+// Merge не должен ни падать, ни добавлять пустые PartRanges.
+func TestMergeSkipsEmptyAndNilMeshes(t *testing.T) {
+	a := &kerngeo.Mesh{
+		Vertices:  []kerngeo.Point3{{X: 0}, {X: 1}, {X: 0, Y: 1}},
+		Triangles: [][3]int{{0, 1, 2}},
+	}
+	got := Merge(a, nil, &kerngeo.Mesh{})
+	if len(got.Vertices) != 3 || len(got.Triangles) != 1 {
+		t.Fatalf("merge must skip nil/empty meshes: %d verts, %d tris", len(got.Vertices), len(got.Triangles))
+	}
+	var buf bytes.Buffer
+	if err := Write(&buf, got, STL); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+}
