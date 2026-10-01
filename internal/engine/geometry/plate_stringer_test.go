@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"stairplatform/internal/domain/engineering"
+	kerngeo "stairplatform/internal/geometry"
 )
 
 // metalConfig — конфигурация металлокаркаса: стальной косоур 8 мм, ступень
@@ -58,8 +59,9 @@ func TestPlateStringerStandsAtSides(t *testing.T) {
 	}
 }
 
-// Ступени и подступенки идут МЕЖДУ пластинами: торец проступи упирается в
-// боковую грань косоура (как на Ниоре), а не перекрывает косоур поверх.
+// Ступени и подступенки идут МЕЖДУ пластинами, с нахлёстом 2 мм внутрь:
+// при касании торец и грань пластины в одной плоскости, и z-fighting то
+// протыкает косоур, то проступает дуб на косоуре.
 func TestPlateStringerTreadsSpanBetweenPlates(t *testing.T) {
 	cfg := metalConfig(t)
 	model, err := BuildStraightFlight(cfg)
@@ -68,6 +70,7 @@ func TestPlateStringerTreadsSpanBetweenPlates(t *testing.T) {
 	}
 	tn := cfg.StringerThickness.Millimeters()
 	w := cfg.Width.Millimeters()
+	want0, want1 := tn-plateJoinMM, w-tn+plateJoinMM
 	var treads, risers int
 	for _, solid := range model.Solids() {
 		var lo, hi float64
@@ -81,13 +84,61 @@ func TestPlateStringerTreadsSpanBetweenPlates(t *testing.T) {
 		default:
 			continue
 		}
-		if !nearlyEqual(lo, tn) || !nearlyEqual(hi, w-tn) {
-			t.Fatalf("%s y = [%v, %v], ждём [%v, %v] (между пластинами)",
-				solid.Role(), lo, hi, tn, w-tn)
+		if !nearlyEqual(lo, want0) || !nearlyEqual(hi, want1) {
+			t.Fatalf("%s y = [%v, %v], ждём [%v, %v] (между пластинами с нахлёстом)",
+				solid.Role(), lo, hi, want0, want1)
 		}
 	}
 	if treads != 16 || risers != 16 {
 		t.Fatalf("проступей %d, подступенков %d, ждём 16 и 16", treads, risers)
+	}
+}
+
+// Верхняя площадка — ОТДЕЛЬНАЯ деталь на уровне последней ступени: без неё
+// марш обрывается ступенью и не видно, куда ступень приводит.
+func TestPlateFrameHasLanding(t *testing.T) {
+	cfg := metalConfig(t)
+	b := cfg.TreadDepth.Millimeters()
+	h := cfg.StepHeight.Millimeters()
+	tn := cfg.StringerThickness.Millimeters()
+	w := cfg.Width.Millimeters()
+	model, err := BuildStraightFlight(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, solid := range model.Solids() {
+		if solid.Role() != "top_plate" {
+			continue
+		}
+		found = true
+		lo, hi := solidYBounds(solid)
+		if !nearlyEqual(lo, tn-plateJoinMM) || !nearlyEqual(hi, w-tn+plateJoinMM) {
+			t.Fatalf("площадка y = [%v, %v], ждём [%v, %v]", lo, hi, tn-plateJoinMM, w-tn+plateJoinMM)
+		}
+	}
+	if !found {
+		t.Fatal("у металлокаркаса нет верхней площадки — отдельной детали под сварку")
+	}
+	// Площадка начинается с конца марша и идёт на шаг ступени, верх вровень
+	// с носиком последней ступени.
+	lp := b * landingDepthFactor
+	pts := []kerngeo.Point3{
+		kerngeo.NewPoint3(float64(cfg.StepCount)*b, 0, float64(cfg.StepCount)*h-tn),
+		kerngeo.NewPoint3(float64(cfg.StepCount)*b+lp, 0, float64(cfg.StepCount)*h-tn),
+		kerngeo.NewPoint3(float64(cfg.StepCount)*b+lp, 0, float64(cfg.StepCount)*h),
+		kerngeo.NewPoint3(float64(cfg.StepCount)*b, 0, float64(cfg.StepCount)*h),
+	}
+	solid, err := kerngeo.Extrude(pts, kerngeo.NewVector3(0, 1, 0), w-2*tn+2*plateJoinMM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bb := kerngeo.SolidBoundingBox(solid)
+	if !nearlyEqual(bb.Max.X-bb.Min.X, lp) {
+		t.Fatalf("глубина площадки = %v, ждём %v (шаг ступени)", bb.Max.X-bb.Min.X, lp)
+	}
+	if !nearlyEqual(bb.Max.Z-bb.Min.Z, tn) {
+		t.Fatalf("толщина площадки = %v, ждём %v (лист косоура)", bb.Max.Z-bb.Min.Z, tn)
 	}
 }
 
@@ -96,9 +147,9 @@ func TestPlateStringerTreadsSpanBetweenPlates(t *testing.T) {
 func TestPlateStringerProfileIsStraightPlate(t *testing.T) {
 	n, b, h, st, y, tn, depth := 16, 280.0, 175.0, 40.0, 0.0, 8.0, StringerPlateDepthMM
 	pts := plateStringerProfile(n, b, h, st, y, tn, depth)
-	// 7 вершин: пол, передняя грань, посадки, полка, низ полки, пятка.
-	if len(pts) != 7 {
-		t.Fatalf("вершин профиля = %d, ждём 7 (прямая пластина без зубьев)", len(pts))
+	// 5 вершин: пол, передняя грань, верхнее ребро, задний срез, пятка.
+	if len(pts) != 5 {
+		t.Fatalf("вершин профиля = %d, ждём 5 (прямая пластина без зубьев)", len(pts))
 	}
 	// Передняя грань вертикальна: от пола до первой посадки.
 	if !nearlyEqual(pts[0].X, 0) || !nearlyEqual(pts[0].Z, 0) {
@@ -107,38 +158,39 @@ func TestPlateStringerProfileIsStraightPlate(t *testing.T) {
 	if !nearlyEqual(pts[1].X, 0) || !nearlyEqual(pts[1].Z, h-st) {
 		t.Fatalf("передний верхний угол = %v, ждём (0, %v)", pts[1], h-st)
 	}
-	// Верхнее ребро: последняя посадка, затем горизонтальная полка до
-	// конца марша.
-	if !nearlyEqual(pts[2].X, float64(n-1)*b) || !nearlyEqual(pts[2].Z, float64(n)*h-st) {
-		t.Fatalf("последняя посадка = %v, ждём (%v, %v)", pts[2], float64(n-1)*b, float64(n)*h-st)
+	// Верхнее ребро заканчивается на ПОСЛЕДНЕЙ посадке (n−1)·b, и срез
+	// вертикален. Полки сверху нет: с ней верх был тоньше марша, пластина
+	// «заужалась» к верху.
+	lastSeatX := float64(n-1) * b
+	topZ := float64(n)*h - st
+	if !nearlyEqual(pts[2].X, lastSeatX) || !nearlyEqual(pts[2].Z, topZ) {
+		t.Fatalf("последняя посадка = %v, ждём (%v, %v)", pts[2], lastSeatX, topZ)
 	}
-	if !nearlyEqual(pts[3].X, float64(n)*b) || !nearlyEqual(pts[3].Z, float64(n)*h-st) {
-		t.Fatalf("конец полки = %v, ждём (%v, %v)", pts[3], float64(n)*b, float64(n)*h-st)
-	}
-	// Низ полки — на глубину пластины ниже её верха.
-	if !nearlyEqual(pts[4].Z, float64(n)*h-st-depth) {
-		t.Fatalf("низ полки Z = %v, ждём %v", pts[4].Z, float64(n)*h-st-depth)
+	if !nearlyEqual(pts[3].X, lastSeatX) {
+		t.Fatalf("задний срез X = %v, ждём %v (вертикальный)", pts[3].X, lastSeatX)
 	}
 	// Пятка стоит на полу.
-	last := pts[len(pts)-1]
-	if !nearlyEqual(last.Z, 0) {
-		t.Fatalf("пятка Z = %v, ждём 0 (пластина стоит на полу)", last.Z)
+	if !nearlyEqual(pts[4].Z, 0) {
+		t.Fatalf("пятка Z = %v, ждём 0 (пластина стоит на полу)", pts[4].Z)
 	}
-	// Глубина пластины по нормали к посадочной линии: нижнее ребро — это
-	// посадочная линия, сдвинутая на depth·(h, −b)/L.
+	// Пластина — полоса постоянной глубины ПО НОРМАЛИ: оба её ребра
+	// параллельны линии подъёма и разнесены по вертикали на depth·b/L.
 	L := math.Hypot(b, h)
-	offsetZ := firstZOffset(h, st, b, L, depth)
-	// z нижнего ребра в x = 0 должно быть firstZ − depth·b/L.
-	lowAt0 := h - st - depth*b/L
-	if math.Abs((offsetZ) - lowAt0) > 1e-9 {
-		t.Fatalf("z нижнего ребра при x=0 = %v, ждём %v", offsetZ, lowAt0)
+	vertGap := pts[2].Z - pts[3].Z
+	if math.Abs(vertGap-depth*b/L) > 1e-6 {
+		t.Fatalf("вертикальный зазор между рёбрами = %v, ждём %v (глубина %v по нормали)",
+			vertGap, depth*b/L, depth)
 	}
-}
-
-// firstZOffset — вспомогательное проверочное значение: z нижнего ребра
-// пластины в точке x = 0.
-func firstZOffset(h, st, b, L, depth float64) float64 {
-	return h - st - depth*b/L
+	// Верхнее ребро (посадки) и нижнее — обе прямые с уклоном подъёма h/b.
+	tdx, tdz := pts[2].X-pts[1].X, pts[2].Z-pts[1].Z
+	if math.Abs(tdx*h-tdz*b) > 1e-6 {
+		t.Fatalf("верхнее ребро (%v, %v) не параллельно подъёму (%v, %v)", tdx, tdz, b, h)
+	}
+	// Нижнее ребро — продолжение той же прямой (вниз до пола).
+	bdx, bdz := pts[4].X-pts[3].X, pts[4].Z-pts[3].Z
+	if math.Abs(bdx*h-bdz*b) > 1e-6 {
+		t.Fatalf("нижнее ребро (%v, %v) не параллельно подъёму (%v, %v)", bdx, bdz, b, h)
+	}
 }
 
 // Посадка ступеней на ребро: низ проступи каждой ступени лежит на верхнем

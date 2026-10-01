@@ -177,23 +177,24 @@ func TestPriceExactValues(t *testing.T) {
 		got  domprc.Money
 		want int64
 	}{
-		// Эталон — стальной марш: 16 ступеней, лист лазерного раскроя 8 мм.
-		// Масса 473 кг, материал 113 040 ₽.
+		// Эталон — стальной марш с верхней площадкой: 16 ступеней, лист
+		// лазерного раскроя 8 мм, 33 детали. Материал 113 040 ₽, финал
+		// 234 996,59 ₽.
 		//
 		// До починки заготовки деталей те же конфигурации давали 10 364 кг и
 		// 3 271 385 ₽: косоур брался габаритным блоком 4050×2660×50 мм, то
 		// есть 1,08 м³ стали на один косоур. Правдоподобие массы проверяется
 		// в engine/manufacturing (TestPrepareCostMetrics).
 		{"material", b.Material, 11304000},
-		{"machine", b.Machine, 1379547},
-		{"labor", b.Labor, 480000},
-		{"overhead", b.Overhead, 2632709},
-		{"production", b.ProductionCost, 15796256},
-		{"margin", b.Margin, 4738877},
-		{"discount", b.Discount, 1026757},
-		{"pre-tax", b.PreTax, 19508376},
-		{"tax", b.Tax, 3901675},
-		{"final", b.FinalPrice, 23410051},
+		{"machine", b.Machine, 1414933},
+		{"labor", b.Labor, 495000},
+		{"overhead", b.Overhead, 2642787},
+		{"production", b.ProductionCost, 15856720},
+		{"margin", b.Margin, 4757016},
+		{"discount", b.Discount, 1030687},
+		{"pre-tax", b.PreTax, 19583049},
+		{"tax", b.Tax, 3916610},
+		{"final", b.FinalPrice, 23499659},
 	}
 	for _, c := range checks {
 		if c.got.Minor() != c.want {

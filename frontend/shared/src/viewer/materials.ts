@@ -172,6 +172,10 @@ const ROLE_DEPTH_BIAS: Record<string, { factor: number; units: number }> = {
   winder: { factor: 2, units: 2 },
   riser: { factor: 3, units: 3 },
   stringer: { factor: 4, units: 4 },
+  // Верхняя площадка идёт по материалу каркаса (не TREAD_ROLES), но по
+  // приоритету это деталь того же узла, что и косоур: иначе на совпадающих
+  // гранях с проступью она уезжает вглубь.
+  top_plate: { factor: 4, units: 4 },
 }
 
 function depthBiasFor(role: string): { polygonOffset: true; polygonOffsetFactor: number; polygonOffsetUnits: number } {

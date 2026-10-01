@@ -75,6 +75,9 @@ func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResu
 		// cfg.Material — это давало деревянные ступени со стальными
 		// подступенками и не совпадало с тем, что человек выбирает в
 		// конструкторе.
+		// Верхняя площадка металлокаркаса (PartTopPlate) — каркасная
+		// деталь: стальная пластина, приваренная к косоурам, поэтому идёт
+		// по cfg.Material, как и сами косоуры.
 		preferred := dommfg.MaterialCode(cfg.Material)
 		switch parts[i].Kind {
 		case dommfg.PartTread, dommfg.PartRiser:

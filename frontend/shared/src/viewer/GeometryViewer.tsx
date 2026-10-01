@@ -358,6 +358,21 @@ export function GeometryViewer({
   // владельца), поэтому сцену можно увести куда угодно и потерять изделие;
   // вернуть его можно только той же посадкой, что и при сборке сцены.
   const resetViewRef = useRef<(() => void) | null>(null)
+  // Положение камеры переживает пересборку сцены. Эффект сцены тянет за собой
+  // и renderer, и camera, поэтому без этого снимка любой клик по детали или
+  // движение ползунка возвращали взгляд на исходный ракурс — то есть «сброс
+  // камеры» происходил сам, а кнопка «Вернуть вид» была не единственным
+  // источником сброса. Ключ shapeKey: смена формы лестницы (прямая / L / U /
+  // спираль) кадрирует заново, всё остальное — нет.
+  const camStateRef = useRef<{
+    x: number
+    y: number
+    z: number
+    tx: number
+    ty: number
+    tz: number
+    shapeKey: string
+  } | null>(null)
   // Колбэки перетаскивания — в рефе: пересчёт меняет данные, сцена стабильна.
   const dragCallbacksRef = useRef({
     onDragPreview,
@@ -1126,6 +1141,18 @@ export function GeometryViewer({
     // подъёма и кадр становится узким). Это отдельное решение владельца,
     // поэтому ракурс этапа 4 не меняем молча.
     const viewDir = new THREE.Vector3(radius * 1.4, radius * 1.2, radius * 1.6).normalize()
+    const shapeKey = String(flight)
+    const saveCamState = () => {
+      camStateRef.current = {
+        x: camera.position.x,
+        y: camera.position.y,
+        z: camera.position.z,
+        tx: controls.target.x,
+        ty: controls.target.y,
+        tz: controls.target.z,
+        shapeKey,
+      }
+    }
     const resetView = () => {
       // viewDir копируем: сама посадка ниже умножает вектор на расстояние,
       // а повторный вызов (кнопка «Вернуть вид») не должен укорачивать его.
@@ -1133,13 +1160,24 @@ export function GeometryViewer({
       controls.target.copy(center)
       controls.update()
       needsRender = true
+      saveCamState()
     }
-    resetView()
+    const prevCam = camStateRef.current
+    if (prevCam && prevCam.shapeKey === shapeKey) {
+      // Та же форма лестницы: возвращаем взгляд покупателя, а не сбрасываем.
+      camera.position.set(prevCam.x, prevCam.y, prevCam.z)
+      controls.target.set(prevCam.tx, prevCam.ty, prevCam.tz)
+      controls.update()
+      needsRender = true
+    } else {
+      resetView()
+    }
     resetViewRef.current = resetView
 
     let lastCapture = 0
     const onChange = () => {
       needsRender = true
+      saveCamState()
     }
     controls.addEventListener('change', onChange)
 
@@ -1303,7 +1341,13 @@ export function GeometryViewer({
         return
       }
       const hit = cast(e)
-      const nextGroup = hit ? hit.groupIndex : -1
+      // Подсветка наведения — только на редактируемых деталях (ступень,
+      // косоур, площадка поворота). Раньше синий emissive вставал на любую
+      // деталь под курсором, включая подступенки, ограждение и новую верхнюю
+      // площадку: человек видел «выбрано», а клик по такой детали ничего не
+      // делал. Теперь нередактируемая деталь подсвечивается только если она
+      // реально выбрана.
+      const nextGroup = hit && isEditablePart(hit.picked.role) ? hit.groupIndex : -1
       if (nextGroup !== hoveredGroup) {
         if (hoveredGroup >= 0 && hoveredGroup !== selectedGroup) setEmissive(hoveredGroup, false)
         hoveredGroup = nextGroup

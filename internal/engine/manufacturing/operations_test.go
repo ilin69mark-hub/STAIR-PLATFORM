@@ -19,8 +19,8 @@ func TestPlanOperationsRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Parts) != 32 {
-		t.Fatalf("plan parts = %d, want 32", len(plan.Parts))
+	if len(plan.Parts) != 33 {
+		t.Fatalf("plan parts = %d, want 33", len(plan.Parts))
 	}
 	for _, part := range plan.Parts {
 		if len(part.Operations) != 2 {
@@ -73,12 +73,12 @@ func TestPlanOperationsTotalTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// stringers 2×(2+perim/2000) + treads 15×3.21 + risers 15×3.04
-	// + 32×3 finish. Периметр заготовки косоура — полоса 4050×308, а не
+	// stringers 2×(2+perim/2000) + top plate 1× + treads 15× + risers 15×
+	// + 33×3 finish. Периметр заготовки косоура — полоса 3780×308, а не
 	// блок 4050×2660: время резки считается по длине реза, и с блоком
 	// косоур «пилил» бы в полтора раза больше, чем есть металла.
-	want := 2*(2+2*(4050.0+308)/2000) + 15*(2+(800.0+310)/1000) + 15*(2+2*(800.0+140)/2000) + 32*3
-	if !nearlyEqual(plan.TotalTime(), want) {
+	want := 2*(2+2*(3780.0+308)/2000) + (2 + 2*(804.0+270)/2000) + 15*(2+(804.0+310)/1000) + 15*(2+2*(804.0+140)/2000) + 33*3
+	if math.Abs(plan.TotalTime()-want) > 1e-9 {
 		t.Fatalf("total time = %v, want %v", plan.TotalTime(), want)
 	}
 }

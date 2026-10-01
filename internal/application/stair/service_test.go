@@ -114,11 +114,11 @@ func TestCalculateValidPipeline(t *testing.T) {
 	// в толщину металла). Теперь косоур металлокаркаса — боковая пластина
 	// 300 мм (копия решения Ниоры): металла в заготовке больше, поэтому
 	// цена выше, а вот время лазерной резки меньше — у пластины нет зубьев.
-	if res.Price.FinalPrice.Minor() != 28550288 {
-		t.Fatalf("final price = %d, want 28550288", res.Price.FinalPrice.Minor())
+	if res.Price.FinalPrice.Minor() != 28681012 {
+		t.Fatalf("final price = %d, want 28681012", res.Price.FinalPrice.Minor())
 	}
-	if res.Price.FinalPrice.Major(domprc.CurrencyRUB) != 285502.88 {
-		t.Fatalf("final price = %.2f rub, want 285502.88", res.Price.FinalPrice.Major(domprc.CurrencyRUB))
+	if res.Price.FinalPrice.Major(domprc.CurrencyRUB) != 286810.12 {
+		t.Fatalf("final price = %.2f rub, want 286810.12", res.Price.FinalPrice.Major(domprc.CurrencyRUB))
 	}
 }
 
@@ -498,16 +498,17 @@ func TestCalculateLShapePipeline(t *testing.T) {
 	}
 	// полный конвейер: 35 деталей, 4 косоура, 16 проступей, 15 подступенков
 	// подступенков.
-	if res.Package == nil || len(res.Package.Parts) != 35 {
-		t.Fatalf("parts = %d, want 35", len(res.Package.Parts))
+	// Плюс верхняя площадка на каждый марш: их 37, а не 35.
+	if res.Package == nil || len(res.Package.Parts) != 37 {
+		t.Fatalf("parts = %d, want 37", len(res.Package.Parts))
 	}
 	if res.Mesh == nil || len(res.Mesh.Vertices) == 0 {
 		t.Fatal("l_shape pipeline must produce preview mesh")
 	}
 	// Объём упал с 331 300 173 до 48 109 490: косоур стал листом 8 мм
 	// вместо блока 50 мм, а косоуры в объёме марша и есть почти всё.
-	if math.Abs(res.Measurement.Volume-6.645557530495769e+07) > 1 {
-		t.Fatalf("volume = %v, want 6.645557530495769e+07", res.Measurement.Volume)
+	if math.Abs(res.Measurement.Volume-5.908131996111381e+07) > 1 {
+		t.Fatalf("volume = %v, want 5.908131996111381e+07", res.Measurement.Volume)
 	}
 	if res.Price == nil || res.Price.FinalPrice.Minor() <= 0 {
 		t.Fatal("l_shape pipeline must produce price")
@@ -567,8 +568,8 @@ func TestCalculateUShapeWinderPipeline(t *testing.T) {
 		t.Fatal("winder pipeline must produce preview mesh")
 	}
 	// деталей: 4 косоура + 12 проступей + 12 подступенков + 3 поворотные = 31.
-	if res.Package == nil || len(res.Package.Parts) != 31 {
-		t.Fatalf("parts = %d, want 31", len(res.Package.Parts))
+	if res.Package == nil || len(res.Package.Parts) != 33 {
+		t.Fatalf("parts = %d, want 33", len(res.Package.Parts))
 	}
 	// эхо поворота в результате.
 	if res.TurnKind != engineering.TurnWinder || res.WinderCount != 3 {
@@ -607,14 +608,15 @@ func TestCalculateUShapePipeline(t *testing.T) {
 	}
 	// полный конвейер: 35 деталей, 4 косоура, 16 проступей, 15 подступенков
 	// подступенков.
-	if res.Package == nil || len(res.Package.Parts) != 35 {
-		t.Fatalf("parts = %d, want 35", len(res.Package.Parts))
+	// Плюс верхняя площадка на каждый марш: их 37, а не 35.
+	if res.Package == nil || len(res.Package.Parts) != 37 {
+		t.Fatalf("parts = %d, want 37", len(res.Package.Parts))
 	}
 	if res.Mesh == nil || len(res.Mesh.Vertices) == 0 {
 		t.Fatal("u_shape pipeline must produce preview mesh")
 	}
-	if math.Abs(res.Measurement.Volume-6.875057530495743e+07) > 1 {
-		t.Fatalf("volume = %v, want 6.875057530495743e+07", res.Measurement.Volume)
+	if math.Abs(res.Measurement.Volume-6.116031996111266e+07) > 1 {
+		t.Fatalf("volume = %v, want 6.116031996111266e+07", res.Measurement.Volume)
 	}
 	if res.Price == nil || res.Price.FinalPrice.Minor() <= 0 {
 		t.Fatal("u_shape pipeline must produce price")

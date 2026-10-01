@@ -296,6 +296,10 @@ func roleKind(role string) (dommfg.PartKind, bool) {
 		return dommfg.PartRiser, true
 	case "column":
 		return dommfg.PartColumn, true
+	case "top_plate":
+		// Верхняя площадка металлокаркаса: своя деталь и свой материал
+		// (каркас), а не проступь из материала ступеней.
+		return dommfg.PartTopPlate, true
 	default:
 		return "", false
 	}
@@ -357,6 +361,11 @@ func partNumber(kind dommfg.PartKind, seq int) dommfg.PartNumber {
 		prefix = "RSR"
 	case dommfg.PartColumn:
 		prefix = "CLM"
+	case dommfg.PartTopPlate:
+		// Свой префикс: площадка верхняя металлокаркаса. Без него она
+		// брала номер STR-01 и делила его с косоуром — сбой «duplicate
+		// part number» на каждом расчёте металлокаркаса.
+		prefix = "LND"
 	}
 	return dommfg.PartNumber(fmt.Sprintf("%s-%02d", prefix, seq))
 }

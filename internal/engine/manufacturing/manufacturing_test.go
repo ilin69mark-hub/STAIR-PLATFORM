@@ -62,8 +62,8 @@ func TestManufactureParts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pkg.Parts) != 32 {
-		t.Fatalf("parts = %d, want 32", len(pkg.Parts))
+	if len(pkg.Parts) != 33 {
+		t.Fatalf("parts = %d, want 33", len(pkg.Parts))
 	}
 	// уникальные номера: 2 косоура, 15 проступей, 15 подступенков.
 	seen := make(map[dommfg.PartNumber]bool)
@@ -98,22 +98,42 @@ func TestManufacturePartDimensions(t *testing.T) {
 	// Толщина 8 — это лист лазерного раскроя: материал детали выводится из
 	// толщины, а деталь без заданного материала считается сталью. 50 мм
 	// (ширина секции косоура) в расход материала не идёт.
+	// Длина 3780 = (n−1)·b: верхний срез пластины стоит на ПОСЛЕДНЕЙ
+	// посадке, дальше марш продолжает площадка, а не косоур.
 	if p := findPart(pkg, "STR-01"); p != nil {
-		if !nearlyEqual(p.Length.Millimeters(), 4050) || !nearlyEqual(p.Width.Millimeters(), 308) ||
+		if !nearlyEqual(p.Length.Millimeters(), 3780) || !nearlyEqual(p.Width.Millimeters(), 308) ||
 			!nearlyEqual(p.Thickness.Millimeters(), 8) {
-			t.Fatalf("stringer dims = %v×%v×%v, want 4050×308×8",
+			t.Fatalf("stringer dims = %v×%v×%v, want 3780×308×8",
 				p.Length.Millimeters(), p.Width.Millimeters(), p.Thickness.Millimeters())
 		}
 	} else {
 		t.Fatal("STR-01 not found")
 	}
-	// Проступь: 800×310 — между боковыми пластинами косоура (900 − 2·50),
+	// Верхняя площадка — ОТДЕЛЬНАЯ деталь LND: та же стальная пластина, что
+	// и косоур (толщина 8), ширина между боковинами, глубина — шаг ступени.
+	if p := findPart(pkg, "LND-01"); p != nil {
+		// 804 = 800 + 2·2: торцы площадки, как и у ступеней, заведены на 2 мм
+		// в пластину косоура, чтобы не было совпадающих плоскостей.
+		// Length ≥ Width (инвариант детали): длина здесь — это ширина
+		// площадки по маршу (804), ширина — глубина шага (270).
+		if !nearlyEqual(p.Length.Millimeters(), 804) || !nearlyEqual(p.Width.Millimeters(), 270) ||
+			!nearlyEqual(p.Thickness.Millimeters(), 8) {
+			t.Fatalf("top plate dims = %v×%v×%v, want 804×270×8",
+				p.Length.Millimeters(), p.Width.Millimeters(), p.Thickness.Millimeters())
+		}
+		if p.Material != dommfg.MaterialCode("STEEL-S235") {
+			t.Fatalf("площадка по материалу %q, ждём сталь каркаса", p.Material)
+		}
+	} else {
+		t.Fatal("LND-01 (верхняя площадка) not found")
+	}
+	// Проступь: 804×310 — между боковыми пластинами косоура (900 − 2·50 + 2·2 нахлёста),
 	// глубина шага + толщина подступенка.
 	// Толщина 8 — лист лазерного раскроя, как и у косоура.
 	if p := findPart(pkg, "TRD-01"); p != nil {
-		if !nearlyEqual(p.Length.Millimeters(), 800) || !nearlyEqual(p.Width.Millimeters(), 310) ||
+		if !nearlyEqual(p.Length.Millimeters(), 804) || !nearlyEqual(p.Width.Millimeters(), 310) ||
 			!nearlyEqual(p.Thickness.Millimeters(), 8) {
-			t.Fatalf("tread dims = %v×%v×%v, want 800×310×8",
+			t.Fatalf("tread dims = %v×%v×%v, want 804×310×8",
 				p.Length.Millimeters(), p.Width.Millimeters(), p.Thickness.Millimeters())
 		}
 	} else {
@@ -121,18 +141,18 @@ func TestManufacturePartDimensions(t *testing.T) {
 	}
 	// Подступенок: единое полотно между пластинами (тонок по X, высота h−st).
 	if p := findPart(pkg, "RSR-01"); p != nil {
-		if !nearlyEqual(p.Length.Millimeters(), 800) || !nearlyEqual(p.Width.Millimeters(), 140) ||
+		if !nearlyEqual(p.Length.Millimeters(), 804) || !nearlyEqual(p.Width.Millimeters(), 140) ||
 			!nearlyEqual(p.Thickness.Millimeters(), 8) {
-			t.Fatalf("riser dims = %v×%v×%v, want 800×140×8",
+			t.Fatalf("riser dims = %v×%v×%v, want 804×140×8",
 				p.Length.Millimeters(), p.Width.Millimeters(), p.Thickness.Millimeters())
 		}
 	} else {
 		t.Fatal("RSR-01 not found")
 	}
 	if p := findPart(pkg, "RSR-02"); p != nil {
-		if !nearlyEqual(p.Length.Millimeters(), 800) || !nearlyEqual(p.Width.Millimeters(), 140) ||
+		if !nearlyEqual(p.Length.Millimeters(), 804) || !nearlyEqual(p.Width.Millimeters(), 140) ||
 			!nearlyEqual(p.Thickness.Millimeters(), 8) {
-			t.Fatalf("riser 2 dims = %v×%v×%v, want 800×140×8",
+			t.Fatalf("riser 2 dims = %v×%v×%v, want 804×140×8",
 				p.Length.Millimeters(), p.Width.Millimeters(), p.Thickness.Millimeters())
 		}
 	} else {
@@ -151,8 +171,9 @@ func TestManufactureBOM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pkg.BOM.Lines) != 3 {
-		t.Fatalf("BOM lines = %d, want 3", len(pkg.BOM.Lines))
+	// 4 строки: косоуры, площадка, проступи, подступенки.
+	if len(pkg.BOM.Lines) != 4 {
+		t.Fatalf("BOM lines = %d, want 4", len(pkg.BOM.Lines))
 	}
 	// порядок строк детерминирован: косоуры, проступи, подступенки
 	// (единое полотно 900×140).
@@ -162,9 +183,10 @@ func TestManufactureBOM(t *testing.T) {
 		length   float64
 		width    float64
 	}{
-		{"Stringer", 2, 4050, 308}, // полоса: длина марша × (глубина пластины + лист)
-		{"Tread", 15, 800, 310},
-		{"Riser", 15, 800, 140},
+		{"Stringer", 2, 3780, 308}, // полоса: длина марша × (глубина пластины + лист)
+		{"top_plate", 1, 804, 270}, // верхняя площадка: та же сталь, отдельная деталь
+		{"Tread", 15, 804, 310},
+		{"Riser", 15, 804, 140},
 	}
 	for i, w := range want {
 		line := pkg.BOM.Lines[i]
@@ -236,8 +258,8 @@ func TestManufactureNesting(t *testing.T) {
 	if int(pkg.Nesting.PartCount) != len(pkg.Parts) {
 		t.Fatalf("nesting parts = %d, want %d", pkg.Nesting.PartCount, len(pkg.Parts))
 	}
-	// n=15, всё из стали: заготовки — полосы 4050×308 (косоуры),
-	// 800×310 (проступи) и 800×140 (подступенки), все листом 8 мм. Площадь
+	// n=15, всё из стали: заготовки — полосы 3780×308 (косоуры),
+	// 804×310 (проступи) и 804×140 (подступенки), все листом 8 мм. Площадь
 	// деталей 7,53 м², лист 6000×3000 = 18 м², поэтому хватает одного
 	// листа.
 	//

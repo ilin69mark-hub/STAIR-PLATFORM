@@ -73,6 +73,10 @@ describe('partLabel', () => {
     expect(partLabel(0, 'tread')).toBe('Ступень 1')
     expect(partLabel(6, 'tread')).toBe('Ступень 7')
     expect(partLabel(0, 'stringer')).toBe('Косоур')
+    // Верхняя площадка металлокаркаса — человек видит «Площадку», но роль
+    // своя: в раскрое это отдельная деталь LND по стали каркаса.
+    expect(partLabel(2, 'top_plate')).toBe('Площадка')
+    expect(isEditablePart('top_plate')).toBe(false)
     expect(partLabel(0, 'landing')).toBe('Площадка')
     expect(partLabel(0, 'railing_post')).toBe('Балясина')
   })

@@ -19,12 +19,17 @@ const (
 	// вертикальный цилиндр, представляемый в раскрое как развёртка
 	// (длина = высота H, ширина = периметр 2πr, толщина = косоура t).
 	PartColumn PartKind = "column"
+	// PartTopPlate — верхняя горизонтальная площадка прямого марша
+	// металлокаркаса: отдельная стальная пластина, приваренная к косоурам
+	// (сварка после раскроя). Это НЕ площадка поворота: та идёт по
+	// материалу ступеней (PartTread), эта — по материалу каркаса.
+	PartTopPlate PartKind = "top_plate"
 )
 
 // IsValid проверяет корректность типа детали.
 func (k PartKind) IsValid() bool {
 	switch k {
-	case PartStringer, PartTread, PartRiser, PartColumn:
+	case PartStringer, PartTread, PartRiser, PartColumn, PartTopPlate:
 		return true
 	}
 	return false
