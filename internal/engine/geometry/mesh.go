@@ -124,7 +124,7 @@ func meshSolid(solid *kerngeo.Solid, tess *kerngeo.TessellationCache, origin ker
 	offset := origin
 	for _, shell := range solid.Shells() {
 		for _, face := range shell.Faces() {
-			t := tess.Face(face.Outer())
+			t := tess.FaceOf(face)
 			if t.WireErr != nil {
 				return nil, nil, nil, fmt.Errorf("geometry: face wire: %w", t.WireErr)
 			}

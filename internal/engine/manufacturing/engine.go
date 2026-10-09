@@ -98,11 +98,35 @@ func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResu
 	if err != nil {
 		return nil, fmt.Errorf("manufacturing: default stock sheet registry: %w", err)
 	}
-	nesting, err := Nest(cut, sheets, DefaultKerf)
+	nesting, err := Nest(cut, sheets)
 	if err != nil {
 		return nil, err
 	}
-	pkg := &dommfg.ManufacturingPackage{Parts: parts, BOM: bom, CutList: cut, Nesting: nesting}
+	// Крепёж (MNT-0001). Считается по телам модели, а не по деталям:
+	// пятка пола и пятка выхода на перекрытие в спецификации неразличимы
+	// (обе ANC-nn), и развести их по основанию крепления можно только по
+	// роли тела. Неизвестные коды доп. крепежа не роняют расчёт — они
+	// просто не попадут в смету, а заменяются встроенными.
+	fasteners, err := FastenerDemandFor(cfg, gen.Model.Solids(), dommfg.DefaultFastenerRegistry(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("manufacturing: fasteners: %w", err)
+	}
+	areas := enggeo.SealantContactAreas(cfg)
+	// Герметик (CONF-SEALANT). Площади швов берутся из геометрии обоймы
+	// выреза — те же размеры, по которым построены пятки, поэтому шов
+	// совпадает с деталью. Без подступенков площади пяток 2 и пластины 1-й
+	// ступени не считаются: герметик по несуществующему шву не нужен.
+	zones := dommfg.SealantZonesFrom(
+		areas.TreadHeelsMM2, areas.RiserWebsMM2, areas.RiserFirstWebsMM2, areas.StringerEndsMM2)
+	sealant, err := dommfg.SealantDemandFor(&areas, dommfg.DefaultSealantRegistry(),
+		cfg.SealantLayerMM, cfg.ExtraSealantCartridges)
+	if err != nil {
+		return nil, fmt.Errorf("manufacturing: sealant: %w", err)
+	}
+	pkg := &dommfg.ManufacturingPackage{
+		Parts: parts, BOM: bom, CutList: cut, Nesting: nesting, Fasteners: fasteners,
+		Sealant: sealant, SealantZones: zones,
+	}
 	if err := pkg.Validate(); err != nil {
 		return nil, err
 	}

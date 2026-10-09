@@ -37,6 +37,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -56,56 +57,75 @@ type violation struct {
 	Samples    []string
 }
 
-// checks — набор правил, зеркалящих ограничения миграций 000029/000031.
+// checks — набор правил, зеркалящих ограничения миграций 000029/000031/000037-39.
 // Держится в коде, а не в SQL-файле, потому что обязан быть read-only и
 // работать ДО того, как версия станет dirty.
 //
-// Каждое правило — пара «имя ограничения» + «диагностический SELECT».
-// Смысл совпадает с соответствующим CHECK; при расхождении правила и
-// CHECK диагностика врёт, поэтому TestPreflightMatchesMigration сверяет
-// список имён с текстом 000031.
+// Каждое правило — «имя ограничения» + «диагностический SELECT». Есть два
+// способа получить SELECT:
+//
+//   - Query задан текстом — правило живёт в коде. Допустимо ТОЛЬКО если оно
+//     зеркалит ограничение, которого в БД ещё нет (миграция, которая сужает
+//     или добавляет CHECK). Тогда каталог не может помочь: он отражает
+//     прошлое состояние схемы.
+//
+//   - Catalog — правило выводится из самого CHECK в pg_constraint. Это
+//     предпочтительный способ для ограничений, которые УЖЕ применены: список
+//     допустимых значений невозможно продублировать в коде без риска разъезда.
+//
+// Разъезд и был причиной ложной блокировки миграции: перечень audit-actions
+// в коде остался от миграции 000029, тогда как 000037, 000038 и 000039
+// переписывали CHECK целиком (переименования apikey.created/key.revoked,
+// payment.refund, появление project.transferred и др.). В перечне кода
+// значились значения, которых в CHECK давно нет, и отсутствовали новые — из-за
+// чего preflight ругался на легитимные строки журнала и блокировал подъём.
 var checks = []struct {
 	Constraint string
 	Table      string
 	Query      string
+	// Catalog — вывести правило из CHECK-ограничения этой таблицы.
+	Catalog bool
 }{
 	{
 		Constraint: "projects_status_check",
 		Table:      "projects",
-		Query: `SELECT id::text FROM projects
-			WHERE status IS NOT NULL
-			  AND status NOT IN ('draft','in_review','approved','changes_requested')
-			LIMIT 10`,
+		Catalog:    true,
 	},
 	{
+		// Тип марша ограничен тремя значениями, и миграция 000040 сужает
+		// CHECK ровно до них. Пока удалённая строка ещё оставалась в
+		// перечне, preflight молчал бы на таких конфигурациях, а миграция
+		// упала бы по ним ПОСЛЕ того, как golang-migrate пометил версию
+		// dirty. Списка из трёх значений достаточно: он ловит и удалённые
+		// строки, и любой прочий мусор в типе марша.
+		//
+		// Catalog здесь быть НЕ может: в БД ограничение ещё отвечает четырём
+		// значениям (старый тип марша), а проверять нужно против того, что
+		// наложит 000040.
 		Constraint: "stair_configurations_flight_check",
 		Table:      "stair_configurations",
 		Query: `SELECT id::text FROM stair_configurations
 			WHERE flight IS NOT NULL
-			  AND flight NOT IN ('straight','l_shape','u_shape','spiral')
+			  AND flight NOT IN ('straight','l_shape','u_shape')
 			LIMIT 10`,
 	},
 	{
 		Constraint: "stair_configurations_positive_geometry",
 		Table:      "stair_configurations",
-		Query: `SELECT id::text FROM stair_configurations
-			WHERE width_mm <= 0 OR height_mm <= 0 OR step_height_mm <= 0
-			   OR stringer_thickness_mm <= 0 OR step_thickness_mm <= 0
-			   OR clearance_mm < 0 OR railing_height_mm < 0 OR comfort_step_mm < 0
-			   OR revision < 1
-			LIMIT 10`,
+		Catalog:    true,
 	},
 	{
 		Constraint: "payment_intents_amount_check",
 		Table:      "payment_intents",
-		Query:      `SELECT id::text FROM payment_intents WHERE amount_minor < 0 LIMIT 10`,
+		Catalog:    true,
 	},
 	{
 		Constraint: "integration_events_attempts_check",
 		Table:      "integration_events",
-		Query:      `SELECT id::text FROM integration_events WHERE attempts < 0 LIMIT 10`,
+		Catalog:    true,
 	},
 	{
+		// Не CHECK, а UNIQUE (contype='u'), поэтому из каталога не выводится.
 		Constraint: "integration_endpoints_tenant_kind_key",
 		Table:      "integration_endpoints",
 		Query: `SELECT min(tenant_id)::text FROM integration_endpoints
@@ -115,22 +135,7 @@ var checks = []struct {
 	{
 		Constraint: "audit_events_action_check",
 		Table:      "audit_events",
-		Query: `SELECT id::text FROM audit_events
-			WHERE action NOT IN (
-				'auth.login','auth.login_denied','auth.logout','auth.register',
-				'api_key.created','api_key.revoked','authz.denied','data.exported',
-				'settings.updated','user.role_changed','user.status_changed',
-				'sso.linked','sso.login','sso.login_denied','member.added',
-				'member.removed','member.role_changed','project.created',
-				'project.modified','config.approved','config.restored',
-				'review.changes','review.requested','review.signed',
-				'ai.assist.design','ai.assist.engineering','ai.assist.manufacturing',
-				'ai.assist.memory.purged','ai.assist.pricing','stair.calculated',
-				'stair.config_changed','stair.live_suggestion_applied',
-				'stair.live_variation_applied','stair.suggestion_applied',
-				'stair.variation_applied','order.status_changed','payment.refunded',
-				'testimonial.created','testimonial.deleted','testimonial.updated')
-			LIMIT 10`,
+		Catalog:    true,
 	},
 }
 
@@ -163,10 +168,25 @@ func Preflight(ctx context.Context, pool *pgxpool.Pool) (*Report, error) {
 		`SELECT version, dirty FROM schema_migrations LIMIT 1`).Scan(&rep.Version, &rep.Dirty)
 
 	for _, c := range checks {
-		// Таблицы могу�� отсутствовать (частичная схема) — это не нарушение.
+		query := c.Query
+		if c.Catalog {
+			expr, err := checkExpr(ctx, pool, c.Table, c.Constraint)
+			if err != nil {
+				if isMissingRelation(err) {
+					continue
+				}
+				return nil, fmt.Errorf("migguard: preflight %s: %w", c.Constraint, err)
+			}
+			// Ограничения в схеме нет — нарушаться нечему, пропускаем.
+			if expr == "" {
+				continue
+			}
+			query = violationQuery(c.Table, expr)
+		}
+		// Таблицы могут отсутствовать (частичная схема) — это не нарушение.
 		var count int64
 		if err := pool.QueryRow(ctx,
-			`SELECT count(*) FROM (`+c.Query+`) s`).Scan(&count); err != nil {
+			`SELECT count(*) FROM (`+query+`) s`).Scan(&count); err != nil {
 			if isMissingRelation(err) {
 				continue
 			}
@@ -176,7 +196,7 @@ func Preflight(ctx context.Context, pool *pgxpool.Pool) (*Report, error) {
 			continue
 		}
 		samples := make([]string, 0, 10)
-		rows, err := pool.Query(ctx, c.Query)
+		rows, err := pool.Query(ctx, query)
 		if err != nil {
 			if isMissingRelation(err) {
 				continue
@@ -197,6 +217,36 @@ func Preflight(ctx context.Context, pool *pgxpool.Pool) (*Report, error) {
 		})
 	}
 	return rep, nil
+}
+
+// checkExpr возвращает выражение CHECK-ограничения (без обёртки CHECK (...))
+// из системного каталога. Пустая строка без ошибки — ограничения (или самой
+// таблицы) в схеме нет.
+//
+// Именно каталог, а не перечень в коде: перечень неизбежно расходится с
+// миграциями, переписывающими CHECK (см. комментарий к checks), и расхождение
+// даёт ложные срабатывания на легитимных данных.
+func checkExpr(ctx context.Context, pool *pgxpool.Pool, table, constraint string) (string, error) {
+	var expr string
+	err := pool.QueryRow(ctx,
+		`SELECT pg_get_expr(conbin, conrelid) FROM pg_constraint
+			WHERE conrelid = to_regclass($1) AND conname = $2 AND contype = 'c'`,
+		table, constraint).Scan(&expr)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return expr, nil
+}
+
+// violationQuery собирает диагностический SELECT: строки таблицы, на которых
+// само ограничение не выполняется. Имя таблицы экранируется, выражение
+// приходит из системного каталога этой же базы.
+func violationQuery(table, expr string) string {
+	return fmt.Sprintf("SELECT id::text FROM %s WHERE NOT (%s) LIMIT 10",
+		pgx.Identifier{table}.Sanitize(), expr)
 }
 
 func isMissingRelation(err error) bool {

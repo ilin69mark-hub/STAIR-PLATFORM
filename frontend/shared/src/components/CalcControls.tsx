@@ -137,7 +137,7 @@ export interface SegmentedOption {
 export interface SegmentedProps {
   legend: string
   value: string
-  options: SegmentedOption[]
+  options: readonly SegmentedOption[]
   onChange: (value: string) => void
   /** grid-cols: 2 | 3 | 4 — под длину подписей. */
   columns?: 2 | 3 | 4

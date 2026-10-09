@@ -259,7 +259,7 @@ func applyVariantConfigToCfg(t *testing.T, base *engineering.StairConfiguration,
 // TestForRoomFit_NarrowLandingAppliesForLU — регресс: для узкого марша
 // (ширина < ~545 мм) варианты L/П ранее генерировали площадку < 600 мм
 // (П-образный — вообще с глубиной 0), из-за чего форма фронтенда не проходила
-// validateForm и вариант «не применялся» (применялась только спираль).
+// validateForm и вариант «не применялся».
 // Теперь formFromConfig и генератор гарантируют landing ≥ max(600, width).
 func TestForRoomFit_NarrowLandingAppliesForLU(t *testing.T) {
 	set := constraint.StandardProfile("STANDARD")

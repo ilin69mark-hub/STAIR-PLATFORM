@@ -34,7 +34,6 @@ func extraFlightCfg(flight engineering.FlightType) *engineering.StairConfigurati
 	c.LandingWidth = 1100
 	c.LandingDepth = 1100
 	c.LowerStepCount = 7
-	c.OuterRadius = 1300
 	return c
 }
 
@@ -64,12 +63,9 @@ func TestExtraForAngle_ChooseAll(t *testing.T) {
 }
 
 func TestExtraForAngle_Flights(t *testing.T) {
-	for _, flight := range []engineering.FlightType{engineering.FlightLShape, engineering.FlightUShape, engineering.FlightSpiral} {
+	for _, flight := range []engineering.FlightType{engineering.FlightLShape, engineering.FlightUShape} {
 		t.Run(string(flight), func(t *testing.T) {
 			cfg := extraFlightCfg(flight)
-			if flight == engineering.FlightSpiral {
-				cfg.Width = 500
-			}
 			vars := ForAngle(context.Background(), cfg, constraint.StandardProfile(extraAngleSetName))
 			if len(vars) == 0 {
 				t.Fatalf("expected variants, got 0")
@@ -115,28 +111,6 @@ func TestExtraAngleVariant_Branches(t *testing.T) {
 		cfg.Width = 0
 		cfg.LandingWidth = 0
 		if _, ok := angleVariant(ctx, cfg, cfg.Height, 200, 600, 4, nil, "x"); ok {
-			t.Fatal("expected false")
-		}
-	})
-
-	t.Run("spiral_narrow", func(t *testing.T) {
-		cfg := extraFlightCfg(engineering.FlightSpiral)
-		cfg.Width = 2000
-		if _, ok := angleVariant(ctx, cfg, cfg.Height, 200, 640, 2, nil, "x"); ok {
-			t.Fatal("expected false")
-		}
-	})
-
-	t.Run("spiral_default_width", func(t *testing.T) {
-		cfg := extraFlightCfg(engineering.FlightSpiral)
-		cfg.Width = 0
-		angleVariant(ctx, cfg, cfg.Height, 200, 640, 15, nil, "x")
-	})
-
-	t.Run("spiral_solve_err", func(t *testing.T) {
-		cfg := extraFlightCfg(engineering.FlightSpiral)
-		cfg.Width = 800
-		if _, ok := angleVariant(ctx, cfg, cfg.Height, 200, 640, 15, nil, "x"); ok {
 			t.Fatal("expected false")
 		}
 	})
@@ -196,14 +170,14 @@ func TestExtraFromSuggestions_Edges(t *testing.T) {
 	}
 
 	sp := &validation.Issue{
-		Code: "GEO-SPIRAL",
+		Code: "GEO-TREAD",
 		Suggestions: []validation.Suggestion{{
 			StepCount: 15, StepHeightMm: 180, TreadDepthMm: 270, AngleDeg: 30,
-			WidthMm: 900, OuterRadiusMm: 1300,
+			WidthMm: 900,
 		}},
 	}
-	if v := FromSuggestions(sp, extraFlightCfg(engineering.FlightSpiral)); len(v) != 1 {
-		t.Fatalf("spiral: got %d, want 1", len(v))
+	if v := FromSuggestions(sp, extraFlightCfg(engineering.FlightStraight)); len(v) != 1 {
+		t.Fatalf("straight: got %d, want 1", len(v))
 	}
 }
 
@@ -285,9 +259,6 @@ func TestExtraTryOtherAt_Errors(t *testing.T) {
 	if _, _, ok := tryOtherAt(ctx, cfg, engineering.FlightUShape, 100, 630, nil, 30000, 30000, fitEps, 200, 900, 0); ok {
 		t.Fatal("U-shape: expected false")
 	}
-	if _, _, ok := tryOtherAt(ctx, cfg, engineering.FlightSpiral, cfg.Height, 630, nil, 30000, 30000, fitEps, 200, 900, 100); ok {
-		t.Fatal("spiral R<=w: expected false")
-	}
 	if _, _, ok := tryOtherAt(ctx, cfg, "bogus", cfg.Height, 630, nil, 30000, 30000, fitEps, 200, 900, 0); ok {
 		t.Fatal("bogus: expected false")
 	}
@@ -322,13 +293,4 @@ func TestExtraForRoomFit_UShape(t *testing.T) {
 	if len(vars) == 0 {
 		t.Fatalf("expected variants, got 0")
 	}
-}
-
-func TestExtraForRoomFit_Spiral(t *testing.T) {
-	cfg := testSpiralConfig()
-	cfg.StepHeight = 200
-	cfg.Width = 500
-	cfg.RoomWidth = 6000
-	cfg.RoomLength = 6000
-	ForRoomFit(context.Background(), cfg, nil)
 }

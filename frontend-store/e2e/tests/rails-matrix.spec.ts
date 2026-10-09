@@ -6,7 +6,7 @@ import { expect, test } from '@playwright/test'
 // но дополнительно проверяем отсутствие audit 403 у анонима и pageerror.
 
 type Case = {
-  flight: 'straight' | 'l_shape' | 'u_shape' | 'spiral'
+  flight: 'straight' | 'l_shape' | 'u_shape'
   railing?: string
   railingHeight?: string
   approach?: string
@@ -14,7 +14,6 @@ type Case = {
   roomL?: string
   extra?: Record<string, string>
   direction?: string
-  spiralDir?: string
 }
 
 const cases: Array<Case & { name: string }> = [
@@ -27,18 +26,15 @@ const cases: Array<Case & { name: string }> = [
   { name: 'l_shape right нижн 6 площадка 1000', flight: 'l_shape', railing: 'both', railingHeight: '900', approach: '1000', roomW: '4000', roomL: '5000', extra: { 'Ширина площадки (мм)': '1000', 'Нижних ступеней (шт)': '6' }, direction: 'right' },
   { name: 'l_shape left узкая площадка 600', flight: 'l_shape', railing: 'left', railingHeight: '900', approach: '1000', roomW: '3000', roomL: '3000', extra: { 'Ширина площадки (мм)': '600', 'Нижних ступеней (шт)': '7' }, direction: 'left' },
   { name: 'l_shape без площади', flight: 'l_shape', railing: 'both', railingHeight: '900', approach: '1000', roomW: '', roomL: '', extra: { 'Ширина площадки (мм)': '1200', 'Нижних ступеней (шт)': '5' }, direction: 'right' },
-  // U — + винтовая логика площадки
+  // U — поворотная логика площадки
   { name: 'u_shape right площадка 1200', flight: 'u_shape', railing: 'both', railingHeight: '900', approach: '1000', roomW: '4000', roomL: '4000', extra: { 'Ширина площадки (мм)': '1200', 'Нижних ступеней (шт)': '6' }, direction: 'right' },
   { name: 'u_shape left площадка 800', flight: 'u_shape', railing: 'right', railingHeight: '1100', approach: '1200', roomW: '3500', roomL: '3500', extra: { 'Ширина площадки (мм)': '800', 'Нижних ступеней (шт)': '8' }, direction: 'left' },
-  // Винтовые кейсы (spiral cw/ccw) отключены вместе с типом марша (S-152):
-  // кейсы остаются в файле и вернутся вместе со спиралью.
 ]
 
-// Тип марша скрыт в форме, пока SPIRAL_ENABLED = false (S-152).
-const ENABLED_CASES = cases.filter(c => c.flight !== 'spiral')
+const ENABLED_CASES = cases
 
 async function fillCommon(page: import('@playwright/test').Page, c: Case) {
-  // общие поля — заполняем только если label найден (некоторые скрыты для spiral/L)
+  // общие поля — заполняем только если label найден (часть скрыта для L/U)
   const fill = async (label: string, val: string) => {
     if (val === undefined) return
     const loc = page.getByLabel(label)
@@ -53,10 +49,6 @@ async function fillCommon(page: import('@playwright/test').Page, c: Case) {
   if (c.roomW !== undefined) await fill('Ширина помещения (мм)', c.roomW)
   if (c.roomL !== undefined) await fill('Длина помещения (мм)', c.roomL)
   if (c.extra) for (const [k, v] of Object.entries(c.extra)) await fill(k, v)
-  if (c.spiralDir) {
-    const sel = page.getByLabel('Направление спирали')
-    if (await sel.count()) await sel.selectOption(c.spiralDir)
-  }
   if (c.direction) {
     const sel = page.getByLabel('Направление поворота')
     if (await sel.count()) await sel.selectOption(c.direction)
@@ -71,7 +63,6 @@ async function fillCommon(page: import('@playwright/test').Page, c: Case) {
         if (await sel.count()) await sel.selectOption(c.railing)
       }
     }
-    // spiral — railing auto, skip
   }
 }
 
@@ -109,7 +100,7 @@ for (const c of ENABLED_CASES) {
       // Vite трансформирует его дольше 5 с, поэтому ждём 45 с (в прод-сборке
       // чанк один и открывается мгновенно).
       await expect(page.locator('.geometry-viewer, .viewer__stage')).toBeVisible({ timeout: 45_000 })
-      // 2D схема — проверяем сторону перил: none=0, both/right/left>0 или spiral 0 линий
+      // 2D схема — проверяем сторону перил: none=0, both/right/left>0
       const railingCount = await page.locator('.scheme__railing, .scheme-3d__title').count()
       // не строгая проверка, главное — нет вылета
       expect(errors.join('\n')).not.toContain("Cannot read properties of null")

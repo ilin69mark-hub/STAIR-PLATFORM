@@ -1,19 +1,27 @@
-// App — корневой роутер (список → детали → админ/аудит/логин).
-// Держим AuthProvider реальным, но мокаем API-слои: проверяем ветки
-// рендера App.tsx (loading, AuthPage, список, admin, audit, детали).
+// App — корневой экран кабинета: приветственный экран с плитками → страница
+// плитки → проект. Держим AuthProvider реальным, но мокаем API-слои.
+//
+// Проверяем ровно то, ради чего верхний уровень переделывался в плитки:
+// плитка появляется только при наличии метрики внутри неё, раздел внутри
+// плитки — по своей метрике, выход из системы есть на любом экране, а потеря
+// права закрывает открытую плитку.
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { AuthProvider } from './auth/AuthContext'
 import { ApiError } from '@shared/types'
 import type { User } from '@shared/types'
+import { P } from '@shared/cabinetPermissions'
 
+// Роль admin на бэкенде отдаёт все права (Role.Permissions()), поэтому фикстура
+// перечисляет их явно: гейт вкладок читает permissions, а не role.
 const adminUser: User = {
   id: 'u-admin',
   email: 'admin@example.com',
   name: 'Админ',
   role: 'admin',
   tenant_id: 't-1',
+  permissions: Object.values(P),
 }
 
 const regularUser: User = {
@@ -22,6 +30,16 @@ const regularUser: User = {
   name: 'Пользователь',
   role: 'user',
   tenant_id: 't-1',
+}
+
+// Руководитель продаж: не админ платформы, но ведёт заказы и платежи.
+const salesHead: User = {
+  id: 'u-sales',
+  email: 'sales@example.com',
+  name: 'Руководитель продаж',
+  role: 'sales',
+  tenant_id: 't-1',
+  permissions: [P.financeSales, P.financePayments, P.trafficFunnel, P.staffView, P.priceMaterials],
 }
 
 const project = {
@@ -120,6 +138,69 @@ const adminMock = vi.hoisted(() => ({
 
 vi.mock('./api/admin', () => ({ adminApi: adminMock }))
 
+const storeMock = vi.hoisted(() => {
+  // Полный документ настроек по DTO бэкенда: разделы рендерятся все сразу
+  // (одним скроллом), поэтому фикстура обязана покрывать все группы.
+  const settings = {
+    contacts: { phone: '+7 (999) 123-45-67', email: 'sales@example.com', address: 'Москва', work_hours: 'Пн–Пт 9:00–18:00' },
+    company: {
+      name: 'ООО Лестница',
+      legal_name: 'Общество с ограниченной ответственностью «Лестница»',
+      inn: '7701234567',
+      ogrn: '1157746000000',
+      email: 'office@example.com',
+      website: 'https://example.com',
+    },
+    social: { telegram: 'example', vk: 'example', whatsapp: 'example', youtube: 'example' },
+    seo: { default_title: 'Лестницы', default_description: 'Расчёт лестниц', og_image: '' },
+    counters: { yandex_metrika_id: '', ga4_measurement_id: '' },
+    rates: {
+      machine_per_hour_rub: 1200,
+      labor_per_hour_rub: 800,
+      overhead_percent: 10,
+      margin_percent: 20,
+      discount_percent: 5,
+      tax_percent: 20,
+    },
+    updated_by: 'admin@admin.ru',
+    updated_at: '2026-09-17T00:00:00Z',
+  }
+  return {
+    settings,
+    settingsFn: vi.fn(async () => settings),
+    saveSettingsGroup: vi.fn(async (_group: string, _settings: unknown) => settings),
+    setPrice: vi.fn(async () => undefined),
+    resetPrice: vi.fn(async () => undefined),
+    materials: vi.fn(async () => []),
+    tiers: vi.fn(async () => []),
+    payments: vi.fn(async () => []),
+    refundPayment: vi.fn(async () => ({ id: 'pay-1' })),
+  }
+})
+
+vi.mock('./api/store', () => ({
+  storeApi: {
+    settings: storeMock.settingsFn,
+    saveSettingsGroup: storeMock.saveSettingsGroup,
+    prices: vi.fn(async () => []),
+    setPrice: storeMock.setPrice,
+    resetPrice: storeMock.resetPrice,
+    // Крепёж (MNT-0001): пустой прайс — блок «Крепление» покажет пустой
+    // список, расчёт при этом не должен падать.
+    fasteners: vi.fn(async () => []),
+    setFastenerPrice: vi.fn(async () => ({})),
+    resetFastenerPrice: vi.fn(async () => undefined),
+    // Герметик (CONF-SEALANT): пустой прайс, как и у крепежа.
+    sealants: vi.fn(async () => []),
+    setSealantPrice: vi.fn(async () => ({})),
+    resetSealantPrice: vi.fn(async () => undefined),
+    materials: storeMock.materials,
+    tiers: storeMock.tiers,
+    payments: storeMock.payments,
+    refundPayment: storeMock.refundPayment,
+  },
+}))
+
 const analyticsMock = vi.hoisted(() => ({
   usage: vi.fn(async () => ({
     from: '2026-09-01',
@@ -211,6 +292,12 @@ beforeEach(() => {
 })
 
 describe('App routing', () => {
+  // Плитка «Проекты» — единственная без метрик, она открыта любому.
+  const openProjects = async () => {
+    fireEvent.click(await screen.findByRole('button', { name: /^Проекты/ }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Создать проект' })).toBeInTheDocument())
+  }
+
   it('показывает «Загрузка…» пока сессия проверяется', async () => {
     authMock.state.sessionError = true
     renderApp()
@@ -224,82 +311,158 @@ describe('App routing', () => {
     expect(screen.getByRole('button', { name: 'Войти' })).toBeInTheDocument()
   })
 
-  it('рендерит список проектов для авторизованного пользователя', async () => {
-    authMock.state.user = regularUser
-    renderApp()
-    await waitFor(() => expect(screen.getByText('Лестница на второй этаж')).toBeInTheDocument())
-    expect(screen.getByRole('button', { name: 'Создать проект' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Администрирование' })).not.toBeInTheDocument()
-  })
-
-  it('админ видит кнопки «Администрирование» и «Аудит действий»', async () => {
+  it('открывает приветственный экран с плитками, а не список проектов', async () => {
     authMock.state.user = adminUser
     renderApp()
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Создать проект' })).toBeInTheDocument(),
-    )
-    expect(screen.getByRole('button', { name: 'Администрирование' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Аудит действий' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Проекты/ })).toBeInTheDocument())
+    // Список проектов спрятан за плиткой: сразу после входа его нет.
+    expect(screen.queryByText('Лестница на второй этаж')).not.toBeInTheDocument()
   })
 
-  it('открывает AdminPanel и возвращается назад', async () => {
+  it('админ видит все плитки кабинета', async () => {
     authMock.state.user = adminUser
     renderApp()
-    fireEvent.click(await screen.findByRole('button', { name: 'Администрирование' }))
+    await screen.findByRole('button', { name: /^Проекты/ })
+    for (const title of [
+      'Проекты',
+      'Сайт и витрина',
+      'Цены и расчёт',
+      'Продажи и деньги',
+      'Производство',
+      'Реклама и трафик',
+      'Команда',
+    ]) {
+      expect(screen.getByRole('button', { name: new RegExp(`^${title}`) })).toBeInTheDocument()
+    }
+  })
+
+  it('плитка «Проекты» открывает список и кнопку создания', async () => {
+    authMock.state.user = adminUser
+    renderApp()
+    await openProjects()
+    expect(screen.getByText('Лестница на второй этаж')).toBeInTheDocument()
+  })
+
+  it('показывает только плитки, в которых что-то выдано', async () => {
+    // Руководитель продаж: заказы, платежи, воронка, сотрудники (чтение), цены.
+    authMock.state.user = salesHead
+    renderApp()
+    await screen.findByRole('button', { name: /^Проекты/ })
+    expect(screen.getByRole('button', { name: /^Продажи и деньги/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Реклама и трафик/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Команда/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Цены и расчёт/ })).toBeInTheDocument()
+    // Ни контактов, ни реквизитов, ни себестоимости ему не выдавали.
+    expect(screen.queryByRole('button', { name: /^Сайт и витрина/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Производство/ })).not.toBeInTheDocument()
+  })
+
+  it('плитка без выданных метрик не показывается', async () => {
+    // Публичный каталог материалов — единственная причина, по которой
+    // «Сайт и витрина» могла бы светиться каждому; её одной не хватает.
+    authMock.state.user = { ...regularUser, permissions: [P.priceMaterials] }
+    renderApp()
+    await screen.findByRole('button', { name: /^Проекты/ })
+    expect(screen.queryByRole('button', { name: /^Сайт и витрина/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Цены и расчёт/ })).toBeInTheDocument()
+  })
+
+  it('плитка скрывает разделы без нужного права', async () => {
+    // Право только на заказы: платежей, себестоимости и выгрузки не видно.
+    authMock.state.user = { ...salesHead, permissions: [P.financeSales] }
+    renderApp()
+    fireEvent.click(await screen.findByRole('button', { name: /^Продажи и деньги/ }))
     await waitFor(() =>
-      expect(screen.getByRole('heading', { name: 'Администрирование' })).toBeInTheDocument(),
+      expect(screen.getByRole('heading', { name: 'Заказы и продажи' })).toBeInTheDocument(),
     )
+    expect(screen.queryByRole('heading', { name: 'Платежи' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Себестоимость и прибыль' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Выгрузка данных' })).not.toBeInTheDocument()
+  })
+
+  it('журнал аудита живёт внутри плитки «Команда»', async () => {
+    authMock.state.user = adminUser
+    renderApp()
+    fireEvent.click(await screen.findByRole('button', { name: /^Команда/ }))
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Сотрудники' })).toBeInTheDocument(),
+    )
+    expect(screen.getByRole('heading', { name: 'Политика безопасности' })).toBeInTheDocument()
+    // Отдельной вкладки «Аудит» больше нет: журнал — раздел в одном скролле.
+    expect(screen.queryByRole('button', { name: 'Аудит' })).not.toBeInTheDocument()
+  })
+
+  it('настройки витрины разнесены по разделам своей плитки', async () => {
+    authMock.state.user = adminUser
+    renderApp()
+    fireEvent.click(await screen.findByRole('button', { name: /^Сайт и витрина/ }))
+    await waitFor(() => expect(screen.getByLabelText('Телефон')).toBeInTheDocument())
+    expect(screen.getByLabelText('Юридическое лицо')).toBeInTheDocument()
+    expect(screen.getByLabelText('Яндекс.Метрика (ID)')).toBeInTheDocument()
+    // Ставки расчёта — не в витрине, а в ценах.
+    expect(screen.queryByLabelText('Маржа, %')).not.toBeInTheDocument()
+  })
+
+  it('ставки расчёта сохраняются своей группой', async () => {
+    authMock.state.user = adminUser
+    renderApp()
+    fireEvent.click(await screen.findByRole('button', { name: /^Цены и расчёт/ }))
+    const margin = await screen.findByLabelText('Маржа, %')
+    fireEvent.change(margin, { target: { value: '35' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить ставки' }))
+    await waitFor(() => expect(storeMock.saveSettingsGroup).toHaveBeenCalled())
+    // Первый аргумент — группа: контакты не должны ехать вместе со ставками.
+    expect(storeMock.saveSettingsGroup.mock.calls[0][0]).toBe('rates')
+  })
+
+  it('навигация плитки возвращает на приветственный экран', async () => {
+    authMock.state.user = adminUser
+    renderApp()
+    fireEvent.click(await screen.findByRole('button', { name: /^Команда/ }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '← Плитки' })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: '← Плитки' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Проекты/ })).toBeInTheDocument())
+  })
+
+  it('открывает детали проекта и возвращается к плиткам', async () => {
+    authMock.state.user = adminUser
+    renderApp()
+    await openProjects()
+    fireEvent.click(screen.getByText('Лестница на второй этаж'))
+    await waitFor(() => expect(screen.getByRole('button', { name: '← Проекты' })).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: '← Проекты' }))
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Создать проект' })).toBeInTheDocument(),
-    )
-  })
-
-  it('открывает AuditPage и возвращается назад', async () => {
-    authMock.state.user = adminUser
-    renderApp()
-    fireEvent.click(await screen.findByRole('button', { name: 'Аудит действий' }))
-    await waitFor(() =>
-      expect(screen.getByRole('heading', { name: 'Аудит действий' })).toBeInTheDocument(),
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Назад' }))
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Создать проект' })).toBeInTheDocument(),
-    )
-  })
-
-  it('открывает детали проекта и возвращается к списку', async () => {
-    authMock.state.user = adminUser
-    renderApp()
-    fireEvent.click(await screen.findByText('Лестница на второй этаж'))
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: '← Проекты' })).toBeInTheDocument(),
-    )
-    fireEvent.click(screen.getByRole('button', { name: '← Проекты' }))
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Создать проект' })).toBeInTheDocument(),
-    )
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Проекты/ })).toBeInTheDocument())
   })
 
   it('создание проекта обновляет список и открывает новый проект', async () => {
     authMock.state.user = regularUser
-    projectsMock.create.mockResolvedValueOnce({ ...project, id: 'p-2', name: 'Винтовая лестница' })
+    projectsMock.create.mockResolvedValueOnce({ ...project, id: 'p-2', name: 'Лесенка 2' })
     renderApp()
-    fireEvent.change(await screen.findByLabelText('Название *'), { target: { value: 'Винтовая лестница' } })
+    await openProjects()
+    fireEvent.change(screen.getByLabelText('Название *'), { target: { value: 'Лесенка 2' } })
     fireEvent.click(screen.getByRole('button', { name: 'Создать проект' }))
     await waitFor(() =>
-      expect(projectsMock.create).toHaveBeenCalledWith({ name: 'Винтовая лестница', description: '' }),
+      expect(projectsMock.create).toHaveBeenCalledWith({ name: 'Лесенка 2', description: '' }),
     )
     // onCreated → void refresh() (перезагрузка списка) + переход на детали нового проекта
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: '← Проекты' })).toBeInTheDocument(),
-    )
+    await waitFor(() => expect(screen.getByRole('button', { name: '← Проекты' })).toBeInTheDocument())
     expect(projectsMock.list).toHaveBeenCalled()
   })
 
-  it('выход из системы вызывает logout и возвращает на страницу входа', async () => {
+  it('выход из системы доступен с приветственного экрана', async () => {
     authMock.state.user = adminUser
     renderApp()
+    fireEvent.click(await screen.findByRole('button', { name: 'Выйти' }))
+    await waitFor(() => expect(authMock.authApi.logout).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getByLabelText('Email')).toBeInTheDocument())
+  })
+
+  it('выход из системы доступен и внутри плитки', async () => {
+    // Раньше кнопка выхода была только на экране проектов: из админки, аудита
+    // и магазина выйти было нельзя. Общий каркас кабинета это закрыл.
+    authMock.state.user = adminUser
+    renderApp()
+    fireEvent.click(await screen.findByRole('button', { name: /^Команда/ }))
     fireEvent.click(await screen.findByRole('button', { name: 'Выйти' }))
     await waitFor(() => expect(authMock.authApi.logout).toHaveBeenCalled())
     await waitFor(() => expect(screen.getByLabelText('Email')).toBeInTheDocument())
@@ -309,6 +472,7 @@ describe('App routing', () => {
     projectsMock.list.mockRejectedValueOnce(new ApiError(500, 'unknown', 'HTTP 500'))
     authMock.state.user = regularUser
     renderApp()
+    await openProjects()
     await waitFor(() => expect(screen.getByText('HTTP 500')).toBeInTheDocument())
   })
 
@@ -316,6 +480,7 @@ describe('App routing', () => {
     projectsMock.list.mockRejectedValueOnce(new Error('boom'))
     authMock.state.user = regularUser
     renderApp()
+    await openProjects()
     await waitFor(() =>
       expect(screen.getByText('Не удалось загрузить проекты')).toBeInTheDocument(),
     )

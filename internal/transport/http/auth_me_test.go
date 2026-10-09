@@ -23,7 +23,10 @@ var sec5Unauth error = sec5Err("unauthorized")
 
 // sec5Auth — аутентификатор, выдающий пользователя по сессии "sess-user" и
 // API-ключ по Bearer "Bearer valid-key".
-type sec5Auth struct{ u *appauth.User }
+type sec5Auth struct {
+	grantStubs
+	u *appauth.User
+}
 
 func (a *sec5Auth) Register(context.Context, string, string, string) (*appauth.User, string, error) {
 	return nil, "", nil
@@ -249,4 +252,14 @@ func buildChainForTest(mux *http.ServeMux) http.Handler {
 	h = timeout(h)
 	h = version(h)
 	return TraceMiddleware(h)
+}
+
+// EffectiveGrants отдаёт шаблон роли — ровно то поведение, которое было до
+// перехода на точечные выдачи. Так тесты на отказ по правам остаются
+// осмысленными: у admin все метрики, у user — ни одной.
+func (f sec5Auth) EffectiveGrants(_ context.Context, u *appauth.User) (*appauth.GrantSet, error) {
+	if u == nil {
+		return appauth.RoleTemplate(appauth.RoleUser), nil
+	}
+	return appauth.RoleTemplate(u.Role), nil
 }

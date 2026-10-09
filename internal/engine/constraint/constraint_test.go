@@ -46,7 +46,6 @@ func TestStandardProfileAdvice(t *testing.T) {
 	suggested := map[RuleCode]bool{
 		GEO_STEP_HEIGHT: true, GEO_TREAD_DEPTH: true, GEO_ANGLE: true,
 		GEO_CLEARANCE: false, GEO_STRINGER_THICKNESS: false, SAF_RAILING_HEIGHT: false,
-		GEO_SPIRAL_TREAD: true, GEO_SPIRAL_RADIUS: true,
 	}
 	for code, want := range suggested {
 		rule, ok := set.Active(code)

@@ -11,6 +11,10 @@ const orderStatusOptions = [
   { value: 'cancelled', label: 'Отменён' },
 ] as const
 
+function statusLabel(status: string): string {
+  return orderStatusOptions.find((s) => s.value === status)?.label ?? status
+}
+
 function configSize(o: OrderDTO): string {
   const c = o.config as { width_mm?: number; height_mm?: number } | null | undefined
   if (c && typeof c.width_mm === 'number' && typeof c.height_mm === 'number') {
@@ -41,9 +45,15 @@ function orderDetails(o: OrderDTO): string {
 interface Props {
   orders: OrderDTO[]
   onStatusChange: (id: string, status: string) => void
+  /** Право orders.manage: без него статус только читается, селекта нет. */
+  canManage: boolean
 }
 
-export const OrdersPanel = React.memo(function OrdersPanel({ orders, onStatusChange }: Props) {
+export const OrdersPanel = React.memo(function OrdersPanel({
+  orders,
+  onStatusChange,
+  canManage,
+}: Props) {
   return (
     <section className="panel">
       <h2 className="panel__title">Заказы (store)</h2>
@@ -79,18 +89,22 @@ export const OrdersPanel = React.memo(function OrdersPanel({ orders, onStatusCha
                 </td>
                 <td>{orderDetails(o)}</td>
                 <td>
-                  <select
-                    className="member__role"
-                    aria-label={`Статус заказа ${o.id}`}
-                    value={o.status}
-                    onChange={(e) => onStatusChange(o.id, e.target.value)}
-                  >
-                    {orderStatusOptions.map((s) => (
-                      <option key={s.value} value={s.value}>
-                        {s.label}
-                      </option>
-                    ))}
-                  </select>
+                  {canManage ? (
+                    <select
+                      className="member__role"
+                      aria-label={`Статус заказа ${o.id}`}
+                      value={o.status}
+                      onChange={(e) => onStatusChange(o.id, e.target.value)}
+                    >
+                      {orderStatusOptions.map((s) => (
+                        <option key={s.value} value={s.value}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="muted">{statusLabel(o.status)}</span>
+                  )}
                 </td>
                 <td>{new Date(o.created_at).toLocaleString('ru-RU')}</td>
               </tr>

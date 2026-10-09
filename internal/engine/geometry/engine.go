@@ -54,17 +54,48 @@ type MillingFeature struct {
 	Quantity int
 }
 
-// Generate строит параметрическую B-Rep модель марша (прямого,
-// L-образного, П-образного или спирального согласно cfg.Flight),
-// валидирует её (ENG-GEO-0018), измеряет (ENG-GEO-0013) и строит preview
-// mesh (ENG-GEO-0008) — фасад Geometry Engine (ENG-0003). Предусловие: конфигурация с положительными решёнными
-// параметрами (после Solver, ENG-0001); невыполнение возвращает ошибку.
-// Валидация не блокирует результат: отчёт issues собирается в результат
-// (валидная модель из корректных параметров не содержит ошибок уровня
-// SeverityError). Результат детерминирован при детерминированной конфигурации.
-// Контекст отмены (B2, EDR-0033 §3.1): errgroup.WithContext глобально
-// отменяет обработку при отмене/ошибке любого воркера.
-func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*GenerationResult, error) {
+// buildModel строит B-Rep модель по типу марша и сдвигает её от стены на
+// ApproachSpace. Общая часть для Generate и ModelBoundingBox: обе точки входа
+// обязаны давать ОДИН И ТОТ ЖЕ габарит, иначе проверка вписываемости в
+// вариациях считала бы не то.
+func buildModel(ctx context.Context, cfg *engineering.StairConfiguration) (*kerngeo.Compound, error) {
+	model, err := buildGeometry(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	shift := approachShift(cfg)
+	if shift > 0 {
+		t := kerngeo.Translate(shift, 0, 0)
+		solids := model.Solids()
+		shifted := make([]*kerngeo.Solid, len(solids))
+		for i, s := range solids {
+			shifted[i] = kerngeo.TransformSolid(s, t)
+		}
+		model = kerngeo.NewCompound(shifted...)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("geometry: %w", ctx.Err())
+	}
+	return model, nil
+}
+
+// approachShift — сдвиг модели от стены на ApproachSpace (EDR-0023).
+// Применяется ко ВСЕМ типам марша (прямой, L, П), оставляя перед
+// входом (первой ступенью) свободную зону; зона входит в габаритный бокс
+// модели, поэтому требуемая ширина помещения учитывается в fit-check.
+func approachShift(cfg *engineering.StairConfiguration) float64 {
+	approach := cfg.ApproachSpace.Millimeters()
+	if approach == 0 {
+		approach = 1000
+	}
+	return approach
+}
+
+// buildGeometry строит B-Rep модель марша БЕЗ сдвига от стены.
+func buildGeometry(ctx context.Context, cfg *engineering.StairConfiguration) (*kerngeo.Compound, error) {
+	if dbgHook != nil {
+		dbgHook()
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -83,35 +114,58 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 		model, err = BuildLShapeFlight(cfg)
 	case engineering.FlightUShape:
 		model, err = BuildUShapeFlight(cfg)
-	case engineering.FlightSpiral:
-		model, err = BuildSpiralFlight(cfg)
 	default:
 		model, err = BuildStraightFlight(cfg)
 	}
 	if err != nil {
 		return nil, err
 	}
-	// Свободное пространство перед первой ступенью (EDR-0023) — для ВСЕХ
-	// типов марша (прямой, L, П, спираль). Сдвигаем модель от стены на
-	// ApproachSpace по оси X, оставляя перед входом (первой ступенью) свободную
-	// зону; требуемая ширина помещения автоматически учитывается в fit-check
-	// (ниже), так как зона входит в габаритный бокс модели.
-	approach := cfg.ApproachSpace.Millimeters()
-	if approach == 0 {
-		approach = 1000
+	return model, nil
+}
+
+// ModelBoundingBox возвращает ТОЛЬКО габарит модели марша — без валидации,
+// триангуляции и preview mesh.
+//
+// Зачем: подбор вариантов (variation.ForRoomFit) перебирает около тысячи
+// конфигураций на кейс и из результата Geometry Engine берёт РОВНО габарит
+// (X, Y). Полный Generate на металлокаркасе — это 96 тел, триангуляция всех
+// граней с отверстиями и сборка меша, то есть ~97% лишней работы на каждый
+// кандидат.
+//
+// Габарит совпадает с Measurement.BoundingBox из Generate: обе точки входа
+// берут одну и ту же модель из buildGeometry, а сдвиг от стены прибавляется
+// к X габарита — трансляция не меняет размеры бокса, поэтому копировать
+// вершины ради сдвига не нужно.
+func ModelBoundingBox(ctx context.Context, cfg *engineering.StairConfiguration) (kerngeo.BBox, error) {
+	model, err := buildGeometry(ctx, cfg)
+	if err != nil {
+		return kerngeo.BBox{}, err
 	}
-	if approach > 0 {
-		t := kerngeo.Translate(approach, 0, 0)
-		solids := model.Solids()
-		shifted := make([]*kerngeo.Solid, len(solids))
-		for i, s := range solids {
-			shifted[i] = kerngeo.TransformSolid(s, t)
-		}
-		model = kerngeo.NewCompound(shifted...)
+	bb := kerngeo.BoundingBox(model)
+	if shift := approachShift(cfg); shift > 0 {
+		bb.Min.X += shift
+		bb.Max.X += shift
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("geometry: %w", ctx.Err())
+	return bb, nil
+}
+
+// Generate строит параметрическую B-Rep модель марша (прямого,
+// L-образного или П-образного согласно cfg.Flight),
+// валидирует её (ENG-GEO-0018), измеряет (ENG-GEO-0013) и строит preview
+// mesh (ENG-GEO-0008) — фасад Geometry Engine (ENG-0003). Предусловие: конфигурация с положительными решёнными
+// параметрами (после Solver, ENG-0001); невыполнение возвращает ошибку.
+//
+// Валидация не блокирует результат: отчёт issues собирается в результат
+// (валидная модель из корректных параметров не содержит ошибок уровня
+// SeverityError). Результат детерминирован при детерминированной конфигурации.
+// Контекст отмены (B2, EDR-0033 §3.1): errgroup.WithContext глобально
+// отменяет обработку при отмене/ошибке любого воркера.
+func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*GenerationResult, error) {
+	model, err := buildModel(ctx, cfg)
+	if err != nil {
+		return nil, err
 	}
+
 	result := &GenerationResult{Model: model}
 
 	// Каждая грань принадлежит ровно одному телу, поэтому кеш на тело даёт
@@ -176,7 +230,16 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 	result.MillingFeatures = millingFeaturesOf(cfg, model)
 
 	// preview mesh — производная величина, собранная из слотов в порядке тел.
-	result.Mesh = &kerngeo.Mesh{}
+	// Ёмкости считаются заранее: при append без резерва срез вершин меша
+	// перевыделялся логарифмически, и на металлокаркасе это были гигабайты
+	// копирования за один вызов Generate.
+	nv, nuv, ntr := 0, 0, 0
+	for i := range outs {
+		nv += len(outs[i].verts)
+		nuv += len(outs[i].uvs)
+		ntr += len(outs[i].tris)
+	}
+	result.Mesh = kerngeo.NewMesh(nv, nuv, ntr)
 	base := 0
 	for i := range outs {
 		result.Mesh.Vertices = append(result.Mesh.Vertices, outs[i].verts...)
@@ -344,13 +407,16 @@ func appendRailingMesh(result *GenerationResult, cfg *engineering.StairConfigura
 		result.RailingMesh = &kerngeo.Mesh{}
 	}
 	base := len(result.RailingMesh.Vertices)
+	// Точка отсчёта UV одна на всю модель: считаем её ОДИН раз до цикла, иначе
+	// габарит пересчитывался заново на каждом теле декора.
+	uvOrigin := kerngeo.BoundingBox(result.Model).Min
 	for _, solid := range decor {
 		cache := kerngeo.NewTessellationCache()
 		for _, issue := range kerngeo.ValidateCached(solid, cache) {
 			issue.Element = fmt.Sprintf("decor:%s/%s", solid.Role(), issue.Element)
 			result.Issues = append(result.Issues, issue)
 		}
-		verts, uvs, tris, err := meshSolid(solid, cache, kerngeo.BoundingBox(result.Model).Min)
+		verts, uvs, tris, err := meshSolid(solid, cache, uvOrigin)
 		if err != nil {
 			return fmt.Errorf("geometry: railing mesh: %w", err)
 		}
@@ -372,3 +438,8 @@ func appendRailingMesh(result *GenerationResult, cfg *engineering.StairConfigura
 	}
 	return nil
 }
+
+// SetDbgCounter — счётчик вызовов buildModel для диагностики.
+func SetDbgCounter(f func()) { dbgHook = f }
+
+var dbgHook func()

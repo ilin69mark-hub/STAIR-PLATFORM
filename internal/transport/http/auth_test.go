@@ -15,11 +15,17 @@ import (
 
 // fakeAuth — управляемый AuthService для тестов транспортного слоя.
 type fakeAuth struct {
-	registerErr error
-	loginErr    error
-	authUser    *auth.User
-	authErr     error
-	tokens      map[string]*auth.User
+	grantStubs
+
+	registerErr        error
+	deletionPreviewErr error
+	deleteUserErr      error
+	deletedID          string
+	transferTo         string
+	loginErr           error
+	authUser           *auth.User
+	authErr            error
+	tokens             map[string]*auth.User
 
 	ssoURL      string
 	ssoBeginErr error
@@ -73,6 +79,21 @@ func (f *fakeAuth) UpdateUser(ctx context.Context, tenantID, actorID, userID str
 	return nil
 }
 
+// deleteUserErr — принудительный отказ удаления для проверки маппинга ошибок
+// сервиса на коды ответа (403/404/409/422).
+func (f *fakeAuth) UserDeletionPreview(ctx context.Context, tenantID, userID string) (auth.DeletionPreview, error) {
+	if f.deletionPreviewErr != nil {
+		return auth.DeletionPreview{}, f.deletionPreviewErr
+	}
+	return auth.DeletionPreview{Projects: 3, Calculations: 12, Comments: 1, Orders: 2, ProjectRoles: 4}, nil
+}
+
+func (f *fakeAuth) DeleteUser(ctx context.Context, tenantID, actorID, userID, transferTo string) error {
+	f.deletedID = userID
+	f.transferTo = transferTo
+	return f.deleteUserErr
+}
+
 func (f *fakeAuth) GetPolicy(ctx context.Context, tenantID string) (auth.Policy, error) {
 	return auth.DefaultPolicy(), nil
 }
@@ -85,7 +106,7 @@ func (f *fakeAuth) AuthenticateApiKey(ctx context.Context, token string) (*auth.
 	if token != "secret-token" {
 		return nil, auth.ErrSessionExpired
 	}
-	return &auth.ApiKey{TenantID: "t-1", Scopes: []string{string(auth.PermissionUsersList)}}, nil
+	return &auth.ApiKey{TenantID: "t-1", Scopes: []string{string(auth.CapStaffView)}}, nil
 }
 
 func (f *fakeAuth) CreateApiKey(ctx context.Context, tenantID, actorID, name string, scopes []auth.Permission) (*auth.ApiKey, string, error) {
@@ -490,4 +511,38 @@ func TestCSRFAllowsSameOriginRequest(t *testing.T) {
 	if rec.Code == http.StatusForbidden {
 		t.Fatalf("same-origin mutation must not be rejected by CSRF, got 403")
 	}
+}
+
+// EffectiveGrants отдаёт шаблон роли — ровно то поведение, которое было до
+// перехода на точечные выдачи. Так тесты на отказ по правам остаются
+// осмысленными: у admin все метрики, у user — ни одной.
+func (f fakeAuth) EffectiveGrants(_ context.Context, u *auth.User) (*auth.GrantSet, error) {
+	if u == nil {
+		return auth.RoleTemplate(auth.RoleUser), nil
+	}
+	return auth.RoleTemplate(u.Role), nil
+}
+
+// grantStubs — заглушки методов выдачи прав для тестовых фейков AuthService.
+// Тесты самой выдачи строят роутер с настоящим auth.Service, поэтому эти
+// заглушки их не задевают: они нужны лишь потому, что интерфейс AuthService
+// требует все методы, а проверять их здесь нечем.
+type grantStubs struct{}
+
+func (grantStubs) GetUserGrants(_ context.Context, _, userID string) (*auth.GrantSet, error) {
+	return auth.NewGrantSet(), nil
+}
+
+func (grantStubs) SetUserGrants(_ context.Context, _ string, _ *auth.User, _ string, _ *auth.GrantSet) error {
+	return nil
+}
+
+// Заглушки удаления сотрудника — по той же причине: интерфейс требует все
+// методы, а проверяют их тесты удаления со своим поведением (fakeAuth).
+func (grantStubs) UserDeletionPreview(_ context.Context, _, _ string) (auth.DeletionPreview, error) {
+	return auth.DeletionPreview{}, nil
+}
+
+func (grantStubs) DeleteUser(_ context.Context, _, _, _, _ string) error {
+	return nil
 }

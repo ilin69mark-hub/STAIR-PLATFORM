@@ -21,14 +21,20 @@ type fakeRepo struct {
 	revokedKeyUsers map[string]bool
 	// disableErr — принудительный сбой атомарной блокировки (CRITICAL-05).
 	disableErr error
+	// ownedProjects — сколько проектов у человека (передача при удалении).
+	ownedProjects map[string]int
+	// transferFrom/transferTo — куда уехали проекты в последней передаче.
+	transferFrom string
+	transferTo   string
 }
 
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{
-		users:    map[string]*User{},
-		byID:     map[string]*User{},
-		sessions: map[string]*Session{},
-		tenant:   &Tenant{ID: "t-1", Slug: "default"},
+		ownedProjects: map[string]int{},
+		users:         map[string]*User{},
+		byID:          map[string]*User{},
+		sessions:      map[string]*Session{},
+		tenant:        &Tenant{ID: "t-1", Slug: "default"},
 	}
 }
 
@@ -86,6 +92,46 @@ func (f *fakeRepo) UpdateUserStatus(ctx context.Context, tenantID, userID string
 	}
 	u.Status = status
 	return nil
+}
+
+// Удаление сотрудника (передача проектов + мягкое удаление): фейк повторяет
+// состояние в памяти, чтобы сервисные проверки (последний владелец, запрет
+// удалять себя, передача проектов) проверялись без БД.
+func (f *fakeRepo) SoftDeleteUser(ctx context.Context, tenantID, userID, deletedBy string) error {
+	u, ok := f.byID[userID]
+	if !ok || u.TenantID != tenantID || u.Deleted() {
+		return ErrNotFound
+	}
+	now := time.Now()
+	u.Status = StatusDisabled
+	u.DeletedAt = &now
+	return nil
+}
+
+func (f *fakeRepo) TransferProjects(ctx context.Context, fromUserID, toUserID string) (int, error) {
+	if fromUserID == "" || toUserID == "" || fromUserID == toUserID {
+		return 0, nil
+	}
+	n := f.ownedProjects[fromUserID]
+	f.ownedProjects[fromUserID] = 0
+	f.ownedProjects[toUserID] += n
+	f.transferFrom = fromUserID
+	f.transferTo = toUserID
+	return n, nil
+}
+
+func (f *fakeRepo) CountOwners(ctx context.Context, tenantID string) (int, error) {
+	n := 0
+	for _, u := range f.byID {
+		if u.TenantID == tenantID && u.Role == RoleOwner && !u.Deleted() {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (f *fakeRepo) UserDeletionStats(ctx context.Context, userID string) (UserDeletionStats, error) {
+	return UserDeletionStats{Projects: f.ownedProjects[userID]}, nil
 }
 
 func (f *fakeRepo) DeleteUserSessions(ctx context.Context, userID string) error {

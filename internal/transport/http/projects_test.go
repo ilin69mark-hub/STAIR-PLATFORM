@@ -43,6 +43,11 @@ type fakeProjectService struct {
 	addCommentErr    error // AddComment → ошибка
 	commentsListErr  error // ListComments → ошибка
 	deleteCommentErr error // DeleteComment → ошибка
+	// Передача владения: кто стал владельцем, шла ли она через платформенное
+	// право staff.project_transfer и какую ошибку вернул сервис.
+	transferTo           string
+	transferByCapability bool
+	transferErr          error
 }
 
 func newFakeProjectService() *fakeProjectService {
@@ -124,6 +129,14 @@ func (f *fakeProjectService) UpdateMemberRole(ctx context.Context, tenantID, act
 		return f.membershipErr
 	}
 	return nil
+}
+
+// TransferOwnership запоминает вызов: тесты передачи владения проверяют, что
+// новый владелец доехал до сервиса вместе с флагом платформенного права.
+func (f *fakeProjectService) TransferOwnership(ctx context.Context, tenantID, actorID, projectID, toUserID string, byCapability bool) error {
+	f.transferTo = toUserID
+	f.transferByCapability = byCapability
+	return f.transferErr
 }
 
 func (f *fakeProjectService) RemoveMember(ctx context.Context, tenantID, actorID, projectID, userID string) error {
@@ -365,9 +378,23 @@ func (f *fakeProjectService) RestoreConfiguration(ctx context.Context, tenantID,
 	return nil, project.ErrNotFound
 }
 
+func (f *fakeProjectService) MarkConfigurationAsMeasurement(ctx context.Context, tenantID, userID, projectID, configurationID string, mark bool) (*project.StairConfiguration, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, project.ErrNotFound
+	}
+	for _, c := range f.configs {
+		if c.ID != configurationID {
+			continue
+		}
+		c.IsMeasurement = mark
+		return c, nil
+	}
+	return nil, project.ErrNotFound
+}
+
 // testAuth — фиктивный AuthService для тестов: любой токен валиден,
 // пользователь принадлежит tenant'у "t-1".
-type testAuth struct{}
+type testAuth struct{ grantStubs }
 
 func (testAuth) Register(ctx context.Context, email, name, password string) (*auth.User, string, error) {
 	return &auth.User{ID: "u-1", Email: email, Name: name, Role: auth.RoleUser, TenantID: "t-1"}, "token-1", nil
@@ -410,7 +437,7 @@ func (testAuth) AuthenticateApiKey(ctx context.Context, token string) (*auth.Api
 	if token == "" {
 		return nil, auth.ErrSessionExpired
 	}
-	return &auth.ApiKey{TenantID: "t-1", Scopes: []string{string(auth.PermissionUsersList)}}, nil
+	return &auth.ApiKey{TenantID: "t-1", Scopes: []string{string(auth.CapStaffView)}}, nil
 }
 
 func (testAuth) CreateApiKey(ctx context.Context, tenantID, actorID, name string, scopes []auth.Permission) (*auth.ApiKey, string, error) {
@@ -1299,4 +1326,14 @@ func TestConfigurationNotFound(t *testing.T) {
 			t.Fatalf("%s: expected 404, got %d", path, rec.Code)
 		}
 	}
+}
+
+// EffectiveGrants отдаёт шаблон роли — ровно то поведение, которое было до
+// перехода на точечные выдачи. Так тесты на отказ по правам остаются
+// осмысленными: у admin все метрики, у user — ни одной.
+func (f testAuth) EffectiveGrants(_ context.Context, u *auth.User) (*auth.GrantSet, error) {
+	if u == nil {
+		return auth.RoleTemplate(auth.RoleUser), nil
+	}
+	return auth.RoleTemplate(u.Role), nil
 }

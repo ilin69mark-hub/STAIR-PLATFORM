@@ -40,7 +40,7 @@ func (f *fakeCalc) Optimize(_ context.Context, cfg stair.Config, _ stair.Options
 func (f *fakeCalc) ValidateConfig(stair.Config) error { return f.validateErr }
 
 // optResult конструирует оптимум заданного марша с ценой и комфортом.
-// Для non-spiral шаг комфорта в Response считаем из геометрии: h=180,
+// Шаг комфорта в Response считаем из геометрии: h=180,
 // b = comfort − 2h — тогда comfortStepOf совпадёт с переданным comfort.
 func optResult(flight engineering.FlightType, priceMajor float64, comfort float64) *stair.OptimizeResult {
 	tread := comfort - 360 // 2*180
@@ -63,8 +63,6 @@ func optResult(flight engineering.FlightType, priceMajor float64, comfort float6
 		res.UShape = &solver.UShapeResult{
 			StepCount: 16, StepHeight: engineering.Length(169), TreadDepth: engineering.Length(tread),
 		}
-	case engineering.FlightSpiral:
-		res.Spiral = &solver.SpiralResult{StepCount: 14, StepHeight: engineering.Length(193), ComfortStep: comfort}
 	default:
 		res.Flight = solver.FlightResult{
 			StepCount: 15, StepHeight: engineering.Length(180), TreadDepth: engineering.Length(tread),
@@ -88,7 +86,6 @@ func TestDesignRecommendCheapestFlight(t *testing.T) {
 		engineering.FlightStraight: optResult(engineering.FlightStraight, 100, 630),
 		engineering.FlightLShape:   optResult(engineering.FlightLShape, 140, 628),
 		engineering.FlightUShape:   optResult(engineering.FlightUShape, 150, 635),
-		engineering.FlightSpiral:   optResult(engineering.FlightSpiral, 200, 640),
 	}}
 	svc := testServiceWithCalc(calc)
 
@@ -111,12 +108,12 @@ func TestDesignRecommendCheapestFlight(t *testing.T) {
 		t.Fatal("commentary must be non-empty")
 	}
 	// Рекомендация — самый дешёвый вариант.
-	if len(res.Response.Alternatives) != 3 {
-		t.Fatalf("alternatives = %d, want 3", len(res.Response.Alternatives))
+	if len(res.Response.Alternatives) != 2 {
+		t.Fatalf("alternatives = %d, want 2", len(res.Response.Alternatives))
 	}
-	// Перебор всех четырёх типов без сбоя (спираль без радиуса — R=2W).
-	if len(calc.seen) != 4 {
-		t.Fatalf("evaluated %d flight types, want 4", len(calc.seen))
+	// Перебор всех трёх типов без сбоя.
+	if len(calc.seen) != 3 {
+		t.Fatalf("evaluated %d flight types, want 3", len(calc.seen))
 	}
 }
 
@@ -127,7 +124,6 @@ func TestDesignComfortPriority(t *testing.T) {
 		// L-образный с идеальным комфортом, но дороже.
 		engineering.FlightLShape: optResult(engineering.FlightLShape, 150, 630),
 		engineering.FlightUShape: optResult(engineering.FlightUShape, 160, 700),
-		engineering.FlightSpiral: optResult(engineering.FlightSpiral, 200, 700),
 	}}
 	svc := testServiceWithCalc(calc)
 
@@ -208,8 +204,6 @@ func engResult(flight engineering.FlightType, h, b float64, blocking bool) *stai
 		res.LShape = &solver.LShapeResult{StepCount: 15, StepHeight: engineering.Length(h), TreadDepth: engineering.Length(b)}
 	case engineering.FlightUShape:
 		res.UShape = &solver.UShapeResult{StepCount: 16, StepHeight: engineering.Length(h), TreadDepth: engineering.Length(b)}
-	case engineering.FlightSpiral:
-		res.Spiral = &solver.SpiralResult{StepCount: 14, StepHeight: engineering.Length(h), ComfortStep: 630}
 	default:
 		res.Flight = solver.FlightResult{StepCount: 15, StepHeight: engineering.Length(h), TreadDepth: engineering.Length(b)}
 	}

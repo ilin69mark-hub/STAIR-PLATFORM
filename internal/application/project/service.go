@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 
 	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/stair"
@@ -213,6 +214,65 @@ func (s *Service) RemoveMember(ctx context.Context, tenantID, actorID, projectID
 		return err
 	}
 	s.record(ctx, tenantID, actorID, projectID, audit.ActionMemberRemoved, audit.ResultOK, "member removed")
+	return nil
+}
+
+// TransferOwnership передаёт владение проектом другому участнику.
+//
+// Кто может: владелец проекта либо человек с платформенным правом
+// staff.project_transfer (его проверяет транспорт и передаёт сюда флагом
+// byCapability — сервис доверяет этому флагу, потому что проверить право
+// в прикладном уровне нечем).
+//
+// Кому: только тому, кто уже участник проекта. Передача «на улице» означала
+// бы, что человек появится в проекте без приглашения и без своего согласия.
+//
+// Что с прежним владельцем: он становится редактором, а не исчезает. Он
+// работал с проектом, и уйти из него может сам. Так же ведёт себя удаление
+// сотрудника: работа не пропадает, меняется человек.
+func (s *Service) TransferOwnership(ctx context.Context, tenantID, actorID, projectID, toUserID string, byCapability bool) error {
+	me, ok, err := s.member(ctx, tenantID, actorID, projectID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		// Не участник проекта: забрать чужой проект может только владелец
+		// компании с staff.project_transfer.
+		if !byCapability {
+			s.record(ctx, tenantID, actorID, projectID, audit.ActionAuthzDenied, audit.ResultDenied,
+				"transfer: not a member")
+			return ErrForbidden
+		}
+		// Участника нет, значит проверяем проект через членство будущего
+		// владельца: он существует, принадлежит нашему tenant и уже в проекте.
+		// Это же отсекает «передачу» несуществующего проекта.
+		if _, err := s.repo.GetMember(ctx, tenantID, projectID, toUserID); err != nil {
+			return err
+		}
+	} else if me.Role != RoleOwner {
+		s.record(ctx, tenantID, actorID, projectID, audit.ActionAuthzDenied, audit.ResultDenied,
+			"transfer: project owner required")
+		return ErrForbidden
+	}
+
+	if toUserID == "" {
+		return fmt.Errorf("%w: не указан новый владелец", ErrConflict)
+	}
+	if toUserID == actorID {
+		// Передать самому себе — не ошибка прав, а пустое действие: владелец
+		// уже этот человек.
+		s.record(ctx, tenantID, actorID, projectID, audit.ActionAuthzDenied, audit.ResultDenied,
+			"transfer: to self")
+		return ErrConflict
+	}
+
+	if err := s.repo.TransferOwnership(ctx, tenantID, projectID, toUserID); err != nil {
+		s.record(ctx, tenantID, actorID, projectID, audit.ActionProjectTransferred, audit.ResultFailed,
+			"transfer failed: "+err.Error())
+		return err
+	}
+	s.record(ctx, tenantID, actorID, projectID, audit.ActionProjectTransferred, audit.ResultOK,
+		"ownership to "+toUserID)
 	return nil
 }
 
@@ -473,6 +533,37 @@ func (s *Service) RestoreConfiguration(ctx context.Context, tenantID, userID, pr
 		return nil, err
 	}
 	s.record(ctx, tenantID, userID, projectID, audit.ActionConfigRestored, audit.ResultOK, "revision="+cfg.ID)
+	return cfg, nil
+}
+
+// MarkConfigurationAsMeasurement помечает ревизию как снятую по факту на
+// объекте (решение владельца 2026-10-08). Те же права, что у восстановления
+// ревизии: owner/editor — те, кто вносит размеры.
+//
+// Метка нужна, чтобы в истории проекта было видно, какие размеры пришли от
+// клиента по телефону, а какие — с замера. Разница между «примерно 900» и
+// «ровно 937» меняет число ступеней и цену, а по дате ревизии не читается.
+func (s *Service) MarkConfigurationAsMeasurement(ctx context.Context, tenantID, userID, projectID, configurationID string, mark bool) (*StairConfiguration, error) {
+	me, ok, err := s.member(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if !me.Role.HasPermission(PermissionProjectEdit) {
+		s.record(ctx, tenantID, userID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "mark configuration as measurement: editor required")
+		return nil, ErrForbidden
+	}
+	if err := s.repo.MarkConfigurationAsMeasurement(ctx, tenantID, projectID, configurationID, mark); err != nil {
+		return nil, err
+	}
+	cfg, err := s.repo.GetConfigurationByID(ctx, tenantID, projectID, configurationID)
+	if err != nil {
+		return nil, err
+	}
+	detail := "revision=" + configurationID + " marked=" + strconv.FormatBool(mark)
+	s.record(ctx, tenantID, userID, projectID, audit.ActionConfigRestored, audit.ResultOK, detail)
 	return cfg, nil
 }
 

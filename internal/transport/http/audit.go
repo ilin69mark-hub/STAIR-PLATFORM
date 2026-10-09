@@ -99,7 +99,10 @@ func handleListProjectAudit(projects ProjectService, auditSvc AuditService) http
 // 200 — события tenant; 403 — нет права audit.read_all.
 func handleListTenantAudit(auditSvc AuditService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if u := authUser(r.Context()); u == nil || !u.Role.HasPermission(auth.PermissionAuditReadAll) {
+		// Раньше здесь была прямая проверка роли: она не пускала ни API-ключ,
+		// ни сотрудника с точечной выдачей. Теперь проверка метрики — тот же
+		// путь, что у всех остальных admin-ручек (EDR-0041).
+		if !hasCapability(r, auth.CapAuditView, auth.LevelRead) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}

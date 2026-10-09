@@ -10,12 +10,9 @@ test.describe.serial('UI 20 — 5×4 через page', () => {
     { flight: 'straight', params: {} },
     { flight: 'l_shape', params: { landingWidthMM: '1000', lowerStepCountMM: '5' } },
     { flight: 'u_shape', params: { landingWidthMM: '1000', lowerStepCountMM: '5' } },
-    { flight: 'spiral', params: { outerRadiusMM: '960' } },
   ]
 
-  // Тип марша скрыт в форме, пока SPIRAL_ENABLED = false (S-152): спиральные
-  // итерации пропускаются, остальные возвращаются вместе со спиралью.
-  const ENABLED = flights.filter((f) => f.flight !== 'spiral')
+  const ENABLED = flights
   const TOTAL = ENABLED.length * 5
   const MIN_OK = Math.floor(TOTAL * 0.75)
 

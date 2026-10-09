@@ -5,13 +5,13 @@ import "testing"
 // TestFlightTypeValid (DOM-001, forensic 2026-09-24) — enum типа марша
 // проверяется: неизвестные значения не проходят валидацию конфигурации.
 func TestFlightTypeValid(t *testing.T) {
-	valid := []FlightType{FlightStraight, FlightLShape, FlightUShape, FlightSpiral}
+	valid := []FlightType{FlightStraight, FlightLShape, FlightUShape}
 	for _, f := range valid {
 		if !f.Valid() {
 			t.Fatalf("%q must be valid", f)
 		}
 	}
-	for _, f := range []FlightType{"", "diagonal", "STRAIGHT ", "lshape", "spiral2"} {
+	for _, f := range []FlightType{"", "diagonal", "STRAIGHT ", "lshape", "spiral"} {
 		if f.Valid() {
 			t.Fatalf("%q must be invalid", f)
 		}

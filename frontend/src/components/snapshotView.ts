@@ -40,40 +40,11 @@ export function schematicOf(s: Snapshot, approachMM?: number): SolverSchematic |
     RailingHeight: s.railing_height,
     Riser: s.riser,
     StringerThickness: s.stringer_thickness,
+    StringerSpine: s.stringer_spine ?? s.stringer_thickness,
   }
-  // Сначала более конкретные типы: бэкенд всегда шлёт поле flight (для
-  // L/U/спирали оно нулевое), поэтому проверка flight первой съедала бы
-  // все не-прямые типы (их план не отрисовывался).
-  if (s.spiral) {
-    const sp = s.spiral
-    return {
-      kind: 'spiral',
-      flight: {
-        StepCount: sp.StepCount,
-        StepHeight: sp.StepHeight,
-        TreadDepth: sp.WalkTread,
-        Run: sp.ArcLength,
-        Stringer: 0,
-        Angle: sp.Angle,
-        Width: effectiveWidth(s),
-        ...extras,
-      },
-      solver: {
-        outerRadius: sp.OuterRadius,
-        columnRadius: sp.ColumnRadius,
-        walkRadius: sp.WalkRadius,
-        innerTread: sp.InnerTread,
-        outerTread: sp.OuterTread,
-        angularStep: (sp.AngularStep * 180) / Math.PI,
-        angularTotal: (sp.AngularTotal * 180) / Math.PI,
-        arcLength: sp.ArcLength,
-        // Свободное пространство перед первой ступенью равно сдвигу модели
-        // от стены (BoundingBox.Min.X), задаваемому approachSpace (EDR-0023).
-        approachSpace: approachOf(),
-      },
-      railing: s.railing,
-    }
-  }
+  // Сначала более конкретные типы: бэкенд всегда шлёт поле flight (для L/U
+  // оно нулевое), поэтому проверка flight первой съедала бы оба не-прямых
+  // типа (их план не отрисовывался).
   if (s.ushape) {
     const u = s.ushape
     return {

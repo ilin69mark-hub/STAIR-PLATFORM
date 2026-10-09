@@ -188,14 +188,21 @@ func TestSwaggerDocumentsConfigInputFields(t *testing.T) {
 	for _, f := range []string{
 		"flight", "width_mm", "height_mm", "step_height_mm", "riser", "clearance_mm",
 		"turn_kind", "winder_count", "railing", "railing_lower", "railing_landing",
-		"railing_upper", "direction", "spiral_direction", "comfort_step_mm", "material",
+		"railing_upper", "direction", "comfort_step_mm", "material",
 	} {
 		if !strings.Contains(block, "        "+f+":") {
 			t.Errorf("API-003: StairConfigInput must document %q (DOM-001/DOM-003)", f)
 		}
 	}
-	if !strings.Contains(block, "enum: [straight, l_shape, u_shape, spiral]") {
-		t.Error("API-003: flight must be an enum of the four domain values")
+	if !strings.Contains(block, "enum: [straight, l_shape, u_shape]") {
+		t.Error("API-003: flight must be an enum of the three domain values")
+	}
+	// Винтовой марш удалён из проекта (решение владельца 2026-10-06): его поля
+	// не должны ни документироваться, ни приниматься сервером.
+	for _, f := range []string{"outer_radius_mm", "spiral_direction"} {
+		if strings.Contains(block, "        "+f+":") {
+			t.Errorf("API-003: StairConfigInput must no longer document %q", f)
+		}
 	}
 	// Схема реально используется в операциях расчёта.
 	if !strings.Contains(spec, `$ref: "#/components/schemas/StairConfigInput"`) {

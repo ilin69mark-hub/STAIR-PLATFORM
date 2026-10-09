@@ -124,7 +124,7 @@ func handleGetObject(svc StorageService) http.HandlerFunc {
 // 404 — нет объекта.
 func handleDeleteObject(svc StorageService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionIntegrationsManage) {
+		if !hasCapability(r, auth.CapStorageDelete, auth.LevelAction) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуется право integrations.manage.")
 			return
 		}

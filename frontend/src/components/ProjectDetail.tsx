@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Calculation, OptimizeTarget, Project } from '@shared/types'
 import {
   LiveValidator,
@@ -19,11 +19,8 @@ import {
   flightFields,
   materialOptions,
   directionOptions,
-  spiralDirectionOptions,
-  SPIRAL_ENABLED,
+  fixingBaseOptions,
   railingOptions,
-  railingForSpiral,
-  railingLabel,
   rulesFor,
   toRequest,
   toRatesRequest,
@@ -45,6 +42,7 @@ import { VersionsPanel } from './VersionsPanel'
 import { AuditPanel } from './AuditPanel'
 import { AssistantPanel } from './AssistantPanel'
 import { logAction } from '@shared/api/audit'
+import { storeApi, type FastenerPrice } from '../api/store'
 import type { ProjectStatus } from '@shared/types'
 import { statusMeta } from '../lib/status'
 import { useScrollSpy } from '../lib/useScrollSpy'
@@ -78,8 +76,13 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
   const [savedAt, setSavedAt] = useState<Date | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  // Живая валидация при вводе (S-P5): серверные блокировки (R>W спирали, угол/
-  // проступь, вписываемость), невидимые локальной проверке формы.
+  // Прайс крепежа для списка «по объекту» (MNT-0001). Грузится один раз на
+  // проект и НЕ мешает расчёту: если прайс недоступен, блок крепления
+  // показывает подсказку, а расчёт уходит без extra_fasteners.
+  const [fasteners, setFasteners] = useState<FastenerPrice[] | undefined>(undefined)
+  const [fastenersError, setFastenersError] = useState<string | undefined>(undefined)
+  // Живая валидация при вводе (S-P5): серверные блокировки (угол/проступь,
+  // вписываемость), невидимые локальной проверке формы.
   const [liveBlocking, setLiveBlocking] = useState(false)
   const [liveIssues, setLiveIssues] = useState<LiveIssue[]>([])
   const [liveFieldErrors, setLiveFieldErrors] = useState<FieldErrors>({})
@@ -130,7 +133,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
   // Scroll-spy для липкого оглавления: подсвечиваем текущую секцию.
   const activeSection = useScrollSpy(SECTION_IDS, 'params')
 
-  const setField = (key: keyof ConfigForm, value: string | boolean) => {
+  const setField = (key: keyof ConfigForm, value: string | boolean | string[]) => {
     const next = { ...config, [key]: value }
     setConfig(next)
     // Аудит изменения поля (debounce 600 мс, best-effort).
@@ -153,6 +156,24 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
       })
     }
   }
+
+  // Прайс крепежа живёт в админке магазина, а не в проекте: он одинаков для
+  // всех лестниц и меняется владельцем. Один запрос на проект, ошибка не
+  // блокирует расчёт — список просто останется пустым.
+  useEffect(() => {
+    let alive = true
+    storeApi
+      .fasteners()
+      .then((list) => {
+        if (alive) setFasteners(list)
+      })
+      .catch((e) => {
+        if (alive) setFastenersError(e instanceof Error ? e.message : String(e))
+      })
+    return () => {
+      alive = false
+    }
+  }, [projectId])
 
   const setRate = (key: keyof RatesForm, value: string) =>
     setRates((r) => ({ ...r, [key]: value }))
@@ -442,7 +463,14 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
             <div className="panel">
               <h2 className="panel__title">Параметры лестницы</h2>
               <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Задайте геометрию, материалы и ставки. Каждая калькуляция создаёт новую версию.</p>
-              <ConfigForm fields={config} errors={errors} liveErrors={liveFieldErrors} onChange={setField} />
+              <ConfigForm
+                fields={config}
+                errors={errors}
+                liveErrors={liveFieldErrors}
+                onChange={setField}
+                fasteners={fasteners}
+                fastenersError={fastenersError}
+              />
               {liveBlocking && liveIssues.length > 0 && (
                 <div className="alert alert--warn" role="alert" style={{ marginTop: 12 }}>
                   {liveIssues.map((it, idx) => (
@@ -558,7 +586,10 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
           </section>
 
           <section id="comments" className="section">
-            <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Обсуждение проекта — комментарии видны всем участникам.</p>
+            <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+              Обсуждение проекта — комментарии видны всем участникам.
+            </p>
+            <MeasurementSnippet config={config} calculation={calculation} />
             <CommentsPanel projectId={projectId} />
           </section>
 
@@ -604,14 +635,21 @@ interface ConfigFormProps {
   /** Ошибки живой (серверной) валидации при вводе: подсвечивают поля, у
    * которых локально всё в порядке, но бэкенд находит блокировку (S-P5). */
   liveErrors?: FieldErrors
-  onChange: (key: keyof ConfigForm, value: string | boolean) => void
+  // value — строка, булево или (для extraFasteners) список позиций:
+  // единственное поле формы, которое не строка.
+  onChange: (key: keyof ConfigForm, value: string | boolean | string[]) => void
+  /** Прайс крепежа для списка «по объекту». Не подгружен — блок
+   * показывается с подсказкой, а не ломает форму. */
+  fasteners?: FastenerPrice[]
+  /** Сообщение о неудачной загрузке прайса крепежа. */
+  fastenersError?: string
 }
 
 const configLabels: Record<string, string> = {
   widthMM: 'Ширина марша, мм',
   heightMM: 'Высота подъёма H, мм',
   stepHeightMM: 'Целевая высота ступени, мм',
-  stringerThicknessMM: 'Толщина косоура, мм',
+  stringerThicknessMM: 'Лист косоура, мм',
   stepThicknessMM: 'Толщина ступени, мм',
   riser: 'Подступень',
   clearanceMM: 'Зазор, мм',
@@ -629,7 +667,11 @@ const configLabels: Record<string, string> = {
   railingLanding: 'Перила: площадка',
   railingUpper: 'Перила: второй марш',
   direction: 'Направление поворота',
-  spiralDirection: 'Направление спирали',
+  floorFixing: 'Крепление в пол',
+  ceilingFixing: 'Крепление в перекрытие',
+  extraFasteners: 'Дополнительный крепёж по объекту',
+  sealantLayerMM: 'Слой герметика',
+  extraSealantCartridges: 'Доп. картриджи герметика',
 }
 
 function labelOf(key: keyof ConfigForm): string {
@@ -647,16 +689,24 @@ const adminSelectOptions = (key: keyof ConfigForm) => {
       return railingOptions
     case 'direction':
       return directionOptions
-    case 'spiralDirection':
-      return spiralDirectionOptions
+    case 'floorFixing':
+    case 'ceilingFixing':
+      return fixingBaseOptions
     default:
       return null
   }
 }
 
-function ConfigForm({ fields, errors, liveErrors, onChange }: ConfigFormProps) {
-  // Проект могли сохранить со спиралью до её отключения (S-152): форма не
-  // должна падать, показываем поля прямого марша и предупреждение.
+function ConfigForm({
+  fields,
+  errors,
+  liveErrors,
+  onChange,
+  fasteners,
+  fastenersError,
+}: ConfigFormProps) {
+  // Неизвестный тип марша из старых данных: форма не должна падать —
+  // показываем поля прямого марша и предупреждение.
   const visible = flightFields[fields.flight] ?? flightFields.straight
   return (
     <div className="config-grid">
@@ -734,20 +784,6 @@ function ConfigForm({ fields, errors, liveErrors, onChange }: ConfigFormProps) {
           </div>
         )
       })}
-      {SPIRAL_ENABLED && fields.flight === 'spiral' && (
-        <div className="field">
-          <label className="field__label" htmlFor="cfg-railing-auto">
-            {labelOf('railing')}
-          </label>
-          <input
-            id="cfg-railing-auto"
-            className="field__input"
-            readOnly
-            value={railingLabel(railingForSpiral(fields.spiralDirection))}
-          />
-          <p className="field__hint">Авто: по направлению спирали</p>
-        </div>
-      )}
       <div className="field">
         <label className="field__label" htmlFor="cfg-riser">
           {labelOf('riser')}
@@ -762,8 +798,370 @@ function ConfigForm({ fields, errors, liveErrors, onChange }: ConfigFormProps) {
           <span>{fields.riser ? 'Есть' : 'Нет'}</span>
         </label>
       </div>
+      <FixingSection
+        fields={fields}
+        fasteners={fasteners}
+        fastenersError={fastenersError}
+        onFixingChange={(key, value) => onChange(key, value)}
+        onExtraChange={(next) => onChange('extraFasteners', next)}
+        onExtraField={(key, value) => onChange(key, value)}
+      />
     </div>
   )
+}
+
+// FixingSection — блок «Крепление» (CONF-FIXING, решение владельца
+// 2026-10-08): основание для пола и для перекрытия плюс раскрывающийся
+// список крепежа по объекту.
+//
+// Отдельным блоком, а не ещё одной строкой в общей сетке, потому что здесь
+// три разных вещи: два выбора основания (бетон/дерево) и список позиций с
+// ценами. В общей сетке выпадающие списки и список позиций оказались бы в
+// одной колонке с размерами, и список на 40 позиций растянул бы форму на
+// весь экран.
+//
+// Что видит человек и зачем: крепёж считается по отверстиям пяток сам, эти
+// два выбора говорят движку, ДОБАВЛЯТЬ ли дюбель (в бетон — да, в дерево —
+// нет), а список нужен для случаев вроде «пол неровный, берём 12
+// дополнительных дюбелей».
+function FixingSection({
+  fields,
+  fasteners,
+  fastenersError,
+  onFixingChange,
+  onExtraChange,
+  onExtraField,
+}: {
+  fields: ConfigForm
+  fasteners?: FastenerPrice[]
+  fastenersError?: string
+  onFixingChange: (key: 'floorFixing' | 'ceilingFixing', value: string) => void
+  onExtraChange: (next: string[]) => void
+  onExtraField: (key: 'sealantLayerMM' | 'extraSealantCartridges', value: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const selected = fields.extraFasteners ?? []
+  // Поиск по названию И по коду: монтажник знает «10х60» и вводит это, а
+  // «Глухарь 10х60» набирать руками дольше.
+  const [query, setQuery] = useState('')
+  const q = query.trim().toLowerCase()
+  // Сортировка по размеру, а не по коду: по коду PLUG-10x100 идёт раньше
+  // PLUG-10x50, и монтажник, ищущий «10х60», попадает в середину списка.
+  const visible = (fasteners ?? [])
+    .filter((f) => !q || f.name_ru.toLowerCase().includes(q) || f.code.toLowerCase().includes(q))
+    .slice()
+    .sort((a, b) => a.diameter_mm - b.diameter_mm || a.length_mm - b.length_mm)
+  const selectedSum = (fasteners ?? [])
+    .filter((f) => selected.includes(f.code))
+    .reduce((sum, f) => sum + f.price_per_pc_rub, 0)
+
+  const toggle = (code: string) => {
+    onExtraChange(
+      selected.includes(code) ? selected.filter((c) => c !== code) : [...selected, code],
+    )
+  }
+
+  return (
+    <fieldset className="fixing">
+      <legend className="field__label">Крепление</legend>
+
+      <div className="config-grid">
+        <div className="field">
+          <label className="field__label" htmlFor="cfg-floorFixing">
+            Крепление в пол
+          </label>
+          <select
+            id="cfg-floorFixing"
+            className="field__input"
+            value={fields.floorFixing ?? 'concrete'}
+            onChange={(e) => onFixingChange('floorFixing', e.target.value)}
+          >
+            {fixingBaseOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <p className="field__hint">
+            В бетон глухарь 10х60 идёт через дюбель, в дерево — без него.
+          </p>
+        </div>
+
+        <div className="field">
+          <label className="field__label" htmlFor="cfg-sealantLayerMM">
+            Слой герметика, мм
+          </label>
+          <input
+            id="cfg-sealantLayerMM"
+            className="field__input"
+            type="number"
+            inputMode="decimal"
+            min={0}
+            step={0.5}
+            value={fields.sealantLayerMM ?? '1'}
+            onChange={(e) => onExtraField('sealantLayerMM', e.target.value)}
+          />
+          <p className="field__hint">
+            Расход = площадь швов × толщина, плюс запас 15% на брак. Площадь
+            считается по геометрии обоймы выреза и торца косоура.
+          </p>
+        </div>
+
+        <div className="field">
+          <label className="field__label" htmlFor="cfg-extraSealantCartridges">
+            Доп. картриджи герметика, шт
+          </label>
+          <input
+            id="cfg-extraSealantCartridges"
+            className="field__input"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            step={1}
+            value={fields.extraSealantCartridges ?? ''}
+            placeholder="не нужно"
+            onChange={(e) => onExtraField('extraSealantCartridges', e.target.value)}
+          />
+          <p className="field__hint">
+            Добавляется сверх автоматического расхода, без запаса — когда швы
+            шире нормы или пол неровный.
+          </p>
+        </div>
+
+        <div className="field">
+          <label className="field__label" htmlFor="cfg-ceilingFixing">
+            Крепление в перекрытие
+          </label>
+          <select
+            id="cfg-ceilingFixing"
+            className="field__input"
+            value={fields.ceilingFixing ?? 'concrete'}
+            onChange={(e) => onFixingChange('ceilingFixing', e.target.value)}
+          >
+            {fixingBaseOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <p className="field__hint">
+            Пятка выхода на второй этаж. Если перекрытие деревянное — ставьте
+            «Дерево».
+          </p>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        className="fixing__toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? 'Скрыть' : 'Показать'} крепёж по объекту
+        {selected.length > 0 && ` (${selected.length})`}
+      </button>
+
+      {open && (
+        <div className="fixing__list">
+          <p className="field__hint">
+            Глухари и дюбели сверх автоматического крепежа по отверстиям пяток.
+            Отмеченные позиции добавятся в смету по одной штуке.
+            {selected.length > 0 && ` Сейчас в смете: ${selected.length} поз., ${selectedSum} ₽.`}
+          </p>
+
+          {fastenersError && <p className="field__error">{fastenersError}</p>}
+
+          {!fasteners && !fastenersError && <p className="field__hint">Загрузка прайса крепежа…</p>}
+
+          {fasteners && visible.length === 0 && (
+            <p className="field__hint">
+              {q ? `Ничего не найдено по запросу «${query}».` : 'Прайс крепежа пуст.'}
+            </p>
+          )}
+
+          {fasteners && visible.length > 0 && (
+            <>
+              <input
+                className="field__input"
+                type="search"
+                aria-label="Поиск крепежа"
+                placeholder="Поиск: 10х60, дюбель, глухарь…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <div className="fixing__rows">
+                {visible.map((f) => (
+                  <label key={f.code} className="fixing__row">
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(f.code)}
+                      onChange={() => toggle(f.code)}
+                    />
+                    <span className="fixing__name">{f.name_ru}</span>
+                    <code className="fixing__code">{f.code}</code>
+                    <span className="fixing__price">{f.price_per_pc_rub} ₽/шт</span>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </fieldset>
+  )
+}
+
+// MEASUREMENT_ROWS — строки блока замера: подпись поля и ключ конфигурации.
+//
+// Порядок и состав совпадают с порядком полей в форме: тот, кто заполнял
+// замер, идёт сверху вниз по форме и видит те же строки.
+const MEASUREMENT_ROWS: Array<{ key: keyof ConfigForm; label: string }> = [
+  { key: 'widthMM', label: 'Ширина марша' },
+  { key: 'heightMM', label: 'Высота подъёма H' },
+  { key: 'stepHeightMM', label: 'Целевая высота ступени' },
+  { key: 'stringerThicknessMM', label: 'Лист косоура' },
+  { key: 'stepThicknessMM', label: 'Толщина ступени' },
+  { key: 'clearanceMM', label: 'Просвет' },
+  { key: 'railingHeightMM', label: 'Высота ограждения' },
+  { key: 'roomWidthMM', label: 'Ширина помещения (X)' },
+  { key: 'roomLengthMM', label: 'Длина помещения (Y)' },
+  { key: 'approachSpaceMM', label: 'Свободное место перед маршем' },
+]
+
+// MeasurementSnippet — блок «Замер» перед обсуждением: все размеры текстом,
+// кнопка «Скопировать» и расхождение с последним расчётом.
+//
+// Зачем он. После выезда на замер размеры вносятся в форму, а дальше их надо
+// ещё раз переписать в смету для клиента, в письмо и в закладку монтажника.
+// Раньше это означало диктовку вслух или скриншот телефона. Теперь размеры
+// копируются одной строкой.
+//
+// Расхождение показывается рядом не для красоты: миллиметр в ширине или
+// высоте меняет число ступеней, а значит и цену. Молча пересчитать и
+// показать новую сумму значило бы спрятать то, что человек должен увидеть.
+function MeasurementSnippet({
+  config,
+  calculation,
+}: {
+  config: ConfigForm
+  calculation: Calculation | null
+}) {
+  const [copied, setCopied] = useState(false)
+
+  const lines = MEASUREMENT_ROWS.map(({ key, label }) => {
+    const raw = config[key]
+    const value = typeof raw === 'string' ? raw.trim() : ''
+    return { label, value }
+  }).filter((l) => l.value !== '')
+
+  const text = [
+    `Замер ${new Date().toLocaleDateString('ru-RU')}`,
+    ...lines.map((l) => `${l.label}: ${l.value} мм`),
+    `Крепление в пол: ${config.floorFixing === 'wood' ? 'дерево' : 'бетон'}`,
+    `Крепление в перекрытие: ${config.ceilingFixing === 'wood' ? 'дерево' : 'бетон'}`,
+  ].join('\n')
+
+  // Расхождение с последним расчётом: только по размерам, которые расчёт
+  // действительно применял. Пустой расчёт — сравнивать не с чем.
+  const diffs = useMemo(() => {
+    if (!calculation) return []
+    const out: string[] = []
+    for (const { key, label } of MEASUREMENT_ROWS) {
+      const now = String(config[key] ?? '').trim()
+      if (now === '') continue
+      const before = snapshotSize(calculation, key)
+      // before — число, now — строка из формы. Сравниваем через Number,
+      // иначе «900» никогда не равно 900 и блок писал бы «расхождение»
+      // на каждом поле, где расхождения нет.
+      const nowNum = Number(now)
+      if (before === undefined || !Number.isFinite(nowNum) || before === nowNum) continue
+      const delta = nowNum - before
+      if (!Number.isFinite(delta) || delta === 0) continue
+      out.push(`${label}: ${before} → ${now} мм (${delta > 0 ? '+' : ''}${delta})`)
+    }
+    return out
+  }, [calculation, config])
+
+  if (lines.length === 0) return null
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2500)
+    } catch {
+      // Буфер обмена недоступен (нет прав, http без localhost). Текст всё
+      // равно виден на экране и выделяется вручную.
+      setCopied(false)
+    }
+  }
+
+  return (
+    <div className="measure">
+      <div className="measure__head">
+        <span className="measure__title">Замер</span>
+        <button type="button" className="fixing__toggle" onClick={() => void copy()}>
+          {copied ? 'Скопировано' : 'Скопировать размеры'}
+        </button>
+      </div>
+      <dl className="measure__list">
+        {lines.map((l) => (
+          <div key={l.label} className="measure__row">
+            <dt>{l.label}</dt>
+            <dd>{l.value} мм</dd>
+          </div>
+        ))}
+      </dl>
+      {diffs.length > 0 && (
+        <div className="measure__diff">
+          <strong>Расхождение с последним расчётом:</strong>
+          {diffs.map((d) => (
+            <div key={d}>{d}</div>
+          ))}
+          <div className="measure__diff-hint">
+            Изменился размер — пересчитайте проект, чтобы цена соответствовала замеру.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// snapshotSize — размер из сохранённого расчёта по ключу формы.
+//
+// Снапшот хранит результат движка, а не форму, поэтому точного общего
+// соответствия нет: берёмся только за те поля, которые снапшот действительно
+// содержит. Раньше читались `result.flight.Width/Height/Clearance`, которых
+// там нет — ширина лежит в корне снапшота, а высоты подъёма и просвета в нём
+// просто нет, — и блок расхождения молча не показывался НИКОГДА.
+//
+// Нет такого поля — возвращаем undefined, и расхождение по нему не
+// показывается: лучше не показать, чем показать ерунду.
+function snapshotSize(calc: Calculation, key: keyof ConfigForm): number | undefined {
+  const r = calc.result
+  if (!r) return undefined
+  switch (key) {
+    case 'widthMM':
+      return r.width
+    // Толщина косоура ЗДЕСЬ СПЕЦИАЛЬНО НЕ СРАВНИВАЕТСЯ. Расчёт применяет
+    // норматив листового косоура и поднимает присланные 8 мм до 12 мм
+    // (строка «до 4.0 м»), тогда как в форме остаётся 8. Сравнение давало
+    // «Лист косоура: 12 → 8 (−4)» на КАЖДОМ расчёте — то есть всегда ложь,
+    // а блок расхождения перестал бы читаться вообще.
+    //
+    // Правильный источник для этого поля — колонка ревизии
+    // stair_configurations.stringer_thickness_mm (там лежит ВВОД, а не
+    // норматив). Когда появится ручка загрузки ревизии, сравнение переедет
+    // на неё.
+    case 'stepThicknessMM':
+      return r.step_thickness
+    case 'railingHeightMM':
+      return r.railing_height
+    case 'stepHeightMM':
+      return r.flight?.StepHeight
+    default:
+      return undefined
+  }
 }
 
 function rangeText(rule: { min?: number; max?: number }): string {

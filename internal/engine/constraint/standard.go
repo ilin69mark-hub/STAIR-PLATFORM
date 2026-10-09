@@ -3,6 +3,8 @@ package constraint
 import (
 	"fmt"
 	"log/slog"
+
+	"stairplatform/internal/domain/engineering"
 )
 
 // Стандартные коды ограничений (EDR-0002).
@@ -28,8 +30,6 @@ const (
 	GEO_COMFORT_STEP    RuleCode = "GEO-COMFORT-STEP"    // шаг комфорта вне 600–640 мм
 	GEO_LANDING_WIDTH   RuleCode = "GEO-LANDING-WIDTH"   // площадка уже ширины марша
 	GEO_LOWER_STEP      RuleCode = "GEO-LOWER-STEP"      // число ступеней нижнего марша вне диапазона
-	GEO_SPIRAL_RADIUS   RuleCode = "GEO-SPIRAL-RADIUS"   // радиус спирали не превышает ширину марша
-	GEO_SPIRAL_TREAD    RuleCode = "GEO-SPIRAL-TREAD"    // проступи спирали вне допустимых пределов
 	GEO_TREAD_POSITIVE  RuleCode = "GEO-TREAD-POSITIVE"  // проступь неположительна
 	GEO_STRINGER_NARROW RuleCode = "GEO-STRINGER-NARROW" // марш уже двух толщин косоура
 	MFG_MATERIAL        RuleCode = "MFG-MATERIAL"        // материал не поддерживает толщины деталей
@@ -123,15 +123,16 @@ func StandardProfile(name string) *ConstraintSet {
 		Code:          GEO_STRINGER_THICKNESS_SHEET,
 		Category:      "geometry",
 		Severity:      SeverityWarning,
-		Range:         Range{Min: 3, Max: 8, HasMin: true, HasMax: true, Tolerance: 0.1},
-		Version:       1,
+		Range:         Range{Min: 3, Max: engineering.PlateMaxThicknessMM, HasMin: true, HasMax: true, Tolerance: 0.1},
+		Version:       2,
 		Active:        true,
 		MaterialClass: MaterialMetal,
-		Message:       "толщина боковой пластины косоура должна быть в диапазоне 3-8 мм",
-		Fix:           "задайте толщину листа в пределах 3-8 мм",
+		Message:       fmt.Sprintf("толщина боковой пластины косоура должна быть в диапазоне 3-%d мм", engineering.PlateMaxThicknessMM),
+		Fix:           fmt.Sprintf("задайте толщину листа в пределах 3-%d мм", engineering.PlateMaxThicknessMM),
 		Advice: &ConstraintAdvice{
-			Param:   "Толщина косоура",
-			Guide:   "Толщина косоура {value} мм: лист лазерного раскроя — от {min} до {max} мм. Увеличьте поле «Толщина косоура» или смените материал изделия.",
+			Param: "Толщина косоура",
+			Guide: "Толщина косоура {value} мм: лист лазерного раскроя — от {min} до {max} мм. " +
+				"Для стального каркаса толщина берётся из норматива автоматически — проверьте материал изделия.",
 			Suggest: false,
 		},
 	})
@@ -148,39 +149,6 @@ func StandardProfile(name string) *ConstraintSet {
 			Param:   "Высота перил",
 			Guide:   "Высота ограждения {value} мм, нужно не менее {min} мм. Увеличьте поле «Высота перил».",
 			Suggest: false,
-		},
-	})
-	// Спираль (EDR-0007): инварианты проступей/радиуса проверяются в
-	// solveSpiral как входные ошибки (GEO_SPIRAL_*), поэтому правила здесь
-	// нужны советнику — чтобы по blocking-issue прикрепить готовые варианты.
-	mustAdd(set, &Constraint{
-		Code:     GEO_SPIRAL_TREAD,
-		Category: "geometry",
-		Severity: SeverityError,
-		Range:    Range{Min: 100, HasMin: true, Tolerance: 1},
-		Version:  1,
-		Active:   true,
-		Message:  "проступи спирали должны быть в допустимых пределах",
-		Fix:      "измените радиус спирали или ширину марша",
-		Advice: &ConstraintAdvice{
-			Param:   "Радиус спирали",
-			Guide:   "Проступь {value} мм вне нормы (нужно ≥ {min} мм). Уменьшите радиус спирали или ширину марша — варианты ниже проходят все нормы.",
-			Suggest: true,
-		},
-	})
-	mustAdd(set, &Constraint{
-		Code:     GEO_SPIRAL_RADIUS,
-		Category: "geometry",
-		Severity: SeverityError,
-		Range:    Range{Min: 1, HasMin: true, Tolerance: 1},
-		Version:  1,
-		Active:   true,
-		Message:  "наружный радиус спирали должен быть больше ширины марша (иначе колонна имеет нулевой или отрицательный радиус)",
-		Fix:      "увеличьте радиус спирали или уменьшите ширину марша",
-		Advice: &ConstraintAdvice{
-			Param:   "Радиус спирали",
-			Guide:   "Наружный радиус спирали {value} мм должен быть больше ширины марша {min} мм. Колонна в центре спирали имеет радиус = радиус − ширина марша; при радиусе ≤ ширине марша колонна исчезает или получает отрицательный размер. Увеличьте радиус или уменьшите ширину марша.",
-			Suggest: true,
 		},
 	})
 	return set

@@ -3,6 +3,9 @@ package stair
 import (
 	"context"
 	"testing"
+
+	dommfg "stairplatform/internal/domain/manufacturing"
+	engmfg "stairplatform/internal/engine/manufacturing"
 )
 
 // Скругление носа — не украшение, а работа: оно обязано быть видно в цене.
@@ -16,7 +19,7 @@ func woodStairConfig() Config {
 	cfg := referenceConfig()
 	cfg.Material = "STEEL-S235" // каркас стальной
 	cfg.TreadMaterial = "WOOD-OAK"
-	// Проступь из дуба пилится из доски 20–60 мм; эталонные 6 мм — стальные.
+	// Проступь из дуба пилится из доски 20–100 мм; эталонные 6 мм — стальные.
 	cfg.StepThickness = mustLengthHelper(40)
 	return cfg
 }
@@ -129,7 +132,7 @@ func TestNoseRadiusDerivedFromTreadMaterialNotFrame(t *testing.T) {
 	allWood := woodStairConfig()
 	allWood.Material = "WOOD-OAK"
 	allWood.TreadMaterial = "WOOD-OAK"
-	// Косоур из дуба пилится из доски 20–60 мм: толщина эталона (8 мм) —
+	// Косоур из дуба пилится из доски 20–100 мм: толщина эталона (8 мм) —
 	// стальная, и все-деревянная конфигурация с ней не проходит.
 	allWood.StringerThickness = mustLengthHelper(50)
 	woodFrame, err := s.Calculate(context.Background(), allWood, Options{})
@@ -160,4 +163,67 @@ func millOps(res *Result) int {
 		}
 	}
 	return n
+}
+
+// TestEveryWoodSpeciesNoseRadiusIsTen — радиус филёнки на носике 10 мм у
+// ВСЕХ пород (решение владельца 2026-10-05, чертёж «скругление R10 фрезой»).
+//
+// Радиус берётся из материала ступеней и потому молча меняет и геометрию, и
+// цену: скругление добавля milling-операцию. Раньше у дуба, ясеня и сосны
+// стояли 8/8/5 мм, то есть чертёж и каталог расходились, и это ни один тест не
+// ловил. Тест фиксирует именно равенство всех пород.
+func TestEveryWoodSpeciesNoseRadiusIsTen(t *testing.T) {
+	reg, err := engmfg.DefaultMaterialRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, code := range []dommfg.MaterialCode{"WOOD-OAK", "WOOD-WALNUT", "WOOD-ASH", "WOOD-SOFT"} {
+		mat, ok := reg.Find(code)
+		if !ok {
+			t.Fatalf("material %q not in registry", code)
+		}
+		if mat.TreadNoseRadiusMm != 10 {
+			t.Fatalf("%s nose radius = %g mm, want 10 (все породы по чертежу R10)",
+				code, mat.TreadNoseRadiusMm)
+		}
+	}
+	// У металла фасок нет: прокат/шлифовка дают прямой профиль, и цена
+	// металлической лестницы не должна зависеть от поля радиуса.
+	steel, ok := reg.Find("STEEL-S235")
+	if !ok {
+		t.Fatal("STEEL-S235 not in registry")
+	}
+	if steel.TreadNoseRadiusMm != 0 {
+		t.Fatalf("steel nose radius = %g mm, want 0", steel.TreadNoseRadiusMm)
+	}
+}
+
+// TestNoseRadiusTenReachesGeometryAndPrice — радиус из каталога доходит до
+// техмаршрута: у дуба на R10 milling есть, по одной операции на ступень, и он
+// идёт в РУЧНОЙ труд, а не в машинное время.
+func TestNoseRadiusTenReachesGeometryAndPrice(t *testing.T) {
+	s := NewService()
+	wood, err := s.Calculate(context.Background(), woodStairConfig(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	milling := 0
+	for _, p := range wood.Cost.OperationPlan.Parts {
+		for _, op := range p.Operations {
+			if op.Type == "milling" {
+				milling++
+			}
+		}
+	}
+	if milling != 15 {
+		t.Fatalf("milling operations = %d, want 15 (one per tread)", milling)
+	}
+	metal, err := s.Calculate(context.Background(), metalStairConfig(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wood.Price.Labor <= metal.Price.Labor {
+		t.Fatalf("oak labor %v must exceed steel labor %v",
+			wood.Price.Labor.Minor(), metal.Price.Labor.Minor())
+	}
 }

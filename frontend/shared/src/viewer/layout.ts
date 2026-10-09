@@ -3,7 +3,7 @@
 // стены периметра (виджет В/Н/П/Л) и плита «выхода на 2-й этаж».
 // Чистые функции от bounding box отражённого меша в локальных координатах;
 // отделены от three.js, чтобы покрыть тестами на реальных данных маршей
-// всех типов (straight, l_shape, u_shape, spiral).
+// всех типов (straight, l_shape, u_shape).
 
 export interface Box3Like {
   min: { x: number; y: number; z: number }
@@ -20,8 +20,8 @@ export interface BoxSpec {
 // X линии верха марша (в группе марша). Для straight меш зеркалится по X
 // (mirrorX): верх марша оказывается у box.min.x. Для u_shape верх — конец
 // верхнего марша, возвращающегося вдоль −X (правый поворот: box.min.x; левый
-// зеркалит компоновку — box.max.x). Для l_shape и spiral верх считается по
-// box.max.x: для l_shape это кромка площадки (приближение верха), для spiral —
+// зеркалит компоновку — box.max.x). Для l_shape верх считается по
+// box.max.x: для l_shape это кромка площадки (приближение верха),
 // радиальное приближение. direction учитывается только для u_shape.
 export function stairTopLineX(box: Box3Like, flight: string, direction?: 'left' | 'right'): number {
   if (flight === 'straight') return box.min.x

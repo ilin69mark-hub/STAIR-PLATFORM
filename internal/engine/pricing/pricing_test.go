@@ -105,7 +105,10 @@ func TestPriceChainConsistency(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if b.ProductionCost.Minor() != b.Material.Minor()+b.Machine.Minor()+b.Labor.Minor()+b.Overhead.Minor() {
+	// Крепёж и герметик входят в базу накладных наравне с материалами и
+	// работой: дюбель стоит 15 ₽, картридж герметика 500 ₽, но наценку и
+	// налог на них тоже платят.
+	if b.ProductionCost.Minor() != b.Material.Minor()+b.Machine.Minor()+b.Labor.Minor()+b.Fastener.Minor()+b.Sealant.Minor()+b.Overhead.Minor() {
 		t.Fatal("production cost chain inconsistent")
 	}
 	if b.PreTax.Minor() != b.ProductionCost.Minor()+b.Margin.Minor()-b.Discount.Minor() {
@@ -114,8 +117,11 @@ func TestPriceChainConsistency(t *testing.T) {
 	if b.FinalPrice.Minor() != b.PreTax.Minor()+b.Tax.Minor() {
 		t.Fatal("final price chain inconsistent")
 	}
-	if len(b.Lines) != 7 {
-		t.Fatalf("lines = %d, want 7 (1 material + machine + labor + overhead + margin + discount + tax)", len(b.Lines))
+	// 5 строк крепежа (глухарь и дюбель по полю, по перекрытию, плюс обойма
+	// выреза) + 1 строка герметика + 1 материал + станок + труд + накладные
+	// + маржа + скидка + НДС.
+	if len(b.Lines) != 13 {
+		t.Fatalf("lines = %d, want 13 (5 крепёж + 1 герметик + 1 material + machine + labor + overhead + margin + discount + tax)", len(b.Lines))
 	}
 }
 
@@ -177,24 +183,43 @@ func TestPriceExactValues(t *testing.T) {
 		got  domprc.Money
 		want int64
 	}{
-		// Эталон — стальной марш с верхней площадкой: 16 ступеней, лист
-		// лазерного раскроя 8 мм, 33 детали. Материал 113 040 ₽, финал
-		// 234 996,59 ₽.
+		// Эталон — стальной марш: 15 ступеней, косоур-гребёнка и проступи
+		// листом 12 мм, 98 деталей (пятки выреза включены).
+		// Материал 242 807,01 ₽, финал 523 509,14 ₽.
+		//
+		// Значения пересчитаны под раскрой по полю лазерного стола (шпатка
+		// технолога 2026-10-05): косоур длиной 4845 мм длиннее поля 3000 мм и
+		// режется на 2 куска со сварным стыком «шип-паз», отсюда 98 деталей
+		// вместо 96, +2 операции и контур стыка в машинном времени. Лист стали
+		// теперь один типоразмер 6000×1500, и трёх листов хватает на 8/5/4 мм
+		// — площадь закупки выросла с 21,1 до 27,0 млн мм², отсюда и подорожание.
+		//
+		// Материал вырос с 128 150 ₽ (лист 8 мм) и с 163 792 ₽ (раскрой по полю
+		// стола, но всё ещё 8 мм): заготовка стала 12 мм — верх выпуска листа,
+		// выросшего вместе с нормативом на листовой косоур (строки 8 / 10 / 12
+		// мм). Масса эталона 893 кг.
 		//
 		// До починки заготовки деталей те же конфигурации давали 10 364 кг и
 		// 3 271 385 ₽: косоур брался габаритным блоком 4050×2660×50 мм, то
 		// есть 1,08 м³ стали на один косоур. Правдоподобие массы проверяется
 		// в engine/manufacturing (TestPrepareCostMetrics).
-		{"material", b.Material, 11304000},
-		{"machine", b.Machine, 1396151},
-		{"labor", b.Labor, 480000},
-		{"overhead", b.Overhead, 2636030},
-		{"production", b.ProductionCost, 15816181},
-		{"margin", b.Margin, 4744854},
-		{"discount", b.Discount, 1028052},
-		{"pre-tax", b.PreTax, 19532983},
-		{"tax", b.Tax, 3906597},
-		{"final", b.FinalPrice, 23439580},
+		// Крепёж добавлен 2026-10-08: 238 штук по 15 ₽ = 3 570 ₽. Это немного,
+		// но попадает в базу накладных и маржи, поэтому итог растёт сильнее
+		// самой суммы: overhead +71 400, margin +128 520.
+		{"material", b.Material, 24280701},
+		{"machine", b.Machine, 3686386},
+		{"labor", b.Labor, 1470000},
+		{"fastener", b.Fastener, 357000},
+		// Герметик: площадь швов 0,6922 м² × 1 мм = 0,6922 л, делим на
+		// 0,31 л картриджа и округляем ВВЕРХ → 3 картриджа × 500 ₽.
+		{"sealant", b.Sealant, 150000},
+		{"overhead", b.Overhead, 5988817},
+		{"production", b.ProductionCost, 35932904},
+		{"margin", b.Margin, 10779871},
+		{"discount", b.Discount, 2335639},
+		{"pre-tax", b.PreTax, 44377136},
+		{"tax", b.Tax, 8875427},
+		{"final", b.FinalPrice, 53252563},
 	}
 	for _, c := range checks {
 		if c.got.Minor() != c.want {

@@ -45,6 +45,13 @@ func (m *MockProjectRepository) UpdateMemberRole(ctx context.Context, tenantID, 
 	return nil
 }
 
+// TransferOwnership в моке не моделируется: GraphQL-резолвер передачу владения
+// не вызывает (это мутация админ-панели проекта), нужен лишь чтобы мок
+// удовлетворял порту.
+func (m *MockProjectRepository) TransferOwnership(ctx context.Context, tenantID, projectID, toUserID string) error {
+	return nil
+}
+
 func (m *MockProjectRepository) RemoveMember(ctx context.Context, tenantID, projectID, userID string) error {
 	return nil
 }
@@ -102,6 +109,10 @@ func (m *MockProjectRepository) GetConfigurationByID(ctx context.Context, tenant
 }
 
 func (m *MockProjectRepository) RestoreConfiguration(ctx context.Context, tenantID, projectID, configurationID string) error {
+	return nil
+}
+
+func (m *MockProjectRepository) MarkConfigurationAsMeasurement(ctx context.Context, tenantID, projectID, configurationID string, mark bool) error {
 	return nil
 }
 

@@ -10,7 +10,7 @@ const rl = 3000
 // 2D-план для L/U при левом повороте = -1. worldX = mirror*x + offsetX;
 // worldY = y + offsetY (по Y зеркала нет).
 function hitsWall(
-  flight: 'straight' | 'l_shape' | 'u_shape' | 'spiral',
+  flight: 'straight' | 'l_shape' | 'u_shape',
   dir: 'left' | 'right' | undefined,
   kind: '1Л' | '1П' | '1Н' | '1В',
   mirror: 1 | -1 = 1,
@@ -77,18 +77,9 @@ describe('computePlacement', () => {
     hitsWall('u_shape', 'left', '1Л', -1)
   })
 
-  it('спираль: 1П->П, 1Н->Н, фикс (direction игнорируется)', () => {
-    for (const dir of ['right', 'left', undefined] as const) {
-      const p = computePlacement('spiral', dir, rw, rl, bb)
-      expect(p.offsetX).toBe(rw - bb.maxX)
-      expect(p.offsetY).toBe(0 - bb.minY)
-      hitsWall('spiral', dir, '1П')
-      hitsWall('spiral', dir, '1Н')
-    }
-  })
 
   it('результат оставляет лестницу внутри периметра (с учётом mirror)', () => {
-    for (const flight of ['straight', 'l_shape', 'u_shape', 'spiral'] as const) {
+    for (const flight of ['straight', 'l_shape', 'u_shape'] as const) {
       for (const dir of ['left', 'right', undefined] as const) {
         const m = mirrorOf(flight, dir)
         const p = computePlacement(flight, dir, rw, rl, bb, m)

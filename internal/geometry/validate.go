@@ -2,7 +2,7 @@ package geometry
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 )
 
 // Severity — серьёзность проблемы валидации геометрии (ENG-GEO-0018).
@@ -58,37 +58,58 @@ func (c *TessellationCache) validate(solid *Solid) []ValidationIssue {
 		return issues
 	}
 
-	// количество вхождений каждого геометрического ребра в грани.
-	edgeCount := make(map[[2]Point3]int)
+	// количество вхождений каждого геометрического ребра в грани. Ключи
+	// копятся в срезе и сортируются, а не кладутся в map: хеширование
+	// [2]Point3 на металлокаркасе стоило дороже всей сортировки.
+	keys := make([][2]Point3, 0, 16*len(shells))
 	for faceIdx, shell := range shells {
 		for _, face := range shell.Faces() {
-			el := fmt.Sprintf("face:%d", faceIdx)
 			w := face.Outer()
 			if w == nil || len(w.Edges()) < 3 {
 				issues = append(issues, ValidationIssue{
 					Code: "GEO-FACE-FEW-EDGES", Severity: SeverityError,
-					Element: el, Message: "face has fewer than 3 edges",
+					Element: faceElement(faceIdx), Message: "face has fewer than 3 edges",
 				})
 				continue
 			}
-			_, closed := contourPoints(w)
-			if !closed {
+			if !wireIsClosed(w) {
 				issues = append(issues, ValidationIssue{
 					Code: "GEO-FACE-OPEN-WIRE", Severity: SeverityError,
-					Element: el, Message: "face contour is not closed",
+					Element: faceElement(faceIdx), Message: "face contour is not closed",
 				})
 			}
-			for _, e := range w.Edges() {
-				v1, v2 := e.Endpoints()
-				key := edgeKey(v1.Point(), v2.Point())
-				edgeCount[key]++
+			keys = appendWireEdges(keys, w)
+			// Отверстия грани — тоже рёбра тела: каждое из них делится между
+			// крышкой и стенкой отверстия, поэтому их тоже считаем. Без этого
+			// грань с отверстием всегда «не manifold».
+			for _, inner := range face.Inner() {
+				if inner == nil || len(inner.Edges()) < 3 {
+					issues = append(issues, ValidationIssue{
+						Code: "GEO-FACE-FEW-EDGES", Severity: SeverityError,
+						Element: faceElement(faceIdx), Message: "hole contour has fewer than 3 edges",
+					})
+					continue
+				}
+				if !wireIsClosed(inner) {
+					issues = append(issues, ValidationIssue{
+						Code: "GEO-FACE-OPEN-WIRE", Severity: SeverityError,
+						Element: faceElement(faceIdx), Message: "hole contour is not closed",
+					})
+				}
+				keys = appendWireEdges(keys, inner)
 			}
 		}
 	}
+	sortEdgeKeys(keys)
 
 	// manifold: каждое ребро замкнутого тела ровно в двух гранях.
-	for key, count := range edgeCount {
-		if count != 2 {
+	for i := 0; i < len(keys); {
+		j := i + 1
+		for j < len(keys) && keys[j] == keys[i] {
+			j++
+		}
+		if count := j - i; count != 2 {
+			key := keys[i]
 			issues = append(issues, ValidationIssue{
 				Code: "GEO-SOLID-NON-MANIFOLD", Severity: SeverityError,
 				Element: fmt.Sprintf("edge:(%.0f,%.0f,%.0f;%.0f,%.0f,%.0f)",
@@ -96,6 +117,7 @@ func (c *TessellationCache) validate(solid *Solid) []ValidationIssue {
 				Message: fmt.Sprintf("edge has %d incident faces, want 2", count),
 			})
 		}
+		i = j
 	}
 
 	if vol, err := c.volume(solid); err != nil || vol <= Precision {
@@ -105,8 +127,73 @@ func (c *TessellationCache) validate(solid *Solid) []ValidationIssue {
 		})
 	}
 
-	sort.Slice(issues, func(i, j int) bool { return issues[i].Code < issues[j].Code })
+	slices.SortFunc(issues, func(a, b ValidationIssue) int {
+		if a.Code < b.Code {
+			return -1
+		}
+		if a.Code > b.Code {
+			return 1
+		}
+		return 0
+	})
 	return issues
+}
+
+// faceElement — имя грани для отчёта валидации. Строка собирается только
+// когда проблема действительно найдена: раньше она форматировалась на КАЖДУЮ
+// грань каждого тела, и на металлокаркасе это были миллионы Sprintf.
+func faceElement(faceIdx int) string { return fmt.Sprintf("face:%d", faceIdx) }
+
+// wireIsClosed проверяет замыкание провода БЕЗ построения среза точек.
+func wireIsClosed(w *Wire) bool {
+	edges := w.Edges()
+	if len(edges) < 3 {
+		return false
+	}
+	first, _ := edges[0].Endpoints()
+	_, last := edges[len(edges)-1].Endpoints()
+	return first.Point() == last.Point()
+}
+
+// appendWireEdges дописывает в срез геометрические ключи рёбер провода.
+func appendWireEdges(keys [][2]Point3, w *Wire) [][2]Point3 {
+	for _, e := range w.Edges() {
+		v1, v2 := e.Endpoints()
+		keys = append(keys, edgeKey(v1.Point(), v2.Point()))
+	}
+	return keys
+}
+
+// sortEdgeKeys сортирует ключи рёбер по значениям точек. slices.SortFunc
+// вместо sort.Sort: сравнение конкретного типа без интерфейсных вызовов.
+func sortEdgeKeys(keys [][2]Point3) {
+	slices.SortFunc(keys, func(a, b [2]Point3) int {
+		if c := comparePoint(a[0], b[0]); c != 0 {
+			return c
+		}
+		return comparePoint(a[1], b[1])
+	})
+}
+
+// comparePoint — детерминированное сравнение точек: -1, 0 или 1.
+func comparePoint(a, b Point3) int {
+	switch {
+	case a.X != b.X:
+		return cmpFloat(a.X, b.X)
+	case a.Y != b.Y:
+		return cmpFloat(a.Y, b.Y)
+	case a.Z != b.Z:
+		return cmpFloat(a.Z, b.Z)
+	default:
+		return 0
+	}
+}
+
+func cmpFloat(a, b float64) int {
+	if a < b {
+		return -1
+	}
+	return 1
 }
 
 // contourPoints возвращает упорядоченные точки контура грани (без
@@ -117,7 +204,11 @@ func contourPoints(w *Wire) ([]Point3, bool) {
 		return nil, false
 	}
 	first, _ := edges[0].Endpoints()
-	pts := []Point3{first.Point()}
+	// Ёмкость сразу по числу рёбер: при append от одного элемента срез
+	// перевыделялся log₂(N) раз на КАЖДЫЙ контур, и на металлокаркасе с
+	// сотнями деталей это давало миллионы выделений.
+	pts := make([]Point3, 0, len(edges)+1)
+	pts = append(pts, first.Point())
 	for _, e := range edges {
 		_, second := e.Endpoints()
 		pts = append(pts, second.Point())

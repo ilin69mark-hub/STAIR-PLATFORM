@@ -198,40 +198,6 @@ func TestForRoomFit_Straight_AdaptiveWidth(t *testing.T) {
 // Учитываем, что габарит теперь включает зону подхода (EDR-0023, approachSpace
 // применяется ко всем типам), поэтому ширина помещения взята с запасом под
 // забег + площадку + подход (~1000 мм).
-func TestForRoomFit_Straight_SpiralOnlyAt2700(t *testing.T) {
-	cfg := buildStraight(4300, 2000)
-	cfg.Width = engineering.Length(1200)
-	cfg.Height = engineering.Length(2700)
-	r, err := solver.Solve(engineering.Length(2700), engineering.Length(180), 630)
-	if err != nil {
-		panic(err)
-	}
-	r.Apply(cfg)
-
-	vars := ForRoomFit(context.Background(), cfg, nil)
-	var hasSpiral, hasL, hasU bool
-	for _, v := range vars {
-		switch v.Config["flight"] {
-		case "spiral":
-			hasSpiral = true
-		case "l_shape":
-			hasL = true
-		case "u_shape":
-			hasU = true
-		}
-	}
-	if !hasSpiral {
-		t.Errorf("expected a spiral variant for 4300x2000@2700, got %d variants", len(vars))
-	}
-	// П-образная (П) при ширине 1200 и комнате 4300 влезает (учтён подход),
-	// а L-образная требует глубины ≥3 м и здесь не помещается.
-	if hasL {
-		t.Errorf("L-shape must not fit in 4300x2000@2700, but a variant was offered")
-	}
-	if !hasU {
-		t.Errorf("expected a U-shape variant for 4300x2000@2700 (it fits with approach), got %d variants", len(vars))
-	}
-}
 
 // TestForAngle_ProducesFittingVariants — при большой проступи (400 мм) и
 // H=3000 мм угол получается слишком пологим (<30°), и советник при
@@ -339,25 +305,10 @@ func testUShapeConfig() *engineering.StairConfiguration {
 	}
 }
 
-// testSpiralConfig строит минимальный спиральный конфиг для enggeo.Generate.
-func testSpiralConfig() *engineering.StairConfiguration {
-	return &engineering.StairConfiguration{
-		Width:             engineering.Length(900),
-		Height:            engineering.Length(2700),
-		Flight:            engineering.FlightSpiral,
-		StepCount:         15,
-		StepHeight:        engineering.Length(180),
-		TreadDepth:        engineering.Length(270),
-		StringerThickness: engineering.Length(50),
-		StepThickness:     engineering.Length(40),
-		OuterRadius:       engineering.Length(1300), // R > W → колонна > 0
-	}
-}
-
 // TestRoomFitBBoxIncludesApproach — прямой unit-тест габаритного бокса,
 // по которому ForRoomFit принимает решение о вписываемости в помещение.
 // Увеличение ApproachSpace на Δ должно сдвинуть bbox ровно на Δ по оси X
-// (EDR-0023) для L-образного, П-образного и спирального марша; комната,
+// (EDR-0023) для L-образного и П-образного марша; комната,
 // впритык к меньшему bbox, должна вмещать вариант с меньшим подходом и
 // НЕ вмещать вариант с бóльшим — доказательство, что bbox → room_fit → Fits
 // корректно учитывает зону подхода для всех типов.
@@ -370,7 +321,6 @@ func TestRoomFitBBoxIncludesApproach(t *testing.T) {
 	}{
 		{"l_shape", testLShapeConfig},
 		{"u_shape", testUShapeConfig},
-		{"spiral", testSpiralConfig},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

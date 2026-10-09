@@ -23,8 +23,13 @@ type materialDTO struct {
 	Density        float64 `json:"density_kg_m3"`
 	MinThicknessMM float64 `json:"min_thickness_mm"`
 	MaxThicknessMM float64 `json:"max_thickness_mm"`
-	MaxWidthMM     float64 `json:"max_width_mm"`
-	MaxHeightMM    float64 `json:"max_height_mm"`
+	// MinTreadThicknessMM — нижняя граница толщины ИМЕННО ступени. У дуба
+	// 40 мм при общем минимуме 20 мм: ступень и косоур — разные детали.
+	// Публикуется, чтобы калькулятор показывал пользователю тот же предел,
+	// который проверяет сервер, а не свой собственный.
+	MinTreadThicknessMM float64 `json:"min_tread_thickness_mm"`
+	MaxWidthMM          float64 `json:"max_width_mm"`
+	MaxHeightMM         float64 `json:"max_height_mm"`
 	// PricePerKgRub — ставка каталога (₽/кг); цены-заглушки, помечены в UI.
 	PricePerKgRub float64 `json:"price_per_kg_rub"`
 	// SwatchURL — превью PBR-текстуры (public read-only mount, этап 1).
@@ -72,10 +77,13 @@ func handlePublicMaterials(storeSvc StoreService, authSvc AuthService) http.Hand
 				Density:        m.Density,
 				MinThicknessMM: m.MinThickness,
 				MaxThicknessMM: m.MaxThickness,
-				MaxWidthMM:     m.MaxWidthMm,
-				MaxHeightMM:    m.MaxHeightMm,
-				SwatchURL:      "/static-assets/pbr/" + string(m.Code) + "/color.jpg",
-				Finishes:       materialFinishes[m.Code],
+				// MinTreadThickness, а не сырое поле: ноль означает «действует
+				// общий минимум», и клиенту это знать незачем.
+				MinTreadThicknessMM: m.MinTreadThickness(),
+				MaxWidthMM:          m.MaxWidthMm,
+				MaxHeightMM:         m.MaxHeightMm,
+				SwatchURL:           "/static-assets/pbr/" + string(m.Code) + "/color.jpg",
+				Finishes:            materialFinishes[m.Code],
 			}
 			if price, ok := rates.Material[m.Code]; ok {
 				dto.PricePerKgRub = rubMajor(price)

@@ -20,6 +20,12 @@ NPM       ?= npm
 # Для локальной разработки: POSTGRES_PASSWORD задаётся в deployments/.env.
 STAIR_DATABASE_URL ?= postgres://stair:changeme@127.0.0.1:5432/stair_platform?sslmode=disable
 
+# Test DB URL (INFRA-0028): деструктивные тесты пакета database (down до
+# версии 1, DROP TABLE audit_events) гоняются ТОЛЬКО по отдельной тестовой
+# базе на :5433. Поднять: make test-db-up. Рабочую базу стенда (:5432)
+# сюда ставить нельзя — TestMain пакета делает полный reset (down+up).
+STAIR_TEST_DATABASE_URL ?= postgres://stair:changeme@127.0.0.1:5433/stair_platform_test?sslmode=disable
+
 # Release versioning (P3): подставляется в бинарь через ldflags →
 # internal/version. VERSION берётся из git tag/describe.
 GIT_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -30,13 +36,13 @@ LDFLAGS     := -s -w \
 	-X stairplatform/internal/version.Commit=$(GIT_COMMIT) \
 	-X stairplatform/internal/version.BuildTime=$(BUILD_TIME)
 
-.PHONY: setup up stop run test coverage coverage-check helm-check db-integration-ran db-verify migrate seed lint build build-api fmt vet env-up env-down clean frontend-install frontend-test frontend-build fe store admin store-admin frontends store-logs admin-logs store-admin-logs store-admin-fe store-admin-test store-admin-build bench backup restore backup-check obs-up obs-down obs-config obs-tracing-up version
+.PHONY: setup up stop run test test-db-up coverage coverage-check helm-check db-integration-ran db-verify migrate seed lint build build-api fmt vet env-up env-down clean frontend-install frontend-test frontend-build fe store admin frontends store-logs admin-logs bench backup restore backup-check obs-up obs-down obs-config obs-tracing-up version
 
-## start the whole stack (PostgreSQL + Redis + API + store + admin + store-admin),
+## start the whole stack (PostgreSQL + Redis + API + store + admin),
 ## rebuild images, apply migrations. Frontends: store :3000, admin :5174.
 up: env-up
 	$(GO) run ./cmd/migrate -dir migrations -database "$(STAIR_DATABASE_URL)"
-	@echo "Stack up: API :8080, store :3000, admin :5174, store-admin :5177. Frontend dev server: make fe"
+	@echo "Stack up: API :8080, store :3000, admin :5174. Frontend dev server: make fe"
 
 ## rebuild & restart the store frontend container (part of the stack)
 store:
@@ -48,12 +54,8 @@ admin:
 	@docker build --pull=false --network=host -f deployments/admin.Dockerfile -t stair-platform-admin . 2>&1 | tail -3; exit ${PIPESTATUS[0]}
 	$(COMPOSE) -f deployments/docker-compose.yml up -d admin
 
-store-admin:
-	@docker build --pull=false --network=host -f deployments/store-admin.Dockerfile -t stair-platform-store-admin . 2>&1 | tail -3; exit ${PIPESTATUS[0]}
-	$(COMPOSE) -f deployments/docker-compose.yml up -d store-admin
-
 ## rebuild & restart frontend containers
-frontends: store admin store-admin
+frontends: store admin
 
 ## tail logs of the store frontend
 store-logs:
@@ -62,18 +64,6 @@ store-logs:
 ## tail logs of the admin frontend
 admin-logs:
 	$(COMPOSE) -f deployments/docker-compose.yml logs -f admin
-
-store-admin-logs:
-	$(COMPOSE) -f deployments/docker-compose.yml logs -f store-admin
-
-store-admin-fe:
-	$(NPM) --prefix frontend-store-admin run dev
-
-store-admin-test:
-	$(NPM) --prefix frontend-store-admin run test
-
-store-admin-build:
-	$(NPM) --prefix frontend-store-admin run build
 
 ## stop everything (Docker stack)
 stop: env-down
@@ -125,6 +115,12 @@ coverage-check:
 ## без component, секрет в ConfigMap. `helm lint` их не ловит.
 helm-check:
 	./scripts/check-helm-templates.sh
+
+## поднять изолированную тестовую БД (:5433, stair_platform_test) для
+## деструктивных тестов пакета database (INFRA-0028). Контейнер уже поднят —
+## команда идемпотентна (up -d).
+test-db-up:
+	$(COMPOSE) -f deployments/docker-compose.test.yml up -d test-postgres
 
 ## БД-интеграция обязана ВЫПОЛНИТЬСЯ, а не быть скипанной (CRITICAL-01/04/05).
 ## Требует STAIR_TEST_DATABASE_URL. В CI это обязательный шаг: без него
@@ -219,7 +215,6 @@ env-up:
 	@docker build --pull=false --network=host --build-arg VERSION="$(GIT_VERSION)" --build-arg COMMIT="$(GIT_COMMIT)" --build-arg BUILD_TIME="$(BUILD_TIME)" -f deployments/Dockerfile -t stair-platform-api . 2>&1 | tail -5; exit ${PIPESTATUS[0]}
 	@docker build --pull=false --network=host -f deployments/admin.Dockerfile -t stair-platform-admin . 2>&1 | tail -5; exit ${PIPESTATUS[0]}
 	@docker build --pull=false --network=host -f deployments/store.Dockerfile -t stair-platform-store . 2>&1 | tail -5; exit ${PIPESTATUS[0]}
-	@docker build --pull=false --network=host -f deployments/store-admin.Dockerfile -t stair-platform-store-admin . 2>&1 | tail -5; exit ${PIPESTATUS[0]}
 	$(COMPOSE) -f deployments/docker-compose.yml up -d
 
 ## alias for env-up (always rebuild)
@@ -237,4 +232,4 @@ env-down:
 
 clean:
 	rm -f coverage.out coverage.html
-	rm -rf frontend/dist frontend-store-admin/dist
+	rm -rf frontend/dist frontend-store/dist

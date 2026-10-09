@@ -168,16 +168,24 @@ describe('компоновка панели конструктора', () => {
     expect(controls).toMatch(/\.field \.slider__number\s*\{/)
   })
 
-  it('дорожка ползунка и блок «Подступень» ниже, чем были', () => {
+  it('дорожка ползунка и тумблер «Подступень» ниже, чем были', () => {
     const controls = css('controls.css')
     const range = controls.match(/\.slider__range\s*\{[^}]*\}/)?.[0] ?? ''
     expect(Number(range.match(/height:\s*(\d+)px/)?.[1] ?? 99)).toBeLessThanOrEqual(14)
 
     const constructor_ = css('constructor.css')
-    const box = constructor_.match(/\.field \.checkbox\s*\{[^}]*\}/)?.[0] ?? ''
-    // 3px 8px вместо 10px 12px — блок не должен занимать две строки.
-    expect(box).toMatch(/padding: 3px 8px/)
-    const tick = constructor_.match(/\.field \.checkbox input\[type='checkbox'\]\s*\{[^}]*\}/)?.[0] ?? ''
-    expect(Number(tick.match(/width:\s*(\d+)px/)?.[1] ?? 99)).toBeLessThanOrEqual(14)
+    // Подступень — тумблер (решение владельца 2026-10-08), а не галочка в
+    // плашке. Проверяем, что он по-прежнему занимает ОДНУ строку и не растягивает
+    // панель: трек низкий, а подпись с переключателем стоят в ряд.
+    const track = constructor_.match(/\.switch__track\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(track).toMatch(/height:\s*\d+px/)
+    expect(Number(track.match(/height:\s*(\d+)px/)?.[1] ?? 99)).toBeLessThanOrEqual(24)
+
+    const sw = constructor_.match(/\.switch\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(sw).toMatch(/display:\s*inline-flex/)
+
+    // Строка «подпись + переключатель» — одна, а не две.
+    const inline = constructor_.match(/\.field--inline\s*\{[^}]*\}/)?.[0] ?? ''
+    expect(inline).toMatch(/flex-direction:\s*row/)
   })
 })

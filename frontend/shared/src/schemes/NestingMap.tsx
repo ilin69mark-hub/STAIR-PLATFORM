@@ -65,6 +65,40 @@ function SheetView({ sheet, index }: SheetProps) {
   )
 }
 
+// Знак стыка рисуется полосами на кромке детали: паз — пунктиром (выемка),
+// шип — сплошной заливкой (выступающий кусок). Без них куски косоура
+// выглядят одинаковыми, и монтажник не видит, какой к какому примыкает.
+const JOINT_BAND_PX = 3
+
+interface JointMark {
+  x: number
+  y: number
+  w: number
+  h: number
+  filled: boolean
+}
+
+function jointMarks(part: PlacedPart, x: number, y: number, w: number, h: number): JointMark[] {
+  if (!part.HasTongue && !part.HasMortise) return []
+  const onWidth = part.JointOnWidth === true
+  const marks: JointMark[] = []
+  if (part.HasMortise) {
+    marks.push(
+      onWidth
+        ? { x, y: y + h - JOINT_BAND_PX, w, h: JOINT_BAND_PX, filled: false }
+        : { x: x + w - JOINT_BAND_PX, y, w: JOINT_BAND_PX, h, filled: false },
+    )
+  }
+  if (part.HasTongue) {
+    marks.push(
+      onWidth
+        ? { x, y: y + h, w, h: JOINT_BAND_PX, filled: true }
+        : { x: x + w, y, w: JOINT_BAND_PX, h, filled: true },
+    )
+  }
+  return marks
+}
+
 interface PartRectProps {
   part: PlacedPart
   scale: number
@@ -78,6 +112,14 @@ function PartRect({ part, scale, ox, oy }: PartRectProps) {
   const w = part.Length * scale
   const h = part.Width * scale
   const showLabel = w > 34 && h > 18
+  const marks = jointMarks(part, x, y, w, h)
+  const jointTitle = part.HasTongue && part.HasMortise
+    ? `${part.PartNumber}: шип и паз — стык с соседним куском`
+    : part.HasTongue
+      ? `${part.PartNumber}: шип — стык с соседним куском`
+      : part.HasMortise
+        ? `${part.PartNumber}: сквозной паз под стык`
+        : ''
 
   return (
     <g>
@@ -90,6 +132,17 @@ function PartRect({ part, scale, ox, oy }: PartRectProps) {
         className="nesting-sheet__part"
         fill={colorFor(part.PartNumber)}
       />
+      {marks.map((m, i) => (
+        <rect
+          key={i}
+          x={m.x}
+          y={m.y}
+          width={m.w}
+          height={m.h}
+          className={m.filled ? 'nesting-sheet__tongue' : 'nesting-sheet__mortise'}
+          fill={m.filled ? '#f8fafc' : 'none'}
+        />
+      ))}
       {showLabel && (
         <text
           x={x + w / 2}
@@ -101,12 +154,16 @@ function PartRect({ part, scale, ox, oy }: PartRectProps) {
           {part.PartNumber}
         </text>
       )}
+      {jointTitle !== '' && <title>{jointTitle}</title>}
     </g>
   )
 }
 
 export function NestingMap({ nesting }: Props) {
   if (!nesting || nesting.Sheets.length === 0) return null
+  const hasJoints = nesting.Sheets.some((s) =>
+    s.Placed.some((p) => p.HasTongue === true || p.HasMortise === true),
+  )
 
   return (
     <div className="scheme">
@@ -115,6 +172,12 @@ export function NestingMap({ nesting }: Props) {
           <SheetView key={`${s.Material}-${i}`} sheet={s} index={i} />
         ))}
       </div>
+      {hasJoints && (
+        <p className="scheme__caption">
+          Сварные стыки «шип-паз»: пунктир — сквозной паз, сплошная полоса — шип. Деталь длиннее
+          рабочего поля лазерного стола режется на куски, и стыкуются они в порядке номеров.
+        </p>
+      )}
       <p className="scheme__caption">
         Деталей: {nesting.PartCount} · площадь деталей {fmt.m2(nesting.PartArea)} · отходы{' '}
         {fmt.m2(nesting.WasteArea)} · использование {fmt.pct(nesting.Utilization)}

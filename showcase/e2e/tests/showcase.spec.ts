@@ -25,7 +25,7 @@ test('главная: каталог материалов и 3D-пример с�
   expect(errors, `ошибки страницы: ${errors.join('; ')}`).toHaveLength(0)
 })
 
-test('спираль не упоминается на витрине (S-152)', async ({ page }) => {
+test('витрина не упоминает удалённый тип марша', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('body')).not.toContainText('спирал', { timeout: 10_000 })
   await expect(page.locator('body')).not.toContainText('Спирал')
@@ -54,7 +54,7 @@ test('калькулятор на витрине считает и показы�
   await page.goto('/calculator')
   await page.getByRole('heading', { name: 'Конструктор лестницы' }).waitFor({ timeout: 20_000 })
 
-  // Тип марша: спирали быть не должно (S-152).
+  // Тип марша: ровно три значения.
   const flightOptions = await page
     .getByLabel('Тип лестницы')
     .locator('option')

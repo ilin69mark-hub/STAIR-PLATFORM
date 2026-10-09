@@ -1,21 +1,36 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
-import { projectsApi } from './api/projects'
-import type { Project } from '@shared/types'
-import { ProjectList } from './components/ProjectList'
-import { ProjectDetail } from './components/ProjectDetail'
-import { AdminPanel } from './components/AdminPanel'
-import { AuditPage } from './components/AuditPage'
-import { AuthPage } from './components/AuthPage'
-import { useAuth } from './auth/context'
-import { ApiError } from '@shared/types'
 
+import type { Project } from '@shared/types'
+import { ApiError } from '@shared/types'
+import { findTile, firstTileId, type CabinetTile } from '@shared/cabinetTiles'
+
+import { projectsApi } from './api/projects'
+import { ProjectDetail } from './components/ProjectDetail'
+import { ProjectList } from './components/ProjectList'
+import { AuthPage } from './components/AuthPage'
+import { CabinetShell } from './components/CabinetShell'
+import { HomeScreen } from './components/HomeScreen'
+import { TilePage } from './components/TilePage'
+import { useAuth } from './auth/context'
+
+/**
+ * Кабинет: приветственный экран с плитками → страница плитки → проект.
+ *
+ * Раньше верхним уровнем были вкладки «Проекты / Администрирование / Аудит /
+ * Магазин» — они отражали устройство системы, а не работу человека. Теперь
+ * верхний уровень — блоки бизнеса (плитки), а разделы спрятаны внутрь (Editable
+ * по правам: см. shared/src/cabinetTiles).
+ *
+ * Адрес не меняется: роутера в проекте нет (ни react-router, ни history API
+ * для навигации), навигация — состояние. Терять нечего, deep-link на плитку не
+ * существовало и раньше.
+ */
 function App() {
   const { user, loading, logout } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [showAdmin, setShowAdmin] = useState(false)
-  const [showAudit, setShowAudit] = useState(false)
+  const [openTileId, setOpenTileId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loadingList, setLoadingList] = useState(false)
 
@@ -37,6 +52,18 @@ function App() {
     }
   }, [user, refresh])
 
+  // Плитка открывается только если она ещё доступна: выдали доступ, забрали —
+  // открытая плитка закрывается сама, а не остаётся с пустым экраном.
+  const openTile: CabinetTile | null = useMemo(
+    () => (openTileId ? findTile(user, openTileId) : null),
+    [openTileId, user],
+  )
+  useEffect(() => {
+    if (openTileId && !openTile) {
+      setOpenTileId(firstTileId(user))
+    }
+  }, [openTileId, openTile, user])
+
   if (loading) {
     return (
       <div className="page">
@@ -51,67 +78,73 @@ function App() {
 
   const handleLogout = async () => {
     setSelectedId(null)
-    setShowAdmin(false)
-    setShowAudit(false)
+    setOpenTileId(null)
     await logout()
   }
 
-  if (showAdmin) {
-    return (
-      <AdminPanel currentUserId={user.id} onBack={() => setShowAdmin(false)} />
-    )
-  }
-
-  if (showAudit) {
-    return <AuditPage onBack={() => setShowAudit(false)} />
+  const goHome = () => {
+    setOpenTileId(null)
+    setSelectedId(null)
   }
 
   if (selectedId) {
     return (
       <ProjectDetail
         projectId={selectedId}
-        onBack={() => setSelectedId(null)}
+        onBack={goHome}
         onChanged={refresh}
       />
     )
   }
 
+  // Плитка «Проекты» — рабочее место: список и создание, а не просто кнопка.
+  if (openTile?.id === 'projects') {
+    return (
+      <CabinetShell
+        title="Проекты"
+        subtitle="Расчёты лестниц, чертежи, комментарии"
+        email={user.email}
+        onBack={goHome}
+        onLogout={handleLogout}
+      >
+        {error && <div className="alert alert--error">{error}</div>}
+        <ProjectList
+          projects={projects}
+          loading={loadingList}
+          currentUserId={user.id}
+          onSelect={setSelectedId}
+          onCreated={(p) => {
+            void refresh()
+            setSelectedId(p.id)
+          }}
+        />
+      </CabinetShell>
+    )
+  }
+
+  if (openTile) {
+    return (
+      <CabinetShell
+        title={openTile.title}
+        subtitle={openTile.hint}
+        email={user.email}
+        onBack={goHome}
+        onLogout={handleLogout}
+      >
+        <TilePage user={user} tile={openTile} />
+      </CabinetShell>
+    )
+  }
+
   return (
-    <div className="page">
-      <header className="page__header">
-        <div>
-          <h1 className="page__title">STAIR PLATFORM</h1>
-          <p className="page__subtitle">MVP-11 · Критический workflow</p>
-        </div>
-        <div className="page__actions">
-          <span className="muted">{user.email}</span>
-          {user.role === 'admin' && (
-            <button className="btn" onClick={() => setShowAdmin(true)}>
-              Администрирование
-            </button>
-          )}
-          {user.role === 'admin' && (
-            <button className="btn" onClick={() => setShowAudit(true)}>
-              Аудит действий
-            </button>
-          )}
-          <button className="btn btn--ghost" onClick={handleLogout}>
-            Выйти
-          </button>
-        </div>
-      </header>
-      {error && <div className="alert alert--error">{error}</div>}
-      <ProjectList
-        projects={projects}
-        loading={loadingList}
-        currentUserId={user.id}
-        onSelect={setSelectedId}
-        onCreated={(p) => {
-          void refresh()
-          setSelectedId(p.id)
-        }}
-      />
-    </div>
+    <CabinetShell
+      title="STAIR PLATFORM"
+      subtitle="Выберите блок, за который отвечаете"
+      email={user.email}
+      onLogout={handleLogout}
+    >
+      <HomeScreen user={user} onOpenTile={(t) => setOpenTileId(t.id)} />
+    </CabinetShell>
   )
 }
 

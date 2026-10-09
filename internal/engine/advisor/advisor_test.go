@@ -253,9 +253,13 @@ func TestAdviseGuideRenderedFromRuleTemplate(t *testing.T) {
 
 func TestAdviseInfeasibleManufacturingNoDeadEnds(t *testing.T) {
 	set := standard()
-	// Прямой марш H=6200: нормо-диапазон существует, но косоур шириной
-	// H−st=6200 (+ рез 3 мм) не влезет на самый большой лист (10400×6200).
-	// Советник не предлагает заведомо нереализуемые варианты.
+	// Прямой ДЕРЕВЯННЫЙ марш H=6200: нормо-диапазон существует, но заготовка
+	// косоура 9020 мм длиннее сам��го крупного листа дуба 9000 мм. Дерево
+	// режется на станке и сварным стыком не собирается, поэтому вариант
+	// заведомо нереализуем. Советник не должен его предлагать.
+	//
+	// Для стали тот же марш изготовляем: длинный косоур режется кусками со
+	// сварным стыком (это проверяет TestManufactureFeasibleRespectsMaterial).
 	cfg := &engineering.StairConfiguration{
 		Height: 6200, StepHeight: 230, Clearance: 2100, RailingHeight: 900, StringerThickness: 40,
 	}
@@ -266,7 +270,9 @@ func TestAdviseInfeasibleManufacturingNoDeadEnds(t *testing.T) {
 	if !vr.Blocking {
 		t.Fatalf("want blocking, got %v", vr.Blocking)
 	}
-	got := Advise(inStraight(6200, 230), set, vr)
+	in := inStraight(6200, 230)
+	in.Material = "WOOD-OAK"
+	got := Advise(in, set, vr)
 
 	for _, it := range got.Issues {
 		if len(it.Suggestions) > 0 {
@@ -278,7 +284,7 @@ func TestAdviseInfeasibleManufacturingNoDeadEnds(t *testing.T) {
 	if issue == nil {
 		t.Fatal("must add blocking MFG-SHEET issue when no variant is manufacturable")
 	}
-	if issue.Param == "" || !strings.Contains(issue.Guide, "9020") || !strings.Contains(issue.Guide, "10400×6200") {
+	if issue.Param == "" || !strings.Contains(issue.Guide, "9020") || !strings.Contains(issue.Guide, "9000×4600") {
 		t.Fatalf("MFG-SHEET issue must explain dims: param=%q guide=%q", issue.Param, issue.Guide)
 	}
 	if !got.Blocking {
@@ -313,15 +319,25 @@ func TestAdviseFeasibleKeepsSuggestions(t *testing.T) {
 
 func TestManufactureFeasibleRespectsMaterial(t *testing.T) {
 	in := inStraight(5000, 180)
-	worst := [2]float64{8660, 5050}
-	// Без материала — сталь по толщине: косоур 8660×5050 влезает на 10400×6200.
-	if !manufactureFeasible(in, worst) {
-		t.Fatal("steel (default) must fit stringer on 10400×6200")
+	// Заготовка косоура-гребёнки: длина по склону 8660 мм, постоянная глубина
+	// листа 300 мм. Сталь режется лазером по полю стола 3000×1500, причём
+	// длинный косоур режется кусками со сварным стыком — 8660 мм против поля
+	// 3000 мм не мешает, мешала бы только ширина.
+	if !manufactureFeasible(in, [2]float64{8660, 300}) {
+		t.Fatal("steel stringer 8660×300 must be feasible: длина режется кусками, ширина 300 в поле")
 	}
-	// Дуб: макс. лист 9000×4600 — ширина 5050 не влезает.
+	// Поперечный рез по ширине недопустим: зубья гребёнки отделятся от спинки.
+	if manufactureFeasible(in, [2]float64{8660, 2000}) {
+		t.Fatal("steel must not fit a stringer 2000 mm wide: поле стола 1500 мм вместе с отступом")
+	}
+	// Дуб режется на станке и сварным стыком не собирается: проверяется
+	// каталог листов. Максимальный лист дуба 9000×4600.
 	in.Material = "WOOD-OAK"
-	if manufactureFeasible(in, worst) {
-		t.Fatal("oak must not fit 8660×5050 stringer")
+	if !manufactureFeasible(in, [2]float64{8660, 300}) {
+		t.Fatal("oak must fit a stringer 8660×300 on sheet 9000×4600")
+	}
+	if manufactureFeasible(in, [2]float64{9500, 300}) {
+		t.Fatal("oak must not fit a stringer 9500 mm long: largest oak sheet is 9000 mm")
 	}
 }
 
@@ -341,8 +357,8 @@ func TestManufacturingIssueMaterialGuide(t *testing.T) {
 	in.Material = ""
 	in.StringerThickMm = 8
 	iss = manufacturingIssue(in, worst)
-	if !strings.Contains(iss.Guide, "10400×6200") {
-		t.Fatalf("steel guide must reference 10400×6200, got %q", iss.Guide)
+	if !strings.Contains(iss.Guide, "3000×1500") || strings.Contains(iss.Guide, "9000×4600") {
+		t.Fatalf("steel guide must reference laser field 3000×1500, got %q", iss.Guide)
 	}
 }
 
@@ -353,132 +369,6 @@ func findIssue(issues []validation.Issue, code constraint.RuleCode) *validation.
 		}
 	}
 	return nil
-}
-
-// inSpiral — типовой вход советника для спирального марша (EDR-0007).
-// Высота (6000 мм) и целевая ступень (190 мм) фиксированы: все спиральные
-// кейсы тестируются на них; варьируются ширина и радиус.
-func inSpiral(w, r float64) Input {
-	return Input{
-		Flight:          engineering.FlightSpiral,
-		HeightMm:        6000,
-		TargetStepMm:    190,
-		ComfortMm:       solver.DefaultComfortStep,
-		WidthMm:         w,
-		OuterRadiusMm:   r,
-		ClearanceMm:     2300,
-		RailingMm:       1100,
-		Material:        "STEEL-S235",
-		StringerThickMm: 40,
-	}
-}
-
-// spiralOK проверяет, что вариант винтовой лестницы решается без ошибок
-// (проходит все инварианты EDR-0007, проверяемые в solveSpiral).
-func spiralOK(s validation.Suggestion) bool {
-	_, err := solver.SolveSpiral(
-		engineering.Length(s.StepHeightMm*float64(s.StepCount)),
-		engineering.Length(s.StepHeightMm),
-		engineering.Length(s.WidthMm),
-		engineering.Length(s.OuterRadiusMm),
-	)
-	return err == nil
-}
-
-func TestAdviseSpiralSuggestionsCarryRadiusAndWidth(t *testing.T) {
-	set := standard()
-	// Блокирующий результат — как приложенческий слой строит его из
-	// solver.InputError спирали (см. internal/application/stair/errors.go).
-	vr := validation.Result{Valid: false, Blocking: true, Issues: []validation.Issue{{
-		ID: "ISSUE-INPUT", Code: constraint.GEO_SPIRAL_TREAD,
-		Severity: constraint.SeverityError, Element: "configuration",
-		Message: "Проступь по линии хода вне диапазона 260–320 мм",
-		Value:   543, Min: 260, Max: 320, HasMin: true, HasMax: true,
-	}}}
-
-	got := Advise(inSpiral(1000, 3100), set, vr)
-	issue := findIssue(got.Issues, constraint.GEO_SPIRAL_TREAD)
-	if issue == nil {
-		t.Fatalf("missing GEO_SPIRAL_TREAD issue: %+v", got.Issues)
-	}
-	if issue.Param == "" || issue.Guide == "" {
-		t.Fatalf("spiral issue must carry Param and Guide")
-	}
-	if strings.Contains(issue.Guide, "{") || strings.Contains(issue.Guide, "}") {
-		t.Fatalf("spiral guide must have no leftover placeholders: %q", issue.Guide)
-	}
-	if len(issue.Suggestions) == 0 {
-		t.Fatalf("spiral blocking must have suggestions")
-	}
-	if len(issue.Suggestions) > MaxSuggestions {
-		t.Fatalf("too many suggestions: %d", len(issue.Suggestions))
-	}
-	for _, s := range issue.Suggestions {
-		if s.OuterRadiusMm <= 0 || s.WidthMm <= 0 {
-			t.Fatalf("spiral suggestion %+v must carry radius and width", s)
-		}
-		if s.StepHeightMm > 200 || s.StepHeightMm < 150 {
-			t.Fatalf("spiral suggestion %+v: step height out of norms", s)
-		}
-		if !spiralOK(s) {
-			t.Fatalf("spiral suggestion %+v must solve without errors", s)
-		}
-	}
-}
-
-func TestAdviseSpiralReducesInfeasibleWidth(t *testing.T) {
-	set := standard()
-	// Ширина 3000 мм при высоте 6000 мм несовместима ни с каким радиусом:
-	// проступь у колонны < 100 мм. Советник должен предложить варианты с
-	// уменьшенной шириной.
-	vr := validation.Result{Valid: false, Blocking: true, Issues: []validation.Issue{{
-		ID: "ISSUE-INPUT", Code: constraint.GEO_SPIRAL_TREAD,
-		Severity: constraint.SeverityError, Element: "configuration",
-		Message: "Проступь у колонны меньше 100 мм",
-		Value:   20, Min: 100, HasMin: true,
-	}}}
-
-	got := Advise(inSpiral(3000, 3100), set, vr)
-	issue := findIssue(got.Issues, constraint.GEO_SPIRAL_TREAD)
-	if issue == nil {
-		t.Fatalf("missing GEO_SPIRAL_TREAD issue: %+v", got.Issues)
-	}
-	if len(issue.Suggestions) == 0 {
-		t.Fatalf("must suggest width-reduced variants, got none")
-	}
-	for _, s := range issue.Suggestions {
-		if s.WidthMm >= 3000 {
-			t.Fatalf("suggestion %+v must reduce the infeasible width", s)
-		}
-		if !spiralOK(s) {
-			t.Fatalf("suggestion %+v must solve without errors", s)
-		}
-	}
-}
-
-func TestAdviseSpiralGuideFromRuleTemplate(t *testing.T) {
-	set := standard()
-	vr := validation.Result{Valid: false, Blocking: true, Issues: []validation.Issue{{
-		ID: "ISSUE-INPUT", Code: constraint.GEO_SPIRAL_TREAD,
-		Severity: constraint.SeverityError, Element: "configuration",
-		Message: "Проступь у колонны меньше 100 мм",
-		Value:   20, Min: 100, HasMin: true,
-	}}}
-	got := Advise(inSpiral(3000, 3100), set, vr)
-	issue := findIssue(got.Issues, constraint.GEO_SPIRAL_TREAD)
-	if issue == nil {
-		t.Fatalf("missing GEO_SPIRAL_TREAD issue")
-	}
-	rule, ok := set.Active(constraint.GEO_SPIRAL_TREAD)
-	if !ok || rule.Advice == nil {
-		t.Fatalf("GEO_SPIRAL_TREAD must carry advice")
-	}
-	if issue.Param != rule.Advice.Param {
-		t.Fatalf("param from rule expected %q, got %q", rule.Advice.Param, issue.Param)
-	}
-	if !strings.Contains(issue.Guide, "20") {
-		t.Fatalf("spiral guide must mention the violated value: %q", issue.Guide)
-	}
 }
 
 // TestAdviseUShapeWinderSuggestions проверяет, что для П-образного марша в

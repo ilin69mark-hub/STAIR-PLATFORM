@@ -34,6 +34,23 @@ type Point2 struct {
 	V float64 `json:"V"`
 }
 
+// NewMesh создаёт меш с заранее выделенными срезами под nv вершин, nuv
+// текстурных координат и ntr треугольников. Сборка меша модели знает итог
+// заранее, поэтому рост срезов логарифмическими шагами не нужен.
+func NewMesh(nv, nuv, ntr int) *Mesh {
+	m := &Mesh{}
+	if nv > 0 {
+		m.Vertices = make([]Point3, 0, nv)
+	}
+	if nuv > 0 {
+		m.UV = make([]Point2, 0, nuv)
+	}
+	if ntr > 0 {
+		m.Triangles = make([][3]int, 0, ntr)
+	}
+	return m
+}
+
 // SetUV задаёт текстурные координаты, проверяя длину по числу вершин.
 func (m *Mesh) SetUV(uv []Point2) error {
 	if len(uv) != len(m.Vertices) {

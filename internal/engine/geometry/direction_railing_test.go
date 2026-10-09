@@ -133,45 +133,6 @@ func TestBuildUShapeFlightLeftTurn(t *testing.T) {
 	}
 }
 
-// TestBuildSpiralFlightDirection проверяет, что направление закрутки
-// (CONF-SPIRAL-DIRECTION) зеркалит ступени: cw — угол растёт, ccw —
-// угол убывает; обе модели имеют одинаковый габарит (симметрия).
-func TestBuildSpiralFlightDirection(t *testing.T) {
-	cw := spiralConfig(t)
-	cw.SpiralDirection = engineering.SpiralCW
-	cwModel, err := BuildSpiralFlight(cw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ccw := spiralConfig(t)
-	ccw.SpiralDirection = engineering.SpiralCCW
-	ccwModel, err := BuildSpiralFlight(ccw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// габариты совпадают — зеркальная симметрия плана.
-	bw, bc := kerngeo.BoundingBox(cwModel), kerngeo.BoundingBox(ccwModel)
-	for _, p := range []struct{ a, b float64 }{
-		{bw.Min.X, bc.Min.X}, {bw.Max.X, bc.Max.X},
-		{bw.Min.Y, bc.Min.Y}, {bw.Max.Y, bc.Max.Y},
-		{bw.Min.Z, bc.Min.Z}, {bw.Max.Z, bc.Max.Z},
-	} {
-		if !nearlyEqual(p.a, p.b) {
-			t.Fatalf("bbox mismatch cw vs ccw: %v vs %v", p.a, p.b)
-		}
-	}
-	// первая ступень (k=0): cw — верхняя кромка на угле +δ, ccw — на −δ.
-	delta := FullTurnSpiral / float64(cw.StepCount)
-	cwPT := kerngeo.NewPoint3(800*math.Cos(delta), 800*math.Sin(delta), 180)
-	if !pointExists(cwModel, cwPT) {
-		t.Errorf("cw first step outer corner %v must exist", cwPT)
-	}
-	ccwPT := kerngeo.NewPoint3(800*math.Cos(-delta), 800*math.Sin(-delta), 180)
-	if !pointExists(ccwModel, ccwPT) {
-		t.Errorf("ccw first step outer corner %v must exist", ccwPT)
-	}
-}
-
 // --- CONF-RAILING: декоративные перила только в preview mesh ---
 
 // boundingBoxOf строит габарит набора тел (для декоративных перил).
@@ -240,7 +201,7 @@ func TestBuildRailingDecorStraight(t *testing.T) {
 	roles := map[string]int{}
 	for _, s := range decor {
 		switch s.Role() {
-		case roleRailing, roleBaluster, roleRailingGlass:
+		case roleRailing, roleBaluster, roleRigel, roleHolder, roleClamp, roleEndCap, roleRailingGlass:
 			roles[s.Role()]++
 		default:
 			t.Fatalf("unexpected decor role %q", s.Role())
@@ -249,22 +210,33 @@ func TestBuildRailingDecorStraight(t *testing.T) {
 	if roles[roleRailing] != 1 {
 		t.Fatalf("handrails = %d, want 1 (right side)", roles[roleRailing])
 	}
-	if roles[roleBaluster] != 15 {
-		t.Fatalf("balusters = %d, want 15 (one per step)", roles[roleBaluster])
+	// Опоры идут равномерным шагом не больше balusterMaxGap, а не по одной
+	// на ступень: 15 ступеней -> L = 14*b, count = ceil(L/1500)+1.
+	wantBal := len(balusterSteps(15, 270))
+	if roles[roleBaluster] != wantBal {
+		t.Fatalf("balusters = %d, want %d (uniform step <= %v)",
+			roles[roleBaluster], wantBal, balusterMaxGap)
 	}
-	// Стекло закрывает промежутки МЕЖДУ стойками: их 14, а не 15 — верхний
-	// пролёт открыт на площадку, нижний упирается в пол.
-	if roles[roleRailingGlass] != 14 {
-		t.Fatalf("glass panels = %d, want 14 (between 15 balusters)", roles[roleRailingGlass])
+	// В НЕРЖАВЕЮЩЕЙ СТАЛИ стекла нет вообще: заполнение — ригели, по два
+	// ряда между каждой парой опор.
+	if roles[roleRailingGlass] != 0 {
+		t.Fatalf("glass panels = %d, want 0 (steel railing has no glass)", roles[roleRailingGlass])
 	}
-	// правая сторона: поручень и стойки сдвинуты внутрь ступени (edgeInset),
-	// наружная грань совпадает с кромкой y=W=900. Центр габарита по Y:
-	// поручень: 900−railWidth/2=875; стойка: 900−balusterSize/2=890;
-	// combined bbox Y: [850, 900], center = 875.
+	if roles[roleRigel] != 2*(wantBal-1) {
+		t.Fatalf("rigels = %d, want %d (2 rows between %d balusters)",
+			roles[roleRigel], 2*(wantBal-1), wantBal)
+	}
+	// Правая сторона: стойки сдвинуты внутрь ступени (edgeInset) так, что
+	// их КРАЙ совпадает с кромкой y=W=900. Стойка круглая Ø42,4, поэтому её
+	// ось стоит на 900−42,4/2 = 878,8, и крайняя точка по Y = 900.
+	// Портфень шире (50) — его ось на 875, но он уже не задаёт центр общего
+	// габарита, т.к. стойка шире по Y и выходит к самой кромке.
+	// Крайний габарит по Y задаёт площадка держателя: она шире стойки
+	// (50,8 против Ø42,4) и лежит с тем же отступом от кромки, поэтому
+	// выступает наружу. Это ожидаемо: площадка держит поручень.
 	bb := boundingBoxOf(decor)
-	if !nearlyEqual((bb.Min.Y+bb.Max.Y)/2, 875) {
-		t.Fatalf("railing bbox Y centre = %v, want 875 (right edge inset)",
-			(bb.Min.Y+bb.Max.Y)/2)
+	if bb.Max.Y < 900 || bb.Max.Y > 900+holderPlateW/2 {
+		t.Fatalf("railing bbox Max.Y = %v, want within 900..%v", bb.Max.Y, 900+holderPlateW/2)
 	}
 	// стойки на центрах ступеней: центр X — x=(k-0.5)·b.
 	var balXs []float64
@@ -276,10 +248,23 @@ func TestBuildRailingDecorStraight(t *testing.T) {
 	}
 	sort.Float64s(balXs)
 	b := cfg.TreadDepth.Millimeters()
+	// Опоры стоят в центрах тех ступеней, которые вернул balusterSteps:
+	// равномерный шаг <= balusterMaxGap, а не одна опора на ступень.
+	steps := balusterSteps(cfg.StepCount, b)
+	if len(balXs) != len(steps) {
+		t.Fatalf("balusters = %d, want %d", len(balXs), len(steps))
+	}
 	for k, cx := range balXs {
-		want := (float64(k+1) - 0.5) * b
+		want := (float64(steps[k]) - 0.5) * b
 		if !nearlyEqual(cx, want) {
-			t.Fatalf("baluster %d centre X = %v, want %v (step centre)", k+1, cx, want)
+			t.Fatalf("baluster %d centre X = %v, want %v (step %d centre)", k+1, cx, want, steps[k])
+		}
+	}
+	// равномерность: разброс шагов не больше половины длины ступени
+	for k := 1; k < len(balXs); k++ {
+		gap := balXs[k] - balXs[k-1]
+		if gap > balusterMaxGap {
+			t.Fatalf("baluster gap %d = %v, exceeds %v", k, gap, balusterMaxGap)
 		}
 	}
 	// поручень идёт по центрам ступеней от (b/2, edge, h+rh) до
@@ -553,30 +538,5 @@ func TestBuildLShapeLandingRailingSides(t *testing.T) {
 		if bothRails != wantBoth {
 			t.Fatalf("%s: RailingBoth landing handrail segments = %d, want %d", dir, bothRails, wantBoth)
 		}
-	}
-}
-
-// TestBuildRailingDecorSpiral проверяет сторону перил спирали по её
-// направлению (CONF-SPIRAL-RAILING): перила на открытой кромке.
-func TestBuildRailingDecorSpiral(t *testing.T) {
-	mk := func(dir engineering.SpiralDirection, rail engineering.RailingSide) []*kerngeo.Solid {
-		cfg := spiralConfig(t)
-		cfg.SpiralDirection = dir
-		cfg.Railing = rail
-		cfg.RailingHeight = mustLength(t, 900)
-		d, err := BuildRailingDecor(cfg)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return d
-	}
-	if len(mk(engineering.SpiralCW, engineering.RailingRight)) == 0 {
-		t.Fatal("cw + right must have railing")
-	}
-	if len(mk(engineering.SpiralCCW, engineering.RailingLeft)) == 0 {
-		t.Fatal("ccw + left must have railing")
-	}
-	if len(mk(engineering.SpiralCW, engineering.RailingLeft)) != 0 {
-		t.Fatal("cw + left is the wall side and must have no railing")
 	}
 }

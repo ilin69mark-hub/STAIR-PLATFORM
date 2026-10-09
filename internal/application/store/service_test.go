@@ -11,12 +11,19 @@ import (
 
 // fakeRepo — репозиторий настроек магазина в памяти.
 type fakeRepo struct {
-	settings map[string]Settings
-	prices   map[string]map[string]int64
+	settings  map[string]Settings
+	prices    map[string]map[string]int64
+	fasteners map[string]map[string]int64
+	sealants  map[string]map[string]int64
 }
 
 func newFakeRepo() *fakeRepo {
-	return &fakeRepo{settings: map[string]Settings{}, prices: map[string]map[string]int64{}}
+	return &fakeRepo{
+		settings:  map[string]Settings{},
+		prices:    map[string]map[string]int64{},
+		fasteners: map[string]map[string]int64{},
+		sealants:  map[string]map[string]int64{},
+	}
 }
 
 func (f *fakeRepo) GetSettings(_ context.Context, tenantID string) (Settings, error) {
@@ -52,6 +59,50 @@ func (f *fakeRepo) SetMaterialPrice(_ context.Context, tenantID, code string, pr
 
 func (f *fakeRepo) DeleteMaterialPrice(_ context.Context, tenantID, code string) error {
 	delete(f.prices[tenantID], code)
+	return nil
+}
+
+func (f *fakeRepo) ListFastenerPrices(_ context.Context, tenantID string) ([]FastenerPrice, error) {
+	byCode := f.fasteners[tenantID]
+	out := make([]FastenerPrice, 0, len(byCode))
+	for code, price := range byCode {
+		out = append(out, FastenerPrice{Code: code, PricePerPcRub: price, Overridden: true})
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) SetFastenerPrice(_ context.Context, tenantID, code string, price int64, _ string) error {
+	if f.fasteners[tenantID] == nil {
+		f.fasteners[tenantID] = map[string]int64{}
+	}
+	f.fasteners[tenantID][code] = price
+	return nil
+}
+
+func (f *fakeRepo) DeleteFastenerPrice(_ context.Context, tenantID, code string) error {
+	delete(f.fasteners[tenantID], code)
+	return nil
+}
+
+func (f *fakeRepo) ListSealantPrices(_ context.Context, tenantID string) ([]SealantPrice, error) {
+	byCode := f.sealants[tenantID]
+	out := make([]SealantPrice, 0, len(byCode))
+	for code, price := range byCode {
+		out = append(out, SealantPrice{Code: code, PricePerCartridgeRub: price, Overridden: true})
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) SetSealantPrice(_ context.Context, tenantID, code string, price int64, _ string) error {
+	if f.sealants[tenantID] == nil {
+		f.sealants[tenantID] = map[string]int64{}
+	}
+	f.sealants[tenantID][code] = price
+	return nil
+}
+
+func (f *fakeRepo) DeleteSealantPrice(_ context.Context, tenantID, code string) error {
+	delete(f.sealants[tenantID], code)
 	return nil
 }
 

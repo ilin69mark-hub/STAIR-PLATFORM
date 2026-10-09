@@ -27,7 +27,6 @@ export function rub(minor: number | undefined, decimals = 2): string {
 }
 
 export function flightLabel(s: Snapshot): string {
-  if (s.spiral) return 'Винтовая'
   if (s.ushape) return 'П-образная'
   if (s.lshape) return 'Г-образная'
   return 'Прямой марш'
@@ -162,7 +161,7 @@ async function renderOffscreen3D(snapshot: Snapshot): Promise<string | null> {
     const stairMat = new THREE.MeshStandardMaterial({ color: 0x4f8df7, roughness: 0.55, metalness: 0.12, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })
     const stair = makeMesh(snapshot.mesh, stairMat)
     // зеркалим прямой марш как в GeometryViewer
-    const flightKind = snapshot.spiral ? 'spiral' : snapshot.ushape ? 'ushape' : snapshot.lshape ? 'lshape' : 'straight'
+    const flightKind = snapshot.ushape ? 'ushape' : snapshot.lshape ? 'lshape' : 'straight'
     if (flightKind === 'straight') {
       const { position } = stair.geo.attributes
       for (let i = 0; i < position.count; i++) position.setX(i, -position.getX(i))
@@ -316,8 +315,6 @@ export async function generateProposalPdf(project: Project, snapshot: Snapshot):
     params.push(['Нижний марш', String(snapshot.lshape.LowerStepCount)])
   } else if (snapshot.ushape) {
     params.push(['Ступеней всего', String(snapshot.ushape.StepCount)])
-  } else if (snapshot.spiral) {
-    params.push(['Ступеней', String(snapshot.spiral.StepCount)])
   }
   if (snapshot.validation?.Valid !== undefined) {
     params.push(['Статус расчёта', snapshot.validation.Valid ? 'Корректен' : 'Есть замечания'])

@@ -1,0 +1,159 @@
+# STAIR PLATFORM — Isolated Test Database (INFRA-0028)
+# Только для деструктивных тестов пакета internal/infrastructure/database
+# (down до версии 1, DROP TABLE). Поднять: make test-db-up.
+# Рабочий стенд живёт в deployments/docker-compose.yml (:5432) и этим
+# файлом не затрагивается. Запуск: только `up -d test-postgres`, весь
+# остальной стек здесь — копия dev-композа и не стартует.
+
+name: stair-platform
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: stair-platform-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-stair}
+      # AUDIT-EXCEPTION(E06): пароль задаёт человек, см. docs/SECURITY_EXCEPTIONS.yml
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-stair_platform}
+    ports:
+      # S-122: bind только на localhost — dev-БД не должна светиться в LAN
+      # (аналогично S-113-fix для api).
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - stair-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stair} -d ${POSTGRES_DB:-stair_platform}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    container_name: stair-platform-redis
+    ports:
+      # S-122: bind только на localhost — dev-Redis не должен светиться в LAN.
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - stair-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  test-postgres:
+    image: postgres:16
+    container_name: stair-platform-test-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-stair}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: stair_platform_test
+    ports:
+      # S-122: bind только на localhost — test-БД не должна светиться в LAN.
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - stair-test-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stair} -d ${POSTGRES_DB:-stair_platform_test}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    image: stair-platform-api
+    container_name: stair-platform-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      STAIR_ENVIRONMENT: "development"
+      STAIR_DATABASE_URL: "postgres://${POSTGRES_USER:-stair}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-stair_platform}?sslmode=disable"
+      STAIR_REDIS_ADDR: "redis:6379"
+      # Соль псевдонима посетителя в воронке витрины. Пусто = уникальные
+      # посетители НЕ считаются (осознанный режим приватности; api пишет об
+      # этом в лог при старте). Значение живёт в .env, а не здесь: соль в
+      # репозитории — секрет, по которому хеш посетителя можно перебрать.
+      # Generate: openssl rand -hex 32
+      STAIR_ANALYTICS_SALT: "${STAIR_ANALYTICS_SALT:-}"
+      STAIR_HTTP_ADDR: ":8080"
+      STAIR_STORAGE_DIR: "/tmp/storage"
+      STAIR_REGISTER_RATE_LIMIT: "5000"
+      STAIR_LOGIN_RATE_LIMIT: "10000"
+      STAIR_VALIDATE_RATE_LIMIT: "10000"
+      STAIR_AUTH_RATE_LIMIT: "10000"
+      STAIR_CORS_ORIGINS: "http://localhost:3000,http://localhost:5173,http://localhost:5174,http://localhost:5175"
+      STAIR_CSRF_ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:5173,http://localhost:5174,http://localhost:5175"
+      STAIR_COOKIE_SECURE: "false"
+      # S-120/S-121: nginx дописывает X-Forwarded-For; per-IP rate-limiter
+      # доверяет XFF только от Docker-bridge (дефолтная compose-сеть).
+      #
+      # fc00::/7 добавлен из-за воронки: Docker отдаёт A и AAAA для сервиса,
+      # поэтому nginx подключается к api то по IPv4, то по IPv6. С IPv4-only
+      # списком пир по IPv6 считался недоверенным, XFF игнорировался, и
+      # visitor считался от адреса прокси — ОДИН человек давал два разных
+      # хеша (уникальных посетителей выходило больше, чем визитов). Это
+      # задевало и rate-limit: IPv6-подключения получали отдельный лимит.
+      STAIR_TRUSTED_PROXIES: "172.16.0.0/12,fc00::/7"
+    ports:
+      # S-113: bind только на localhost — /metrics, /swagger, /debug/pprof
+      # (InternalOnlyMiddleware) не должны светиться в LAN через docker-proxy
+      # (RemoteAddr = bridge 172.17.x ∈ allowedCIDRs). Прод-доступ — через
+      # nginx/ingress (проксируется только /api/).
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    image: stair-platform-worker
+    container_name: stair-platform-worker
+    entrypoint: ["/bin/worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      STAIR_ENVIRONMENT: "development"
+      STAIR_DATABASE_URL: "postgres://${POSTGRES_USER:-stair}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-stair_platform}?sslmode=disable"
+      STAIR_REDIS_ADDR: "redis:6379"
+      STAIR_WORKER_SHUTDOWN_TIMEOUT: ${STAIR_WORKER_SHUTDOWN_TIMEOUT:-10s}
+      STAIR_CLEANUP_INTERVAL: ${STAIR_CLEANUP_INTERVAL:-1h}
+      STAIR_AUDIT_RETENTION_DAYS: ${STAIR_AUDIT_RETENTION_DAYS:-90}
+    restart: unless-stopped
+
+  store:
+    build:
+      context: ..
+      dockerfile: deployments/store.Dockerfile
+    image: stair-platform-store
+    container_name: stair-platform-store
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+
+  admin:
+    build:
+      context: ..
+      dockerfile: deployments/admin.Dockerfile
+    image: stair-platform-admin
+    container_name: stair-platform-admin
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "5174:80"
+    restart: unless-stopped
+
+volumes:
+  stair-postgres-data:
+  stair-redis-data:
+  stair-test-postgres-data:

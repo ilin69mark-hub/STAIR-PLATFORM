@@ -30,8 +30,6 @@ type Case struct {
 	LandingWidthMM      float64 `json:"landing_width_mm"`
 	LandingDepthMM      float64 `json:"landing_depth_mm"`
 	LowerStepCount      int     `json:"lower_step_count"`
-	OuterRadiusMM       float64 `json:"outer_radius_mm"`
-	SpiralDirection     string  `json:"spiral_direction"`
 	Direction           string  `json:"direction"`
 	ComfortStepMM       float64 `json:"comfort_step_mm"`
 }
@@ -48,15 +46,8 @@ func caseToConfig(c Case) *engineering.StairConfiguration {
 		ft = engineering.FlightLShape
 	case "u_shape":
 		ft = engineering.FlightUShape
-	case "spiral":
-		ft = engineering.FlightSpiral
 	}
-	var cfg *engineering.StairConfiguration
-	if c.Flight == "spiral" {
-		cfg = &engineering.StairConfiguration{Width: wL, Height: hL, Flight: ft}
-	} else {
-		cfg, _ = engineering.NewStairConfiguration(wL, hL, ft)
-	}
+	cfg, _ := engineering.NewStairConfiguration(wL, hL, ft)
 	cfg.StepHeight = genMustLength(c.StepHeightMM)
 	cfg.StepThickness = genMustLength(c.StepThicknessMM)
 	cfg.StringerThickness = genMustLength(c.StringerThicknessMM)
@@ -123,14 +114,6 @@ func caseToConfig(c Case) *engineering.StairConfiguration {
 		cfg.RailingLanding = rs
 		cfg.RailingUpper = rs
 	}
-	if c.Flight == "spiral" {
-		cfg.OuterRadius = genMustLength(c.OuterRadiusMM)
-		if c.SpiralDirection == "cw" {
-			cfg.SpiralDirection = engineering.SpiralCW
-		} else {
-			cfg.SpiralDirection = engineering.SpiralCCW
-		}
-	}
 	return cfg
 }
 
@@ -161,8 +144,6 @@ func TestGeneratedBbox500(t *testing.T) {
 				_, vr, _ = solver.SolveCheckedLShape(cfg, prof, cs.ComfortStepMM)
 			case "u_shape":
 				_, vr, _ = solver.SolveCheckedUShape(cfg, prof, cs.ComfortStepMM)
-			case "spiral":
-				_, vr, _ = solver.SolveCheckedSpiral(cfg, prof)
 			}
 			if vr.Blocking {
 				t.Fatalf("blocking: %+v", vr.Issues)

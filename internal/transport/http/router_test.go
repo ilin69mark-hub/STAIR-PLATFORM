@@ -99,52 +99,6 @@ func TestCalculateRailingAndDirectionEcho(t *testing.T) {
 	}
 }
 
-func TestCalculateSpiralAutoRailingEcho(t *testing.T) {
-	// Спираль: перила выводятся автоматически из направления закрутки
-	// (CONF-SPIRAL-RAILING): по часовой — справа, против — слева.
-	for _, tc := range []struct {
-		dir     string
-		railing string
-	}{
-		{"cw", "right"},
-		{"ccw", "left"},
-	} {
-		body := `{
-			"width_mm": 500,
-			"height_mm": 2700,
-			"flight": "spiral",
-			"step_height_mm": 180,
-			"stringer_thickness_mm": 8,
-			"step_thickness_mm": 40,
-			"riser": true,
-			"clearance_mm": 2500,
-			"railing_height_mm": 1000,
-			"outer_radius_mm": 800,
-			"spiral_direction": "` + tc.dir + `"
-		}`
-		req := authedRequest(http.MethodPost, "/api/v1/stairs:calculate", body)
-		rec := httptest.NewRecorder()
-		testRouter().ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusOK {
-			t.Fatalf("%s: expected status 200, got %d: %s", tc.dir, rec.Code, rec.Body.String())
-		}
-		var resp calculateResponse
-		if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
-			t.Fatalf("%s: invalid response: %v", tc.dir, err)
-		}
-		if resp.Spiral == nil || resp.Validation.Blocking {
-			t.Fatalf("%s: expected valid spiral, got %+v", tc.dir, resp.Validation)
-		}
-		if resp.Spiral.Railing != tc.railing {
-			t.Fatalf("%s: auto railing = %q, want %q", tc.dir, resp.Spiral.Railing, tc.railing)
-		}
-		if resp.Spiral.SpiralDirection != tc.dir {
-			t.Fatalf("%s: spiral_direction echo = %q, want %q", tc.dir, resp.Spiral.SpiralDirection, tc.dir)
-		}
-	}
-}
-
 func TestCalculateInvalidRailingRejected(t *testing.T) {
 	body := `{
 		"width_mm": 900,
@@ -197,10 +151,18 @@ func TestCalculateReference(t *testing.T) {
 	if resp.Flight.StepThicknessMm != 6 || resp.Flight.RailingHeightMm != 1000 || !resp.Flight.Riser || resp.Flight.StringerThicknessMm != 8 {
 		t.Fatalf("flight echo mismatch: %+v", resp.Flight)
 	}
-	// Стальной марш 16 ступеней, 473 кг: см. service_test на происхождение
-	// значения (заготовка — лист лазерного раскроя, а не габаритный блок).
-	if resp.Pricing.FinalPriceRub != 287511.79 {
-		t.Fatalf("final price = %v, want 287511.79", resp.Pricing.FinalPriceRub)
+	// Стальной марш 15 ступеней: см. service_test на происхождение значения.
+	// Заготовка деталей — лист лазерного раскроя, а не габаритный блок, и
+	// раскрой идёт по полю стола 3000×1500: косоур длиннее поля режется на
+	// 2 куска со сварным стыком, лист стали 6000×1500 (шпатка технолога
+	// 2026-10-05).
+	// Плюс крепёж по отверстиям пяток (MNT-0001, 2026-10-08): 210 глухарей
+	// 6х35 на обойму выреза + 14 глухарей и 14 дюбелей 10х60 на пол и
+	// перекрытие = 238 шт × 15 ₽, и накрутка на них в базе цены.
+	// Плюс крепёж (238 шт × 15 ₽) и герметик (3 картриджа × 500 ₽) с
+	// накруткой: 341 030,20 + 2 667,60 = 343 697,80 ₽.
+	if resp.Pricing.FinalPriceRub != 343697.8 {
+		t.Fatalf("final price = %v, want 343697.8", resp.Pricing.FinalPriceRub)
 	}
 	if len(resp.Manufacturing.Parts) == 0 || len(resp.Manufacturing.BOM) == 0 ||
 		len(resp.Manufacturing.CutList) == 0 || len(resp.Manufacturing.Nesting.Sheets) == 0 {

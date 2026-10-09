@@ -29,7 +29,7 @@ type Options struct {
 	StepCountMin int
 	StepCountMax int
 	// LowerStepMin/LowerStepMax — диапазон числа ступеней нижнего марша.
-	// Для маршей без площадки (straight/spiral) диапазон вырождается
+	// Для маршей без площадки (straight) диапазон вырождается
 	// (LowerStepMin == LowerStepMax) — движок всё равно пробегает его один раз.
 	LowerStepMin int
 	LowerStepMax int

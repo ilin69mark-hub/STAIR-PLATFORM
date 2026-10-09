@@ -24,7 +24,7 @@ func rectCut(t *testing.T, material dommfg.MaterialCode, thickness, length, widt
 func TestNestSingleSheet(t *testing.T) {
 	// 12 проступей 800×270 на листе 2500×1250 (kerf 3): 4 ряда × 3 — один лист.
 	cut := rectCut(t, "STEEL-S235", 40, 800, 270, 12)
-	res, err := Nest(cut, mustSheets(t), DefaultKerf)
+	res, err := Nest(cut, mustSheets(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,51 +47,71 @@ func TestNestSingleSheet(t *testing.T) {
 	}
 }
 
+// Несколько ЛИСТОВ: деталей больше, чем влезает в две заготовки одного листа
+// 6000×1500, поэтому листов два.
 func TestNestMultipleSheets(t *testing.T) {
-	// 2 косоура 4050×2750: по одному на лист 6000×3000 → 2 листа.
-	cut := rectCut(t, "STEEL-S235", 50, 4050, 2750, 2)
-	res, err := Nest(cut, mustSheets(t), DefaultKerf)
+	// Вместимость заготовки считает та же формула, что и раскрой, поэтому
+	// эталон проверяется против неё: 3 детали в ряду × 5 рядов = 15 на
+	// заготовку, 30 на лист. 50 деталей → 4 заготовки → 2 листа.
+	perBlank := dommfg.BlankCapacity(8, 800, 270)
+	if perBlank != 15 {
+		t.Fatalf("вместимость заготовки %d, ожидалось 15 (3 в ряду × 5 рядов)", perBlank)
+	}
+	qty := 50
+	cut := rectCut(t, "STEEL-S235", 8, 800, 270, dommfg.Quantity(qty))
+	res, err := Nest(cut, mustSheets(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Sheets) != 2 {
-		t.Fatalf("sheets = %d, want 2", len(res.Sheets))
+	want := dommfg.SheetsForBlanks((qty + perBlank - 1) / perBlank)
+	if want != 2 {
+		t.Fatalf("эталон расчёта разъехался: листов %d, ожидалось 2", want)
 	}
-	for _, s := range res.Sheets {
-		if !nearlyEqual(s.Length.Millimeters(), 6000) || !nearlyEqual(s.Width.Millimeters(), 3000) {
-			t.Fatalf("sheet dims = %v×%v, want 6000×3000", s.Length.Millimeters(), s.Width.Millimeters())
+	if len(res.Sheets) != want {
+		t.Fatalf("листов %d, ожидалось %d", len(res.Sheets), want)
+	}
+	for _, sh := range res.Sheets {
+		if !nearlyEqual(sh.Length.Millimeters(), dommfg.StockSheetLengthMM) ||
+			!nearlyEqual(sh.Width.Millimeters(), dommfg.StockSheetWidthMM) {
+			t.Fatalf("лист %.0f×%.0f, ожидалось %.0f×%.0f",
+				sh.Length.Millimeters(), sh.Width.Millimeters(),
+				dommfg.StockSheetLengthMM, dommfg.StockSheetWidthMM)
 		}
-		assertNoOverlap(t, s)
+		assertNoOverlap(t, sh)
 	}
 }
 
-func TestNestPicksSmallestSheet(t *testing.T) {
-	// 1 деталь 800×270: выбирается лист 2500×1250, а не 6000×3000.
-	cut := rectCut(t, "STEEL-S235", 40, 800, 270, 1)
-	res, err := Nest(cut, mustSheets(t), DefaultKerf)
+// У МЕТАЛЛА типоразмер листа один (6000×1500, сводная шпатка технолога
+// 2026-10-05), поэтому выбирать не из чего: расход задаётся заготовками внутри
+// листа, а не подбором размера. Раньше листов было четыре, и для мелкой детали
+// выбирался самый маленький 2500×1250.
+func TestNestSteelSheetSizeIsFixed(t *testing.T) {
+	cut := rectCut(t, "STEEL-S235", 8, 800, 270, 1)
+	res, err := Nest(cut, mustSheets(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(res.Sheets) != 1 {
-		t.Fatal("single part must use a single sheet")
+		t.Fatal("одна деталь должна занять один лист")
 	}
-	if !nearlyEqual(res.Sheets[0].Length.Millimeters(), 2500) || !nearlyEqual(res.Sheets[0].Width.Millimeters(), 1250) {
-		t.Fatalf("sheet dims = %v×%v, want smallest fitting 2500×1250",
+	if !nearlyEqual(res.Sheets[0].Length.Millimeters(), 6000) ||
+		!nearlyEqual(res.Sheets[0].Width.Millimeters(), 1500) {
+		t.Fatalf("лист %.0f×%.0f, ожидалось 6000×1500",
 			res.Sheets[0].Length.Millimeters(), res.Sheets[0].Width.Millimeters())
 	}
 }
 
 func TestNestDeterminism(t *testing.T) {
 	cut := dommfg.CutList{Items: []dommfg.CutItem{
-		{PartNumber: "TRD", MaterialCode: "STEEL-S235", Thickness: mustLength(t, 40), Length: mustLength(t, 800), Width: mustLength(t, 270), Quantity: 15},
+		{PartNumber: "TRD", MaterialCode: "STEEL-S235", Thickness: mustLength(t, 8), Length: mustLength(t, 800), Width: mustLength(t, 270), Quantity: 15},
 		{PartNumber: "RSR", MaterialCode: "STEEL-S235", Thickness: mustLength(t, 40), Length: mustLength(t, 800), Width: mustLength(t, 180), Quantity: 15},
-		{PartNumber: "STR", MaterialCode: "STEEL-S235", Thickness: mustLength(t, 50), Length: mustLength(t, 4050), Width: mustLength(t, 2750), Quantity: 2},
+		{PartNumber: "STR", MaterialCode: "STEEL-S235", Thickness: mustLength(t, 8), Length: mustLength(t, 2644), Width: mustLength(t, 300), Quantity: 2},
 	}}
-	a, err := Nest(cut, mustSheets(t), DefaultKerf)
+	a, err := Nest(cut, mustSheets(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := Nest(cut, mustSheets(t), DefaultKerf)
+	b, err := Nest(cut, mustSheets(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,203 +123,145 @@ func TestNestDeterminism(t *testing.T) {
 	}
 }
 
-func TestNestErrors(t *testing.T) {
-	if _, err := Nest(dommfg.CutList{}, mustSheets(t), DefaultKerf); err == nil {
-		t.Fatal("empty cut list must be rejected")
+// Признаки сварного стыка «шип-паз» доезжают до размещения на листе: без них
+// куски косоура на карте раскроя неразличимы, и монтажник не видит, какой к
+// какому примыкает.
+func TestNestCarriesJointMarks(t *testing.T) {
+	cut := dommfg.CutList{Items: []dommfg.CutItem{{
+		PartNumber: "STR", MaterialCode: "STEEL-S235", Thickness: mustLength(t, 8),
+		Length: mustLength(t, 2427), Width: mustLength(t, 300), Quantity: 2,
+		HasTongue: true, HasMortise: true, JointCount: 2,
+	}}}
+	res, err := Nest(cut, mustSheets(t))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := Nest(rectCut(t, "STEEL-S235", 40, 800, 270, 1), nil, DefaultKerf); err == nil {
-		t.Fatal("nil registry must be rejected")
+	if len(res.Sheets) == 0 {
+		t.Fatal("must place parts")
 	}
-	if _, err := Nest(rectCut(t, "STEEL-S235", 40, 800, 270, 1), mustSheets(t), -1); err == nil {
-		t.Fatal("negative kerf must be rejected")
-	}
-	// материал без листов в каталоге.
-	if _, err := Nest(rectCut(t, "TITAN-X", 40, 800, 270, 1), mustSheets(t), DefaultKerf); err == nil {
-		t.Fatal("material without sheets must be rejected")
-	}
-	// деталь крупнее любого листа каталога.
-	if _, err := Nest(rectCut(t, "STEEL-S235", 40, 12000, 12000, 1), mustSheets(t), DefaultKerf); err == nil {
-		t.Fatal("part larger than any sheet must be rejected")
+	for _, sh := range res.Sheets {
+		for _, p := range sh.Placed {
+			if !p.HasTongue || !p.HasMortise {
+				t.Fatalf("%s: tongue=%v mortise=%v, оба признака должны доехать до размещения",
+					p.PartNumber, p.HasTongue, p.HasMortise)
+			}
+			if p.JointCount != 2 {
+				t.Fatalf("%s: joint count = %d, want 2", p.PartNumber, p.JointCount)
+			}
+		}
 	}
 }
 
+// Столбец в BOM склеивает 4 куска косоура в одну строку: шип есть не у каждого,
+// но карта раскроя обязана показать, что стык в позиции есть.
+func TestBuildBOMAggregatesJointMarks(t *testing.T) {
+	parts := []dommfg.Part{
+		{Number: "STR-01", Kind: dommfg.PartStringer, Material: "STEEL-S235",
+			Thickness: mustLength(t, 8), Length: mustLength(t, 2427), Width: mustLength(t, 300),
+			JointIndex: 0, JointCount: 2, HasMortise: true},
+		{Number: "STR-02", Kind: dommfg.PartStringer, Material: "STEEL-S235",
+			Thickness: mustLength(t, 8), Length: mustLength(t, 2427), Width: mustLength(t, 300),
+			JointIndex: 1, JointCount: 2, HasTongue: true, HasMortise: true},
+	}
+	_, cut := buildBOM(parts)
+	if len(cut.Items) != 1 {
+		t.Fatalf("cut items = %d, want 1 (4 куска косоура в одну строку)", len(cut.Items))
+	}
+	it := cut.Items[0]
+	if it.Quantity != 2 || !it.HasTongue || !it.HasMortise || it.JointCount != 2 {
+		t.Fatalf("joint marks lost in BOM: %+v", it)
+	}
+}
+
+func TestNestErrors(t *testing.T) {
+	if _, err := Nest(dommfg.CutList{}, mustSheets(t)); err == nil {
+		t.Fatal("empty cut list must be rejected")
+	}
+	if _, err := Nest(rectCut(t, "STEEL-S235", 40, 800, 270, 1), nil); err == nil {
+		t.Fatal("nil registry must be rejected")
+	}
+	// материал без листов в каталоге.
+	if _, err := Nest(rectCut(t, "TITAN-X", 40, 800, 270, 1), mustSheets(t)); err == nil {
+		t.Fatal("material without sheets must be rejected")
+	}
+	// Деталь крупнее рабочего ПОЛЯ СТОЛА: даже после разбиения на куски её
+	// нечем резать. Проверяется именно поле 3000×1500, а не купленный лист
+	// 6000×1500 — по листу деталь 3200 мм «влезала» бы.
+	if _, err := Nest(rectCut(t, "STEEL-S235", 40, 3200, 2000, 1), mustSheets(t)); err == nil {
+		t.Fatal("part longer than the laser field must be rejected")
+	}
+	// Деталь в поле стола принимается.
+	if _, err := Nest(rectCut(t, "STEEL-S235", 40, 2644, 300, 1), mustSheets(t)); err != nil {
+		t.Fatalf("part inside the laser field must be accepted: %v", err)
+	}
+}
+
+// Деталь шире поля лазерного стола не влезает даже после разбиения на куски:
+// по длине стык «шип-паз» возможен, по ширине — нет.
 func TestNestFeasibilityError(t *testing.T) {
-	cut := rectCut(t, "STEEL-S235", 50, 12000, 9000, 1)
-	_, err := Nest(cut, mustSheets(t), DefaultKerf)
+	cut := rectCut(t, "STEEL-S235", 8, 12000, 9000, 1)
+	_, err := Nest(cut, mustSheets(t))
 	var feas *FeasibilityError
 	if !errors.As(err, &feas) {
 		t.Fatalf("want *FeasibilityError, got %T: %v", err, err)
 	}
-	if feas.PartLen != 12000 || feas.PartWid != 9000 || feas.Kerf != DefaultKerf {
-		t.Fatalf("feasibility fields = %+v, want len=12000 wid=9000 kerf=%v", feas, DefaultKerf)
+	if feas.PartLen != 12000 || feas.PartWid != 9000 {
+		t.Fatalf("feasibility fields = %+v, want len=12000 wid=9000", feas)
+	}
+	if feas.FieldLength != 3000 || feas.FieldWidth != 1500 {
+		t.Errorf("поле стола = %.0f×%.0f, ожидалось 3000×1500", feas.FieldLength, feas.FieldWidth)
+	}
+	if feas.Thickness != 8 {
+		t.Errorf("толщина листа = %v, ожидалось 8 (из неё берётся зазор шпатки)", feas.Thickness)
 	}
 }
 
+// Предел — рабочее поле лазерного стола 3000×1500 с отступом и зазором
+// шпатки по толщине листа. Раньше пределом был купленный лист (до
+// 10400×6200), и деталь 5200 мм «влезала», хотя её можно только разрезать.
 func TestSheetFeasible(t *testing.T) {
-	reg := mustSheets(t)
 	cases := []struct {
 		name   string
 		rects  []Rect
 		expect bool
 	}{
-		{"косоур 4710×3050 (H=3000) влезает в 8000×4600", []Rect{{4710, 3050}}, true},
-		{"косоур 4050×2750 влезает", []Rect{{4050, 2750}}, true},
-		{"проступи 800×270 влезают", []Rect{{800, 270}}, true},
-		{"поворот граней не мешает", []Rect{{3050, 4710}}, true},
-		{"худший косоур H=6000 (10200×6050) влезает в 10400×6200", []Rect{{10200, 6050}}, true},
-		{"над max-листом по длине (10500×6300)", []Rect{{10500, 6300}}, false},
-		{"над max-листом по ширине (12000×9000)", []Rect{{12000, 9000}}, false},
+		{"проступи 900×300 влезают", []Rect{{900, 300}}, true},
+		{"поворот граней не мешает", []Rect{{300, 900}}, true},
+		{"пятки 270×50 влезают", []Rect{{270, 50}}, true},
+		{"косоур-кусок 2644×300 влезает", []Rect{{2644, 300}}, true},
+		{"косоур 2980×300 влезает (поле 3000 − отступ 10)", []Rect{{2980, 300}}, true},
+		{"косоур 2990×300 не влезает: 2990 + 2×10 > 3000", []Rect{{2990, 300}}, false},
+		{"деталь по ширине 1480 влезает: 1480 + 2×10 = 1500", []Rect{{1480, 1480}}, true},
+		{"деталь по ширине 1500 не влезает: 1500 + 2×10 > 1500", []Rect{{1500, 1500}}, false},
+		{"деталь шире поля 1600×1600", []Rect{{1600, 1600}}, false},
 	}
 	for _, tc := range cases {
-		if got := SheetFeasible(reg, "STEEL-S235", DefaultKerf, tc.rects...); got != tc.expect {
+		if got := SheetFeasible(8, tc.rects...); got != tc.expect {
 			t.Errorf("%s: SheetFeasible = %v, want %v", tc.name, got, tc.expect)
 		}
 	}
 }
 
 func TestLargestStockSheet(t *testing.T) {
+	// Сталь: единственный типоразмер 6000×1500 (сводная шпатка технолога
+	// 2026-10-05). Раньше в каталоге были листы до 10400×6200, и «максимальный
+	// лист» показывался пользователю в сообщениях.
 	l, w, ok := LargestStockSheet(mustSheets(t), "STEEL-S235")
-	if !ok || l != 10400 || w != 6200 {
-		t.Fatalf("largest steel sheet = %v×%v ok=%v, want 10400×6200", l, w, ok)
+	if !ok || l != 6000 || w != 1500 {
+		t.Fatalf("largest steel sheet = %v×%v ok=%v, want 6000×1500", l, w, ok)
+	}
+	// Дерево не тронуто: его листы остались до 9000×4600.
+	if l, w, ok := LargestStockSheet(mustSheets(t), "WOOD-OAK"); !ok || l != 9000 || w != 4600 {
+		t.Fatalf("largest wood sheet = %v×%v ok=%v, want 9000×4600", l, w, ok)
 	}
 	if _, _, ok := LargestStockSheet(mustSheets(t), "TITAN-X"); ok {
 		t.Fatal("unknown material must report ok=false")
 	}
 }
 
-// materialCases — сценарии min/средний/max/over-max для каждого материала.
-// Деталь выбирается так, чтобы покрываться ровно целевым листом каталога.
-var materialCases = []struct {
-	name     string
-	material dommfg.MaterialCode
-	parts    []struct {
-		label    string
-		length   float64
-		width    float64
-		feasible bool
-		expectL  float64 // ожидаемый лист (0 — не проверяется)
-		expectW  float64
-	}
-}{
-	{
-		name:     "steel",
-		material: "STEEL-S235",
-		parts: []struct {
-			label    string
-			length   float64
-			width    float64
-			feasible bool
-			expectL  float64
-			expectW  float64
-		}{
-			{"min лист 2500×1250: деталь 2400×1200", 2400, 1200, true, 2500, 1250},
-			{"мид лист 8000×4600: деталь 7900×4500", 7900, 4500, true, 8000, 4600},
-			{"max лист 10400×6200: деталь 10300×6100", 10300, 6100, true, 10400, 6200},
-			{"регресс H=3000: косоур 4710×3050 → 8000×4600", 4710, 3050, true, 8000, 4600},
-			{"over-max: 10500×6300", 10500, 6300, false, 0, 0},
-		},
-	},
-	{
-		name:     "wood",
-		material: "WOOD-OAK",
-		parts: []struct {
-			label    string
-			length   float64
-			width    float64
-			feasible bool
-			expectL  float64
-			expectW  float64
-		}{
-			{"единственный лист 2500×600: деталь 2400×590", 2400, 590, true, 2500, 600},
-			{"плита 2500×1250: деталь 2480×1240", 2480, 1240, true, 2500, 1250},
-			{"плита 6000×3000: деталь 5900×2900", 5900, 2900, true, 6000, 3000},
-			{"плита 9000×4600: деталь 8900×4500", 8900, 4500, true, 9000, 4600},
-			{"over-max дерево: 9001×4601", 9001, 4601, false, 0, 0},
-		},
-	},
-}
-
-func TestSheetFeasiblePerMaterial(t *testing.T) {
-	reg := mustSheets(t)
-	for _, tc := range materialCases {
-		for _, p := range tc.parts {
-			ok := SheetFeasible(reg, tc.material, DefaultKerf, Rect{Length: p.length, Width: p.width})
-			if ok != p.feasible {
-				t.Errorf("%s / %s: SheetFeasible = %v, want %v",
-					tc.name, p.label, ok, p.feasible)
-			}
-		}
-	}
-}
-
-func TestNestChoosesMinMidMaxSheetPerMaterial(t *testing.T) {
-	for _, tc := range materialCases {
-		for _, p := range tc.parts {
-			if !p.feasible {
-				continue
-			}
-			res, err := Nest(rectCut(t, tc.material, 40, p.length, p.width, 1),
-				mustSheets(t), DefaultKerf)
-			if err != nil {
-				t.Fatalf("%s / %s: Nest: %v", tc.name, p.label, err)
-			}
-			if len(res.Sheets) != 1 {
-				t.Fatalf("%s / %s: sheets = %d, want 1", tc.name, p.label, len(res.Sheets))
-			}
-			s := res.Sheets[0]
-			if p.expectL != 0 && !nearlyEqual(s.Length.Millimeters(), p.expectL) {
-				t.Errorf("%s / %s: sheet length = %v, want %v",
-					tc.name, p.label, s.Length.Millimeters(), p.expectL)
-			}
-			if p.expectW != 0 && !nearlyEqual(s.Width.Millimeters(), p.expectW) {
-				t.Errorf("%s / %s: sheet width = %v, want %v",
-					tc.name, p.label, s.Width.Millimeters(), p.expectW)
-			}
-		}
-	}
-}
-
-// TestNestTallFlightStringer — худший косоур для H=6000 (прогон 10200 ×
-// 6050) укладывается на лист 10400×6200 по одному на лист.
-func TestNestTallFlightStringer(t *testing.T) {
-	for _, qty := range []int{1, 2} {
-		wantSheets := qty
-		cut := rectCut(t, "STEEL-S235", 50, 10200, 6050, dommfg.Quantity(qty))
-		res, err := Nest(cut, mustSheets(t), DefaultKerf)
-		if err != nil {
-			t.Fatalf("Nest qty=%d: %v", qty, err)
-		}
-		if len(res.Sheets) != wantSheets {
-			t.Fatalf("qty=%d: sheets = %d, want %d", qty, len(res.Sheets), wantSheets)
-		}
-		for _, s := range res.Sheets {
-			if !nearlyEqual(s.Length.Millimeters(), 10400) || !nearlyEqual(s.Width.Millimeters(), 6200) {
-				t.Fatalf("qty=%d: sheet dims = %v×%v, want 10400×6200",
-					qty, s.Length.Millimeters(), s.Width.Millimeters())
-			}
-			assertNoOverlap(t, s)
-		}
-	}
-}
-
-func TestLargestStockSheetPerMaterial(t *testing.T) {
-	cases := []struct {
-		material dommfg.MaterialCode
-		length   float64
-		width    float64
-	}{
-		{"STEEL-S235", 10400, 6200},
-		{"WOOD-OAK", 9000, 4600},
-	}
-	for _, tc := range cases {
-		l, w, ok := LargestStockSheet(mustSheets(t), tc.material)
-		if !ok || l != tc.length || w != tc.width {
-			t.Errorf("%s: largest sheet = %v×%v ok=%v, want %v×%v",
-				tc.material, l, w, ok, tc.length, tc.width)
-		}
-	}
-}
-
+// assertNoOverlap проверяет, что на листе нет наложений деталей. Смысл
+// раскроя в этом и состоит: площадь деталей, сложенная дважды, дала бы
+// неверную утилизацию и неверную цену материала.
 func assertNoOverlap(t *testing.T, s dommfg.SheetLayout) {
 	t.Helper()
 	for i := 0; i < len(s.Placed); i++ {
@@ -314,14 +276,120 @@ func assertNoOverlap(t *testing.T, s dommfg.SheetLayout) {
 	}
 }
 
-func TestNestAreaMetrics(t *testing.T) {
-	cut := rectCut(t, "STEEL-S235", 40, 800, 270, 12)
-	res, err := Nest(cut, mustSheets(t), DefaultKerf)
+// Металл и дерево раскраиваются по РАЗНЫМ правилам (решение владельца
+// 2026-10-05): металл — по рабочему полю лазерного стола 3000×1500 с
+// раскладкой на заготовки и листы 6000×1500; дерево — по листам каталога,
+// его раскрой отложен на потом.
+func TestSheetFeasiblePerMaterial(t *testing.T) {
+	cases := []struct {
+		label     string
+		thickness float64
+		length    float64
+		width     float64
+		expect    bool
+	}{
+		{"сталь: проступь 900×300", 8, 900, 300, true},
+		{"сталь: кусок косоура 2644×300", 8, 2644, 300, true},
+		{"сталь: ровно поле 2980×1480", 8, 2980, 1480, true},
+		{"сталь: на 1 мм шире поля", 8, 2981, 300, false},
+		{"сталь: деталь длиннее поля", 8, 3200, 300, false},
+		{"сталь: деталь шире поля", 8, 1500, 1500, false},
+	}
+	for _, c := range cases {
+		got := SheetFeasible(c.thickness, Rect{Length: c.length, Width: c.width})
+		if got != c.expect {
+			t.Errorf("%s: SheetFeasible = %v, want %v", c.label, got, c.expect)
+		}
+	}
+}
+
+// Дерево раскраивается по листам каталога (2500×600 … 9000×4600) — этот путь
+// не тронут полем лазерного стола, потому что дерево режется на другом станке.
+func TestNestWoodUsesStockSheets(t *testing.T) {
+	cases := []struct {
+		label   string
+		length  float64
+		width   float64
+		expectL float64
+		expectW float64
+	}{
+		{"деталь 2400×590 → лист 2500×600", 2400, 590, 2500, 600},
+		{"деталь 2480×1240 → лист 2500×1250", 2480, 1240, 2500, 1250},
+		{"деталь 5900×2900 → плита 6000×3000", 5900, 2900, 6000, 3000},
+		{"деталь 8900×4500 → плита 9000×4600", 8900, 4500, 9000, 4600},
+	}
+	for _, c := range cases {
+		res, err := Nest(rectCut(t, "WOOD-OAK", 40, c.length, c.width, 1), mustSheets(t))
+		if err != nil {
+			t.Fatalf("%s: %v", c.label, err)
+		}
+		if len(res.Sheets) != 1 {
+			t.Fatalf("%s: листов %d, ожидался 1", c.label, len(res.Sheets))
+		}
+		s := res.Sheets[0]
+		if s.Length.Millimeters() != c.expectL || s.Width.Millimeters() != c.expectW {
+			t.Errorf("%s: лист %.0f×%.0f, ожидалось %.0f×%.0f",
+				c.label, s.Length.Millimeters(), s.Width.Millimeters(), c.expectL, c.expectW)
+		}
+		assertNoOverlap(t, s)
+	}
+}
+
+// Металл: детали раскладываются в заготовки 3000×1500, а заготовки — по две на
+// лист 6000×1500. Число листов = ⌈заготовок / 2⌉.
+func TestNestSteelUsesBlanksThenSheets(t *testing.T) {
+	gap := dommfg.CutGapMM(8)
+	off := dommfg.CutEdgeOffsetMM(8)
+	usableL := dommfg.BlankLengthMM - 2*off
+	// Косоур-кусок 2644 мм: в ряд влезает один, рядов по ширине 300 мм столько,
+	// сколько помещается в заготовку.
+	res, err := Nest(rectCut(t, "STEEL-S235", 8, 2644, 300, 4), mustSheets(t))
 	if err != nil {
 		t.Fatal(err)
 	}
+	perRow := int((usableL + gap) / (2644 + gap))
+	if perRow != 1 {
+		t.Fatalf("в ряд влезает %d кусков, ожидался 1", perRow)
+	}
+	rows := int((dommfg.BlankWidthMM - 2*off + gap) / (300 + gap))
+	perBlank := rows * perRow
+	if perBlank < 4 {
+		t.Fatalf("в заготовку влезает %d кусков, ожидалось не меньше 4", perBlank)
+	}
+	blanks := (4 + perBlank - 1) / perBlank
+	wantSheets := dommfg.SheetsForBlanks(blanks)
+	if len(res.Sheets) != wantSheets {
+		t.Fatalf("листов %d, ожидалось %d (заготовок %d)", len(res.Sheets), wantSheets, blanks)
+	}
+	for _, s := range res.Sheets {
+		if s.Length.Millimeters() != dommfg.StockSheetLengthMM ||
+			s.Width.Millimeters() != dommfg.StockSheetWidthMM {
+			t.Errorf("лист %.0f×%.0f, ожидалось %.0f×%.0f",
+				s.Length.Millimeters(), s.Width.Millimeters(),
+				dommfg.StockSheetLengthMM, dommfg.StockSheetWidthMM)
+		}
+		assertNoOverlap(t, s)
+		// Деталь не должна вылезать за лист.
+		for _, p := range s.Placed {
+			if p.X+p.Length.Millimeters() > s.Length.Millimeters()+1e-6 ||
+				p.Y+p.Width.Millimeters() > s.Width.Millimeters()+1e-6 {
+				t.Errorf("деталь %q выходит за лист: %.0f×%.0f в (%.0f, %.0f)",
+					p.PartNumber, p.Length.Millimeters(), p.Width.Millimeters(), p.X, p.Y)
+			}
+		}
+	}
+}
+
+func TestNestAreaMetrics(t *testing.T) {
+	cut := rectCut(t, "STEEL-S235", 40, 800, 270, 12)
+	res, err := Nest(cut, mustSheets(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Лист металла 6000×1500 (сводная шпатка технолога 2026-10-05): 12 деталей
+	// 800×270 помещаются в две заготовки одного листа без остатка.
 	wantPart := float64(12 * 800 * 270)
-	wantSheet := float64(2500 * 1250)
+	wantSheet := dommfg.StockSheetLengthMM * dommfg.StockSheetWidthMM
 	if math.Abs(res.PartArea-wantPart) > 1e-6 {
 		t.Fatalf("part area = %v, want %v", res.PartArea, wantPart)
 	}

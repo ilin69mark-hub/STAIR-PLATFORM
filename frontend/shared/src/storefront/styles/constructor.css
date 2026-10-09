@@ -166,26 +166,89 @@
   border-color: var(--sp-error);
 }
 
-.field .checkbox {
+/* ПЕРЕКЛЮЧАТЕЛЬ «ПОДСТУПЕНЬ» — тумблер (решение владельца 2026-10-08).
+   Раньше здесь стояла галочка в плашке: состояние читалось только словом
+   «Да»/«Нет», а сам элемент выглядел частью формы, а не organом управления.
+   Теперь состояние читается формой и цветом: ВКЛЮЧЕНО — зелёный трек
+   (--sp-primary) с белым бегунком справа, ВЫКЛЮЧЕНО — приглушённый серый
+   (--sp-border) с бегунком слева.
+
+   Нативный checkbox внутри НЕ убран из дерева: на нём держится htmlFor
+   подписи, клавиатурная доступность из коробки (пробел переключает) и
+   существующие тесты (getByLabelText / toBeChecked). Видимость даёт трек. */
+.switch {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  /* 3px 8px вместо 10px 12px: блок в 38px высотой съедал строку ради
-     одного слова «Да». */
-  padding: 3px 8px;
-  border: 1px solid var(--sp-border);
-  border-radius: 6px;
-  background: #fff;
+  gap: 8px;
+  cursor: pointer;
   font-size: 12px;
   font-weight: 600;
-  cursor: pointer;
+  user-select: none;
 }
 
-.field .checkbox input[type='checkbox'] {
-  width: 14px;
-  height: 14px;
-  accent-color: var(--sp-primary);
-  cursor: pointer;
+.switch__track {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  flex: none;
+  border-radius: 11px;
+  background: var(--sp-border);
+  transition: background-color 0.16s ease;
+}
+
+.switch__track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(16, 32, 24, 0.28);
+  transition: transform 0.16s ease;
+}
+
+.switch input[type='checkbox'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.switch input[type='checkbox']:checked + .switch__track {
+  background: var(--sp-primary);
+}
+
+.switch input[type='checkbox']:checked + .switch__track::after {
+  transform: translateX(18px);
+}
+
+/* Фокус виден на ТРЕКЕ, а не на скрытом инпуте: иначе при ходьбе с
+   клавиатуры не было видно, где курсор. */
+.switch input[type='checkbox']:focus-visible + .switch__track {
+  outline: 2px solid var(--sp-primary);
+  outline-offset: 2px;
+}
+
+/* Слово держит состояние и для тех, кто не различает цвета, а зелёный трек
+   остаётся главным сигналом. */
+.switch__text {
+  color: var(--sp-muted);
+  min-width: 26px;
+}
+
+.switch input[type='checkbox']:checked ~ .switch__text {
+  color: var(--sp-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch__track,
+  .switch__track::after {
+    transition: none;
+  }
 }
 
 /* Подпись и переключатель в одну строку — для «Подступень» это экономит

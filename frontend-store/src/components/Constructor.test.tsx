@@ -207,6 +207,16 @@ function fillValid() {
   }
 }
 
+// Предзагрузка эталонного варианта (решение владельца 2026-10-08) — ПЕРВЫЙ
+// вызов quoteApi.calculate в каждом тесте конструктора. Тесты, которые проверяют
+// поведение по нажатию человека, отделяют её от своих вызовов: ждут её и
+// сбрасывают счётчик. Иначе «первый» ответ мока уходил бы предзагрузке, а
+// проверка считала бы чужие вызовы.
+async function pastPreload(spy: { mockClear: () => unknown }) {
+  await waitFor(() => expect(quoteApi.calculate).toHaveBeenCalled())
+  spy.mockClear()
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
 })
@@ -271,15 +281,33 @@ describe('Constructor', () => {
     }
   })
 
-  it('загружается с пустыми полями', async () => {
+  // ЭТАЛОННЫЙ ВАРИАНТ ПРИ ОТКРЫТИИ (решение владельца 2026-10-08).
+  // Раньше тест требовал пустых полей; теперь контракт обратный — при входе в
+  // калькулятор сразу предзаполнен рабочий марш и сразу рассчитан.
+  it('открывается с эталонным вариантом и сразу считает', async () => {
+    const spy = vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote)
     await renderWithAuth(<Constructor />, null)
-    // Толщина ступени — единственное числовое поле с дефолтом: дефолт
-    // изделия «сталь + дуб» обязан быть валидным (20–60 мм), иначе
-    // калькулятор открывается с красным полем.
-    for (const label of Object.keys(validValues)) {
-      const expected = label === 'Толщина ступени (мм)' ? '40' : ''
-      expect(field(label)).toHaveValue(expected)
-    }
+
+    expect(field('Ширина марша (мм)')).toHaveValue('900')
+    expect(field('Высота (мм)')).toHaveValue('2700')
+    expect(field('Просвет (мм)')).toHaveValue('2000')
+    expect(field('Высота перил (мм)')).toHaveValue('900')
+    // Толщина ступени — дефолт изделия «сталь + дуб», обязан быть валидным
+    // (20–60 мм), иначе калькулятор открылся бы с красным полем.
+    expect(field('Толщина ступени (мм)')).toHaveValue('40')
+    // Габариты помещения остаются пустыми: fit-check без них не выполняется,
+    // и покупатель не видит блокировки из-за того, чего не вводил.
+    expect(field('Ширина помещения (мм)')).toHaveValue('')
+    expect(field('Длина помещения (мм)')).toHaveValue('')
+    // Ни одного красного поля на первом экране.
+    expect(document.querySelectorAll('.field-invalid, [aria-invalid="true"]')).toHaveLength(0)
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
+    expect(spy.mock.calls[0][0]).toMatchObject({
+      width_mm: 900,
+      height_mm: 2700,
+      flight: 'straight',
+    })
   })
 
   // Поля панели принимают только целые миллиметры. Буквы и знаки отбрасываются
@@ -308,6 +336,43 @@ describe('Constructor', () => {
 
     // Мобильная клавиатура получает numeric, а не decimal: значения целые.
     expect(width).toHaveAttribute('inputmode', 'numeric')
+  })
+
+  // ТУМБЛЕР «ПОДСТУПЕНЬ» (решение владельца 2026-10-08). Контракт прежний
+  // (нативный checkbox, checked, клик), добавлены role=switch, явное
+  // доступное имя и видимый трек.
+  //
+  // Ищем через field(), а не getByRole: после предзагрузки секция «Основные
+  // настройки» схлопнута, и getByRole отфильтровывает скрытые элементы —
+  // тест проверял бы не форму, а состояние аккордеона.
+  it('подступень — тумблер: роль switch, явное имя, состояние словом', async () => {
+    vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote)
+    await renderWithAuth(<Constructor />, null)
+    await screen.findByLabelText('Подступень')
+
+    const sw = field('Подступень') as HTMLInputElement
+    // Нативный checkbox — он и есть источник истины для формы и для тестов.
+    expect(sw.type).toBe('checkbox')
+    expect(sw).toBeChecked()
+    // Переключатель, а не галочка; имя задано ЯВЛЬНО, иначе второй <label>
+    // со словом «Да» становился доступным именем вместо «Подступень».
+    expect(sw).toHaveAttribute('role', 'switch')
+    expect(sw).toHaveAttribute('aria-label', 'Подступень')
+
+    // Видимый трек — отдельный элемент с label на тот же id: клик по нему
+    // переключает, но текста он не добавляет.
+    const track = document.querySelector('label.switch__track')
+    expect(track).toHaveAttribute('for', 'cfg-riser')
+    expect(track).toHaveAttribute('aria-hidden', 'true')
+
+    // Слово-состояние под тумблером, выключено для скринридера.
+    const text = document.querySelector('.switch__text')
+    expect(text).toHaveTextContent('Да')
+    expect(text).toHaveAttribute('aria-hidden', 'true')
+
+    fireEvent.click(sw)
+    expect((field('Подступень') as HTMLInputElement).checked).toBe(false)
+    expect(document.querySelector('.switch__text')).toHaveTextContent('Нет')
   })
 
   it('чекбокс подступенка: включён по умолчанию и передаётся в запрос', async () => {
@@ -387,14 +452,15 @@ describe('Constructor', () => {
     for (const re of noRangeDuplicates) {
       expect(maybeInSections(() => screen.queryByText(re))).toBeNull()
     }
-    // Шкала ползунка толщины ступени: по умолчанию дуб, 20–60 мм. Поле
-    // перенесено в «Цвет и материал» под переключатель материала ступеней,
-    // потому что пределы задаёт именно он.
+    // Шкала ползунка толщины ступени: по умолчанию дуб, 40–60 мм (минимум
+    // 40 мм — решение владельца 2026-10-05: под скругление R10 нужна полка,
+    // а не фанера). Поле перенесено в «Цвет и материал» под переключатель
+    // материала ступеней, потому что пределы задаёт именно он.
     const scale = inSection('Цвет и материал', () =>
       screen.getByLabelText('Толщина ступени (мм), ползунок').parentElement
         ?.querySelector('.slider__scale'),
     )
-    expect(scale?.textContent).toBe('2060')
+    expect(scale?.textContent).toBe('4060')
   })
 
   // Компактность панели по требованию владельца: убраны подписи, которые
@@ -446,14 +512,18 @@ describe('Constructor', () => {
         screen.getByLabelText('Толщина ступени (мм), ползунок').parentElement
           ?.querySelector('.slider__scale')?.textContent,
       )
-    // По умолчанию дуб: 20–60.
-    expect(scale()).toBe('2060')
-    // Металл: 3–8.
+    // По умолчанию дуб: 40–60.
+    expect(scale()).toBe('4060')
+    // Металл: толщина ступени ФИКСИРОВАНА 5 мм и поле скрыто (решение
+    // владельца 2026-10-05), поэтому ползунка у металла нет вовсе — сравнивать
+    // нечего. Пределы выпуска листа для металла живут в config.test.ts.
     pickTreadMetal()
-    expect(scale()).toBe('38')
-    // Обратно в дерево.
+    expect(
+      maybeInSections(() => screen.queryByLabelText('Толщина ступени (мм), ползунок')),
+    ).toBeNull()
+    // Обратно в дерево — ползунок возвращается с теми же пределами.
     pickTreadWood()
-    expect(scale()).toBe('2060')
+    expect(scale()).toBe('4060')
   })
 
   it('3D: перетаскивание ступени меняет высоту и сразу пересчитывает', async () => {
@@ -508,23 +578,28 @@ describe('Constructor', () => {
     const thickness = field('Толщина ступени (мм)')
     fireEvent.change(thickness, { target: { value: '6' } })
     expect(field('Толщина ступени (мм)')).toHaveValue('6')
-    // Переход на дерево подтягивает толщину к минимуму дуба (20 мм).
+    // Переход на дерево подтягивает толщину к минимуму дуба (40 мм): иначе
+    // запрос ушёл бы с 6 мм и вернул 422.
     pickTreadWood()
-    expect(field('Толщина ступени (мм)')).toHaveValue('20')
+    expect(field('Толщина ступени (мм)')).toHaveValue('40')
+    // У металла поле скрыто, а значение принудительно 5 мм — проверяем
+    // именно это, а не диапазон (его задаёт config.test.ts).
     pickTreadMetal()
-    expect(Number(field('Толщина ступени (мм)').getAttribute('value') ?? 0)).toBeLessThanOrEqual(8)
+    expect(
+      maybeInSections(() => screen.queryByLabelText('Толщина ступени (мм)')),
+    ).toBeNull()
   })
 
   it('валидация учитывает пределы материала ступеней', async () => {
     await renderWithAuth(<Constructor />, null)
-    // Металл: ступень 3–8 мм, 2 мм — вне предела.
-    pickTreadMetal()
-    fireEvent.change(field('Толщина ступени (мм)'), { target: { value: '2' } })
-    expect(inSections(() => screen.queryByText('Не менее 3'))).toBeInTheDocument()
-    // Дерево: минимум 20 мм, 10 мм — вне предела.
+    // Дерево: минимум ступени 40 мм (решение владельца 2026-10-05),
+    // поэтому 30 мм — вне предела.
     pickTreadWood()
-    fireEvent.change(field('Толщина ступени (мм)'), { target: { value: '10' } })
-    expect(inSections(() => screen.queryByText('Не менее 20'))).toBeInTheDocument()
+    fireEvent.change(field('Толщина ступени (мм)'), { target: { value: '30' } })
+    expect(inSections(() => screen.queryByText('Не менее 40'))).toBeInTheDocument()
+    // Граница 40 мм — уже валидно, подсказка исчезает.
+    fireEvent.change(field('Толщина ступени (мм)'), { target: { value: '40' } })
+    expect(maybeInSections(() => screen.queryByText('Не менее 40'))).toBeNull()
   })
 
   it('показывает знак справки с тултипом у просвета', async () => {
@@ -576,7 +651,6 @@ describe('Constructor', () => {
     // Направление поворота появляется и по умолчанию «влево».
     const dirLeft = inSection('Настройки поворота', () => screen.getByRole('radio', { name: 'Влево' }))
     expect(dirLeft).toHaveAttribute('aria-checked', 'true')
-    // Спиральных полей у L-марша нет.
     expect(screen.queryByRole('radio', { name: /Против часовой/ })).toBeNull()
 
     // Переключаем направление поворота кнопкой сегмента.
@@ -589,24 +663,21 @@ describe('Constructor', () => {
     ).toHaveAttribute('aria-checked', 'true')
   })
 
-  it('спиральный марш скрыт из формы (S-152)', async () => {
+  it('в форме ровно три типа марша', async () => {
     await renderWithAuth(<Constructor />, null)
-    // Тип марша — сегментированные кнопки: спираль в них отсутствует.
+    // Тип марша — сегментированные кнопки: других типов в них нет.
     const flights = inSections(() =>
       Array.from(
         document.querySelectorAll('.segmented[data-cols="3"] .segmented__item'),
       ).map((b) => b.textContent?.trim()),
     )
     expect(flights?.length).toBe(3)
-    expect(flights?.join(' ')).not.toMatch(/Спираль/)
-    // Поля спирали (радиус, направление) в форме отсутствуют.
-    expect(screen.queryByLabelText('Радиус (мм)')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Направление спирали')).not.toBeInTheDocument()
   })
 
   it('не вызывает расчёт при ошибках валидации', async () => {
     const spy = vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote)
     await renderWithAuth(<Constructor />, null)
+    await pastPreload(spy)
     const width = field('Ширина марша (мм)')
     fireEvent.change(width, { target: { value: '100' } })
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
@@ -661,8 +732,9 @@ describe('Constructor', () => {
     await renderWithAuth(<Constructor />, null)
     fillValid()
     pickTreadWood()
-    // Толщина ступени 6 мм допустима для стали, для дуба — нет (min 20).
-    fireEvent.change(field('Толщина ступени (мм)'), { target: { value: '30' } })
+    // 30 мм для дуба вне предела (минимум 40), поэтому ставим границу: запрос
+    // уходит с валидной толщиной и материал видно в обоих полях.
+    fireEvent.change(field('Толщина ступени (мм)'), { target: { value: '40' } })
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
     expect(await screen.findByText(/^Результат расчёта/)).toBeInTheDocument()
     // Каркас — сталь, ступени — дуб: запрос несёт оба кода раздельно.
@@ -681,7 +753,7 @@ describe('Constructor', () => {
     expect(field('Нижних ступеней (шт)')).toBeInTheDocument()
   })
 
-  it('прямой марш скрывает поля площадки, радиуса спирали в форме нет', async () => {
+  it('прямой марш скрывает поля площадки и поворота', async () => {
     await renderWithAuth(<Constructor />, null)
     // У прямого марша секции поворота нет вовсе, поэтому полей площадки
     // нет даже после её открытия.
@@ -744,6 +816,7 @@ describe('Constructor', () => {
   it('без габаритов помещения спрашивает; «Продолжить без площади» продолжает', async () => {
     const spy = vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote)
     await renderWithAuth(<Constructor />, null)
+    await pastPreload(spy)
     fillValid()
     // Очищаем габариты помещения, чтобы сработал запрос подтверждения.
     fireEvent.change(field('Ширина помещения (мм)'), { target: { value: '' } })
@@ -765,6 +838,7 @@ describe('Constructor', () => {
   it('«Внести данные площади» подсвечивает и фокусирует комнатные поля', async () => {
     const spy = vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote)
     await renderWithAuth(<Constructor />, null)
+    await pastPreload(spy)
     fillValid()
     fireEvent.change(field('Ширина помещения (мм)'), { target: { value: '' } })
     fireEvent.change(field('Длина помещения (мм)'), { target: { value: '' } })
@@ -790,6 +864,8 @@ describe('Constructor', () => {
   it('кнопка «Применить» подставляет значения и снимает блокировку', async () => {
     const spy = vi
       .spyOn(quoteApi, 'calculate')
+      // Первый ответ уходит предзагрузке эталона.
+      .mockResolvedValueOnce(okQuote)
       .mockResolvedValueOnce(blockedWithAdvice)
       .mockResolvedValue(okQuote)
     await renderWithAuth(<Constructor />, null)
@@ -830,6 +906,8 @@ describe('Constructor', () => {
     }
     const spy = vi
       .spyOn(quoteApi, 'calculate')
+      // Первый ответ уходит предзагрузке эталона.
+      .mockResolvedValueOnce(okQuote)
       .mockResolvedValueOnce(blocked)
       .mockResolvedValue(okQuote)
     await renderWithAuth(<Constructor />, null)
@@ -848,6 +926,8 @@ describe('Constructor', () => {
   it('вариация (straight) подставляет высоту ступени и пересчитывает', async () => {
     const spy = vi
       .spyOn(quoteApi, 'calculate')
+      // Первый ответ уходит предзагрузке эталона.
+      .mockResolvedValueOnce(okQuote)
       .mockResolvedValueOnce(
         blockedVariations({ flight: 'straight', heightMM: '3000', widthMM: '1000', stepHeightMM: '166.67', comfortStepMM: '620' }),
       )
@@ -871,6 +951,8 @@ describe('Constructor', () => {
   it('вариация (l_shape) меняет тип марша и подставляет площадку', async () => {
     const spy = vi
       .spyOn(quoteApi, 'calculate')
+      // Первый ответ уходит предзагрузке эталона.
+      .mockResolvedValueOnce(okQuote)
       .mockResolvedValueOnce(
         blockedVariations({
           flight: 'l_shape', heightMM: '3000', widthMM: '1000', landingWidthMM: '1000',
@@ -899,6 +981,8 @@ describe('Constructor', () => {
   it('вариация (u_shape) меняет тип марша и подставляет площадку', async () => {
     const spy = vi
       .spyOn(quoteApi, 'calculate')
+      // Первый ответ уходит предзагрузке эталона.
+      .mockResolvedValueOnce(okQuote)
       .mockResolvedValueOnce(
         blockedVariations({
           flight: 'u_shape', heightMM: '3000', widthMM: '1000', landingWidthMM: '1000',
@@ -931,6 +1015,8 @@ describe('Constructor', () => {
     // падал. После фикса пустые значения пропускаются.
     const spy = vi
       .spyOn(quoteApi, 'calculate')
+      // Первый ответ уходит предзагрузке эталона.
+      .mockResolvedValueOnce(okQuote)
       .mockResolvedValueOnce(
         blockedVariations({
           flight: 'straight', heightMM: '3000', widthMM: '1000', stepHeightMM: '166.67',
@@ -961,6 +1047,8 @@ describe('Constructor', () => {
   it('исходный марш остаётся в галерее и возвращается по клику', async () => {
     const spy = vi
       .spyOn(quoteApi, 'calculate')
+      // Первый ответ уходит предзагрузке эталона.
+      .mockResolvedValueOnce(okQuote)
       .mockResolvedValueOnce(
         blockedVariations({
           flight: 'l_shape', heightMM: '3000', widthMM: '1000',
@@ -1009,9 +1097,9 @@ describe('Constructor', () => {
   })
 })
 // ---- Живая валидация при вводе (S-P5) ----
-// Мок ответа публичного :validate: спираль, радиус меньше ширины марша.
-// Блокирующая живая валидация на прямом марше: проступь вне диапазона и
-// готовое предложение советника (спираль отключена, S-152).
+// Мок ответа публичного :validate: проступь вне диапазона на прямом марше.
+// Блокирующая живая валидация: проступь вне диапазона и готовое предложение
+// советника.
 const liveBlockedStraight = {
   valid: false,
   blocking: true,
@@ -1040,8 +1128,8 @@ describe('Constructor · живая валидация (S-P5)', () => {
     await renderWithAuth(<Constructor />, null)
 
     fillValid()
-    // Спираль отключена (S-152) — блокировку показываем на прямом марше
-    // по проступи, применяя предложение советника.
+    // Блокировку показываем на прямом марше по проступи,
+    // применяя предложение советника.
     fireEvent.change(field('Ширина марша (мм)'), { target: { value: '1000' } })
 
     await waitFor(() => expect(validateSpy).toHaveBeenCalledTimes(1), { timeout: 2500 })
@@ -1058,8 +1146,9 @@ describe('Constructor · живая валидация (S-P5)', () => {
     // Кнопка «Применить» из баннера: вариант советника подставляется в форму
     // и запускается полный расчёт с новым радиусом/шириной.
     fireEvent.click(screen.getByText(/Применить: 16 ступ/))
-    await waitFor(() => expect(quoteApi.calculate).toHaveBeenCalledTimes(1), { timeout: 2500 })
-    const calcBody = (quoteApi.calculate as ReturnType<typeof vi.fn>).mock.calls[0][0] as Record<string, unknown>
+    await waitFor(() => expect(quoteApi.calculate).toHaveBeenCalled(), { timeout: 2500 })
+    const calls = (quoteApi.calculate as ReturnType<typeof vi.fn>).mock.calls
+    const calcBody = calls[calls.length - 1][0] as Record<string, unknown>
     expect(calcBody.flight).toBe('straight')
     expect(calcBody.step_height_mm).toBeCloseTo(168.75, 1)
   })
@@ -1071,5 +1160,29 @@ describe('Constructor · живая валидация (S-P5)', () => {
     fireEvent.change(field('Высота (мм)'), { target: { value: '9999' } })
     await sleep(LIVE_DEBOUNCE + 200)
     expect(validateSpy).not.toHaveBeenCalled()
+  })
+
+  // «Сбросить» возвращает ЭТАЛОН и сразу его считает (решение владельца
+  // 2026-10-08). Прежде он возвращал пустую форму и гасил 3D, то есть
+  // возвращал ровно то раздражающее поведение, которое предзагрузка убирает.
+  it('«Сбросить» возвращает эталонный вариант вместе с расчётом', async () => {
+    const spy = vi.spyOn(quoteApi, 'calculate').mockResolvedValue(okQuote)
+    await renderWithAuth(<Constructor />, null)
+    await pastPreload(spy)
+
+    fireEvent.change(field('Высота (мм)'), { target: { value: '3200' } })
+    fireEvent.change(field('Ширина марша (мм)'), { target: { value: '1200' } })
+    await waitFor(() => expect(screen.getByText(/^Результат расчёта/)).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Сбросить' }))
+
+    await waitFor(() => expect(spy).toHaveBeenCalled())
+    expect(field('Высота (мм)')).toHaveValue('2700')
+    expect(field('Ширина марша (мм)')).toHaveValue('900')
+    // Расчёт эталона выполнен, 3D на месте.
+    expect(spy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ width_mm: 900, height_mm: 2700, flight: 'straight' }),
+    )
+    expect(document.querySelectorAll('.field-invalid, [aria-invalid="true"]')).toHaveLength(0)
   })
 })

@@ -14,7 +14,7 @@ const makeResult = (overrides: Partial<AssistantResult> = {}): AssistantResult =
     findings: [{ severity: 'warning', element: 'clearance_mm', message: 'Малый зазор' }],
     suggestions: [{ message: 'Уменьшить шаг', rationale: 'лучше комфорт' }],
     tradeoffs: ['Цена против комфорта'],
-    notes: ['Спираль без радиуса приведена к R=2W'],
+    notes: ['Проверена толщина листового косоура по нормативу'],
   },
   commentary: 'Локальная модель: рекомендация сформирована.',
   ...overrides,

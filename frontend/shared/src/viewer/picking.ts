@@ -63,6 +63,50 @@ export function groupsFromRanges(ranges: MeshPartRange[] | undefined | null): Pa
 }
 
 /**
+ * PartRanges → группы для THREE.BufferGeometry.addGroup, В ИНДЕКСАХ.
+ *
+ * Здесь была причина «каши» вместо лестницы. PartRanges отдаётся бэкендом в
+ * ТРЕУГОЛЬНИКАХ: ToPreviewMeshCached пишет Start = len(mesh.Triangles) до
+ * добавления треугольников тела, End — после (internal/engine/geometry/mesh.go).
+ * А addGroup(start, count) в three.js считает start и count в элементах
+ * ИНДЕКСНОГО БУФЕРА, то есть по три на треугольник.
+ *
+ * Смешение единиц давало две поломки сразу, обе видны покупателю:
+ *   1) Материал уезжал на треть модели: группа «косоур» накрывала треугольники
+ *      ступеней и красила косоур материалом ступеней — отсюда «деревянный
+ *      косоур» на металлической лестнице.
+ *   2) Группы покрывали только треть индексного буфера. При массиве
+ *      материалов three.js рисует РОВНО группы (WebGLRenderer.renderObject
+ *      идёт по geometry.groups), а индексы вне групп не рисуются вообще.
+ *      На металлокаркасе (31424 треугольника) это 2 косоура, 4 ступени и
+ *      огрызок пяток; на дереве (536 треугольников) — 2 косоура и 3–5 ступеней,
+ *      дальше марша нет. Ровно то, что описал владелец.
+ *
+ * Хвост, не покрытый ни одной группой, приклеивается к последней группе:
+ * лучше деталь дорисуется чуть дальше, чем модель молча провалится.
+ *
+ * Порядок и фильтр пустых групп совпадают с groupsFromRanges — по индексу
+ * группы подсвечивается материал (setEmissive берёт material[groupIndex]).
+ */
+export function indexGroupsFromRanges(
+  ranges: MeshPartRange[] | undefined | null,
+  triangleTotal: number,
+): { start: number; count: number; solid: number; role: string }[] {
+  if (!ranges?.length) return []
+  const limit = Math.max(0, Math.floor(triangleTotal)) * 3
+  const out: { start: number; count: number; solid: number; role: string }[] = []
+  for (const r of ranges) {
+    const start = Math.min(limit, Math.max(0, r.Start * 3))
+    const end = Math.min(limit, Math.max(start, r.End * 3))
+    if (end <= start) continue
+    out.push({ start, count: end - start, solid: r.Solid, role: r.Role || 'stair' })
+  }
+  const last = out[out.length - 1]
+  if (last && last.start + last.count < limit) last.count = limit - last.start
+  return out
+}
+
+/**
  * Индекс группы по номеру треугольника. Группы отсортированы по start
  * (порядок PartRanges совпадает с порядком геометрии), поэтому бинарный поиск.
  */

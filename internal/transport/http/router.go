@@ -173,6 +173,15 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 
 	mux.Handle("GET /api/v1/admin/users", authProtected(handleListUsers(authSvc)))
 	mux.Handle("PATCH /api/v1/admin/users/{id}", authMutating(handleUpdateUser(authSvc)))
+	// Удаление сотрудника — mutating (CSRF) и требует staff.delete.
+	mux.Handle("GET /api/v1/admin/users/{id}/deletion-preview", authProtected(handleUserDeletionPreview(authSvc)))
+	mux.Handle("DELETE /api/v1/admin/users/{id}", authMutating(handleDeleteUser(authSvc)))
+	// Точечные выдачи прав сотруднику (EDR-0041): чтение набора и его
+	// замена. Отдельные маршруты, а не часть PATCH: замена выдачи и смена
+	// роли — разные решения с разными правами (staff.grants против
+	// staff.role) и разными следами в журнале.
+	mux.Handle("GET /api/v1/admin/users/{id}/grants", authProtected(handleGetUserGrants(authSvc)))
+	mux.Handle("PUT /api/v1/admin/users/{id}/grants", authMutating(handleSetUserGrants(authSvc)))
 	mux.Handle("GET /api/v1/admin/overview", authProtected(handleAdminOverview(authSvc, projects)))
 	mux.Handle("GET /api/v1/admin/settings", authProtected(handleGetSettings(authSvc)))
 	mux.Handle("PUT /api/v1/admin/settings", authMutating(handleUpdateSettings(authSvc, auditsvc)))
@@ -186,9 +195,23 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	if storeSvc != nil {
 		mux.Handle("GET /api/v1/admin/store/settings", authProtected(handleGetStoreSettings(storeSvc)))
 		mux.Handle("PUT /api/v1/admin/store/settings", authMutating(handleUpdateStoreSettings(storeSvc, storeCacheInvalidator)))
+		// Настройки витрины по группам (EDR-0041): у каждой группы своё право,
+		// поэтому «SEO» и «реквизиты» выдаются отдельно. Без этого выдать
+		// «менять SEO» было бы невозможно — PUT менял весь документ целиком.
+		mux.Handle("PUT /api/v1/admin/store/settings/{group}", authMutating(handleUpdateStoreSettingsGroup(storeSvc, storeCacheInvalidator)))
 		mux.Handle("GET /api/v1/admin/store/prices", authProtected(handleListMaterialPrices(storeSvc)))
 		mux.Handle("PUT /api/v1/admin/store/prices", authMutating(handleSetMaterialPrice(storeSvc, storeCacheInvalidator)))
 		mux.Handle("DELETE /api/v1/admin/store/prices/{code}", authMutating(handleDeleteMaterialPrice(storeSvc, storeCacheInvalidator)))
+		// Крепёж (MNT-0001): прайс в ₽/шт. Отдельный ресурс, а не поле у
+		// цен материалов: единица другая (шт, а не кг).
+		mux.Handle("GET /api/v1/admin/store/fasteners", authProtected(handleListFastenerPrices(storeSvc)))
+		mux.Handle("PUT /api/v1/admin/store/fasteners", authMutating(handleSetFastenerPrice(storeSvc, storeCacheInvalidator)))
+		mux.Handle("DELETE /api/v1/admin/store/fasteners/{code}", authMutating(handleDeleteFastenerPrice(storeSvc, storeCacheInvalidator)))
+		// Герметик (CONF-SEALANT): прайс в ₽/картридж. Отдельный ресурс по
+		// той же причине, что и крепёж: единица закупки другая.
+		mux.Handle("GET /api/v1/admin/store/sealants", authProtected(handleListSealantPrices(storeSvc)))
+		mux.Handle("PUT /api/v1/admin/store/sealants", authMutating(handleSetSealantPrice(storeSvc, storeCacheInvalidator)))
+		mux.Handle("DELETE /api/v1/admin/store/sealants/{code}", authMutating(handleDeleteSealantPrice(storeSvc, storeCacheInvalidator)))
 	}
 
 	if auditsvc != nil {
@@ -237,6 +260,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	mux.Handle("POST /api/v1/projects/{id}/members", authMutating(handleAddMember(projects)))
 	mux.Handle("PATCH /api/v1/projects/{id}/members/{userID}", authMutating(handleUpdateMemberRole(projects)))
 	mux.Handle("DELETE /api/v1/projects/{id}/members/{userID}", authMutating(handleRemoveMember(projects)))
+	mux.Handle("POST /api/v1/projects/{id}/transfer", authMutating(handleTransferProject(projects)))
 	mux.Handle("GET /api/v1/projects/{id}/comments", authProtected(handleListComments(projects)))
 	mux.Handle("POST /api/v1/projects/{id}/comments", authMutating(handleAddComment(projects)))
 	mux.Handle("DELETE /api/v1/projects/{id}/comments/{commentID}", authMutating(handleDeleteComment(projects)))
@@ -250,6 +274,9 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	mux.Handle("GET /api/v1/projects/{id}/configurations", authProtected(handleListConfigurations(projects)))
 	mux.Handle("GET /api/v1/projects/{id}/configurations/{configID}", authProtected(handleGetConfiguration(projects)))
 	mux.Handle("POST /api/v1/projects/{id}/configurations/{configID}/restore", authMutating(handleRestoreConfiguration(projects)))
+	// Метка «замер» (решение владельца 2026-10-08): ревизию можно пометить
+	// как снятую по факту на объекте.
+	mux.Handle("POST /api/v1/projects/{id}/configurations/{configID}/measurement", authMutating(handleMarkConfigurationMeasurement(projects)))
 	mux.Handle("POST /api/v1/projects/{id}/calculate", authMutating(handleCalculateProject(projects)))
 	mux.Handle("POST /api/v1/projects/{id}/preview", authMutating(handlePreviewProject(projects)))
 	mux.Handle("POST /api/v1/projects/{id}/optimize", authMutating(handleOptimizeProject(projects)))

@@ -23,8 +23,6 @@ import {
 //     вдоль −X → верх у box.min.x;
 //   - u_shape  левый: зеркальная компоновка (upperT без поворота, подъём +X:
 //     x∈[860,3330]) → верх у box.max.x;
-//   - spiral: колонна в начале координат, |x|,|y|≤R=800 (spiral_test) →
-//     three.js x∈[−800,800], y∈[0,2700], z∈[0,800].
 const straightBox = {
   min: { x: -5050, y: 0, z: 0 },
   max: { x: -960, y: 2700, z: 900 },
@@ -41,11 +39,6 @@ const uShapeLeftBox = {
   min: { x: 860, y: 0, z: 0 },
   max: { x: 3330, y: 2700, z: 1800 },
 } as const
-const spiralBox = {
-  min: { x: -800, y: 0, z: 0 },
-  max: { x: 800, y: 2700, z: 800 },
-} as const
-
 describe('stairTopLineX', () => {
   it('прямой марш: линия верха на стороне box.min.x (верх марша после mirrorX)', () => {
     expect(stairTopLineX(straightBox, 'straight')).toBe(-5050)
@@ -59,9 +52,6 @@ describe('stairTopLineX', () => {
   })
   it('u_shape левый поворот: зеркальная компоновка — верх у box.max.x', () => {
     expect(stairTopLineX(uShapeLeftBox, 'u_shape', 'left')).toBe(3330)
-  })
-  it('spiral: bbox симметричный, верх условно у box.max.x', () => {
-    expect(stairTopLineX(spiralBox, 'spiral')).toBe(800)
   })
 })
 

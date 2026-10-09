@@ -5,7 +5,6 @@ import {
   lshapeFixture,
   makeSnapshot,
   makeUShapeSnapshot,
-  spiralFixture,
   ushapeFixture,
   zeroFlightFixture,
 } from '../test/fixtures'
@@ -108,24 +107,6 @@ describe('ResultPanel', () => {
     expect(screen.queryByText('Марш (Solver)')).not.toBeInTheDocument()
   })
 
-  it('рендерит панель спирального марша, когда есть spiral', () => {
-    render(
-      <ResultPanel
-        snapshot={makeSnapshot({
-          flight: zeroFlightFixture,
-          lshape: undefined,
-          ushape: undefined,
-          spiral: spiralFixture,
-        })}
-      />,
-    )
-
-    expect(screen.getByText('Спиральный марш (Solver)')).toBeInTheDocument()
-    expect(screen.getByText('800 мм')).toBeInTheDocument()
-    expect(screen.getByText('Радиус колонны r')).toBeInTheDocument()
-    expect(screen.getByText('125,664 мм / 265,29 мм / 335,103 мм')).toBeInTheDocument()
-    expect(screen.queryByText('Марш (Solver)')).not.toBeInTheDocument()
-  })
 
   it('без issues показывает «Нарушений не обнаружено»', () => {
     render(<ResultPanel snapshot={makeSnapshot()} />)
@@ -191,22 +172,6 @@ describe('ResultPanel', () => {
     expect(screen.getByText('Модель 3D недоступна для этого снапшота.')).toBeInTheDocument()
   })
 
-  it('рендерит вкладки чертежей для спирального марша', () => {
-    render(
-      <ResultPanel
-        snapshot={makeSnapshot({
-          flight: zeroFlightFixture,
-          lshape: undefined,
-          ushape: undefined,
-          spiral: spiralFixture,
-        })}
-      />,
-    )
-
-    fireEvent.click(screen.getByRole('tab', { name: 'План' }))
-    expect(screen.getByText('План: вид сверху, размеры в мм.')).toBeInTheDocument()
-    expect(screen.getByText(/ступ\./)).toBeInTheDocument()
-  })
 })
 
 describe('ResultPanel: проброс параметров в 3D-вьювер', () => {

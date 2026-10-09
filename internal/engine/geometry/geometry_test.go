@@ -69,6 +69,210 @@ func TestBuildStraightFlightOpenRiser(t *testing.T) {
 	}
 }
 
+// МАРШ БЕЗ ПОДСТУПЕНКА — ступень влезает в пролёт (решение владельца 2026-10-08).
+//
+// Проверяем то, что он и описал: свес ступени переносится назад, но глубже
+// плоскости зуба следующей ступени проступи уходить НЕЛЬЗЯ — там тело косоура,
+// и ступень в него врезается.
+func TestOpenRiserTreadFitsInsideStringer(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		plate    bool
+		rearWant float64
+		frontEnd float64
+	}{
+		// Металлокаркас: глубина 270+20 = 290, значит отодвинуть на 20 (нос).
+		{"металлокаркас", true, 20, 270},
+		// Дерево: глубина 270+40 = 310, отодвинуть на 40 (толщина ступени).
+		{"дерево", false, 40, 270},
+	} {
+		cfg := testConfig(t)
+		if tc.plate {
+			cfg.StringerThickness = mustLength(t, 8)
+			cfg.Material = "STEEL-S235"
+			cfg.TreadMaterial = "WOOD-OAK"
+			cfg.RiserThickness = mustLength(t, 40)
+		}
+		cfg.Riser = false
+		model, err := BuildStraightFlight(cfg)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+
+		// Передняя кромка ступени 0 должна прийтись РОВНО на плоскость зуба
+		// первой ступени (x = b). Ещё левее — пустота, ещё правее — врезание
+		// в гребёнку.
+		boxes := roleBoxes(model, "tread")
+		if len(boxes) != int(cfg.StepCount) {
+			t.Fatalf("%s: проступей %d, хотим %d", tc.name, len(boxes), int(cfg.StepCount))
+		}
+		if got := boxes[0].Max.X; got != tc.frontEnd {
+			t.Fatalf("%s: передняя кромка ступени на x=%.1f, хотим %.1f (плоскость зуба) — "+
+				"иначе ступень либо висит в воздухе, либо врезается в косоур",
+				tc.name, got, tc.frontEnd)
+		}
+		if got := -boxes[0].Min.X; got != tc.rearWant {
+			t.Fatalf("%s: свес назад %.1f мм, хотим %.1f", tc.name, got, tc.rearWant)
+		}
+		// Глубина ступени (заготовка) не должна поехать.
+		depth := boxes[0].Max.X - boxes[0].Min.X
+		want := 270.0 + tc.rearWant
+		if depth != want {
+			t.Fatalf("%s: глубина ступени %.1f, хотим %.1f", tc.name, depth, want)
+		}
+	}
+}
+
+// НИ ОДНОЙ вершины проступи не должна лежать внутри профиля косоура —
+// ни при подступенке, ни без него. Это и есть «ступень не врезается в косоур».
+func TestNoTreadVertexInsideStringer(t *testing.T) {
+	const margin = 0.5 // грань на контуре — это посадка, а не врезание
+	for _, plate := range []bool{true, false} {
+		for _, riser := range []bool{true, false} {
+			cfg := testConfig(t)
+			if !plate {
+				cfg.StringerThickness = mustLength(t, 50)
+				cfg.Material = "WOOD-OAK"
+			}
+			cfg.Riser = riser
+			model, err := BuildStraightFlight(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, h, st := 270.0, 180.0, 40.0
+			var poly [][2]float64
+			if plate {
+				pts, err := combStringerProfile(int(cfg.StepCount), b, h, st, cfg.CombOrDefault().StringerSpine)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, p := range pts {
+					poly = append(poly, [2]float64{p.X, p.Z})
+				}
+			} else {
+				for _, p := range stringerProfile(int(cfg.StepCount), b, h, st, 0, 50) {
+					poly = append(poly, [2]float64{p.X, p.Z})
+				}
+			}
+			kind := "металлокаркас"
+			if !plate {
+				kind = "дерево"
+			}
+			inside, total := 0, 0
+			for _, s := range model.Solids() {
+				if s.Role() != "tread" {
+					continue
+				}
+				for _, shell := range s.Shells() {
+					for _, face := range shell.Faces() {
+						for _, e := range face.Outer().Edges() {
+							v1, v2 := e.Endpoints()
+							for _, v := range []*kerngeo.Vertex{v1, v2} {
+								p := v.Point()
+								total++
+								if pointInPolygon2(poly, p.X-margin, p.Z) &&
+									pointInPolygon2(poly, p.X+margin, p.Z) &&
+									pointInPolygon2(poly, p.X, p.Z-margin) &&
+									pointInPolygon2(poly, p.X, p.Z+margin) {
+									inside++
+								}
+							}
+						}
+					}
+				}
+			}
+			if inside > 0 {
+				t.Fatalf("%s, подступенок=%v: %d из %d вершин проступи лежат ВНУТРИ косоура — ступень врезана",
+					kind, riser, inside, total)
+			}
+		}
+	}
+}
+
+// pointInPolygon2 — строгий тест «точка внутри замкнутого контура» (профиль
+// косоура в плоскости XZ: гребёнка или тетива).
+func pointInPolygon2(poly [][2]float64, x, z float64) bool {
+	inside := false
+	j := len(poly) - 1
+	for i := 0; i < len(poly); i++ {
+		xi, zi := poly[i][0], poly[i][1]
+		xj, zj := poly[j][0], poly[j][1]
+		if (zi > z) != (zj > z) {
+			xc := xi + (z-zi)/(zj-zi)*(xj-xi)
+			if x < xc {
+				inside = !inside
+			}
+		}
+		j = i
+	}
+	return inside
+}
+
+// МОНТАЖНЫЕ ПЛАСТИНЫ БЕЗ ПОДСТУПЕНКА (решение владельца 2026-10-08).
+//
+// Раньше при выключенном подступенке построение возвращалось ДО блока пяток,
+// и марш без подступенка терял всю обойму: ни пяток под ступени, ни креплений
+// к полу и перекрытию. Должны остаться три вида (под ступень, пол, перекрытие),
+// а уйти две детали, которые существуют только ради подступенка: пятка 2 —
+// ребро обоймы выреза, и пластина 1-й ступени — подкладка первого подступенка.
+func TestOpenRiserKeepsPlatesExceptWeb(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.StringerThickness = mustLength(t, 8) // лист → металлокаркас
+	cfg.Material = "STEEL-S235"
+	cfg.TreadMaterial = "WOOD-OAK"
+	cfg.RiserThickness = mustLength(t, 40)
+	cfg.Riser = false
+	model, err := BuildStraightFlight(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{
+		"stringer":   2,
+		"tread":      int(cfg.StepCount),
+		"heel":       2 * int(cfg.StepCount), // по пятке под ступень на каждый косоур
+		"anchor":     2,                      // пол
+		"top_anchor": 2,                      // перекрытие 2-го этажа
+		"riser":      0,
+		"web":        0, // пятка 2 (ребро обоймы выреза) — только вместе с подступенком
+		"first_web":  0, // подкладка 1-го подступенка — только вместе с ним
+	}
+	got := map[string]int{}
+	for _, s := range model.Solids() {
+		got[s.Role()]++
+	}
+	for role, n := range want {
+		if got[role] != n {
+			t.Fatalf("роль %q: %d тел, хотим %d (всего ролей: %v)", role, got[role], n, got)
+		}
+	}
+
+	// С подступенком обе детали возвращаются — значит исключение по флагу.
+	cfg.Riser = true
+	withRiser, err := BuildStraightFlight(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	webs := 0
+	for _, s := range withRiser.Solids() {
+		if s.Role() == "web" {
+			webs++
+		}
+	}
+	if wantWebs := 2 * (int(cfg.StepCount) - 1); webs != wantWebs {
+		t.Fatalf("с подступенком пяток 2 = %d, хотим %d", webs, wantWebs)
+	}
+	// Подкладка первого подступенка тоже возвращается — исключение по флагу.
+	firsts := 0
+	for _, s := range withRiser.Solids() {
+		if s.Role() == "first_web" {
+			firsts++
+		}
+	}
+	if firsts != 2 {
+		t.Fatalf("с подступенком пластин 1-й ступени = %d, хотим 2", firsts)
+	}
+}
+
 func TestBuildStraightFlightNoStepsWhenZeroThickness(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.StepThickness = mustLength(t, 0)

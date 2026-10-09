@@ -68,6 +68,9 @@ func (p *sec1Projects) UpdateMemberRole(context.Context, string, string, string,
 func (p *sec1Projects) RemoveMember(context.Context, string, string, string, string) error {
 	return nil
 }
+func (p *sec1Projects) TransferOwnership(context.Context, string, string, string, string, bool) error {
+	return nil
+}
 func (p *sec1Projects) AddComment(context.Context, string, string, string, string) (*project.Comment, error) {
 	return &project.Comment{ID: "c1"}, nil
 }
@@ -119,4 +122,8 @@ func (p *sec1Projects) GetConfiguration(context.Context, string, string, string,
 }
 func (p *sec1Projects) RestoreConfiguration(context.Context, string, string, string, string) (*project.StairConfiguration, error) {
 	return &project.StairConfiguration{ID: "cfg1"}, nil
+}
+
+func (p *sec1Projects) MarkConfigurationAsMeasurement(context.Context, string, string, string, string, bool) (*project.StairConfiguration, error) {
+	return &project.StairConfiguration{ID: "cfg1", IsMeasurement: true}, nil
 }

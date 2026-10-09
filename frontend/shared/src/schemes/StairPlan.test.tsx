@@ -14,7 +14,7 @@ const base: PlanFlight = {
   Width: 900,
 }
 
-// expectSchemeFits — весь чертёж (заливка/контур, для спирали — окружность)
+// expectSchemeFits — весь чертёж (заливка и контур)
   // должен лежать внутри viewBox: фиксированный канвас не может обрезать марш.
   function expectSchemeFits(container: HTMLElement) {
     const vb = (container.querySelector('.scheme__svg')?.getAttribute('viewBox') ?? '0 0 620 340')
@@ -419,19 +419,6 @@ describe('StairPlan', () => {
     expect(upper.h).toBeCloseTo(lower.h, 6)
   })
 
-  it('рендерит план спиральной лестницы', () => {
-    const solver: PlanExtras = {
-      outerRadius: 800,
-      columnRadius: 300,
-      angularStep: 24,
-      angularTotal: 360,
-    }
-    render(<StairPlan flight={base} kind="spiral" solver={solver} />)
-    expect(screen.getByText('План: вид сверху, размеры в мм.')).toBeInTheDocument()
-    expect(screen.getByText(/R 800 мм/)).toBeInTheDocument()
-    expect(screen.getByText('α 360°')).toBeInTheDocument()
-    expect(screen.getByText('15 ступ.')).toBeInTheDocument()
-  })
 
   it('прямой план (масштаб по высоте) полностью помещается в viewBox', () => {
     const tall: PlanFlight = { ...base, StepCount: 7, TreadDepth: 285, Run: 2000, Width: 1000 }
@@ -463,14 +450,4 @@ describe('StairPlan', () => {
     expectSchemeFits(container)
   })
 
-  it('план спирали полностью помещается в viewBox', () => {
-    const solver: PlanExtras = {
-      outerRadius: 800,
-      columnRadius: 300,
-      angularStep: 24,
-      angularTotal: 360,
-    }
-    const { container } = render(<StairPlan flight={base} kind="spiral" solver={solver} />)
-    expectSchemeFits(container)
-  })
 })

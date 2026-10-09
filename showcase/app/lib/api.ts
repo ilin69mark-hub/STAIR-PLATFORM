@@ -26,7 +26,7 @@ export interface Material {
 export interface QuoteRequest {
   width_mm: number
   height_mm: number
-  flight: 'straight' | 'l_shape' | 'u_shape' | 'spiral'
+  flight: 'straight' | 'l_shape' | 'u_shape'
   material: string
   step_height_mm?: number
   step_thickness_mm: number
@@ -41,13 +41,11 @@ export interface QuoteRequest {
   landing_width_mm?: number
   landing_depth_mm?: number
   lower_step_count?: number
-  outer_radius_mm?: number
   railing?: string
   railing_lower?: string
   railing_landing?: string
   railing_upper?: string
   direction?: string
-  spiral_direction?: string
 }
 
 export interface Mesh {

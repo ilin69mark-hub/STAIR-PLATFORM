@@ -18,22 +18,21 @@ import (
 // параметров не попадали в ответ, поэтому загруженная ревизия не содержала
 // сведений о типе поворота, сторонах перил, направлениях и материале, и
 // повторная отправка формы их теряла.
-func TestDOM003_ConfigurationDTOCarriesNineParams(t *testing.T) {
+func TestDOM003_ConfigurationDTOCarriesEightParams(t *testing.T) {
 	svc := newFakeProjectService()
 	svc.projects["p-1"] = &project.Project{ID: "p-1", Name: "А", Status: "draft"}
 	svc.configs = []*project.StairConfiguration{{
 		ID: "cfg-2", ProjectID: "p-1", Revision: 2,
 		WidthMM: 1000, HeightMM: 2700, Flight: "u_shape",
-		TurnKind:        "winder",
-		WinderCount:     5,
-		Railing:         "both",
-		RailingLower:    "left",
-		RailingLanding:  "none",
-		RailingUpper:    "right",
-		Direction:       "right",
-		SpiralDirection: "cw",
-		MaterialCode:    "STEEL-S235",
-		CreatedAt:       time.Now(),
+		TurnKind:       "winder",
+		WinderCount:    5,
+		Railing:        "both",
+		RailingLower:   "left",
+		RailingLanding: "none",
+		RailingUpper:   "right",
+		Direction:      "right",
+		MaterialCode:   "STEEL-S235",
+		CreatedAt:      time.Now(),
 	}}
 
 	req := authedRequest(http.MethodGet, "/api/v1/projects/p-1/configurations/cfg-2", "")
@@ -50,15 +49,14 @@ func TestDOM003_ConfigurationDTOCarriesNineParams(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	for k, want := range map[string]any{
-		"turn_kind":        "winder",
-		"winder_count":     float64(5),
-		"railing":          "both",
-		"railing_lower":    "left",
-		"railing_landing":  "none",
-		"railing_upper":    "right",
-		"direction":        "right",
-		"spiral_direction": "cw",
-		"material":         "STEEL-S235",
+		"turn_kind":       "winder",
+		"winder_count":    float64(5),
+		"railing":         "both",
+		"railing_lower":   "left",
+		"railing_landing": "none",
+		"railing_upper":   "right",
+		"direction":       "right",
+		"material":        "STEEL-S235",
 	} {
 		got, ok := raw[k]
 		if !ok {
@@ -91,7 +89,7 @@ func TestDOM003_ConfigurationDTOOmitsUnsetOptionalParams(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&raw); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	for _, k := range []string{"turn_kind", "winder_count", "spiral_direction", "material"} {
+	for _, k := range []string{"turn_kind", "winder_count", "material"} {
 		if _, ok := raw[k]; ok {
 			t.Errorf("unset %q must be omitted (omitempty), got %v", k, raw[k])
 		}
@@ -153,7 +151,7 @@ func TestDOM001_InvalidTurnKindRejected(t *testing.T) {
 		"unknown turn_kind": `{"width_mm":1000,"height_mm":2700,"flight":"l_shape",
 			"step_height_mm":150,"stringer_thickness_mm":8,"step_thickness_mm":6,
 			"riser":true,"clearance_mm":80,"railing_height_mm":900,
-			"landing_width_mm":1000,"landing_depth_mm":1000,"turn_kind":"spiral"}`,
+			"landing_width_mm":1000,"landing_depth_mm":1000,"turn_kind":"zigzag"}`,
 		"winder without count": `{"width_mm":900,"height_mm":2700,"flight":"u_shape",
 			"landing_width_mm":1000,"landing_depth_mm":1000,"lower_step_count":6,
 			"step_height_mm":180,"stringer_thickness_mm":8,"step_thickness_mm":40,

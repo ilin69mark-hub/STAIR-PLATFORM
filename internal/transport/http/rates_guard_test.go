@@ -17,7 +17,10 @@ import (
 
 // ---- стабы для регрессии SEC-001 -------------------------------------
 
-type sec1Auth struct{ u *appauth.User }
+type sec1Auth struct {
+	grantStubs
+	u *appauth.User
+}
 
 type sec1Err string
 
@@ -318,4 +321,14 @@ func TestSEC003_LegitOptimizeStillWorks(t *testing.T) {
 		t.Fatalf("legit optimize must be valid: %+v", out)
 	}
 	t.Logf("valid=%v evaluated=%d objective=%.2f", out.Valid, out.Evaluated, out.Objective)
+}
+
+// EffectiveGrants отдаёт шаблон роли — ровно то поведение, которое было до
+// перехода на точечные выдачи. Так тесты на отказ по правам остаются
+// осмысленными: у admin все метрики, у user — ни одной.
+func (f sec1Auth) EffectiveGrants(_ context.Context, u *appauth.User) (*appauth.GrantSet, error) {
+	if u == nil {
+		return appauth.RoleTemplate(appauth.RoleUser), nil
+	}
+	return appauth.RoleTemplate(u.Role), nil
 }

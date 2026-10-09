@@ -15,8 +15,18 @@ import (
 type Role string
 
 const (
-	RoleUser  Role = "user"
+	RoleUser Role = "user"
+	// RoleAdmin — служебная роль с полными правами. Её создаёт сид, и
+	// на неё опираются существующие администраторы: сузить её набор в этой
+	// же задаче означало бы молча отнять доступ у всех, кто уже работает.
+	// В интерфейсе владельца этой роли нет — он выбирает owner/sales/user.
 	RoleAdmin Role = "admin"
+	// RoleSales — руководитель отдела продаж: заказы, воронка, сотрудники.
+	// Права приходят из шаблона (grant.go RoleTemplate), а не из кода роли.
+	RoleSales Role = "sales"
+	// RoleOwner — владелец компании. Единственная роль, которой можно
+	// выдать право выдавать права и полный набор метрик (EDR-0041 §4.2).
+	RoleOwner Role = "owner"
 )
 
 // Permission — именованное право на операцию (EDR-0015 §3.1). Системные
@@ -129,7 +139,9 @@ func (r Role) HasPermission(p Permission) bool {
 // ParseRole нормализует роль из строки DTO; ErrUnknownRole — невалидная.
 func ParseRole(s string) (Role, error) {
 	switch Role(s) {
-	case RoleUser, RoleAdmin:
+	// admin — служебная роль с полными правами (сид); sales — руководитель
+	// отдела продаж; owner — владелец компании.
+	case RoleUser, RoleAdmin, RoleSales, RoleOwner:
 		return Role(s), nil
 	default:
 		return "", ErrUnknownRole
@@ -161,8 +173,32 @@ type User struct {
 	PasswordHash string
 	Role         Role
 	Status       Status
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// GrantsInitialized — права сотрудника заданы точечно в user_grants.
+	// Пока флаг сброшен, действует шаблон роли: переходный период, чтобы
+	// переезд на выдачи не отнял доступ у тех, кто настроен не был.
+	GrantsInitialized bool
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	// DeletedAt — мягкое удаление сотрудника. Строка остаётся (проекты,
+	// заказы, история), но человек скрыт из списков и не может войти.
+	// Отдельное поле, а не StatusDisabled: «заблокирован» можно снять
+	// одним щелчком, а «удалён» — это прощание, у него нет обратного хода
+	// в том же смысле.
+	DeletedAt *time.Time
+}
+
+// Deleted сообщает, что сотрудник удалён (мягко) и больше не существует
+// для бизнес-логики.
+func (u *User) Deleted() bool { return u != nil && u.DeletedAt != nil }
+
+// UserDeletionStats — что будет с сотрудником при удалении. Считается заранее,
+// чтобы интерфейс мог показать точные числа, а не «возможно, что-то пропадёт».
+type UserDeletionStats struct {
+	Projects     int `json:"projects"`
+	Calculations int `json:"calculations"`
+	Comments     int `json:"comments"`
+	Orders       int `json:"orders"`
+	ProjectRoles int `json:"project_roles"`
 }
 
 // Session — серверная сессия. TokenHash — SHA-256 от opaque-токена;
@@ -309,6 +345,21 @@ type Repository interface {
 	// DeleteUserSessions удаляет все сессии пользователя (блокировка,
 	// EDR-0016 §3.1; немедленная ревокация).
 	DeleteUserSessions(ctx context.Context, userID string) error
+
+	// SoftDeleteUser — мягкое удаление: deleted_at + deleted_by + блокировка
+	// входа (сессии и API-ключи) в одной транзакции. Возвращает
+	// ErrNotFound, если сотрудника нет или он уже удалён.
+	SoftDeleteUser(ctx context.Context, tenantID, userID, deletedBy string) error
+	// TransferProjects переводит все проекты с fromUserID на toUserID:
+	// projects.owner_id и строка владельца в project_members. Возвращает
+	// число переданных проектов.
+	TransferProjects(ctx context.Context, fromUserID, toUserID string) (int, error)
+	// CountOwners считает неудалённых сотрудников tenant с ролью owner —
+	// чтобы не дать удалить последнего владельца компании.
+	CountOwners(ctx context.Context, tenantID string) (int, error)
+	// UserDeletionStats собирает цифры для предупреждения перед удалением:
+	// что именно перейдёт к другому человеку и что останется в истории.
+	UserDeletionStats(ctx context.Context, userID string) (UserDeletionStats, error)
 
 	// GetPolicy возвращает политику безопасности tenant (EDR-0016 §3.2);
 	// ErrNotFound — настройки отсутствуют (дефолтная политика).

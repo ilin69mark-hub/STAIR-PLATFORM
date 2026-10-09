@@ -19,6 +19,19 @@ import (
 // TestDB001_IntegrityMigrationDefinesConstraints — миграция 000031 обязана
 // объявлять все шесть ограничений, которые закрывают найденные пробелы.
 func TestDB001_IntegrityMigrationDefinesConstraints(t *testing.T) {
+	narrow := readMigrationFile(t, "000040_drop_spiral_flight.up.sql")
+	// В комментариях миграции слово 'spiral' встречается (объяснение, почему
+	// CHECK сужается), поэтому смотрим на саму строку ограничения, а не на
+	// весь файл.
+	narrowCheck := ""
+	for _, l := range strings.Split(narrow, "\n") {
+		if strings.Contains(l, "flight IN (") {
+			narrowCheck += l
+		}
+	}
+	if narrowCheck == "" {
+		t.Fatal("000040 must redefine stair_configurations_flight_check")
+	}
 	up := readMigrationFile(t, "000031_integrity_constraints.up.sql")
 	down := readMigrationFile(t, "000031_integrity_constraints.down.sql")
 
@@ -52,10 +65,24 @@ func TestDB001_IntegrityMigrationDefinesConstraints(t *testing.T) {
 			t.Errorf("projects_status_check must allow %q (project.Status*)", st)
 		}
 	}
-	// Типы марша — доменные значения Flight.
-	for _, f := range []string{"straight", "l_shape", "u_shape", "spiral"} {
-		if !strings.Contains(up, "'"+f+"'") {
-			t.Errorf("stair_configurations_flight_check must allow %q", f)
+	// Типы марша — доменные значения Flight. Винтовой марш удалён из проекта
+	// (решение владельца 2026-10-06): миграция 000031 по-прежнему перечисляет
+	// все четыре (она историческая и не переписывается), а сужает перечень
+	// миграция 000040_drop_spiral_flight. Поэтому здесь проверяем, что
+	// 000040 убрала 'spiral' из CHECK, а не то, что 000031 его содержит.
+	for _, f := range []string{"straight", "l_shape", "u_shape"} {
+		if !strings.Contains(narrowCheck, "'"+f+"'") {
+			t.Errorf("000040 flight_check must keep %q", f)
+		}
+	}
+	if strings.Contains(narrowCheck, "'spiral'") {
+		t.Error("000040 flight_check must no longer allow the removed spiral flight")
+	}
+	// Колонки спирали должны уйти из схемы, иначе винтовой марш продолжает
+	// существовать в базе и всплывёт в выгрузках.
+	for _, col := range []string{"DROP COLUMN IF EXISTS spiral_direction", "DROP COLUMN IF EXISTS outer_radius_mm"} {
+		if !strings.Contains(narrow, col) {
+			t.Errorf("000040 must contain %q", col)
 		}
 	}
 }

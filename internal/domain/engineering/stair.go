@@ -9,7 +9,6 @@ const (
 	FlightStraight FlightType = "straight"
 	FlightLShape   FlightType = "l_shape"
 	FlightUShape   FlightType = "u_shape"
-	FlightSpiral   FlightType = "spiral"
 )
 
 // Valid — принадлежит ли значение известному типу марша.
@@ -20,7 +19,7 @@ const (
 // отдавался клиенту как 500 internal_error.
 func (f FlightType) Valid() bool {
 	switch f {
-	case FlightStraight, FlightLShape, FlightUShape, FlightSpiral:
+	case FlightStraight, FlightLShape, FlightUShape:
 		return true
 	}
 	return false
@@ -37,6 +36,29 @@ const (
 	RailingRight RailingSide = "right"
 	RailingBoth  RailingSide = "both" // с двух сторон
 )
+
+// RailingType — ТИП ограждения. Это разные конструкции, а не варианты
+// одного: стальное собрано из круглых труб (поручень, стойки, ригели),
+// стеклянное — из стеклянных панелей в опорах. Смешивать их в одной
+// сборке нельзя, поэтому тип задаётся явно, а не выводится из наличия
+// заполнения.
+//
+// По умолчанию (пустая строка в конфиге) трактуется как стальное —
+// это текущее поведение движка.
+type RailingType string
+
+const (
+	RailingTypeSteel RailingType = "steel" // нержавеющая сталь, круглое сечение
+	RailingTypeGlass RailingType = "glass" // стеклянные панели
+)
+
+// Effective возвращает тип ограждения; пустое значение = стальное.
+func (t RailingType) Effective() RailingType {
+	if t == RailingTypeGlass {
+		return RailingTypeGlass
+	}
+	return RailingTypeSteel
+}
 
 // RailingSideValid — допускает ли значение роль стороны перил.
 func (s RailingSide) Valid() bool {
@@ -80,30 +102,39 @@ func (k TurnKind) Valid() bool {
 	return false
 }
 
-// SpiralDirection — направление закрутки спиральной лестницы
-// (CONF-SPIRAL-DIRECTION): по часовой (cw) или против часовой (ccw)
-// стрелки при виде сверху.
-type SpiralDirection string
+// FixingBase — основание крепления лестницы: пол и перекрытие (CONF-FIXING,
+// решение владельца 2026-10-08).
+//
+// Разделение нужно потому, что крепёж в бетон и в дерево разный: в бетон
+// глухарь вворачивается через дюбель, в дерево — прямо. Пустое значение
+// трактуется как бетон (BaseConcrete) — лестничные пятки крепятся к
+// перекрытию, а не к полу.
+type FixingBase string
 
 const (
-	SpiralCW  SpiralDirection = "cw"
-	SpiralCCW SpiralDirection = "ccw"
+	BaseConcrete FixingBase = "concrete" // бетон: глухарь через дюбель
+	BaseWood     FixingBase = "wood"     // дерево: только глухарь
 )
 
-// Valid — допускает ли значение направление спирали.
-func (d SpiralDirection) Valid() bool {
-	return d == SpiralCW || d == SpiralCCW
+// OrDefault возвращает основание, подставляя бетон на пустое значение.
+func (b FixingBase) OrDefault() FixingBase {
+	if b == "" {
+		return BaseConcrete
+	}
+	return b
 }
 
-// DefaultRailing — сторона перил спиральной лестницы по её направлению:
-// по часовой — справа, против часовой — слева (CONF-SPIRAL-RAILING).
-// Перила всегда только с одной стороны — по наружному краю марша.
-func (d SpiralDirection) DefaultRailing() RailingSide {
-	if d == SpiralCW {
-		return RailingRight
+// Valid — допускает ли значение основание крепления.
+func (b FixingBase) Valid() bool {
+	switch b {
+	case BaseConcrete, BaseWood, "":
+		return true
 	}
-	return RailingLeft
+	return false
 }
+
+// NeedsPlug — требуется ли дюбель для этого основания.
+func (b FixingBase) NeedsPlug() bool { return b.OrDefault() == BaseConcrete }
 
 // StairConfiguration — параметрическая конфигурация лестницы.
 // Параметры являются единственным источником истины геометрии (BC-002).
@@ -156,10 +187,7 @@ type StairConfiguration struct {
 	// Каждая поворотная ступень поднимает на ту же высоту h, что и прямые
 	// марши; общее число ступеней n = LowerStepCount + WinderCount + верхних.
 	WinderCount int
-	// Спиральная лестница (EDR-0007): наружный радиус марша R. Радиус
-	// колонны r = R − Width. Используется только при Flight == FlightSpiral.
-	OuterRadius Length
-	// Material — материал КАРКАСА: косоуры, подступенки, колонна спирали
+	// Material — материал КАРКАСА: косоуры и подступенки
 	// (код каталога MFG-0005, например "STEEL-S235"); пустое значение —
 	// автоназначение по толщине.
 	//
@@ -183,9 +211,11 @@ type StairConfiguration struct {
 	// Перила (CONF-RAILING): сторона установки. Стороны отсчитываются со
 	// стороны первой ступени по ходу подъёма (слева — левые, справа —
 	// правые). Для прямого марша — единственный выбор Railing; для маршей
-	// с площадкой перила задаются по сегментам; для спирали Railing
-	// вычисляется из SpiralDirection (CONF-SPIRAL-RAILING).
+	// с площадкой перила задаются по сегментам.
 	Railing RailingSide
+	// RailingType — тип ограждения: стальное (круглые трубы) или
+	// стеклянное (панели). Пусто = стальное.
+	RailingType RailingType
 	// Перила по сегментам маршей с площадкой (только L/U):
 	// первый марш → площадка → второй марш.
 	RailingLower   RailingSide
@@ -193,8 +223,6 @@ type StairConfiguration struct {
 	RailingUpper   RailingSide
 	// Направление поворота площадки L/U-марша (CONF-DIRECTION).
 	Direction TurnDirection
-	// Направление закрутки спирали (CONF-SPIRAL-DIRECTION).
-	SpiralDirection SpiralDirection
 	// TreadNoseRadiusMM — радиус скругления носа ступеней (филёнка).
 	//
 	// ПРОИЗВОДНАЯ ВЕЛИЧИНА: покупатель её не выбирает, она вычисляется из
@@ -207,6 +235,39 @@ type StairConfiguration struct {
 	// радиус нулевой, и тогда ни геометрия, ни производство о нём не знают —
 	// цена металлической лестницы от этого поля не зависит.
 	TreadNoseRadiusMM Length
+	// Comb — спецификация металлокаркасного узла: косоур-гребёнка со спиной,
+	// пять пяток выреза и отверстия в них (см. CombFrame).
+	//
+	// Как и TreadNoseRadiusMM, ПРОИЗВОДНАЯ от покупателя величина: приходит
+	// из чертежа узла, а не от пользователя, и потому не хранится — при
+	// восстановлении проекта берётся по умолчанию (CombOrDefault).
+	Comb *CombFrame
+	// FloorFixing / CeilingFixing — основания крепления: пятка пола и пятка
+	// выхода на перекрытие (CONF-FIXING, решение владельца 2026-10-08).
+	// Влияют только на состав крепежа в смете: бетон → глухарь через дюбель,
+	// дерево → глухарь без дюбеля. Геометрию не меняют.
+	FloorFixing   FixingBase
+	CeilingFixing FixingBase
+	// ExtraFasteners — ДОПОЛНИТЕЛЬНЫЙ крепёж по объекту: коды позиций
+	// каталога, которые нужны именно этой лестнице (например, если пол
+	// неровный и ставят дополнительные комплекты). Формат элемента — код
+	// («SCREW-8x80») либо код и количество через «@» («SCREW-8x80@12»):
+	// разделитель именно «@», потому что код позиции сам содержит «x»
+	// в размере. Считается в смете
+	// сверх автоматического крепежа по отверстиям.
+	//
+	// Неизвестные коды отбрасываются с предупреждением, а не с ошибкой:
+	// справочник крепежа редактируется в админке, и старый проект не должен
+	// переставать считаться из-за того, что позицию убрали из каталога.
+	ExtraFasteners []string
+	// SealantLayerMM — толщина слоя герметика, мм (CONF-SEALANT). Расход
+	// считается по формуле V = S × t, поэтому эта величина прямо умножается
+	// на площадь швов. 0 → DefaultSealantLayerMM (1 мм).
+	SealantLayerMM float64
+	// ExtraSealantCartridges — ДОПОЛНИТЕЛЬНЫЕ картриджи герметика по объекту
+	// («если нужно больше»). Прибавляются к автоматическому расходу, а не
+	// заменяют его.
+	ExtraSealantCartridges int
 }
 
 // Validate проверяет конфигурацию лестницы.
@@ -226,7 +287,7 @@ func (c *StairConfiguration) Validate() error {
 	// значение (например «diagonal») проходило валидацию и ломало конвейер
 	// ниже по стеку (500 клиенту).
 	if !c.Flight.Valid() {
-		return fmt.Errorf("stair: unknown flight type %q (expected straight|l_shape|u_shape|spiral)", c.Flight)
+		return fmt.Errorf("stair: unknown flight type %q (expected straight|l_shape|u_shape)", c.Flight)
 	}
 	if c.StepCount < 1 {
 		return fmt.Errorf("stair: step count must be positive")
@@ -281,6 +342,24 @@ func (c *StairConfiguration) Validate() error {
 	if c.TurnKind != "" && !c.TurnKind.Valid() {
 		return fmt.Errorf("stair: invalid turn kind (platform|winder)")
 	}
+	// Основания крепления (CONF-FIXING). Пустое значение допустимо и
+	// трактуется как бетон; недопустимо только значение не из перечня —
+	// иначе опечатка в конфиге молча убрала бы из сметы дюбели.
+	if !c.FloorFixing.Valid() {
+		return fmt.Errorf("stair: invalid floor fixing base %q (expected concrete|wood)", c.FloorFixing)
+	}
+	if !c.CeilingFixing.Valid() {
+		return fmt.Errorf("stair: invalid ceiling fixing base %q (expected concrete|wood)", c.CeilingFixing)
+	}
+	// Герметик (CONF-SEALANT). Слой 0 — дефолт, отрицательный — ошибка:
+	// отрицательная толщина дала бы отрицательный объём и в смете появился
+	// бы герметик «с минусом».
+	if c.SealantLayerMM < 0 {
+		return fmt.Errorf("stair: sealant layer must not be negative")
+	}
+	if c.ExtraSealantCartridges < 0 {
+		return fmt.Errorf("stair: extra sealant cartridges must not be negative")
+	}
 	if (c.Flight == FlightLShape || c.Flight == FlightUShape) && c.StepCount > 1 {
 		if c.TurnKind == TurnWinder {
 			// Поворотные ступени: LandingWidth — ширина просвета между
@@ -306,15 +385,10 @@ func (c *StairConfiguration) Validate() error {
 			}
 		}
 	}
-	if c.Flight == FlightSpiral {
-		// EDR-0007 §4.4: колонна имеет положительный радиус (R > W).
-		if c.OuterRadius.Millimeters() <= c.Width.Millimeters() {
-			return fmt.Errorf("stair: outer radius must exceed the stair width for %s", c.Flight)
-		}
-	}
-	// Значения перил/направлений (CONF-RAILING/DIRECTION/SPIRAL): пустое
+	// Значения перил/направлений (CONF-RAILING/DIRECTION): пустое
 	// значение допустимо (не задано), любое другое должно быть валидным.
 	if (c.Railing != "" && !c.Railing.Valid()) ||
+		(c.RailingType != "" && c.RailingType.Effective() != c.RailingType) ||
 		(c.RailingLower != "" && !c.RailingLower.Valid()) ||
 		(c.RailingLanding != "" && !c.RailingLanding.Valid()) ||
 		(c.RailingUpper != "" && !c.RailingUpper.Valid()) {
@@ -322,9 +396,6 @@ func (c *StairConfiguration) Validate() error {
 	}
 	if c.Direction != "" && !c.Direction.Valid() {
 		return fmt.Errorf("stair: invalid turn direction (left|right)")
-	}
-	if c.SpiralDirection != "" && !c.SpiralDirection.Valid() {
-		return fmt.Errorf("stair: invalid spiral direction (cw|ccw)")
 	}
 	return nil
 }

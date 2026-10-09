@@ -67,19 +67,10 @@ func TestExtraManufacturingIssue_MaterialFallback(t *testing.T) {
 	if it.Code != constraint.MFG_SHEET {
 		t.Fatalf("code = %s", it.Code)
 	}
-	if !strings.Contains(it.Guide, "9000×3000") || !strings.Contains(it.Guide, "10400×6200") {
+	// Автоназначение даёт STEEL-S235, а у стали ограничение — рабочее поле
+	// лазерного стола 3000×1500, а не каталог листов (типоразмер один).
+	if !strings.Contains(it.Guide, "9000×3000") || !strings.Contains(it.Guide, "3000×1500") {
 		t.Fatalf("guide must use fallback material sheet: %q", it.Guide)
-	}
-}
-
-func TestExtraSpiralInfeasibleIssue(t *testing.T) {
-	in := inSpiral(900, 1300)
-	it := spiralInfeasibleIssue(in)
-	if it.Code != constraint.GEO_SPIRAL_TREAD || it.Severity != constraint.SeverityError {
-		t.Fatalf("code/severity = %s/%s", it.Code, it.Severity)
-	}
-	if !strings.Contains(it.Guide, "6000") {
-		t.Fatalf("guide must mention height: %q", it.Guide)
 	}
 }
 
@@ -150,10 +141,6 @@ func TestExtraClampF(t *testing.T) {
 }
 
 func TestExtraManufactureFeasible(t *testing.T) {
-	in := inSpiral(900, 1300)
-	if !manufactureFeasible(in, [2]float64{9000, 3000}) {
-		t.Fatal("spiral must always be feasible")
-	}
 	bad := inStraight(2700, 230)
 	bad.Material = dommfg.MaterialCode("UNKNOWN")
 	bad.StringerThickMm = 1
@@ -191,14 +178,6 @@ func TestExtraWinderCandidates(t *testing.T) {
 	in.WinderCount = 0
 	if got := winderCandidates(in, 8, 3); len(got) != 2 {
 		t.Fatalf("orig<3 must reset to 3: %v", got)
-	}
-}
-
-func TestExtraSpiralGeometry_ZeroWidth(t *testing.T) {
-	in := inSpiral(0, 0)
-	out, inf, _ := spiralGeometry(in, standard(), 30, 40)
-	if out != nil || inf {
-		t.Fatalf("zero width must return nil,false: %v, %v", out, inf)
 	}
 }
 

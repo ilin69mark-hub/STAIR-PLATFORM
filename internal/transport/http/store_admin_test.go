@@ -15,12 +15,19 @@ import (
 // newHTTPFakeStoreRepo — репозиторий настроек магазина в памяти (tenant "t-1",
 // как у testAuth).
 func newHTTPFakeStoreRepo() storeapp.Repository {
-	return &httpFakeStoreRepo{settings: map[string]storeapp.Settings{}, prices: map[string]map[string]int64{}}
+	return &httpFakeStoreRepo{
+		settings:  map[string]storeapp.Settings{},
+		prices:    map[string]map[string]int64{},
+		fasteners: map[string]map[string]int64{},
+		sealants:  map[string]map[string]int64{},
+	}
 }
 
 type httpFakeStoreRepo struct {
-	settings map[string]storeapp.Settings
-	prices   map[string]map[string]int64
+	settings  map[string]storeapp.Settings
+	prices    map[string]map[string]int64
+	fasteners map[string]map[string]int64
+	sealants  map[string]map[string]int64
 }
 
 func (f *httpFakeStoreRepo) GetSettings(_ context.Context, tenantID string) (storeapp.Settings, error) {
@@ -55,6 +62,50 @@ func (f *httpFakeStoreRepo) SetMaterialPrice(_ context.Context, tenantID, code s
 
 func (f *httpFakeStoreRepo) DeleteMaterialPrice(_ context.Context, tenantID, code string) error {
 	delete(f.prices[tenantID], code)
+	return nil
+}
+
+func (f *httpFakeStoreRepo) ListFastenerPrices(_ context.Context, tenantID string) ([]storeapp.FastenerPrice, error) {
+	byCode := f.fasteners[tenantID]
+	out := make([]storeapp.FastenerPrice, 0, len(byCode))
+	for code, price := range byCode {
+		out = append(out, storeapp.FastenerPrice{Code: code, PricePerPcRub: price, Overridden: true})
+	}
+	return out, nil
+}
+
+func (f *httpFakeStoreRepo) SetFastenerPrice(_ context.Context, tenantID, code string, price int64, _ string) error {
+	if f.fasteners[tenantID] == nil {
+		f.fasteners[tenantID] = map[string]int64{}
+	}
+	f.fasteners[tenantID][code] = price
+	return nil
+}
+
+func (f *httpFakeStoreRepo) DeleteFastenerPrice(_ context.Context, tenantID, code string) error {
+	delete(f.fasteners[tenantID], code)
+	return nil
+}
+
+func (f *httpFakeStoreRepo) ListSealantPrices(_ context.Context, tenantID string) ([]storeapp.SealantPrice, error) {
+	byCode := f.sealants[tenantID]
+	out := make([]storeapp.SealantPrice, 0, len(byCode))
+	for code, price := range byCode {
+		out = append(out, storeapp.SealantPrice{Code: code, PricePerCartridgeRub: price, Overridden: true})
+	}
+	return out, nil
+}
+
+func (f *httpFakeStoreRepo) SetSealantPrice(_ context.Context, tenantID, code string, price int64, _ string) error {
+	if f.sealants[tenantID] == nil {
+		f.sealants[tenantID] = map[string]int64{}
+	}
+	f.sealants[tenantID][code] = price
+	return nil
+}
+
+func (f *httpFakeStoreRepo) DeleteSealantPrice(_ context.Context, tenantID, code string) error {
+	delete(f.sealants[tenantID], code)
 	return nil
 }
 

@@ -210,4 +210,17 @@ type Repository interface {
 	SetMaterialPrice(ctx context.Context, tenantID, materialCode string, pricePerKgRub int64, updatedBy string) error
 	// DeleteMaterialPrice возвращает материал к встроенной ставке.
 	DeleteMaterialPrice(ctx context.Context, tenantID, materialCode string) error
+	// ListFastenerPrices возвращает цены крепежа, заданные магазином (₽/шт).
+	ListFastenerPrices(ctx context.Context, tenantID string) ([]FastenerPrice, error)
+	// SetFastenerPrice сохраняет цену одной позиции крепежа (upsert).
+	SetFastenerPrice(ctx context.Context, tenantID, code string, pricePerPcRub int64, updatedBy string) error
+	// DeleteFastenerPrice возвращает крепёж к встроенной ставке.
+	DeleteFastenerPrice(ctx context.Context, tenantID, code string) error
+	// ListSealantPrices возвращает цены герметика, заданные магазином
+	// (₽ за картридж).
+	ListSealantPrices(ctx context.Context, tenantID string) ([]SealantPrice, error)
+	// SetSealantPrice сохраняет цену одной позиции герметика (upsert).
+	SetSealantPrice(ctx context.Context, tenantID, code string, pricePerCartridgeRub int64, updatedBy string) error
+	// DeleteSealantPrice возвращает герметик к встроенной ставке.
+	DeleteSealantPrice(ctx context.Context, tenantID, code string) error
 }

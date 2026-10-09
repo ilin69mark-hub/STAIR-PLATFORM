@@ -173,7 +173,7 @@ describe('QuoteResult', () => {
     expect(screen.queryByText('Ступень 3')).not.toBeInTheDocument()
   })
 
-  it('HUD: «Развернуть» есть только у маршей с поворотом (L/П/спираль)', async () => {
+  it('HUD: «Развернуть» есть только у маршей с поворотом (L/П)', async () => {
     const onFlipDirection = vi.fn()
     const lQuote = {
       ...okQuote,
@@ -494,63 +494,5 @@ describe('QuoteResult', () => {
     expect(screen.queryByText(/Варианты решения/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Угол 30°/ }))
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ id: 'Угол 30°' }))
-  })
-
-  it('спиральный марш показывает варианты с радиусом и применяет их', () => {
-    const onApply = vi.fn()
-    const blockedSpiral: QuoteResultType = {
-      validation: {
-        valid: false,
-        blocking: true,
-        issues: [
-          {
-            code: 'GEO-SPIRAL-TREAD',
-            severity: 'error',
-            element: 'configuration',
-            message: 'проступь у колонны < 100 мм',
-            guide: 'Проступь 20 мм вне нормы (нужно ≥ 100 мм). Уменьшите ширину марша.',
-            param: 'Радиус спирали',
-            suggestions: [
-              {
-                step_count: 32,
-                step_height_mm: 187.5,
-                tread_depth_mm: 265,
-                angle_deg: 35.3,
-                outer_radius_mm: 1773,
-                width_mm: 1263,
-              },
-            ],
-          },
-        ],
-      },
-      spiral: {
-        step_count: 18,
-        step_height_mm: 166.7,
-        outer_radius_mm: 900,
-        width_mm: 900,
-        column_radius_mm: 100,
-        walk_radius_mm: 633.33,
-        inner_tread_mm: 87.27,
-        walk_tread_mm: 266.7,
-        outer_tread_mm: 314.16,
-        angle_deg: 32,
-        angular_step_deg: 20,
-        arc_length_mm: 5654.87,
-        comfort_step_mm: 685,
-        angular_total_deg: 360,
-        step_thickness_mm: 40,
-        railing_height_mm: 900,
-        riser: true,
-        stringer_thickness_mm: 50,
-      },
-    }
-    render(<QuoteResult quote={blockedSpiral} onApplySuggestion={onApply} />)
-
-    expect(screen.getByText(/32 ступ\./)).toBeInTheDocument()
-    expect(screen.getByText(/ширина 1[^\d]263 мм/)).toBeInTheDocument()
-    expect(screen.getByText(/радиус 1[^\d]773 мм/)).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Применить эти значения' }))
-    expect(onApply).toHaveBeenCalledWith(blockedSpiral.validation.issues[0].suggestions?.[0])
   })
 })

@@ -18,6 +18,7 @@ import (
 
 // adminErrAuth — admin-аутентификация с управляемой ошибкой G4-методов.
 type adminErrAuth struct {
+	grantStubs
 	adminAuth
 	updateErr    error
 	policyErr    error
@@ -274,7 +275,7 @@ func TestListUsersError(t *testing.T) {
 func TestCreateApiKeyServiceError(t *testing.T) {
 	a := &adminErrAuth{createKeyErr: errors.New("pg down")}
 	router := NewRouter(nil, nil, a, DefaultConfig())
-	req := authedRequest(http.MethodPost, "/api/v1/admin/api-keys", `{"name":"CI","scopes":["users.list"]}`)
+	req := authedRequest(http.MethodPost, "/api/v1/admin/api-keys", `{"name":"CI","scopes":["staff.view"]}`)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -566,7 +567,7 @@ func TestListApiKeysAsAdmin(t *testing.T) {
 
 func TestCreateApiKeyAsAdmin(t *testing.T) {
 	router := NewRouter(nil, nil, adminAuth{}, DefaultConfig())
-	req := authedRequest(http.MethodPost, "/api/v1/admin/api-keys", `{"name":"CI","scopes":["users.list"]}`)
+	req := authedRequest(http.MethodPost, "/api/v1/admin/api-keys", `{"name":"CI","scopes":["staff.view"]}`)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -584,7 +585,7 @@ func TestCreateApiKeyAsAdmin(t *testing.T) {
 
 func TestCreateApiKeyMissingName(t *testing.T) {
 	router := NewRouter(nil, nil, adminAuth{}, DefaultConfig())
-	req := authedRequest(http.MethodPost, "/api/v1/admin/api-keys", `{"scopes":["users.list"]}`)
+	req := authedRequest(http.MethodPost, "/api/v1/admin/api-keys", `{"scopes":["staff.view"]}`)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -607,7 +608,7 @@ func TestCreateApiKeyInvalidJSON(t *testing.T) {
 func TestCreateApiKeyUnknownScope(t *testing.T) {
 	router := NewRouter(nil, nil, adminAuth{}, DefaultConfig())
 	req := authedRequest(http.MethodPost, "/api/v1/admin/api-keys",
-		`{"name":"CI","scopes":["users.list","killa.ll"]}`)
+		`{"name":"CI","scopes":["staff.view","killa.ll"]}`)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -624,7 +625,7 @@ func TestCreateApiKeyValidScopeWithSpaces(t *testing.T) {
 	// тримаются до валидации.
 	router := NewRouter(nil, nil, adminAuth{}, DefaultConfig())
 	req := authedRequest(http.MethodPost, "/api/v1/admin/api-keys",
-		`{"name":"CI","scopes":["users.list", " data.export "]}`)
+		`{"name":"CI","scopes":["staff.view", " data.export "]}`)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -877,4 +878,14 @@ func TestAdminEndpointDeniedByApiKeyWithoutScope(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 for key without data.export scope, got %d", rec.Code)
 	}
+}
+
+// EffectiveGrants отдаёт шаблон роли — ровно то поведение, которое было до
+// перехода на точечные выдачи. Так тесты на отказ по правам остаются
+// осмысленными: у admin все метрики, у user — ни одной.
+func (f adminErrAuth) EffectiveGrants(_ context.Context, u *auth.User) (*auth.GrantSet, error) {
+	if u == nil {
+		return auth.RoleTemplate(auth.RoleUser), nil
+	}
+	return auth.RoleTemplate(u.Role), nil
 }

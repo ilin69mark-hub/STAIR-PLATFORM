@@ -45,20 +45,6 @@ func TestRailingDirectionEnums(t *testing.T) {
 	if TurnDirection("up").Valid() {
 		t.Fatal("unknown turn direction must be rejected")
 	}
-	if !SpiralCW.Valid() || !SpiralCCW.Valid() {
-		t.Fatal("spiral directions cw/ccw must be accepted")
-	}
-	if SpiralDirection("diagonal").Valid() {
-		t.Fatal("unknown spiral direction must be rejected")
-	}
-	// Перила спирали: по часовой — справа, против часовой — слева
-	// (CONF-SPIRAL-RAILING).
-	if SpiralCW.DefaultRailing() != RailingRight {
-		t.Fatal("clockwise spiral must default railing to the right")
-	}
-	if SpiralCCW.DefaultRailing() != RailingLeft {
-		t.Fatal("counter-clockwise spiral must default railing to the left")
-	}
 }
 
 func TestRailingFieldsValidate(t *testing.T) {
@@ -92,18 +78,6 @@ func TestRailingFieldsValidate(t *testing.T) {
 		t.Fatal("invalid turn direction must be rejected")
 	}
 
-	spiral := &StairConfiguration{
-		Width: 900, Height: 2700, Flight: FlightSpiral, StepCount: 12,
-		OuterRadius: 1500, SpiralDirection: SpiralCW,
-	}
-	if err := spiral.Validate(); err != nil {
-		t.Fatalf("valid spiral direction rejected: %v", err)
-	}
-	badSpiral := *spiral
-	badSpiral.SpiralDirection = SpiralDirection("zigzag")
-	if err := badSpiral.Validate(); err == nil {
-		t.Fatal("invalid spiral direction must be rejected")
-	}
 }
 
 func TestParameterLifecycle(t *testing.T) {
@@ -238,32 +212,6 @@ func TestStairConfigurationValidation(t *testing.T) {
 
 	if _, err := NewStairConfiguration(w, h, ""); err == nil {
 		t.Fatal("empty flight type must be rejected")
-	}
-}
-
-func TestSpiralStairConfigurationGuard(t *testing.T) {
-	w, _ := NewLength(1000)
-	h, _ := NewLength(2700)
-	r, _ := NewLength(1500)
-
-	// Валидная спираль: R > W.
-	cfg := &StairConfiguration{Width: w, Height: h, Flight: FlightSpiral, StepCount: 15, OuterRadius: r}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("validate error: %v", err)
-	}
-
-	// R == W — колонна нулевого радиуса (EDR-0007 §4.4).
-	bad, _ := NewLength(1000)
-	cfg.OuterRadius = bad
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("spiral with R == W must be rejected")
-	}
-
-	// R < W — отрицательный радиус колонны.
-	small, _ := NewLength(800)
-	cfg.OuterRadius = small
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("spiral with R < W must be rejected")
 	}
 }
 

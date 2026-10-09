@@ -91,7 +91,7 @@ export function Stage3D({
   const stepCount = solver.flight?.StepCount ?? 0
   // Поворот марша есть только у L/П-маршей: у прямого марша API не принимает
   // направление (вид зеркалит 3D), поэтому кнопку там не показываем.
-  const hasDirection = solver.kind === 'l_shape' || solver.kind === 'u_shape' || solver.kind === 'spiral'
+  const hasDirection = solver.kind === 'l_shape' || solver.kind === 'u_shape'
   const canAdjust = stepCount > 0 && !!heightMM
   const nudgeStepCount = (delta: number) => {
     if (!canAdjust || !onAdjustStepHeight) return
@@ -100,10 +100,9 @@ export function Stage3D({
     onAdjustStepHeight(Math.round(((heightMM as number) / target) * 10) / 10)
   }
   // Фиолетовая линия верха марша на 3D: суммарный подъём марша.
-  const stairTop =
-    solver.flight && solver.kind !== 'spiral'
-      ? { rise: solver.flight.StepHeight * solver.flight.StepCount }
-      : undefined
+  const stairTop = solver.flight
+    ? { rise: solver.flight.StepHeight * solver.flight.StepCount }
+    : undefined
   // Меш обязателен для сцены; вызывающий (Конструктор) рендерит Stage3D
   // только когда меш есть, а поле в типе остаётся опциональным (блокирующий
   // ответ геометрии не содержит).
@@ -303,7 +302,6 @@ export function QuoteResult({
   const geometry = quote.geometry
   const pricing = quote.pricing
   const issues = quote.validation.issues ?? []
-  const spiral = quote.spiral !== undefined
   const firstVar = issues.find((i) => i.variations && i.variations.length > 0)
 
   return (
@@ -369,9 +367,6 @@ export function QuoteResult({
                         <span>
                           {s.step_count} ступ. · h {fmt.mm(s.step_height_mm)} · проступь{' '}
                           {fmt.mm(s.tread_depth_mm)} · угол {s.angle_deg.toFixed(1)}°
-                          {spiral && s.outer_radius_mm
-                            ? ` · ширина ${fmt.mm(s.width_mm)} · радиус ${fmt.mm(s.outer_radius_mm)}`
-                            : ''}
                         </span>
                         {onApplySuggestion && (
                           <button
@@ -460,18 +455,6 @@ export function QuoteResult({
               <div>
                 <dt>Ширина площадки</dt>
                 <dd>{fmt.mm(solver.landingWidth)}</dd>
-              </div>
-            )}
-            {solver.outerRadius !== undefined && (
-              <div>
-                <dt>Наружный радиус</dt>
-                <dd>{fmt.mm(solver.outerRadius)}</dd>
-              </div>
-            )}
-            {solver.comfortStep !== undefined && (
-              <div>
-                <dt>Шаг комфорта</dt>
-                <dd>{fmt.mm(solver.comfortStep)}</dd>
               </div>
             )}
           </dl>

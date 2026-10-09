@@ -277,9 +277,6 @@ func summaryOf(kind Kind, req Request) string {
 	if cfg.Flight != "" {
 		s += " flight=" + string(cfg.Flight)
 	}
-	if cfg.OuterRadius.Millimeters() > 0 {
-		s += " outer_radius_mm=" + fmtFloat(cfg.OuterRadius.Millimeters())
-	}
 	return s
 }
 

@@ -107,6 +107,15 @@ func resetTestDatabase(ctx context.Context, url string) error {
 
 		// down до нуля (дропает таблицы миграции 000001 — данные предыдущих
 		// прогонов удаляются), затем up до последней версии: чистая схема.
+		//
+		// INFRA-0028 п.2: down-цепочка 000041.down складывает сужаемые строки
+		// в audit_events_action_restore_backup, а нижние downs стирают их
+		// родителей (users/tenants) — резерв превращается в сирот с битыми
+		// FK, и 000042.up потом падает уже на reset (fail-loud там, где
+		// нужна тишина). stair_test — одноразовая БД: резерв сброшенного
+		// прогона не имеет смысла, чистим его здесь же, до up.
+		// На реальных стендах reset не выполняется — там 000042.up
+		// по-прежнему падает вслух на невосстановимых строках.
 		if err := m.Down(); err != nil && err != migrate.ErrNoChange {
 			// Страховка от полусобранной схемы (dirty при упавшем up):
 			// транзакционная откатка могла оставить состояние, которое не
@@ -119,6 +128,12 @@ func resetTestDatabase(ctx context.Context, url string) error {
 			m2, merr := newMigrateInstance(pool, testMigrationsDir, "schema_migrations")
 			_, _ = m.Close()
 			return upAndVerify(ctx, pool, m2, merr)
+		}
+		// Резерв сужаемых строк сброшенного прогона (см. выше): тихий
+		// no-op, если таблицы нет.
+		if _, err := pool.Exec(ctx, "DROP TABLE IF EXISTS audit_events_action_restore_backup"); err != nil {
+			_, _ = m.Close()
+			return fmt.Errorf("reset drop reserve: %w", err)
 		}
 		_, _ = m.Close()
 		return upAndVerify(ctx, pool, nil, nil)

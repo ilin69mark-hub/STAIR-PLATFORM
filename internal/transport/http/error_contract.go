@@ -67,6 +67,11 @@ var domainErrors = []struct {
 	// --- auth ---
 	{auth.ErrNotFound, errorMapping{http.StatusNotFound, "not_found"}},
 	{auth.ErrForbidden, errorMapping{http.StatusForbidden, "forbidden"}},
+	// Удаление сотрудника: 409 — «последнего владельца нельзя», 422 — неподходящий
+	// получатель проектов. Оба без них уехали бы в 500, и интерфейс не смог бы
+	// объяснить, что именно не так.
+	{auth.ErrLastOwner, errorMapping{http.StatusConflict, "last_owner"}},
+	{auth.ErrInvalidRecipient, errorMapping{http.StatusUnprocessableEntity, "invalid_recipient"}},
 	{auth.ErrInvalidCreds, errorMapping{http.StatusUnauthorized, "invalid_credentials"}},
 	{auth.ErrSessionExpired, errorMapping{http.StatusUnauthorized, "session_expired"}},
 	{auth.ErrKeyRevoked, errorMapping{http.StatusUnauthorized, "key_revoked"}},

@@ -109,8 +109,17 @@ func PlanOperations(pkg *dommfg.ManufacturingPackage, rates MachineRates) (*domm
 		if !ok {
 			return nil, fmt.Errorf("manufacturing: no cut speed for material %q", part.Material)
 		}
-		perimeter := 2 * (part.Length.Millimeters() + part.Width.Millimeters())
-		cutTime := rates.SetupCutMin + perimeter/speed
+		// Длина реза — из геометрии: контур детали ПЛЮС все отверстия и
+		// регулировочные овалы внутри (MMF-0006). Лазер вырезает их за один
+		// проход, поэтому сверления в техмаршруте нет вовсе: отдельная
+		// операция «сверление» была бы двойной оплатой одного и того же
+		// съёма металла. Если по геометрии длина неизвестна (деталь без тела) —
+		// падаем на периметр прямоугольника.
+		cut := part.CutPerimeterMM
+		if cut <= 0 {
+			cut = 2 * (part.Length.Millimeters() + part.Width.Millimeters())
+		}
+		cutTime := rates.SetupCutMin + cut/speed
 
 		opID++
 		cutting := dommfg.Operation{

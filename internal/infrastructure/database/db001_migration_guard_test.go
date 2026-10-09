@@ -67,7 +67,7 @@ func TestDB001_PreflightDetectsViolationWithoutDirtying(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `ALTER TABLE stair_configurations
 			ADD CONSTRAINT stair_configurations_flight_check
-			CHECK (flight IN ('straight','l_shape','u_shape','spiral'))`)
+			CHECK (flight IN ('straight','l_shape','u_shape'))`)
 		_, _ = pool.Exec(ctx, `ALTER TABLE stair_configurations
 			ADD CONSTRAINT stair_configurations_positive_geometry CHECK (
 				width_mm > 0 AND height_mm > 0 AND step_height_mm > 0

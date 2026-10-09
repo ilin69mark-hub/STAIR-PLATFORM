@@ -10,7 +10,6 @@
 //   straight : 1Н→Н, фикс (direction игнорируется)            -> всегда НЛ
 //   l_shape  : налево 1Л→Л, направо 1П→П (Y не фиксируется)   -> ЛН / ПН
 //   u_shape  : налево 1В+1Л (угол ВЛ); направо только 1В→В    -> ВЛ / ВЛ
-//   spiral   : 1П+1Н, фикс (direction игнорируется)           -> всегда ПН
 //
 // Координаты потребителя: worldX = mirror * x + offsetX.
 // 2D-план зеркалит геометрию L/U через mp и передаёт mirror=mp (±1); 3D-вьювер
@@ -21,7 +20,7 @@
 //   стена П (worldX=rw): mirror= 1 → offsetX = rw-bb.maxX; mirror=-1 → offsetX = rw+bb.minX
 //
 // Y-сдвиг: l_shape → 0 (в 2D комната рисуется со сдвигом y=-wBig, лестница уже у
-// стены Н; в 3D модель движка уже у ближней стены); spiral → Н (anchorMinY);
+// стены Н; в 3D модель движка уже у ближней стены);
 // straight → Н (anchorMinY, 1Н→Н); u_shape → В (anchorMaxY).
 // Комната: roomWidth (по X, марш), roomLength (по Y, ширина).
 
@@ -37,7 +36,7 @@ export interface PlacementOffset {
   offsetY: number
 }
 
-export type StairKind = 'straight' | 'l_shape' | 'u_shape' | 'spiral'
+export type StairKind = 'straight' | 'l_shape' | 'u_shape'
 export type TurnDirection = 'left' | 'right'
 
 export function computePlacement(
@@ -59,7 +58,6 @@ export function computePlacement(
   // X-стена по буквам пользователя (mirror влияет только на знак offsetX).
   let xWall: 'Л' | 'П' | 'none'
   if (flight === 'straight') xWall = 'Л'
-  else if (flight === 'spiral') xWall = 'П'
   else if (flight === 'l_shape') xWall = direction === 'left' ? 'Л' : 'П'
   else xWall = direction === 'left' ? 'Л' : 'none' // u_shape right: только В
 
@@ -70,7 +68,6 @@ export function computePlacement(
 
   let offsetY: number
   if (flight === 'l_shape') offsetY = 0
-  else if (flight === 'spiral') offsetY = anchorMinY()
   else if (flight === 'straight') offsetY = anchorMinY() // 1Н→Н
   else offsetY = anchorMaxY(roomLength) // u_shape: 1В→В
 

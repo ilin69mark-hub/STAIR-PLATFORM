@@ -49,8 +49,8 @@ func TestManufactureUShapeParts(t *testing.T) {
 	}
 	// 4 косоура (2 нижних + 2 верхних), 16 проступей (15 ступеней + площадка),
 	// 15 подступенков (полотно на ступень). Итого 35 деталей.
-	if len(pkg.Parts) != 35 {
-		t.Fatalf("parts = %d, want 35", len(pkg.Parts))
+	if len(pkg.Parts) != 103 {
+		t.Fatalf("parts = %d, want 103", len(pkg.Parts))
 	}
 	byKind := make(map[dommfg.PartKind]int)
 	for _, p := range pkg.Parts {
@@ -84,17 +84,17 @@ func TestManufactureUShapeDimensions(t *testing.T) {
 		number dommfg.PartNumber
 		l, wd  float64
 	}{
-		{"STR-01", 1700.156, 300}, // пластина: длина по склону × глубина по нормали
-		{"STR-02", 1700.156, 300},
-		{"STR-03", 2673.655, 300},
-		{"STR-04", 2673.655, 300},
-		{"TRD-01", 754, 310},
+		{"STR-01", 1924.810, 300}, // пластина: длина по склону × глубина по нормали
+		{"STR-02", 1924.810, 300},
+		{"STR-03", 2898.309, 300},
+		{"STR-04", 2898.309, 300},
+		{"TRD-01", 850, 290},
 		{"TRD-07", 1800, 900},
-		{"TRD-08", 754, 310},
-		{"TRD-16", 754, 310},
-		{"RSR-01", 754, 140},
-		{"RSR-02", 754, 140},
-		{"RSR-15", 754, 140},
+		{"TRD-08", 850, 290},
+		{"TRD-16", 850, 330}, // последняя ступень длиннее на TopStepExtend
+		{"RSR-01", 850, 140},
+		{"RSR-02", 850, 180},
+		{"RSR-15", 850, 180},
 	}
 	for _, c := range cases {
 		p := findPart(pkg, c.number)
@@ -108,12 +108,19 @@ func TestManufactureUShapeDimensions(t *testing.T) {
 	}
 	// толщины: косоуры 50, проступи/подступенки/площадка 40.
 	for _, p := range pkg.Parts {
-		// Все детали считаются из листа 8 мм: материал выводится из
-		// толщины, а без заданного материала деталь считается стальной, и
-		// модельные 50/40 мм — это габариты секций, а не толщина металла.
-		want := 8.0
+		// Косоур, ступень и подступенок — лист 12 мм: модельные 50/40 мм — это
+		// габариты секций, а не толщина металла, и они сжимаются к ВЕРХУ
+		// выпуска листа (PlateMaxThicknessMM = 12, строки 8 / 10 / 12 мм
+		// норматива на листовой косоур). Пятки выреза — лист 4 мм
+		// (CombFrame.HeelThickness), это отдельная деталь.
+		want := 12.0
+		switch p.Kind {
+		case dommfg.PartHeel, dommfg.PartWeb, dommfg.PartAnchor, dommfg.PartFirstWeb:
+			want = 4
+		}
 		if !nearlyEqual(p.Thickness.Millimeters(), want) {
-			t.Fatalf("part %q thickness = %v, want %v", p.Number, p.Thickness.Millimeters(), want)
+			t.Fatalf("part %q (%s) thickness = %v, want %v",
+				p.Number, p.Kind, p.Thickness.Millimeters(), want)
 		}
 	}
 	// материал назначен каждому косоуру/проступи/подступенку из каталога.
@@ -143,12 +150,18 @@ func TestManufactureUShapeBOM(t *testing.T) {
 		length   float64
 		width    float64
 	}{
-		{"Stringer", 2, 1700.156, 300},
-		{"Tread", 15, 754, 310},
-
-		{"Riser", 15, 754, 140},
+		{"Stringer", 2, 1924.810, 300},
+		{"Tread", 13, 850, 290},
+		{"Tread", 2, 850, 330},
+		{"Riser", 2, 850, 140},
+		{"Riser", 13, 850, 180},
+		{"Heel (seat bracket)", 30, 260, 50},
+		{"Web (tooth bracket)", 26, 166, 50},
+		{"Anchor (floor/landing bracket)", 4, 270, 50},
+		{"Anchor (floor/landing bracket)", 4, 166, 50},
+		{"First-step plate", 4, 122, 40},
 		{"Tread", 1, 1800, 900},
-		{"Stringer", 2, 2673.655, 300},
+		{"Stringer", 2, 2898.309, 300},
 	}
 	if len(pkg.BOM.Lines) != len(want) {
 		t.Fatalf("BOM lines = %d, want %d", len(pkg.BOM.Lines), len(want))

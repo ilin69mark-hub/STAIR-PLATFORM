@@ -10,7 +10,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY frontend/package.json ./frontend/package.json
 COPY frontend-store/package.json ./frontend-store/package.json
-COPY frontend-store-admin/package.json ./frontend-store-admin/package.json
+# Панели магазина больше нет: её разделы живут во вкладке «Магазин» образа
+# admin (frontend), отдельный workspace из npm workspaces и из COPY убран.
 RUN npm ci
 COPY frontend/shared ./frontend/shared
 COPY frontend-store ./frontend-store

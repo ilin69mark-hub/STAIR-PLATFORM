@@ -84,7 +84,7 @@ func TestSaveConfigWithZeroOptionalGeometrySucceeds(t *testing.T) {
 }
 
 // TestDemoSeedConfigIsAccepted — ровно та конфигурация, которой заведена
-// штатная демо-фикстура (clearance_mm = 0, outer_radius_mm = 0, room_* = 0).
+// штатная демо-фикстура (clearance_mm = 0, room_* = 0).
 // `make seed` падал на ней; CHECK обязан её принимать.
 func TestDemoSeedConfigIsAccepted(t *testing.T) {
 	repo := integrationAI(t)
@@ -94,7 +94,6 @@ func TestDemoSeedConfigIsAccepted(t *testing.T) {
 	p := newGeometryTestProject(t, ctx, pr, tenant, "Demo seed shape")
 
 	cfg := geometryConfig(p.ID)
-	cfg.OuterRadiusMM = 0
 	cfg.RoomWidthMM = 0
 	cfg.RoomLengthMM = 0
 	if _, err := pr.SaveCalculationWithConfig(ctx, tenant, cfg,

@@ -15,7 +15,7 @@ func sec3Cfg(flight engineering.FlightType) Config {
 		StringerThickness: 60, StepThickness: 40, Riser: true,
 		Clearance: 2200, RailingHeight: 900, ApproachSpace: 1000,
 		RoomWidth: 6000, RoomLength: 2000,
-		LandingWidth: 1000, LowerStepCount: 7, OuterRadius: 1200,
+		LandingWidth: 1000, LowerStepCount: 7,
 	}
 }
 

@@ -5,11 +5,10 @@ import type {
   QuoteFlight,
   QuoteLShape,
   QuoteResult,
-  QuoteSpiral,
   QuoteUShape,
 } from '@shared/types'
 
-export type PlanKind = 'straight' | 'l_shape' | 'u_shape' | 'spiral'
+export type PlanKind = 'straight' | 'l_shape' | 'u_shape'
 
 export interface FlightView {
   StepCount: number
@@ -23,6 +22,9 @@ export interface FlightView {
   RailingHeight?: number
   Riser?: boolean
   StringerThickness?: number
+  // Ширина спинки косоура-гребёнки по нормали к линии посадок (300 мм у
+  // металлокаркаса); для дерева — толщина косоура.
+  StringerSpine?: number
   // Эффективная сторона перил (CONF-RAILING): 'none' скрывает перила на
   // схеме, отсутствие — legacy (рисуем по высоте).
   Railing?: string
@@ -51,16 +53,6 @@ export interface SolverView {
   railingUpper?: string
   // Направление поворота (CONF-DIRECTION): 'left' | 'right' (план зеркалится).
   direction?: 'left' | 'right'
-  outerRadius?: number
-  columnRadius?: number
-  walkRadius?: number
-  innerTread?: number
-  walkTread?: number
-  outerTread?: number
-  angularStep?: number
-  angularTotal?: number
-  arcLength?: number
-  comfortStep?: number
   // approachSpace — свободное пространство перед первой ступенью прямого
   // марша (мм). Равно сдвигу модели от стены (bbox.min.x); зона рисуется
   // перед первой ступенью на плане (EDR-0023).
@@ -80,6 +72,7 @@ export function quoteToFlight(f: QuoteFlight): FlightView {
     RailingHeight: f.railing_height_mm,
     Riser: f.riser,
     StringerThickness: f.stringer_thickness_mm,
+    StringerSpine: f.stringer_spine_mm ?? f.stringer_thickness_mm,
     Railing: f.railing,
     // Габариты помещения для прижима прямого марша (EDR-0023, 1В→В).
     RoomWidth: f.room_width_mm,
@@ -96,42 +89,8 @@ export function solverOf(q: QuoteResult, approachMM?: number): SolverView {
     const b = q.geometry?.bbox?.min?.x
     return b != null && b > 1 ? b : undefined
   }
-  // Сначала более конкретные типы: API всегда шлёт поле flight (для L/U/спирали
-  // оно нулевое), поэтому проверка flight первой съедала бы все не-прямые типы.
-  if (q.spiral) {
-    const s: QuoteSpiral = q.spiral
-    const f: FlightView = {
-      StepCount: s.step_count,
-      StepHeight: s.step_height_mm,
-      TreadDepth: s.walk_tread_mm,
-      Run: s.arc_length_mm,
-      Stringer: 0,
-      Angle: (s.angle_deg * Math.PI) / 180,
-      Width: s.width_mm,
-      StepThickness: s.step_thickness_mm,
-      RailingHeight: s.railing_height_mm,
-      Riser: s.riser,
-      StringerThickness: s.stringer_thickness_mm,
-      Railing: s.railing,
-    }
-    return {
-      kind: 'spiral',
-      flight: f,
-      outerRadius: s.outer_radius_mm,
-      columnRadius: s.column_radius_mm,
-      walkRadius: s.walk_radius_mm,
-      innerTread: s.inner_tread_mm,
-      walkTread: s.walk_tread_mm,
-      outerTread: s.outer_tread_mm,
-      angularStep: s.angular_step_deg,
-      angularTotal: s.angular_total_deg,
-      arcLength: s.arc_length_mm,
-      comfortStep: s.comfort_step_mm,
-      // Свободное пространство перед первой ступенью равно сдвигу модели
-      // от стены (bbox.min.x), задаваемому approachSpace (EDR-0023).
-      approachSpace: approachOf(),
-    }
-  }
+  // Сначала более конкретные типы: API всегда шлёт поле flight (для L/U оно
+  // нулевое), поэтому проверка flight первой съедала бы оба не-прямых типа.
   if (q.ushape) {
     const u: QuoteUShape = q.ushape
     const f: FlightView = {
@@ -146,6 +105,7 @@ export function solverOf(q: QuoteResult, approachMM?: number): SolverView {
       RailingHeight: u.railing_height_mm,
       Riser: u.riser,
       StringerThickness: u.stringer_thickness_mm,
+      StringerSpine: u.stringer_spine_mm ?? u.stringer_thickness_mm,
       Railing: undefined,
     }
     return {
@@ -181,6 +141,7 @@ export function solverOf(q: QuoteResult, approachMM?: number): SolverView {
       RailingHeight: l.railing_height_mm,
       Riser: l.riser,
       StringerThickness: l.stringer_thickness_mm,
+      StringerSpine: l.stringer_spine_mm ?? l.stringer_thickness_mm,
       Railing: undefined,
     }
     return {

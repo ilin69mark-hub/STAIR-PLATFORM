@@ -267,6 +267,7 @@ func SolveCheckedLShape(cfg *engineering.StairConfiguration, set *constraint.Con
 	res.LandingDepth = ld
 	res.RoomWidth = cfg.RoomWidth
 	res.RoomLength = cfg.RoomLength
+	normalizePlateStringer(cfg, res.LowerRun.Millimeters(), res.UpperRun.Millimeters())
 	vr := validation.Validate(cfg, set)
 	if vr.Blocking {
 		cfg.StepCount = 0

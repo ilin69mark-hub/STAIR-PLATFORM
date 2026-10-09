@@ -150,7 +150,10 @@ func (s *sec4Payments) ListByUser(_ context.Context, tenantID, userID string) ([
 // sec4Auth — два разных пользователя в ОДНОМ tenant'е (дефолтная
 // одно-tenant регистрация — именно этот сценарий делал уязвимость
 // эксплуатируемой).
-type sec4Auth struct{ users map[string]*appauth.User }
+type sec4Auth struct {
+	grantStubs
+	users map[string]*appauth.User
+}
 
 func (a *sec4Auth) Register(context.Context, string, string, string) (*appauth.User, string, error) {
 	return nil, "", nil
@@ -348,4 +351,14 @@ func TestSEC004_ApplicationScoping(t *testing.T) {
 	if _, err := psSvc.GetByUser(context.Background(), "tenant-shared", "userB", ""); err == nil {
 		t.Log("empty id correctly not found")
 	}
+}
+
+// EffectiveGrants отдаёт шаблон роли — ровно то поведение, которое было до
+// перехода на точечные выдачи. Так тесты на отказ по правам остаются
+// осмысленными: у admin все метрики, у user — ни одной.
+func (f sec4Auth) EffectiveGrants(_ context.Context, u *appauth.User) (*appauth.GrantSet, error) {
+	if u == nil {
+		return appauth.RoleTemplate(appauth.RoleUser), nil
+	}
+	return appauth.RoleTemplate(u.Role), nil
 }

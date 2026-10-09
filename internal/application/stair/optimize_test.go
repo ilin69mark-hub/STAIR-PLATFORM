@@ -163,34 +163,6 @@ func TestOptimizeLShape(t *testing.T) {
 	}
 }
 
-func TestOptimizeSpiral(t *testing.T) {
-	// W=700, H=2700, R=960: спираль проходит весь конвейер (solver →
-	// geometry → manufacturing/nesting → price) в n≈16 (EDR-0007).
-	cfg := Config{
-		Width:             mustLengthHelper(700),
-		Height:            mustLengthHelper(2700),
-		Flight:            engineering.FlightSpiral,
-		StepHeight:        mustLengthHelper(180),
-		StringerThickness: mustLengthHelper(50),
-		StepThickness:     mustLengthHelper(40),
-		Clearance:         mustLengthHelper(2500),
-		RailingHeight:     mustLengthHelper(1000),
-		OuterRadius:       mustLengthHelper(960),
-	}
-	svc := NewService()
-
-	out, err := svc.Optimize(context.Background(), cfg, Options{}, OptimizeRequest{Target: TargetPrice})
-	if err != nil {
-		t.Fatalf("optimize: %v", err)
-	}
-	if !out.Valid {
-		t.Fatal("expected valid result")
-	}
-	if out.BestResult.Spiral == nil {
-		t.Fatal("expected spiral result")
-	}
-}
-
 func TestOptimizeCancelled(t *testing.T) {
 	// Отменённый контекст: поиск не выполняется, возвращается ошибка
 	// context.Canceled (B2, EDR-0033 §3.1).

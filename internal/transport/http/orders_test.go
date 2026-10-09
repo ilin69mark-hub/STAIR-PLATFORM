@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/order"
 	"stairplatform/internal/application/stair"
 )
@@ -271,9 +272,13 @@ func TestAdminUpdateOrderStatusInvalid(t *testing.T) {
 
 func TestAdminOrdersRequireAdmin(t *testing.T) {
 	fake := &fakeOrderService{}
-	// Обычный пользователь (testAuth, role=user) не видит admin-список и
-	// не меняет статусы заказов.
-	userRouter := ordersRouter(fake)
+	// Сотрудник, которому не выдана метрика «Заказы и продажи»: ни список,
+	// ни смена статуса. Раньше для этого хватало роли user, но теперь роль
+	// manager в шаблоне включает заказы на чтение — поэтому проверяем именно
+	// отсутствие выдачи.
+	cfg := DefaultConfig()
+	cfg.Orders = fake
+	userRouter := NewRouter(stair.NewService(), nil, noGrantsAuth{}, cfg)
 	for _, tc := range []struct {
 		method, path, body string
 	}{
@@ -435,4 +440,23 @@ func TestCreateConsultationServiceError(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
 	}
+}
+
+// noGrantsAuth — сотрудник без единой выданной метрики. Моделирует человека,
+// которому владелец ничего не выдал: он есть в системе, но не видит ничего.
+type noGrantsAuth struct{ testAuth }
+
+func (noGrantsAuth) Authenticate(ctx context.Context, token string) (*auth.User, string, error) {
+	if token == "" {
+		return nil, "", auth.ErrSessionExpired
+	}
+	return &auth.User{
+		ID: "u-none", Email: "none@example.com",
+		Role: auth.RoleUser, TenantID: "t-1",
+		GrantsInitialized: true,
+	}, "", nil
+}
+
+func (f noGrantsAuth) EffectiveGrants(_ context.Context, _ *auth.User) (*auth.GrantSet, error) {
+	return auth.NewGrantSet(), nil
 }

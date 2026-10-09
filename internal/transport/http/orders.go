@@ -145,7 +145,7 @@ func handleListMyOrders(svc OrderService) http.HandlerFunc {
 // Все заказы tenant для менеджера.
 func handleAdminListOrders(svc OrderService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionOrdersList) {
+		if !hasCapability(r, auth.CapFinanceSales, auth.LevelRead) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
@@ -173,7 +173,7 @@ type updateOrderStatusRequest struct {
 // 200 — заказ обновлён; 403 — нет права; 404 — заказ не найден; 422 — невалидный статус.
 func handleAdminUpdateOrderStatus(svc OrderService, auditSvc AuditService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionOrdersManage) {
+		if !hasCapability(r, auth.CapFinanceSales, auth.LevelWrite) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}

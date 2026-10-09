@@ -6,7 +6,7 @@
 //
 // Локальная валидация формы (validateForm) остаётся синхронной и первой
 // линией; живая валидация ловит то, что локально не видно (советы геометрии:
-// R>W спирали, проступь/угол по норме, вписываемость в помещение и т.п.).
+// проступь/угол по норме, вписываемость в помещение и т.п.).
 
 import type { ConfigForm, FieldErrors } from './config'
 
@@ -21,7 +21,6 @@ export interface LiveSuggestion {
   stepHeightMm: number
   treadDepthMm: number
   angleDeg: number
-  outerRadiusMm?: number
   widthMm?: number
 }
 
@@ -112,7 +111,6 @@ const ELEMENT_TO_KEY: Record<string, keyof ConfigForm> = {
 // InputError'ы приходят с Element=«configuration» и человекочитаемым
 // Param (русское имя поля, см. solver/input.go и errors.go).
 const PARAM_TO_KEY: Record<string, keyof ConfigForm> = {
-  'Радиус спирали': 'outerRadiusMM',
   'Ширина марша': 'widthMM',
   'Ширина площадки': 'landingWidthMM',
   'Высота': 'heightMM',
@@ -126,7 +124,6 @@ const PARAM_TO_KEY: Record<string, keyof ConfigForm> = {
   'Тип лестницы': 'flight',
   'Перила': 'railing',
   'Направление поворота': 'direction',
-  'Направление спирали': 'spiralDirection',
   // DOM-005 (2026-09-26): метки полей, добавленные при локализации
   // доменных ошибок (internal/application/stair/errors.go). Без них форма
   // подсвечивала «Параметры лестницы» целиком и не указывала, что чинить.
@@ -161,7 +158,6 @@ function adaptSuggestion(raw?: Record<string, unknown>): LiveSuggestion {
     stepHeightMm: num(raw.step_height_mm, raw.StepHeightMm) ?? 0,
     treadDepthMm: num(raw.tread_depth_mm, raw.TreadDepthMm) ?? 0,
     angleDeg: num(raw.angle_deg, raw.AngleDeg) ?? 0,
-    outerRadiusMm: num(raw.outer_radius_mm, raw.OuterRadiusMm),
     widthMm: num(raw.width_mm, raw.WidthMm),
   }
 }
@@ -228,10 +224,6 @@ export function applySuggestion(prev: ConfigForm, s: LiveSuggestion): ConfigForm
   const next: ConfigForm = { ...prev, stepHeightMM: String(s.stepHeightMm) }
   if ((prev.flight === 'l_shape' || prev.flight === 'u_shape') && s.lowerStepCount) {
     next.lowerStepCountMM = String(s.lowerStepCount)
-  }
-  if (prev.flight === 'spiral' && s.outerRadiusMm && s.widthMm) {
-    next.widthMM = String(s.widthMm)
-    next.outerRadiusMM = String(s.outerRadiusMm)
   }
   return next
 }

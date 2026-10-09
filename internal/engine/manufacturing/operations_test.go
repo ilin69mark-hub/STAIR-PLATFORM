@@ -19,8 +19,12 @@ func TestPlanOperationsRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Parts) != 32 {
-		t.Fatalf("plan parts = %d, want 32", len(plan.Parts))
+	// Металлокаркас: 4 куска косоура-гребёнки (2 косоура × 2 сварных куска,
+	// длиннее поля лазерного стола 3000 мм), 15 ступеней, 15 подступенков и
+	// 64 пятки выреза (30 пяток 1, 28 пяток 2, 2 пола, 2 выхода, 2 пластины
+	// 1-й ступени).
+	if len(plan.Parts) != 98 {
+		t.Fatalf("plan parts = %d, want 98", len(plan.Parts))
 	}
 	for _, part := range plan.Parts {
 		if len(part.Operations) != 2 {
@@ -52,8 +56,18 @@ func TestPlanOperationsCutTimes(t *testing.T) {
 	for _, part := range plan.Parts {
 		// Cutting: setup 2 + периметр/2000 мм/мин; Finishing: 3 мин.
 		p := findPart(pkg, part.PartNumber)
-		perimeter := 2 * (p.Length.Millimeters() + p.Width.Millimeters())
-		wantCut := 2 + perimeter/2000
+		// Время реза считается по длине РЕЗА из геометрии детали: контур
+		// плюс отверстия и овалы. Для детали с отверстиями это больше
+		// прямоугольного периметра — проверяем, что взялась именно длина
+		// реза, а не габарит.
+		wantCut := 2 + p.CutPerimeterMM/2000
+		if p.Kind == dommfg.PartHeel || p.Kind == dommfg.PartWeb ||
+			p.Kind == dommfg.PartAnchor || p.Kind == dommfg.PartFirstWeb {
+			if p.CutPerimeterMM <= 2*(p.Length.Millimeters()+p.Width.Millimeters()) {
+				t.Fatalf("part %q cut %v мм — отверстия не учтены",
+					part.PartNumber, p.CutPerimeterMM)
+			}
+		}
 		if !nearlyEqual(part.Operations[0].EstimatedTime, wantCut) {
 			t.Fatalf("part %q cut time = %v, want %v", part.PartNumber, part.Operations[0].EstimatedTime, wantCut)
 		}
@@ -78,7 +92,12 @@ func TestPlanOperationsTotalTime(t *testing.T) {
 	// глубина по нормали), а не блок 4050×2660: время резки считается по
 	// длине реза, и с блоком косоур «пилил» бы в полтора раза больше,
 	// чем есть металла.
-	want := 2*(2+2*(4620.65263455616+300)/2000) + 15*(2+(804.0+310)/1000) + 15*(2+2*(804.0+140)/2000) + 32*3
+	// Итог = наладка на каждую деталь + длина её реза / скорость + финиш.
+	want := 0.0
+	for _, pp := range pkg.Parts {
+		speed := 2000.0
+		want += 2 + pp.CutPerimeterMM/speed + 3
+	}
 	if math.Abs(plan.TotalTime()-want) > 1e-9 {
 		t.Fatalf("total time = %v, want %v", plan.TotalTime(), want)
 	}

@@ -73,7 +73,7 @@ func handlePublicListTestimonials(svc TestimonialService, authSvc AuthService) h
 // Все отзывы tenant для менеджера (включая черновики).
 func handleAdminListTestimonials(svc TestimonialService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionTestimonialsList) {
+		if !hasCapability(r, auth.CapSiteReviews, auth.LevelRead) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
@@ -105,7 +105,7 @@ type upsertTestimonialRequest struct {
 //	201 — отзыв создан; 400 — битый JSON; 403 — нет права; 422 — невалидный вход.
 func handleAdminCreateTestimonial(svc TestimonialService, auditSvc AuditService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionTestimonialsManage) {
+		if !hasCapability(r, auth.CapSiteReviews, auth.LevelWrite) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
@@ -141,7 +141,7 @@ func handleAdminCreateTestimonial(svc TestimonialService, auditSvc AuditService)
 //	200 — отзыв обновлён; 403 — нет права; 404 — не найден; 422 — невалидный вход.
 func handleAdminUpdateTestimonial(svc TestimonialService, auditSvc AuditService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionTestimonialsManage) {
+		if !hasCapability(r, auth.CapSiteReviews, auth.LevelWrite) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
@@ -182,7 +182,7 @@ func handleAdminUpdateTestimonial(svc TestimonialService, auditSvc AuditService)
 //	204 — удалён; 403 — нет права; 404 — не найден.
 func handleAdminDeleteTestimonial(svc TestimonialService, auditSvc AuditService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionTestimonialsManage) {
+		if !hasCapability(r, auth.CapSiteReviews, auth.LevelWrite) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}

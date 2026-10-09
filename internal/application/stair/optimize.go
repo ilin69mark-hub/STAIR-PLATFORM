@@ -112,8 +112,8 @@ func searchSpaceError(param string, got, limit int) error {
 }
 
 // comfortPoints — число точек сетки по шагу комфорта. Вырожденный диапазон
-// (sMax ≤ sMin, в т.ч. спираль, где S не является свободным параметром)
-// даёт одну точку — ровно как в optimization.Search.
+// (sMax ≤ sMin, т.е. S не является свободным параметром) даёт одну точку —
+// ровно как в optimization.Search.
 func comfortPoints(sMin, sMax, sGrid float64) int {
 	if sMax <= sMin {
 		return 1
@@ -194,32 +194,12 @@ func (s *Service) optimize(ctx context.Context, cfg Config, opts Options, req Op
 	if nMax-nMin+1 > MaxStepCountSpan {
 		return nil, searchSpaceError("step_count window", nMax-nMin+1, MaxStepCountSpan)
 	}
-	// Спиральный марш: шаг проступи определяется радиусом, а не шагом
-	// комфорта (EDR-0007 §4). Расширяем диапазон радиусным ограничением
-	// bWalk ∈ [260, 320] (2π·(R−W/3)/n), чтобы не пропустить допустимые n.
-	if cfg.Flight == engineering.FlightSpiral {
-		rw := cfg.OuterRadius.Millimeters() - cfg.Width.Millimeters()/3.0
-		if rw > 0 {
-			nLo := int(math.Floor(2 * math.Pi * rw / 320.0))
-			nHi := int(math.Ceil(2 * math.Pi * rw / 260.0))
-			if nLo > 0 && nLo < nMin {
-				nMin = nLo
-			}
-			if nHi > nMax {
-				nMax = nHi
-			}
-		}
-	}
 	if nMin > nMax {
 		return &OptimizeResult{Valid: false, Target: req.Target}, nil
 	}
 
-	// Шаг комфорта [600, 640] (EDR-0001); спиральный марш не имеет его как
-	// свободного параметра — диапазон вырождается в одну точку.
+	// Шаг комфорта [600, 640] (EDR-0001).
 	sMin, sMax, sGrid := 600.0, 640.0, 2.0
-	if cfg.Flight == engineering.FlightSpiral {
-		sMin, sMax = 0, 0
-	}
 	if req.ComfortStepMin > 0 {
 		sMin = req.ComfortStepMin
 	}

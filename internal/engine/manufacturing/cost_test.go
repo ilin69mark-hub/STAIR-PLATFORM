@@ -18,18 +18,33 @@ func TestPrepareCostMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if ds.PartCount != 32 {
-		t.Fatalf("part count = %d, want 32", ds.PartCount)
+	// 98 деталей вместо 96: каждый из двух косоуров длиннее поля лазерного
+	// стола 3000 мм (заготовка 4845 мм) и режется на 2 куска со сварным
+	// стыком «шип-паз». Плюс припуск на шипы: суммарная длина заготовок
+	// косоура выросла на 2 × 8 мм.
+	if ds.PartCount != 98 {
+		t.Fatalf("part count = %d, want 98", ds.PartCount)
 	}
-	if ds.OperationCount != 64 {
-		t.Fatalf("operation count = %d, want 64", ds.OperationCount)
+	if ds.OperationCount != 196 {
+		t.Fatalf("operation count = %d, want 196 (98 деталей × 2)", ds.OperationCount)
 	}
-	if ds.FastenerCount != 0 {
-		t.Fatalf("fastener count = %d, want 0", ds.FastenerCount)
+	// Крепёж по отверстиям пяток (MNT-0001, 2026-10-08):
+	//   пятка 1 под ступенью  30 шт × 4 отв. = 120
+	//   пятка 2 под подступенком 28 шт × 3 отв. =  84
+	//   пластина 1-й ступени  2 шт × 3 отв. =    6   → 210 на ступени и подступенки
+	//   пятка пола            2 шт × 4 отв. =    8   → глухарь + дюбель
+	//   пятка перекрытия       2 шт × 3 отв. =    6   → глухарь + дюбель
+	// Итого 238 штук.
+	if ds.FastenerCount != 238 {
+		t.Fatalf("fastener count = %d, want 238", ds.FastenerCount)
 	}
-	// операции: 32 детали × 2 (Cutting + Finishing).
-	if ds.OperationPlan == nil || len(ds.OperationPlan.Parts) != 32 {
-		t.Fatalf("operation plan must contain 32 part routes, got %+v", ds.OperationPlan)
+	if len(ds.FastenerConsumption) != 5 {
+		t.Fatalf("fastener consumption = %d позиций, want 5", len(ds.FastenerConsumption))
+	}
+	// операции: 98 деталей × 2 (Cutting + Finishing).
+	if ds.OperationPlan == nil || len(ds.OperationPlan.Parts) != 98 {
+		t.Fatalf("operation plan must contain 98 part routes, got %d",
+			len(ds.OperationPlan.Parts))
 	}
 	if len(ds.MaterialConsumption) != 1 || ds.MaterialConsumption[0].MaterialCode != "STEEL-S235" {
 		t.Fatalf("consumption = %+v, want single STEEL-S235", ds.MaterialConsumption)
@@ -44,21 +59,31 @@ func TestPrepareCostMetrics(t *testing.T) {
 	// 10 364 кг, потому что косоур брался блоком 4050×2660×50 мм. По цене
 	// 100 ₽/кг это 1,4 млн ₽ материала и 2,6 млн ₽ с наценкой — в девять с
 	// половиной раз выше цельного дубового марша.
+	// Значения пересчитаны под раскрой по полю лазерного стола (шпатка
+	// технолога 2026-10-05): лист 6000×1500 вместо прежних 6000×3000 и
+	// 10400×6200, поэтому площадь листов выросла с 21,1 до 27,0 млн мм² и
+	// утилизация упала. Машинное время выросло из-за контура сварного стыка
+	// «шип-паз» на каждом куске косоура.
+	//
+	// Объём и масса выросли ещё и потому, что заготовка косоура теперь
+	// толщиной 12 мм, а не 8: конструктивная толщина 50 мм сжимается к
+	// ВЕРХУ выпуска листа, а выпуск STEEL-S235 расширен до PlateMaxThicknessMM
+	// вместе с нормативом на листовой косоур (строки 8 / 10 / 12 мм).
 	checks := []struct {
 		name string
 		got  float64
 		want float64
 	}{
-		{"part area", ds.PartArea, 8.199391580733697e+06},
-		{"sheet area", ds.SheetArea, 1.8e+07},
-		{"waste area", ds.WasteArea, 9.800608419266302e+06},
-		{"volume", ds.Volume, 6.5595132645869575e+07},
-		{"surface area", ds.SurfaceArea, 1.7050164045773193e+07},
-		{"waste percent", ds.WastePercent, 9.800608419266302e+06 / 1.8e+07},
-		{"utilization", ds.Utilization, 8.199391580733697e+06 / 1.8e+07},
-		{"machine time", ds.EstimatedMachineTime, 104.71130526911233},
-		{"labor time", ds.EstimatedLaborTime, 96},
-		{"production time", ds.EstimatedProductionTime, 200.71130526911233},
+		{"part area", ds.PartArea, 9.93514372841643e+06},
+		{"sheet area", ds.SheetArea, 2.7e+07},
+		{"waste area", ds.WasteArea, 1.7064856271583572e+07},
+		{"volume", ds.Volume, 1.1381564474099741e+08},
+		{"surface area", ds.SurfaceArea, 2.1083390155106205e+07},
+		{"waste percent", ds.WastePercent, 1.7064856271583572e+07 / 2.7e+07},
+		{"utilization", ds.Utilization, 9.93514372841643e+06 / 2.7e+07},
+		{"machine time", ds.EstimatedMachineTime, 276.47894210751053},
+		{"labor time", ds.EstimatedLaborTime, 294},
+		{"production time", ds.EstimatedProductionTime, 570.47894210751053},
 	}
 	for _, c := range checks {
 		if !nearlyEqual(c.got, c.want) {
@@ -67,7 +92,9 @@ func TestPrepareCostMetrics(t *testing.T) {
 	}
 	// Правдоподобие массы: 16-ступенчатый стальной марш — сотни кг. Верхняя
 	// граница 1200 кг оставляет запас на заготовку, но отсекает возврат
-	// ошибки с габаритным блоком (там было бы тонны).
+	// ошибки с габаритным блоком (там было бы тонны). При листе 12 мм эталон
+	// даёт 893 кг — до границы ещё запас, но при выпуске выше 12 мм проверку
+	// придётся пересмотреть.
 	if ds.Mass < 250 || ds.Mass > 1200 {
 		t.Fatalf("mass = %v kg — неправдоподобно для 16 ступеней: проверь заготовку деталей (лист, а не блок)", ds.Mass)
 	}

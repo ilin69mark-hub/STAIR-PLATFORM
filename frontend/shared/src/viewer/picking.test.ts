@@ -6,6 +6,7 @@ import {
   dragHeight,
   groupIndexForFace,
   groupsFromRanges,
+  indexGroupsFromRanges,
   isDragDistance,
   isEditablePart,
   partLabel,
@@ -35,6 +36,72 @@ describe('groupsFromRanges', () => {
     expect(groupsFromRanges(undefined)).toEqual([])
     expect(groupsFromRanges([])).toEqual([])
     expect(groupsFromRanges([{ Solid: 0, Role: 'tread', Start: 5, End: 5 }])).toEqual([])
+  })
+})
+
+describe('indexGroupsFromRanges', () => {
+  // Регресс: addGroup считает start/count в элементах ИНДЕКСНОГО БУФЕРА, а
+  // PartRanges приходят в треугольниках. Без перевода ×3 группы покрывали
+  // треть модели — косоур красился материалом ступени, а за последней группой
+  // марш просто не рисовался.
+  it('умножает треугольники на три (индексы)', () => {
+    expect(indexGroupsFromRanges(ranges, 72)).toEqual([
+      { start: 0, count: 36, solid: 0, role: 'tread' },
+      { start: 36, count: 72, solid: 0, role: 'stringer' },
+      { start: 108, count: 36, solid: 1, role: 'tread' },
+      { start: 144, count: 72, solid: 1, role: 'stringer' },
+    ])
+  })
+
+  it('группы покрывают индексный буфер целиком, без дыр и перекрытий', () => {
+    for (const triangles of [72, 536, 31424]) {
+      // 6 деталей по 12n треугольников занимают 252 — для 72 берём короткий хвост.
+      const sizes = triangles >= 252 ? [12, 24, 36, 48, 60, 72] : [6, 12, 18, 18, 12, 6]
+      const rs: MeshPartRange[] = []
+      let at = 0
+      for (let i = 0; i < 6; i++) {
+        rs.push({ Solid: i, Role: i % 2 ? 'stringer' : 'tread', Start: at, End: at + sizes[i] })
+        at += sizes[i]
+      }
+      const g = indexGroupsFromRanges(rs, triangles)
+      expect(g).toHaveLength(6)
+      let cursor = 0
+      for (const one of g) {
+        expect(one.start).toBe(cursor)
+        expect(one.start % 3).toBe(0)
+        expect(one.count % 3).toBe(0)
+        cursor = one.start + one.count
+      }
+      // последняя группа дотянута до конца буфера: за ней модель не пропадает
+      expect(cursor).toBe(triangles * 3)
+    }
+  })
+
+  it('диапазоны с заходом за пределы буфера обрезаются, пустые отбрасываются', () => {
+    const g = indexGroupsFromRanges(
+      [
+        { Solid: 0, Role: 'tread', Start: 0, End: 4 },
+        { Solid: 1, Role: 'tread', Start: 9, End: 9 },
+        { Solid: 2, Role: 'stringer', Start: 100, End: 500 },
+      ],
+      10,
+    )
+    // 3-й диапазон целиком за буфером → отброшен; 1-й + хвост = весь буфер
+    expect(g).toEqual([{ start: 0, count: 30, solid: 0, role: 'tread' }])
+  })
+
+  it('без PartRanges — пусто (старый API рисует монолит)', () => {
+    expect(indexGroupsFromRanges(undefined, 100)).toEqual([])
+    expect(indexGroupsFromRanges([], 100)).toEqual([])
+  })
+
+  it('индекс группы совпадает с groupsFromRanges (подсветка по material[])', () => {
+    const mixed = [
+      { Solid: 0, Role: 'tread', Start: 0, End: 10 },
+      { Solid: 1, Role: 'stringer', Start: 20, End: 20 },
+      { Solid: 2, Role: 'riser', Start: 10, End: 20 },
+    ]
+    expect(indexGroupsFromRanges(mixed, 30)).toHaveLength(groupsFromRanges(mixed).length)
   })
 })
 

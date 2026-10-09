@@ -135,10 +135,13 @@ REQUIRED_QUERY = {
 # 66 операциям подряд (включая POST /auth/login и PUT /admin/settings), что
 # делало спеку врущую. Тест TestSwaggerPaginationOnlyWhereCodeHasIt сверяет
 # этот список с местом вызова ParsePagination.
-OPTIONAL_QUERY_PAGINATION = {
+# Именно set: порядок обхода в Python не гарантирован, из-за чего page/per_page
+# скакали местами между прогонами и openapi-check флапал на пустом месте.
+# sorted() делает вывод воспроизводимым.
+OPTIONAL_QUERY_PAGINATION = sorted({
     ("page", "Номер страницы, начиная с 1", "integer", "1", "1000000"),
     ("per_page", "Размер страницы (максимум 100)", "integer", "1", "100"),
-}
+})
 
 # Операции с пагинацией: (метод, путь) → (handler, router path)
 PAGINATED_OPERATIONS = {
@@ -155,7 +158,14 @@ CONFIG_INPUT_PROPERTIES: list[tuple[str, str, str, str | None, str]] = [
     # (json-имя, тип, формат/описание, enum|None, required?)
     ("width_mm", "number", "double", None, "true"),
     ("height_mm", "number", "double", None, "true"),
-    ("flight", "string", None, ["straight", "l_shape", "u_shape", "spiral"], "true"),
+    # Винтовой марш удалён из проекта (решение владельца 2026-10-06,
+    # миграция 000040_drop_spiral_flight): FlightSpiral больше нет в домене
+    # (internal/domain/engineering/stair.go), solver и геометрия спирали
+    # удалены. Перечисление держало "spiral" — из-за этого каждая
+    # перегенерация спеки возвращала удалённый тип марша и два удалённых
+    # поля (outer_radius_mm, spiral_direction), и интегратор читал в схеме
+    # то, чего сервер уже не принимает.
+    ("flight", "string", None, ["straight", "l_shape", "u_shape"], "true"),
     ("material", "string", None, ["STEEL-S235", "WOOD-OAK",
                                   "WOOD-WALNUT", "WOOD-ASH", "WOOD-SOFT"], ""),
     ("step_height_mm", "number", "double", None, "true"),
@@ -171,7 +181,8 @@ CONFIG_INPUT_PROPERTIES: list[tuple[str, str, str, str | None, str]] = [
     ("room_length_mm", "number", "double", None, ""),
     ("approach_space_mm", "number", "double", None, ""),
     ("lower_step_count", "integer", "int32", None, ""),
-    ("outer_radius_mm", "number", "double", None, ""),
+    # outer_radius_mm и spiral_direction удалены вместе с винтовым маршем
+    # (см. выше): их больше нет ни в calculateRequest, ни в схеме БД.
     # DOM-001: тип поворота и число поворотных ступеней.
     ("turn_kind", "string", None, ["platform", "winder"], ""),
     ("winder_count", "integer", "int32", None, ""),
@@ -181,7 +192,6 @@ CONFIG_INPUT_PROPERTIES: list[tuple[str, str, str, str | None, str]] = [
     ("railing_landing", "string", None, ["none", "left", "right", "both"], ""),
     ("railing_upper", "string", None, ["none", "left", "right", "both"], ""),
     ("direction", "string", None, ["left", "right"], ""),
-    ("spiral_direction", "string", None, ["cw", "ccw"], ""),
     # SEC-001: клиентские ставки запрещены, поле оставлено для явного отказа.
     ("rates", "object", "Не принимается: цена считается только по серверным ставкам "
                        "(SEC-001). Любое значение → 422 rates_not_allowed.", None, ""),
@@ -307,13 +317,23 @@ def _tag(path: str) -> str:
     } else "other")
 
 
+# Словарь последнего сегмента пути: без него в summary попадали английские
+# имена («Получить grants»). Расширяется по мере появления новых маршрутов.
+SEGMENT_TITLES = {
+    "grants": "права сотрудника",
+    "users": "пользователей",
+    "api-keys": "API-ключи",
+}
+
+
 def _summary(m: str, p: str) -> str:
     if (m, p) in SUMMARIES:
         return SUMMARIES[(m, p)]
     segs = p.strip("/").split("/")
     verb = {"GET": "Получить", "POST": "Создать", "PUT": "Обновить",
             "PATCH": "Изменить", "DELETE": "Удалить"}.get(m, m)
-    return f"{verb} {segs[-1]}"
+    tail = SEGMENT_TITLES.get(segs[-1], segs[-1])
+    return f"{verb} {tail}"
 
 
 def default_success_code(m: str) -> str:
@@ -557,7 +577,9 @@ def render() -> str:
         if fmt and typ == "object":
             add(f"          description: {yaml_str(fmt)}")
     # --- User / Session.
-    # User — по факту userDTO (auth.go:145): id, email, name, role, tenant_id.
+    # User — по факту userDTO (auth.go:145): id, email, name, role, tenant_id,
+    # permissions. Права добавлены вместе с гейтом кабинета: клиент решает,
+    # какие вкладки и разделы показывать, по permissions, а не по role.
     # Раньше здесь был status в required, которого в ответе нет, и не было
     # tenant_id, который есть: клиент по спеке получал status === undefined.
     add("    User:")
@@ -578,6 +600,11 @@ def render() -> str:
     add("        tenant_id:")
     add("          type: string")
     add("          format: uuid")
+    add("        permissions:")
+    add("          type: array")
+    add("          description: \"Права роли в текущей сессии (auth.Role.Permissions). Для роли user — пустой массив: клиент скрывает всё, кроме своих проектов.\"")
+    add("          items:")
+    add("            type: string")
     # SubjectMe — ответ GET /auth/me (SEC-005): subject_type различает
     # сессионного пользователя и API-ключ, у них разные формы ответа.
     add("    SubjectMe:")

@@ -8,7 +8,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js'
 import type { Mesh as ApiMesh } from '../types'
 import { toThreePositions } from './projection'
-import { computePlacement } from '../placement'
+import { computePlacement, type StairKind } from '../placement'
 import { approachZoneCenterX, stairTopLineX, wallBox, wallBoundsOf, type Box3Like, type BoxSpec, type WallSide } from './layout'
 import { ANNOTATE, edgeColor, WALLS } from '../scheme-annot'
 import { createRailingMaterialForRole, createStairMaterial } from './materials'
@@ -21,6 +21,7 @@ import {
   dragLandingMM,
   compactTriangles,
   groupsFromRanges,
+  indexGroupsFromRanges,
   isDragDistance,
   railingPartsOf,
   isEditablePart,
@@ -205,14 +206,10 @@ function buildRoleGroups(
 ): THREE.Mesh[] {
   const ranges = api.PartRanges
   if (!ranges?.length) return []
-  const total = api.Triangles.length
-  const groups: { start: number; count: number; role: string }[] = []
-  for (const r of ranges) {
-    const start = Math.max(0, Math.min(r.Start, total))
-    const end = Math.max(start, Math.min(r.End, total))
-    if (end <= start) continue
-    groups.push({ start, count: end - start, role: r.Role || 'stair' })
-  }
+  // ВАЖНО: addGroup считает start/count в элементах ИНДЕКСНОГО БУФЕРА, а
+  // PartRanges приходят в треугольниках. Перевод — в indexGroupsFromRanges
+  // (picking.ts), здесь берутся уже готовые группы.
+  const groups = indexGroupsFromRanges(ranges, api.Triangles.length)
   if (!groups.length) return []
 
   const box = geo.boundingBox
@@ -364,8 +361,8 @@ export function GeometryViewer({
   // и renderer, и camera, поэтому без этого снимка любой клик по детали или
   // движение ползунка возвращали взгляд на исходный ракурс — то есть «сброс
   // камеры» происходил сам, а кнопка «Вернуть вид» была не единственным
-  // источником сброса. Ключ shapeKey: смена формы лестницы (прямая / L / U /
-  // спираль) кадрирует заново, всё остальное — нет.
+  // источником сброса. Ключ shapeKey: смена формы лестницы (прямая / L / U)
+  // кадрирует заново, всё остальное — нет.
   const camStateRef = useRef<{
     x: number
     y: number
@@ -693,7 +690,7 @@ export function GeometryViewer({
     // ADR: 2D-план рисует первый шаг на +X, а 3D-меш генерирует первый шаг на
     // −X (зеркально). Чтобы 2D и 3D совпадали (один угол ВЛ, одна сторона
     // подхода, одинаковая ориентация начала марша), зеркалим меш прямого марша
-    // по X. Затрагивает только геометрию лестницы, не помещение. l/u/spiral —
+    // по X. Затрагивает только геометрию лестницы, не помещение. l/u —
     // отдельная задача.
     if (flight === 'straight') {
       mirrorX(stair.geo)
@@ -864,7 +861,7 @@ export function GeometryViewer({
       // подхода совпадает с бэкендом (1000 мм при 0/отсутствии).
       const approachExt = ap
       offset = computePlacement(
-        (flight as 'straight' | 'l_shape' | 'u_shape' | 'spiral') ?? 'straight',
+        (flight as StairKind) ?? 'straight',
         direction,
         rw,
         rl,
@@ -1080,12 +1077,6 @@ export function GeometryViewer({
         addAnnot(new THREE.Vector3(x0, yF, z0), new THREE.Vector3(x1, yF, z0), edgeColor(1), '1' + WALLS.bottom.key, stairGroup) // 1Н
         addAnnot(new THREE.Vector3(x1, yF, z0), new THREE.Vector3(x1, yF, z1), edgeColor(2), '1' + WALLS.right.key, stairGroup) // 1П
         addAnnot(new THREE.Vector3(x0, yF, z0), new THREE.Vector3(x0, yF, z1), edgeColor(3), '1' + WALLS.left.key, stairGroup) // 1Л
-        if (flight === 'spiral') {
-          const spr = makeLabelSprite('К', edgeColor(0))
-          spr.position.set((x0 + x1) / 2, sb2.max.y + 200, (z0 + z1) / 2)
-          stairGroup.add(spr)
-          annot.push(spr)
-        }
       }
     }
 
@@ -1118,11 +1109,24 @@ export function GeometryViewer({
     // ролей: широкая коричневая полоса в кадре — это ДЕРЕВОЯННЫЕ ступени,
     // а не косоур.)
     //
-    // Теперь (1.0, 1.62, 0.62): доля боковой нормали 0.82 — пластина стоит
+    // Теперь (1.0, 1.62, −0.62): доля боковой нормали 0.82 — пластина стоит
     // почти лицом, подъём 19° над полом — ступени видно сбоку, как в
-    // референсе, и лёгкий боковой разворот по X, чтобы марш не сжимался
+    // референсе, и лёгкий боковой разворот по ширине, чтобы марш не сжимался
     // в точку и оставался трёхчетвертным.
-    const viewDir = new THREE.Vector3(radius * 1.0, radius * 1.62, radius * 0.62).normalize()
+    //
+    // Знак Z отрицательный (решение владельца 2026-10-08): подъём должен
+    // читаться СНИЗУ-СЛЕВА ВВЕРХ-ВПРАВО, как в калькуляторе Ниоры. При
+    // положительном Z получалось зеркально — снизу-справа вверх-влево, и
+    // марш шёл против направления чтения.
+    //
+    // Менять пришлось именно Z, а не X. Отрицательный X тоже даёт нужное
+    // направление подъёма, но ставит камеру у ВЕРХНЕГО торца марша: лестница
+    // уходит вдаль почти торцем, кадр втрое меньше по площади, а ступени
+    // видны узкой полосой. Знак Z переносит камеру на другую сторону от
+    // плоскости лестницы, оставляя тот же торец ближним. Модули вектора не
+    // изменились, поэтому доля боковой нормали косоура (0.82) и решение
+    // «пластина стоит лицом» остаются в силе.
+    const viewDir = new THREE.Vector3(radius * 1.0, radius * 1.62, radius * -0.62).normalize()
     const shapeKey = String(flight)
     const saveCamState = () => {
       camStateRef.current = {

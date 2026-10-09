@@ -39,6 +39,13 @@ func (s *c003Store) Settings(context.Context, string) (store.Settings, error) {
 func (s *c003Store) UpdateSettings(context.Context, string, store.Settings) (store.Settings, error) {
 	return store.Settings{}, s.err
 }
+
+// UpdateSettingsGroup в этом фейке не используется: тесты C-003 касаются
+// цен материалов, а не настроек по группам. Отдаём те же err, что и
+// UpdateSettings, чтобы фейк оставался предсказуемым.
+func (s *c003Store) UpdateSettingsGroup(context.Context, string, store.SettingsGroup, json.RawMessage, string) (store.Settings, error) {
+	return store.Settings{}, s.err
+}
 func (s *c003Store) PublicSettings(context.Context, string) (store.PublicSettings, error) {
 	return store.PublicSettings{}, s.err
 }
@@ -49,6 +56,26 @@ func (s *c003Store) SetMaterialPrice(context.Context, string, string, int64, str
 	return s.err
 }
 func (s *c003Store) DeleteMaterialPrice(context.Context, string, string) error { return s.err }
+
+// Крепёж в тестах C-003 не участвует: они касаются цен материалов и выбора
+// источника ставок. Отдаём те же err, что и остальные методы прайса.
+func (s *c003Store) FastenerPrices(context.Context, string) ([]store.FastenerPrice, error) {
+	return nil, s.err
+}
+func (s *c003Store) SetFastenerPrice(context.Context, string, string, int64, string) error {
+	return s.err
+}
+func (s *c003Store) DeleteFastenerPrice(context.Context, string, string) error { return s.err }
+
+// Герметик в тестах C-003 не участвует: они касаются цен материалов и
+// выбора источника ставок. Отдаём те же err, что и остальные методы прайса.
+func (s *c003Store) SealantPrices(context.Context, string) ([]store.SealantPrice, error) {
+	return nil, s.err
+}
+func (s *c003Store) SetSealantPrice(context.Context, string, string, int64, string) error {
+	return s.err
+}
+func (s *c003Store) DeleteSealantPrice(context.Context, string, string) error { return s.err }
 func (s *c003Store) ResolveRates(context.Context, string) (*engprc.Rates, error) {
 	s.calls++
 	if s.err != nil {
@@ -60,6 +87,7 @@ func (s *c003Store) ResolveRates(context.Context, string) (*engprc.Rates, error)
 // c003Auth — sec1Auth, но с настоящим дефолтным tenant'ом: витрина берёт
 // ставки именно его магазина, а sec1Auth отдаёт (nil, nil).
 type c003Auth struct {
+	grantStubs
 	sec1Auth
 	t *auth.Tenant
 }
@@ -218,4 +246,14 @@ func TestCRIT003_OptionsOrRejectStampsTenant(t *testing.T) {
 	if opts.Rates != nil {
 		t.Errorf("transport must never set Rates, got %+v", opts.Rates)
 	}
+}
+
+// EffectiveGrants отдаёт шаблон роли — ровно то поведение, которое было до
+// перехода на точечные выдачи. Так тесты на отказ по правам остаются
+// осмысленными: у admin все метрики, у user — ни одной.
+func (f c003Auth) EffectiveGrants(_ context.Context, u *auth.User) (*auth.GrantSet, error) {
+	if u == nil {
+		return auth.RoleTemplate(auth.RoleUser), nil
+	}
+	return auth.RoleTemplate(u.Role), nil
 }

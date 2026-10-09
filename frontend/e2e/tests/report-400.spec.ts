@@ -25,7 +25,7 @@ test.describe.serial('report-400: 100×4 марша, все кнопки', () =>
     return min + Math.floor(rnd() * n) * step
   }
 
-  type Flight = 'straight' | 'l_shape' | 'u_shape' | 'spiral'
+  type Flight = 'straight' | 'l_shape' | 'u_shape'
   interface Case {
     flight: Flight
     width_mm: number
@@ -41,8 +41,6 @@ test.describe.serial('report-400: 100×4 марша, все кнопки', () =>
     landing_depth_mm?: number
     lower_step_count?: number
     direction?: 'left' | 'right'
-    // spiral
-    outer_radius_mm?: number
   }
 
   // Проверенные (высота → допустимые высоты ступени) пары для L/U (карта из
@@ -57,25 +55,6 @@ test.describe.serial('report-400: 100×4 марша, все кнопки', () =>
   function genCases(flight: Flight, n: number): Case[] {
     const out: Case[] = []
     for (let i = 0; i < n; i++) {
-      if (flight === 'spiral') {
-        // outer 960 — внутри документированного окна [900,1200] (boundary.spec.ts, W=700, шаг авто 180);
-        // узкое окно ~960 — только при явном step 165–172 и H 2680–2720, поэтому здесь фиксируем 960 (проверено)
-        const base: Case = {
-          flight,
-          width_mm: 700,
-          height_mm: rndInt(2680, 2720, 10),
-          step_height_mm: rndInt(165, 172, 1),
-          stringer_thickness_mm: 50,
-          step_thickness_mm: 40,
-          clearance_mm: 2500,
-          railing_height_mm: 1000,
-          material: pick(['STEEL-S235', 'WOOD-OAK']),
-          outer_radius_mm: 960,
-          direction: pick(['left', 'right'] as const),
-        }
-        out.push(base)
-        continue
-      }
       if (flight === 'l_shape' || flight === 'u_shape') {
         // Только проверенные (h → step) пары; landing = width (инвариант Wp ≥ W)
         const h = pick([...LU_VALID.keys()])
@@ -120,7 +99,6 @@ test.describe.serial('report-400: 100×4 марша, все кнопки', () =>
     { flight: 'straight', cases: genCases('straight', N) },
     { flight: 'l_shape', cases: genCases('l_shape', N) },
     { flight: 'u_shape', cases: genCases('u_shape', N) },
-    { flight: 'spiral', cases: genCases('spiral', N) },
   ]
 
   interface Result {
@@ -214,7 +192,6 @@ test.describe.serial('report-400: 100×4 марша, все кнопки', () =>
           if (c.landing_depth_mm) bodyBase.landing_depth_mm = c.landing_depth_mm
           if (c.lower_step_count) bodyBase.lower_step_count = c.lower_step_count
           if (c.direction) bodyBase.direction = c.direction
-          if (c.outer_radius_mm) bodyBase.outer_radius_mm = c.outer_radius_mm
 
           // rate-limit aware helper
           const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -329,7 +306,7 @@ test.describe.serial('report-400: 100×4 марша, все кнопки', () =>
     md += `Всего: ${results.length}\n\n`
     md += `| марш | N | valid | blocking | calcOk | preview | opt price | opt cost | opt material | restore | review | approve | already_approved | export | cad | proposal | comment | audit | avg ms | failed |\n`
     md += `|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n`
-    for (const f of ['straight', 'l_shape', 'u_shape', 'spiral'] as Flight[]) {
+    for (const f of ['straight', 'l_shape', 'u_shape'] as Flight[]) {
       const rs = byFlight(f)
       const valid = rs.filter((r) => r.valid).length
       const blocking = rs.filter((r) => r.blocking).length

@@ -35,6 +35,17 @@ type CutItem struct {
 	Length       engineering.Length
 	Width        engineering.Length
 	Quantity     Quantity
+
+	// Сварной стык «шип-паз», которым кусок стыкуется с соседним. Деталь,
+	// длиннее рабочего поля лазерного стола, режется на куски, и на карте
+	// раскроя видно, где именно сваривать.
+	HasTongue  bool // вырезать шип на торце
+	HasMortise bool // вырезать сквозной паз
+	// JointOnWidth — стык идёт поперёк детали (половинки оболочки колонны),
+	// иначе — вдоль.
+	JointOnWidth bool
+	JointIndex   int // номер стыка, 0-based
+	JointCount   int // стыков на детали, 0 — деталь цельная
 }
 
 // CutList — карта раскроя (MFG-0001): прямоугольники, вырезаемые из

@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -169,6 +170,7 @@ func DefaultConfig() Config {
 // rateLimiter — per-user/api-key лимит; secure — флаг Secure для cookie
 // (оба инстанс-зависимые значения из NewRouter, P2-11).
 func requireAuth(svc AuthService, rateLimiter RateLimiter, secure bool) func(http.Handler) http.Handler {
+	// svc используется и для аутентификации, и для чтения прав: EffectiveGrants.
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// API-ключ (Bearer): не-браузерный клиент, CSRF не требуется.
@@ -214,7 +216,14 @@ func requireAuth(svc AuthService, rateLimiter RateLimiter, secure bool) func(htt
 				// Сессия ротирована: выдаём новый session-cookie (httpOnly).
 				setSessionCookie(w, appOrigin(r), rotatedToken, secure)
 			}
-			next.ServeHTTP(w, r.WithContext(withAuthUser(r.Context(), u)))
+			// Права кладём в контекст один раз, здесь: обработчики только
+			// проверяют hasCapability. Сбой чтения прав не должен превращать
+			// запрос в 500 — тогда запрос падает в 403 (fail-closed).
+			grants, err := svc.EffectiveGrants(r.Context(), u)
+			if err != nil {
+				slog.Error("auth: effective grants failed", "user", u.ID, "err", err.Error())
+			}
+			next.ServeHTTP(w, r.WithContext(withGrants(withAuthUser(r.Context(), u), grants)))
 		})
 	}
 }

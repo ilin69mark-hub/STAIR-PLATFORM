@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	engmfg "stairplatform/internal/engine/manufacturing"
@@ -61,5 +62,34 @@ func TestPublicMaterials(t *testing.T) {
 	// Дерево ограничено толщиной снизу — витрина обязана это показывать.
 	if byCode["WOOD-OAK"].MinThicknessMM < 20 {
 		t.Errorf("дуб: MinThickness %v, ожидалось ≥ 20", byCode["WOOD-OAK"].MinThicknessMM)
+	}
+	// Предел СТУПЕНИ публикуется отдельно от общего минимума детали: у дуба
+	// 40 мм при общем 20 мм. Калькулятор берёт отсюда поле «толщина ступени»,
+	// и без этого он показывал бы пользователю 20 мм — а сервер отвечал бы
+	// 422 MFG-MATERIAL.
+	for code, mat := range byCode {
+		if !strings.HasPrefix(code, "WOOD-") {
+			continue
+		}
+		if mat.MinTreadThicknessMM != 40 {
+			t.Errorf("%s: min_tread_thickness_mm %v, ожидалось 40 (решение владельца 2026-10-05)",
+				code, mat.MinTreadThicknessMM)
+		}
+		if mat.MinTreadThicknessMM < mat.MinThicknessMM {
+			t.Errorf("%s: предел ступени %v ниже общего минимума детали %v",
+				code, mat.MinTreadThicknessMM, mat.MinThicknessMM)
+		}
+	}
+	// У стали отдельного предела ступени нет: действует общий 3 мм.
+	if byCode["STEEL-S235"].MinTreadThicknessMM != byCode["STEEL-S235"].MinThicknessMM {
+		t.Errorf("сталь: min_tread_thickness_mm %v != min_thickness_mm %v",
+			byCode["STEEL-S235"].MinTreadThicknessMM, byCode["STEEL-S235"].MinThicknessMM)
+	}
+	// Верхняя граница стали 12 мм, а не 8: норматив на листовой косоур
+	// (решение владельца 2026-10-05) описывает строки 8 / 10 / 12 мм, и
+	// публичный каталог обязан показывать предел, который сервер пропускает.
+	// Иначе калькулятор не даст ввести предписанную толщину.
+	if got := byCode["STEEL-S235"].MaxThicknessMM; got != 12 {
+		t.Errorf("сталь: max_thickness_mm %v, ожидалось 12 (строки норматива 8/10/12)", got)
 	}
 }

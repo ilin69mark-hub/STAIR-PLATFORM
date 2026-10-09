@@ -184,7 +184,12 @@ func main() {
 		project.DefaultRules(),
 		auditSvc,
 	)
-	authSvc := auth.NewService(database.NewAuthRepository(pool), sessionTTL(), auditSvc)
+	authSvc := auth.NewService(database.NewAuthRepository(pool), sessionTTL(), auditSvc).
+		// Точечные выдачи прав сотрудникам (EDR-0041): репозиторий выдач
+		// обязателен, иначе EffectiveGrants всегда отдавал бы шаблон роли, а
+		// PUT /admin/users/{id}/grants падал бы в 500. Подключаем здесь, а не
+		// лениво: забытая связь обязана быть видна сразу.
+		WithGrants(database.NewAuthRepository(pool))
 	intSvc := integrations.NewService(database.NewIntegrationRepository(pool), queueBackend.Queue())
 	// S-104: нормализованный продакшен-детект (используется S1-2-гардом
 	// и Stripe-guard'ом ниже).

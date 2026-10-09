@@ -11,6 +11,14 @@ const (
 	CategoryMaterial CostCategory = "material"
 	CategoryMachine  CostCategory = "machine"
 	CategoryLabor    CostCategory = "labor"
+	// CategoryFastener — крепёж: дюбели и глухари (MNT-0001). Отдельная
+	// категория, а не часть материала: крепёж покупается поштучно, и в смете
+	// его должно быть видно отдельной строкой в штуках, а не килограммами
+	// внутри «Material».
+	CategoryFastener CostCategory = "fastener"
+	// CategorySealant — герметик (CONF-SEALANT). Отдельная категория, а не
+	// часть материала: закупается картриджами, а не килограммами.
+	CategorySealant  CostCategory = "sealant"
 	CategoryOverhead CostCategory = "overhead"
 	CategoryMargin   CostCategory = "margin"
 	CategoryDiscount CostCategory = "discount"
@@ -20,8 +28,8 @@ const (
 // IsValid проверяет корректность категории.
 func (c CostCategory) IsValid() bool {
 	switch c {
-	case CategoryMaterial, CategoryMachine, CategoryLabor, CategoryOverhead,
-		CategoryMargin, CategoryDiscount, CategoryTax:
+	case CategoryMaterial, CategoryMachine, CategoryLabor, CategoryFastener,
+		CategorySealant, CategoryOverhead, CategoryMargin, CategoryDiscount, CategoryTax:
 		return true
 	}
 	return false
@@ -44,9 +52,16 @@ type CostComponent struct {
 type PriceBreakdown struct {
 	Currency Currency
 
-	Material       Money
-	Machine        Money
-	Labor          Money
+	Material Money
+	Machine  Money
+	Labor    Money
+	// Fastener — крепёж (MNT-0001). Входит в базу накладных и маржи наравне с
+	// материалами и работой: гвоздь стоит 15 ₽, но наценку и налог на него тоже
+	// платят.
+	Fastener Money
+	// Sealant — герметик, ₽. Входит в базу накладных и маржи наравне с
+	// материалами, крепежом и работой.
+	Sealant        Money
 	Overhead       Money
 	ProductionCost Money
 	Margin         Money
@@ -70,7 +85,7 @@ func (b *PriceBreakdown) Validate() error {
 		return err
 	}
 	for _, v := range []Money{
-		b.Material, b.Machine, b.Labor, b.Overhead, b.ProductionCost,
+		b.Material, b.Machine, b.Labor, b.Fastener, b.Sealant, b.Overhead, b.ProductionCost,
 		b.Margin, b.Discount, b.PreTax, b.Tax, b.FinalPrice,
 	} {
 		if v < 0 {
@@ -78,7 +93,7 @@ func (b *PriceBreakdown) Validate() error {
 		}
 	}
 
-	base := b.Material.Add(b.Machine).Add(b.Labor)
+	base := b.Material.Add(b.Machine).Add(b.Labor).Add(b.Fastener).Add(b.Sealant)
 	if b.ProductionCost != base.Add(b.Overhead) {
 		return fmt.Errorf("pricing: production cost must equal base plus overhead")
 	}
@@ -114,6 +129,8 @@ func (b *PriceBreakdown) Validate() error {
 		CategoryMaterial: b.Material,
 		CategoryMachine:  b.Machine,
 		CategoryLabor:    b.Labor,
+		CategoryFastener: b.Fastener,
+		CategorySealant:  b.Sealant,
 		CategoryOverhead: b.Overhead,
 		CategoryMargin:   b.Margin,
 		CategoryDiscount: b.Discount,

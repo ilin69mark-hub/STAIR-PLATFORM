@@ -45,7 +45,6 @@ type evalConfig struct {
 	WidthMM             int    `json:"width_mm"`
 	HeightMM            int    `json:"height_mm"`
 	Flight              string `json:"flight"`
-	OuterRadiusMM       int    `json:"outer_radius_mm"`
 	ClearanceMM         int    `json:"clearance_mm,omitempty"`
 	StringerThicknessMM int    `json:"stringer_thickness_mm,omitempty"`
 	RailingHeightMM     int    `json:"railing_height_mm,omitempty"`
@@ -268,9 +267,6 @@ func (c evalConfig) toStairConfig() stair.Config {
 		Width:  engineering.Length(c.WidthMM),
 		Height: engineering.Length(c.HeightMM),
 		Flight: engineering.FlightType(c.Flight),
-	}
-	if c.OuterRadiusMM > 0 {
-		cfg.OuterRadius = engineering.Length(c.OuterRadiusMM)
 	}
 	if c.ClearanceMM > 0 {
 		cfg.Clearance = engineering.Length(c.ClearanceMM)

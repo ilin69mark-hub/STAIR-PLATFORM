@@ -48,7 +48,7 @@ func toAdminPaymentDTO(p *payments.PaymentIntent) adminPaymentDTO {
 
 func handleAdminListPayments(svc PaymentAdminService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionPaymentsList) {
+		if !hasCapability(r, auth.CapFinancePayments, auth.LevelRead) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора платежей")
 			return
 		}
@@ -69,7 +69,7 @@ func handleAdminListPayments(svc PaymentAdminService) http.HandlerFunc {
 
 func handleAdminRefundPayment(svc PaymentAdminService, auditSvc AuditService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionPaymentsManage) {
+		if !hasCapability(r, auth.CapFinanceRefunds, auth.LevelAction) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права управления платежами")
 			return
 		}

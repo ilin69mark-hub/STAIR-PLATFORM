@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
 	kerngeo "stairplatform/internal/geometry"
@@ -30,6 +31,10 @@ type ProjectService interface {
 	AddMemberByEmail(ctx context.Context, tenantID, actorID, projectID, email string, role project.ProjectRole) error
 	UpdateMemberRole(ctx context.Context, tenantID, actorID, projectID, userID string, role project.ProjectRole) error
 	RemoveMember(ctx context.Context, tenantID, actorID, projectID, userID string) error
+	// TransferOwnership передаёт владение проектом другому участнику.
+	// byCapability передаёт проверку платформенного права staff.project_transfer,
+	// выполненную в транспорте (в прикладном уровне метрики неизвестны).
+	TransferOwnership(ctx context.Context, tenantID, actorID, projectID, toUserID string, byCapability bool) error
 	AddComment(ctx context.Context, tenantID, userID, projectID, body string) (*project.Comment, error)
 	ListComments(ctx context.Context, tenantID, userID, projectID string) ([]*project.Comment, error)
 	DeleteComment(ctx context.Context, tenantID, userID, projectID, commentID string) error
@@ -54,6 +59,7 @@ type ProjectService interface {
 	ListConfigurations(ctx context.Context, tenantID, userID, projectID string) ([]*project.StairConfiguration, error)
 	GetConfiguration(ctx context.Context, tenantID, userID, projectID, configurationID string) (*project.StairConfiguration, error)
 	RestoreConfiguration(ctx context.Context, tenantID, userID, projectID, configurationID string) (*project.StairConfiguration, error)
+	MarkConfigurationAsMeasurement(ctx context.Context, tenantID, userID, projectID, configurationID string, mark bool) (*project.StairConfiguration, error)
 }
 
 // ---- DTO ----
@@ -76,12 +82,16 @@ type projectDTO struct {
 	UpdatedAt              time.Time `json:"updated_at"`
 }
 
-// memberDTO — участник проекта (EDR-0008).
+// memberDTO — участник проекта (EDR-0008). Email и Name — чтобы интерфейс
+// показывал человека, а не UUID: выбрать «кому передать владение» по
+// идентификатору невозможно.
 type memberDTO struct {
 	ProjectID string    `json:"project_id"`
 	UserID    string    `json:"user_id"`
 	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"created_at"`
+	Email     string    `json:"email,omitempty"`
+	Name      string    `json:"name,omitempty"`
 }
 
 // memberRequest — тело запроса управления членом (add/update role).
@@ -156,25 +166,26 @@ type configurationDTO struct {
 	RoomLengthMM        float64 `json:"room_length_mm"`
 	ApproachSpaceMM     float64 `json:"approach_space_mm"`
 	LowerStepCount      int     `json:"lower_step_count"`
-	OuterRadiusMM       float64 `json:"outer_radius_mm"`
 	// DOM-003: девять параметров, которые отсутствовали в DTO. Из-за этого
 	// загруженная ревизия не содержала сведений о типе поворота, сторонах
 	// перил, направлениях и материале, и повторная отправка формы их теряла.
-	TurnKind        string `json:"turn_kind,omitempty"`
-	WinderCount     int    `json:"winder_count,omitempty"`
-	Railing         string `json:"railing,omitempty"`
-	RailingLower    string `json:"railing_lower,omitempty"`
-	RailingLanding  string `json:"railing_landing,omitempty"`
-	RailingUpper    string `json:"railing_upper,omitempty"`
-	Direction       string `json:"direction,omitempty"`
-	SpiralDirection string `json:"spiral_direction,omitempty"`
-	Material        string `json:"material,omitempty"`
+	TurnKind       string `json:"turn_kind,omitempty"`
+	WinderCount    int    `json:"winder_count,omitempty"`
+	Railing        string `json:"railing,omitempty"`
+	RailingLower   string `json:"railing_lower,omitempty"`
+	RailingLanding string `json:"railing_landing,omitempty"`
+	RailingUpper   string `json:"railing_upper,omitempty"`
+	Direction      string `json:"direction,omitempty"`
+	Material       string `json:"material,omitempty"`
 	// TreadMaterial — материал ступеней отдельно от каркаса; пусто = тот же.
 	TreadMaterial string `json:"tread_material,omitempty"`
 	// RiserThicknessMM — толщина подступенка, мм; 0 = как у ступени.
-	RiserThicknessMM float64   `json:"riser_thickness_mm,omitempty"`
-	Current          bool      `json:"current"`
-	CreatedAt        time.Time `json:"created_at"`
+	RiserThicknessMM float64 `json:"riser_thickness_mm,omitempty"`
+	// IsMeasurement — ревизия снята по факту на объекте (решение владельца
+	// 2026-10-08), а не по телефону. Информационная метка.
+	IsMeasurement bool      `json:"is_measurement"`
+	Current       bool      `json:"current"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // calculationDTO — сохранённый расчёт проекта: метаданные + снапшот.
@@ -351,6 +362,48 @@ func handleUpdateMemberRole(svc ProjectService) http.HandlerFunc {
 			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case err != nil:
 			writeError(w, http.StatusConflict, "conflict", userInputMessage(err))
+		default:
+			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		}
+	}
+}
+
+// transferRequest — тело передачи владения: кому отдать проект.
+type transferRequest struct {
+	ToUserID string `json:"to_user_id"`
+}
+
+// handleTransferProject — POST /api/v1/projects/{id}/transfer (auth+CSRF).
+//
+// Передать может владелец проекта; владелец компании — любой проект, если у
+// него есть платформенное право staff.project_transfer. Проверка права — здесь,
+// в транспорте: прикладной уровень не знает, что выданные человеку метрики.
+// Владельцу проекта право не требуется — это его проект.
+func handleTransferProject(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req transferRequest
+		if err := decodeJSONStrict(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", jsonErrorMessage(err))
+			return
+		}
+		if req.ToUserID == "" {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_input", "Укажите, кому передать проект.")
+			return
+		}
+		byCapability := hasCapability(r, auth.CapStaffProjectTransfer, auth.LevelAction)
+		err := svc.TransferOwnership(r.Context(), tenantID(r.Context()), userID(r.Context()),
+			r.PathValue("id"), req.ToUserID, byCapability)
+		switch {
+		case errors.Is(err, project.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found",
+				"Проект не найден или новый владелец не участник проекта.")
+		case errors.Is(err, project.ErrForbidden):
+			writeError(w, http.StatusForbidden, "forbidden",
+				"Передать проект может только его владелец.")
+		case errors.Is(err, project.ErrConflict):
+			writeError(w, http.StatusConflict, "conflict", userInputMessage(err))
+		case err != nil:
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 		default:
 			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 		}
@@ -703,6 +756,44 @@ func handleRestoreConfiguration(svc ProjectService) http.HandlerFunc {
 	}
 }
 
+// markMeasurementRequest — тело пометки ревизии как замер.
+type markMeasurementRequest struct {
+	Mark *bool `json:"mark"`
+}
+
+// handleMarkConfigurationMeasurement — POST
+// /api/v1/projects/{id}/configurations/{configID}/measurement (auth+CSRF).
+// Помечает ревизию как снятую по факту на объекте либо снимает метку.
+func handleMarkConfigurationMeasurement(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		projectID := r.PathValue("id")
+		// По умолчанию метка СТАВИТСЯ: пустое тело — это «отметить как
+		// замер», потому что это действие вызывают чаще, а снятие метки
+		// передаётся явным {"mark": false}.
+		mark := true
+		var req markMeasurementRequest
+		if err := decodeJSONStrict(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", jsonErrorMessage(err))
+			return
+		}
+		if req.Mark != nil {
+			mark = *req.Mark
+		}
+		c, err := svc.MarkConfigurationAsMeasurement(r.Context(), tenantID(r.Context()), userID(r.Context()),
+			projectID, r.PathValue("configID"), mark)
+		switch {
+		case errors.Is(err, project.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Конфигурация не найдена.")
+		case errors.Is(err, project.ErrForbidden):
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
+		case err != nil:
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
+		default:
+			writeJSON(w, http.StatusOK, toConfigurationDTO(c, currentConfigID(r, svc, projectID)))
+		}
+	}
+}
+
 // currentConfigID возвращает ID текущей ревизии проекта (EDR-0012) или "".
 func currentConfigID(r *http.Request, svc ProjectService, projectID string) string {
 	p, err := svc.GetProject(r.Context(), tenantID(r.Context()), userID(r.Context()), projectID)
@@ -928,6 +1019,7 @@ func toProjectDTO(p *project.Project) projectDTO {
 func toMemberDTO(m *project.ProjectMember) memberDTO {
 	return memberDTO{
 		ProjectID: m.ProjectID, UserID: m.UserID, Role: string(m.Role), CreatedAt: m.CreatedAt,
+		Email: m.Email, Name: m.Name,
 	}
 }
 
@@ -975,7 +1067,7 @@ func toConfigurationDTO(c *project.StairConfiguration, current string) configura
 		RoomLengthMM:        c.RoomLengthMM,
 		ApproachSpaceMM:     c.ApproachSpaceMM,
 		LowerStepCount:      c.LowerStepCount,
-		OuterRadiusMM:       c.OuterRadiusMM,
+		IsMeasurement:       c.IsMeasurement,
 		// DOM-003: эхо девяти восстановленных параметров.
 		TurnKind:         c.TurnKind,
 		WinderCount:      c.WinderCount,
@@ -984,7 +1076,6 @@ func toConfigurationDTO(c *project.StairConfiguration, current string) configura
 		RailingLanding:   c.RailingLanding,
 		RailingUpper:     c.RailingUpper,
 		Direction:        c.Direction,
-		SpiralDirection:  c.SpiralDirection,
 		Material:         c.MaterialCode,
 		TreadMaterial:    c.TreadMaterialCode,
 		RiserThicknessMM: c.RiserThicknessMM,

@@ -67,8 +67,8 @@ func toDeliveryDTO(d *integrations.Delivery) deliveryDTO {
 // 200 — список эндпоинтов tenant; 403 — нет права integrations.manage.
 func handleListEndpoints(svc IntegrationService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionIntegrationsManage) {
-			writeError(w, http.StatusForbidden, "forbidden", "Требуется право integrations.manage.")
+		if !hasCapability(r, auth.CapIntegrationEndpoints, auth.LevelRead) {
+			writeError(w, http.StatusForbidden, "forbidden", "Требуется право видеть интеграционные подключения.")
 			return
 		}
 		eps, err := svc.ListEndpoints(r.Context(), tenantID(r.Context()))
@@ -91,8 +91,8 @@ func handleListEndpoints(svc IntegrationService) http.HandlerFunc {
 // 422 — невалидные данные эндпоинта.
 func handleCreateEndpoint(svc IntegrationService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionIntegrationsManage) {
-			writeError(w, http.StatusForbidden, "forbidden", "Требуется право integrations.manage.")
+		if !hasCapability(r, auth.CapIntegrationEndpointsIssue, auth.LevelAction) {
+			writeError(w, http.StatusForbidden, "forbidden", "Требуется право изменять интеграционные подключения.")
 			return
 		}
 		var req createEndpointRequest
@@ -119,8 +119,8 @@ func handleCreateEndpoint(svc IntegrationService) http.HandlerFunc {
 // 204 — удалено; 403 — нет права; 404 — нет эндпоинта.
 func handleDeleteEndpoint(svc IntegrationService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionIntegrationsManage) {
-			writeError(w, http.StatusForbidden, "forbidden", "Требуется право integrations.manage.")
+		if !hasCapability(r, auth.CapIntegrationEndpointsIssue, auth.LevelAction) {
+			writeError(w, http.StatusForbidden, "forbidden", "Требуется право изменять интеграционные подключения.")
 			return
 		}
 		err := svc.DeleteEndpoint(r.Context(), tenantID(r.Context()), r.PathValue("id"))

@@ -123,6 +123,7 @@ func SolveCheckedUShape(cfg *engineering.StairConfiguration, set *constraint.Con
 			res.LandingWidth.Millimeters(), cfg.Width.Millimeters())
 	}
 	res.Apply(cfg)
+	normalizePlateStringer(cfg, res.LowerRun.Millimeters(), res.UpperRun.Millimeters())
 	vr := validation.Validate(cfg, set)
 	if vr.Blocking {
 		cfg.StepCount = 0

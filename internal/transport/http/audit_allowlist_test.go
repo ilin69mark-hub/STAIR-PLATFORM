@@ -36,7 +36,13 @@ func (a *sec2Audit) ListTenantAudit(context.Context, string) ([]*audit.Event, er
 	return nil, nil
 }
 
-type sec2Auth2 struct{ u *appauth.User }
+type sec2Auth2 struct {
+	grantStubs
+	u *appauth.User
+	// deleteCalls — сколько раз дошло до сервиса удаления: 403 должен
+	// останавливать запрос ДО вызова, иначе гейт не работает.
+	deleteCalls int
+}
 
 type sec2Err string
 
@@ -64,6 +70,15 @@ func (a *sec2Auth2) UpdateUserRole(context.Context, string, string, string, appa
 	return nil
 }
 func (a *sec2Auth2) UpdateUser(context.Context, string, string, string, *appauth.Role, *appauth.Status) error {
+	return nil
+}
+
+func (a *sec2Auth2) UserDeletionPreview(context.Context, string, string) (appauth.DeletionPreview, error) {
+	return appauth.DeletionPreview{}, nil
+}
+
+func (a *sec2Auth2) DeleteUser(context.Context, string, string, string, string) error {
+	a.deleteCalls++
 	return nil
 }
 func (a *sec2Auth2) GetPolicy(context.Context, string) (appauth.Policy, error) {
@@ -390,4 +405,13 @@ func TestSEC002_MigrationAllowlistMatchesRegistry(t *testing.T) {
 	if e.Error.Code != "invalid_action" {
 		t.Fatal("sanity")
 	}
+}
+
+// EffectiveGrants отдаёт шаблон роли: до перехода на точечные выдачи права
+// приходили из роли, и тесты аудита проверяли именно это.
+func (f sec2Auth2) EffectiveGrants(_ context.Context, u *appauth.User) (*appauth.GrantSet, error) {
+	if u == nil {
+		return appauth.RoleTemplate(appauth.RoleUser), nil
+	}
+	return appauth.RoleTemplate(u.Role), nil
 }

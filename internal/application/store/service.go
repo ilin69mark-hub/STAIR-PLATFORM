@@ -1,10 +1,14 @@
 package store
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
+
+	"stairplatform/internal/application/auth"
 
 	dommfg "stairplatform/internal/domain/manufacturing"
 	domprc "stairplatform/internal/domain/pricing"
@@ -143,6 +147,25 @@ func (s *Service) ResolveRates(ctx context.Context, tenantID string) (*engprc.Ra
 	for _, p := range prices {
 		rates.Material[dommfg.MaterialCode(p.Code)] = moneyFromRub(p.PricePerKgRub)
 	}
+	// Цены крепежа (MNT-0001). Без этого шага расчёт считал бы крепёж по
+	// встроенным 15 ₽, и правка цены дюбеля в админке ни на что не влияла бы.
+	fastPrices, err := s.FastenerPrices(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range fastPrices {
+		rates.Fastener[p.Code] = moneyFromRub(p.PricePerPcRub)
+	}
+	// Цены герметика (CONF-SEALANT). Без этого шага расчёт считал бы
+	// герметик по встроенным 500 ₽, и правка цены картриджа в админке ни на
+	// что не влияла бы.
+	sealPrices, err := s.SealantPrices(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range sealPrices {
+		rates.Sealant[p.Code] = moneyFromRub(p.PricePerCartridgeRub)
+	}
 	return &rates, nil
 }
 
@@ -195,4 +218,126 @@ func sortPrices(prices []MaterialPrice) {
 		}
 		return prices[i].Code < prices[j].Code
 	})
+}
+
+// SettingsGroup — группа настроек, которую можно менять отдельно (EDR-0041).
+//
+// Зачем группы: настройки лежат одной записью JSON, и владелец может
+// выдать право «менять SEO», не выдавая «менять реквизиты». Пока группа одна,
+// любое сохранение перезаписывает всю корзину — значит, выдать одну группу
+// отдельно от другой невозможно, а это ровно то, ради чего выдачи и делались.
+type SettingsGroup string
+
+const (
+	GroupContacts SettingsGroup = "contacts" // телефон, почта, адрес, часы
+	GroupCompany  SettingsGroup = "company"  // ИНН, ОГРН, юрлицо
+	GroupSocial   SettingsGroup = "social"   // соцсети
+	GroupSEO      SettingsGroup = "seo"      // SEO и счётчики аналитики
+	GroupRates    SettingsGroup = "rates"    // ставки расчёта: себестоимость, наценка, НДС
+)
+
+// SettingsGroups — все группы: используется роутером и для проверки, что
+// путь из URL известен (иначе 404, а не «ничего не изменилось»).
+var SettingsGroups = []SettingsGroup{GroupContacts, GroupCompany, GroupSocial, GroupSEO, GroupRates}
+
+// CapabilityOf — метрика, которой соответствует группа. Одно место, где
+// группа настроек превращается в право: иначе маршрут и карта прав
+// разъедутся, и «выдать SEO» перестанет работать.
+func (g SettingsGroup) Capability() auth.Capability {
+	switch g {
+	case GroupContacts:
+		return auth.CapSiteContacts
+	case GroupCompany:
+		return auth.CapSiteCompany
+	case GroupSocial:
+		return auth.CapSiteSocial
+	case GroupSEO:
+		return auth.CapSiteSEO
+	case GroupRates:
+		return auth.CapPriceRates
+	default:
+		return ""
+	}
+}
+
+// ParseSettingsGroup нормализует группу из URL.
+func ParseSettingsGroup(s string) (SettingsGroup, bool) {
+	g := SettingsGroup(s)
+	for _, known := range SettingsGroups {
+		if g == known {
+			return g, true
+		}
+	}
+	return "", false
+}
+
+// UpdateSettingsGroup меняет ОДНУ группу, остальные оставляя как есть.
+//
+// Раньше менялся весь объект: форма в интерфейсе держала копию всего
+// документа, поэтому правка одной секции затирала другие, если клиент
+// прислал неполный документ. Теперь клиент присылает только свою группу,
+// а сервер подставляет актуальные значения остальных.
+func (s *Service) UpdateSettingsGroup(ctx context.Context, tenantID string, group SettingsGroup, patch json.RawMessage, actorID string) (Settings, error) {
+	if tenantID == "" {
+		return Settings{}, ErrNotFound
+	}
+	cur, err := s.Settings(ctx, tenantID)
+	if err != nil {
+		return Settings{}, err
+	}
+	next := cur.WithDefaults()
+
+	switch group {
+	case GroupContacts:
+		if err := decodeGroup(patch, &next.Contacts); err != nil {
+			return Settings{}, err
+		}
+	case GroupCompany:
+		if err := decodeGroup(patch, &next.Company); err != nil {
+			return Settings{}, err
+		}
+	case GroupSocial:
+		if err := decodeGroup(patch, &next.Social); err != nil {
+			return Settings{}, err
+		}
+	case GroupSEO:
+		if err := decodeGroup(patch, &next.SEO); err != nil {
+			return Settings{}, err
+		}
+		// Счётчики аналитики живут в одной группе с SEO: это одна забота
+		// «что видит покупатель в поиске и что мы считаем».
+		if err := decodeGroup(patch, &next.Counters); err != nil {
+			return Settings{}, err
+		}
+	case GroupRates:
+		if err := decodeGroup(patch, &next.Rates); err != nil {
+			return Settings{}, err
+		}
+	default:
+		return Settings{}, ErrInvalid
+	}
+
+	next.UpdatedBy = actorID
+	next.UpdatedAt = s.now().UTC()
+	if err := next.Validate(); err != nil {
+		return Settings{}, err
+	}
+	if err := s.repo.SaveSettings(ctx, tenantID, next, next.UpdatedBy); err != nil {
+		return Settings{}, err
+	}
+	return next, nil
+}
+
+// decodeGroup разбирает одну секцию. DisallowUnknownFields — опечатка в поле
+// должна быть ошибкой, а не молчаливым сбросом значения.
+func decodeGroup(patch []byte, dst any) error {
+	if len(patch) == 0 {
+		return ErrInvalid
+	}
+	dec := json.NewDecoder(bytes.NewReader(patch))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	return nil
 }

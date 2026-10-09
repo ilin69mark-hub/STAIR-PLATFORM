@@ -23,6 +23,15 @@ const (
 	ActionAuthzDenied       Action = "authz.denied"
 	ActionUserRoleChanged   Action = "user.role_changed"
 	ActionUserStatusChanged Action = "user.status_changed"
+	// ActionUserGrantsChanged — точечная выдача/снятие прав сотруднику
+	// (EDR-0041). Пишется при каждой смене набора, чтобы по журналу было
+	// видно, кто и когда расширил доступ — даже если выдачу потом сняли.
+	ActionUserGrantsChanged Action = "user.grants_changed"
+	// ActionUserDeleted — удаление сотрудника (мягкое): сколько проектов
+	// уехало к кому. Отдельное действие, а не user.status_changed: по
+	// журналу должно быть видно, что человек именно удалён, и куда делись
+	// его проекты.
+	ActionUserDeleted       Action = "user.deleted"
 	ActionSettingsUpdated   Action = "settings.updated"
 	ActionDataExported      Action = "data.exported"
 	ActionApiKeyCreated     Action = "api_key.created"
@@ -34,12 +43,17 @@ const (
 	ActionProjectModified   Action = "project.modified"
 	ActionMemberAdded       Action = "member.added"
 	ActionMemberRoleChanged Action = "member.role_changed"
-	ActionMemberRemoved     Action = "member.removed"
-	ActionConfigApproved    Action = "config.approved"
-	ActionConfigRestored    Action = "config.restored"
-	ActionReviewRequested   Action = "review.requested"
-	ActionReviewSigned      Action = "review.signed"
-	ActionReviewChanges     Action = "review.changes"
+	// ActionProjectTransferred — владение проектом передано другому
+	// человеку. Отдельное событие, а не member.role_changed: в журнале должно
+	// быть видно, кто кому отдал проект, — это вопрос доверия, а не правки
+	// роли наблюдателя.
+	ActionProjectTransferred Action = "project.transferred"
+	ActionMemberRemoved      Action = "member.removed"
+	ActionConfigApproved     Action = "config.approved"
+	ActionConfigRestored     Action = "config.restored"
+	ActionReviewRequested    Action = "review.requested"
+	ActionReviewSigned       Action = "review.signed"
+	ActionReviewChanges      Action = "review.changes"
 	// AI-ассистенты (Phase D, EDR-0036..0039; AI-0001 «AI полностью аудируем»).
 	ActionAiAssistDesign        Action = "ai.assist.design"
 	ActionAiAssistEngineering   Action = "ai.assist.engineering"
@@ -91,10 +105,12 @@ const (
 var allActions = []Action{
 	ActionAuthRegister, ActionAuthLogin, ActionAuthLogout, ActionAuthLoginDenied,
 	ActionAuthzDenied, ActionUserRoleChanged, ActionUserStatusChanged,
+	ActionUserGrantsChanged, ActionUserDeleted,
 	ActionSettingsUpdated, ActionDataExported, ActionApiKeyCreated,
 	ActionApiKeyRevoked, ActionSsoLogin, ActionSsoLoginDenied, ActionSsoLinked,
 	ActionProjectCreated, ActionProjectModified, ActionMemberAdded,
 	ActionMemberRoleChanged, ActionMemberRemoved, ActionConfigApproved,
+	ActionProjectTransferred,
 	ActionConfigRestored, ActionReviewRequested, ActionReviewSigned,
 	ActionReviewChanges,
 	ActionAiAssistDesign, ActionAiAssistEngineering, ActionAiAssistManufacturing,

@@ -111,7 +111,7 @@ func TestPipelineAdapterValidationFailed(t *testing.T) {
 
 // TestManufacturingBlocked — blocking-результат при превышении габарита листа.
 func TestManufacturingBlocked(t *testing.T) {
-	feas := &engmfg.FeasibilityError{PartLen: 8000, PartWid: 2000, Kerf: 3}
+	feas := &engmfg.FeasibilityError{PartLen: 8000, PartWid: 2000, Thickness: 8, FieldLength: 3000, FieldWidth: 1500}
 
 	// Материал задан явно — крупнейший лист находится в каталоге.
 	if vr := manufacturingBlocked(feas, 50, dommfg.MaterialCode("STEEL-S235")); !vr.Blocking || len(vr.Issues) == 0 {

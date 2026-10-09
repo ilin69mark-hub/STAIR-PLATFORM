@@ -12,15 +12,13 @@ import "stairplatform/internal/engine/constraint"
 // параметры и повторяет расчёт).
 type Suggestion struct {
 	StepCount      int     // n — общее число ступеней
-	LowerStepCount int     // n1 — число ступеней нижнего марша (0 для прямого/спирали)
-	WinderCount    int     // nw — число поворотных ступеней (0 для площадки/прямого/спирали)
+	LowerStepCount int     // n1 — число ступеней нижнего марша (0 для прямого)
+	WinderCount    int     // nw — число поворотных ступеней (0 для площадки/прямого)
 	StepHeightMm   float64 // h — высота ступени
 	TreadDepthMm   float64 // b — проступь
 	AngleDeg       float64 // α — угол наклона, градусы
-	// OuterRadiusMm и WidthMm — для спирали (EDR-0007): наружный радиус R и
-	// ширина марша W; у прямых/L/U маршей равны 0 (не применяются).
-	OuterRadiusMm float64 // R — наружный радиус спирали
-	WidthMm       float64 // W — ширина марша
+	// WidthMm — ширина марша W (EDR-0007); у L/U равна 0 (не применяется).
+	WidthMm float64 // W — ширина марша
 }
 
 // Variation — альтернативная конфигурация (вариант A/B/C), устраняющая

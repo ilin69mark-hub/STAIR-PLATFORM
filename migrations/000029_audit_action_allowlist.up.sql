@@ -47,6 +47,11 @@ ALTER TABLE audit_events
         'settings.updated',
         'user.role_changed',
         'user.status_changed',
+        -- EDR-0041: точечная выдача/снятие прав сотруднику. Без этого
+        -- значения запись об изменении доступа падала бы по CHECK, то есть
+        -- выдача прав шла бы мимо журнала безопасности.
+        'user.deleted',
+        'user.grants_changed',
         -- sso
         'sso.linked',
         'sso.login',
@@ -57,6 +62,7 @@ ALTER TABLE audit_events
         'member.role_changed',
         'project.created',
         'project.modified',
+        'project.transferred',
         -- config
         'config.approved',
         'config.restored',

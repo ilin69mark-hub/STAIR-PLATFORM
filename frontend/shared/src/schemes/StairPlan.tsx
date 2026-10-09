@@ -22,7 +22,7 @@ export interface PlanFlight {
   Railing?: string
 }
 
-// PlanExtras — дополнительные параметры L/U/спирали (структурно совместима).
+// PlanExtras — дополнительные параметры L/U (структурно совместима).
 export interface PlanExtras {
   lowerStepCount?: number
   upperStepCount?: number
@@ -47,17 +47,9 @@ export interface PlanExtras {
   // Направление поворота (CONF-DIRECTION): 'right' — площадка справа (как сейчас),
   // 'left' — план зеркалится по горизонтали.
   direction?: 'left' | 'right'
-  outerRadius?: number
-  columnRadius?: number
-  walkRadius?: number
-  innerTread?: number
-  outerTread?: number
-  angularStep?: number
-  angularTotal?: number
-  arcLength?: number
 }
 
-export type PlanKind = 'straight' | 'l_shape' | 'u_shape' | 'spiral'
+export type PlanKind = 'straight' | 'l_shape' | 'u_shape'
 
 interface Props {
   flight: PlanFlight
@@ -88,7 +80,7 @@ function contentMm(p: Props): { w: number; h: number; pts: Array<{ x: number; y:
       // оно рисуется справа от марша, поэтому включаем в габарит по X.
       // ВАЖНО: угол зоны подхода (f.Run+approach) должен входить в pts, иначе
       // габарит размещения (sb) игнорирует 1000 мм и лестница прижимается
-      // к стене без резерва подхода (для L/U/спирали pts это уже учитывает).
+      // к стене без резерва подхода (для L/U pts это уже учитывает).
       const ap = effectiveApproach(s.approachSpace)
       return {
         w: f.Run + ap,
@@ -157,24 +149,6 @@ function contentMm(p: Props): { w: number; h: number; pts: Array<{ x: number; y:
         ].map((q) => ({ x: (s.direction === 'left' ? -1 : 1) * q.x, y: q.y })),
       }
     }
-    case 'spiral': {
-      const r = s.outerRadius ?? f.Width + 400
-      const d = r * 2
-      // Свободное пространство перед первой ступенью (EDR-0023) — снаружи у
-      // входа (внешний радиус, +X); учитывается в габарите по X.
-      const ap = effectiveApproach(s.approachSpace)
-      return {
-        w: d + ap,
-        h: d,
-        pts: [
-          { x: -r, y: -r },
-          { x: r, y: -r },
-          { x: r, y: r },
-          { x: -r, y: r },
-          { x: r + ap, y: 0 },
-        ],
-      }
-    }
   }
 }
 
@@ -221,7 +195,7 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
   const areaH = H - PAD * 2
   const scale = Math.min(areaW / cw, areaH / ch)
   // Центрирование чертежа с учётом знака координат: слева сверху — minX,
-  // сверху (screen y) — maxY. Без этого при minX<0<spiral/maxY>0 контент
+  // сверху (screen y) — maxY. Без этого при minX<0<maxX и maxY>0 контент
   // сдвигается влево/вверх и вылезает за пределы viewBox.
   const ox = PAD + (areaW - cw * scale) / 2 - mathMin(pts.map((q) => q.x)) * scale
   const oy = PAD + (areaH - ch * scale) / 2 + mathMax(pts.map((q) => q.y)) * scale
@@ -669,69 +643,6 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
             />
             {arrowLine(P(0), py(wBig / 2), P(-ap), py(wBig / 2), 'pln-arr')}
             {dim('Свободное место ' + fmt(ap), (P(0) + P(-ap)) / 2, py(wBig / 2), 'middle', 0, 1)}
-          </>
-        )}
-      </g>
-      </>
-    )
-  } else {
-    // spiral
-    const r = s.outerRadius ?? f.Width + 400
-    const ap = effectiveApproach(s.approachSpace)
-    const cr = s.columnRadius ?? 80
-    const cx = 0
-    const cy = 0
-    const steps = Array.from({ length: f.StepCount }, (_, i) => i + 1).map((i) => {
-      const a = (i * (s.angularStep ?? 15) * Math.PI) / 180
-      return { a }
-    })
-    const rw = s.roomWidth ?? 0
-    const rl = s.roomLength ?? 0
-    const roomFits = s.roomFits ?? false
-    const roomRect =
-      rw > 0 && rl > 0 ? (
-        <rect
-          x={Math.min(px(0), px(rw))}
-          y={Math.min(py(0), py(rl))}
-          width={Math.abs(px(rw) - px(0))}
-          height={Math.abs(py(rl) - py(0))}
-          className={roomFits ? 'scheme__room' : 'scheme__room scheme__room--overflow'}
-        />
-      ) : null
-    body = (
-      <>{roomRect}
-      <g transform={`translate(${placement.offsetX * scale} ${-placement.offsetY * scale})`}>
-        <circle cx={px(cx)} cy={py(cy)} r={r * scale} className="scheme__outline" fill="none" />
-        {ANNOTATE && (
-          <>
-            <circle cx={px(cx)} cy={py(cy)} r={r * scale} className="scheme__edge" style={{ stroke: edgeColor(0) }} fill="none" strokeWidth={3} />
-            <text x={px(cx)} y={py(cy) - r * scale - 6} className="scheme__elabel" style={{ fill: edgeColor(0) }} textAnchor="middle" dominantBaseline="middle">К</text>
-          </>
-        )}
-        <circle cx={px(cx)} cy={py(cy)} r={cr * scale} className="scheme__column" />
-        {steps.map((st, i) => {
-          const x1 = Math.cos(st.a) * cr
-          const y1 = Math.sin(st.a) * cr
-          const x2 = Math.cos(st.a) * r
-          const y2 = Math.sin(st.a) * r
-          return <line key={i} x1={px(x1)} y1={py(y1)} x2={px(x2)} y2={py(y2)} className="scheme__tread" />
-        })}
-        <line x1={px(0)} y1={py(0)} x2={px(r)} y2={py(0)} className="scheme__dimline" markerStart="url(#pln-arr)" markerEnd="url(#pln-arr)" />
-        {dim('R ' + fmt(r), px(r / 2), py(0) - 16, 'middle', 0, -1)}
-        {dim('α ' + (s.angularTotal ?? 360).toFixed(0) + '°', px(cx), py(cy) - cr * scale - 14, 'middle', 0, -1)}
-        <text x={px(cx)} y={py(cy)} textAnchor="middle" dominantBaseline="middle" className="scheme__label">
-          {f.StepCount} ступ.
-        </text>
-        {/* Свободное пространство перед первой ступенью (EDR-0023): зона снаружи
-            у входа (внешний радиус, +X). */}
-        {ap > 0 && (
-          <>
-            <rect x={px(r)} y={py(f.Width / 2)} width={ap * scale} height={f.Width * scale} className="scheme__approach" />
-            {arrowLine(px(r), py(0), px(r + ap), py(0), 'pln-arr')}
-            {dim('Свободное место ' + fmt(ap), (px(r) + px(r + ap)) / 2, py(0) + 16, 'middle', 0, 1)}
-            {ANNOTATE && (
-              <text x={px(r + ap / 2)} y={py(f.Width / 2)} className="scheme__elabel" style={{ fill: edgeColor(1) }} textAnchor="middle" dominantBaseline="middle">Пд</text>
-            )}
           </>
         )}
       </g>

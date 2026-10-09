@@ -37,7 +37,6 @@ const makeConfig = (overrides: Partial<Configuration>): Configuration => ({
   comfort_step_mm: 630,
   landing_width_mm: 0,
   lower_step_count: 0,
-  outer_radius_mm: 0,
   current: false,
   created_at: '2026-08-14T12:00:00Z',
   ...overrides,

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ConfigForm } from '@shared/config'
-import { defaultConfig, directionOptions, flightOptions, materialOptions, fitThicknessMM, fieldRulesFor, railingOptions, rulesFor, spiralDirectionOptions, toRequest, turnKindOptions, validateForm, REQUIRED_VALUE_ERROR, type FieldErrors, type FieldRule } from '@shared/config'
+import { defaultConfig, directionOptions, flightOptions, materialOptions, fitThicknessMM, fieldRulesFor, railingOptions, rulesFor, fixedTreadThicknessMM, timberStringerNorm, plateStringerNorm, plateStringerThicknessMM, isPlateFrame, toRequest, turnKindOptions, validateForm, REQUIRED_VALUE_ERROR, type FieldErrors, type FieldRule } from '@shared/config'
 import type { QuoteResult, QuoteSuggestion, Variation } from '@shared/types'
 import {
   LiveValidator,
@@ -94,15 +94,26 @@ const labels: Record<keyof ConfigForm, string> = {
   roomLengthMM: 'Длина помещения (мм)',
   approachSpaceMM: 'Свободное место перед маршем',
   lowerStepCountMM: 'Нижних ступеней (шт)',
-  outerRadiusMM: 'Радиус (мм)',
   railing: 'Перила',
   railingLower: 'Перила: первый марш',
   railingLanding: 'Перила: площадка',
   railingUpper: 'Перила: второй марш',
   direction: 'Направление поворота',
-  spiralDirection: 'Направление спирали',
   turnKind: 'Поворот марша',
   winderCountMM: 'Поворотных ступеней (шт)',
+  // Основания крепления и доп. крепёж — параметры АДМИНКИ (CONF-FIXING,
+  // решение владельца 2026-10-08). На витрине их нет: клиент не выбирает
+  // дюбели, а лишние поля в мобильной форме только мешали. Подписи оставлены
+  // по одной причине: labels — это Record<keyof ConfigForm, string>, и без
+  // них добавление поля конфигурации ломает сборку витрины.
+  floorFixing: 'Крепление в пол',
+  ceilingFixing: 'Крепление в перекрытие',
+  extraFasteners: 'Дополнительный крепёж',
+  // Герметик (CONF-SEALANT) — параметр АДМИНКИ: расход считается по
+  // формуле V = S × t, и на витрине клиенту эта величина не нужна. Подписи
+  // оставлены ради полноты Record<keyof ConfigForm, string>.
+  sealantLayerMM: 'Слой герметика, мм',
+  extraSealantCartridges: 'Доп. картриджи герметика, шт',
 }
 
 // Подсказки под ползунком — только нормативы, который не видно из подписи.
@@ -145,7 +156,43 @@ const emptyConfig: ConfigForm = {
   comfortStepMM: '',
   landingWidthMM: '',
   lowerStepCountMM: '',
-  outerRadiusMM: '',
+}
+
+// ЭТАЛОННЫЙ ВАРИАНТ, который калькулятор показывает сразу при открытии
+// (решение владельца 2026-10-08, по образцу калькулятора Ниоры).
+//
+// Раньше форма открывалась пустой, и 3D появлялся только после того, как
+// человек заполнит семь полей и нажмёт «Рассчитать». Первый экран был пустым
+// белым прямоугольником — человек уходил, ни разу не увидев изделия.
+//
+// Значения — эталон прямого марша: 2700 мм от пола до пола при высоте ступени
+// 180, ширина марша 900, металлокаркас с дубовой ступенью, подступенок и
+// перила с двух сторон. Это ровно проектный defaultConfig, и он подобран так,
+// что расчёт даёт проступь 270 мм и угол 33,7° — то есть визуально тот же
+// марш, что в калькуляторе Ниоры (высота 2800, 14 ступеней, проступь 270).
+//
+// Высота ступени в эталон НЕ задаётся: 200 мм при высоте 2800 дают проступь
+// 230 мм, а это ниже допустимых 260 — сервер вернул бы блокировку на первом
+// же экране. Поля эталона обязаны быть ЗАВЕДОМО ВАЛИДНЫМИ, иначе человек видит
+// красный баннер, которого не просил.
+//
+// Поля помещения остаются пустыми: без них fit-check не выполняется. Это
+// осознанно — покупатель не вводил габариты комнаты, и блокирующее
+// сообщение о вписываемости на первом экране было бы ошибкой, которую он не
+// может устранить, не заполнив то, о чём его не спрашивали.
+//
+// Эталон можно переписать, но он хранится здесь, а не в localStorage:
+// калькулятор должен открываться одинаково у всех, включая тех, кто пришёл по
+// прямой ссылке в первый раз.
+const referenceConfig: ConfigForm = {
+  ...emptyConfig,
+  widthMM: '900',
+  heightMM: '2700',
+  // Просвет 2000 — нижняя граница, при которой сервер не выдаёт
+  // предупреждение о недостаточной высоте прохода. Дефолтные 80 мм дали бы
+  // баннер сразу на первом экране.
+  clearanceMM: '2000',
+  railingHeightMM: '900',
 }
 
 // Снапшот конфигурации, который пользователь реально видел: исходный марш и
@@ -165,7 +212,6 @@ const flightTitle: Record<ConfigForm['flight'], string> = {
   straight: 'Прямой марш',
   l_shape: 'L-образный марш',
   u_shape: 'П-образный марш',
-  spiral: 'Спираль',
 }
 
 // Ключ содержимого конфига для дедупликации: сравниваем параметры марша,
@@ -185,7 +231,6 @@ function versionContentKey(cfg: Record<string, unknown>): string {
     cfg.lowerStepCountMM,
     cfg.turnKind,
     cfg.winderCountMM,
-    cfg.outerRadiusMM,
     cfg.roomWidthMM,
     cfg.roomLengthMM,
   ])
@@ -209,7 +254,6 @@ function versionSummary(cfg: ConfigForm): string {
       parts.push(`площадка ${mmText(cfg.landingWidthMM)}×${mmText(cfg.landingDepthMM)}`)
     }
   }
-  if (cfg.flight === 'spiral') parts.push(`радиус ${mmText(cfg.outerRadiusMM)}`)
   return parts.join(' · ')
 }
 
@@ -227,7 +271,7 @@ function toVariation(v: StairVersion): Variation {
 
 // Конструктор: параметры лестницы → предварительный расчёт (анонимно).
 export function Constructor() {
-  const [config, setConfig] = useState<ConfigForm>(emptyConfig)
+  const [config, setConfig] = useState<ConfigForm>(referenceConfig)
   // Тип изделия: металлокаркас / деревянные. Сейчас доступен только
   // металлокаркас — переключатель виден, чтобы набор изделий был понятен, но
   // деревянный помечен как «скоро» и не принимает кликов.
@@ -265,7 +309,7 @@ export function Constructor() {
   const [status, setStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   // Живая валидация при вводе (S-P5): серверные блокировки, которые локально
-  // не видны (R>W спирали, угол/проступь по норме, вписываемость в помещение).
+  // не видны (угол/проступь по норме, вписываемость в помещение).
   // Баннер + подсветка полей; blocking-issue несут готовые варианты «Применить».
   const [liveBlocking, setLiveBlocking] = useState(false)
   const [liveIssues, setLiveIssues] = useState<LiveIssue[]>([])
@@ -387,15 +431,12 @@ export function Constructor() {
       return false
     }
     // approachSpaceMM показывается для всех типов марша (EDR-0023).
-    if (k === 'outerRadiusMM' && config.flight !== 'spiral') return false
-    // Перила: прямой марш — один выбор, марши с площадкой — по сегментам,
-    // спираль — авто (сторона от направления закрутки), свой блок ниже.
+    // Перила: прямой марш — один выбор, марши с площадкой — по сегментам.
     if (k === 'railing' && config.flight !== 'straight') return false
     if ((k === 'railingLower' || k === 'railingLanding' || k === 'railingUpper' || k === 'direction') &&
       config.flight !== 'l_shape' && config.flight !== 'u_shape') {
       return false
     }
-    if (k === 'spiralDirection' && config.flight !== 'spiral') return false
     return true
   }
 
@@ -413,8 +454,6 @@ export function Constructor() {
         return railingOptions
       case 'direction':
         return directionOptions
-      case 'spiralDirection':
-        return spiralDirectionOptions
       case 'turnKind':
         return turnKindOptions
       default:
@@ -486,7 +525,35 @@ export function Constructor() {
   // Дубли «Мин 3 / макс 8 мм» и «Макс 6000 мм» съедали по строке на каждое
   // поле и ровно они вводили в заблуждение у дубовых ступеней, где пределы
   // считаются по материалу ступеней, а не каркаса.
-  const hintOf = (k: keyof ConfigForm): string | undefined => hints[k]
+  const hintOf = (k: keyof ConfigForm): string | undefined => {
+    // Норматив на косоур (решения владельца 2026-10-05 и 2026-10-06):
+    // под полем «Толщина косоура» показываем полосу норматива, толщину и
+    // размеры заготовки — их больше нигде не видно, а именно по ним заказывают
+    // материал.
+    if (k === 'stringerThicknessMM') {
+      // Листовой (сварный) косоур: строки 8 / 10 / 12 мм с их пределами.
+      const plate = plateStringerNorm(config)
+      if (plate) {
+        const parts = [`лист ${plate.thicknessMM} мм: марш ${plate.runLabel}`]
+        if (plate.inTable) {
+          parts.push(`ширина ${plate.widthLabel}`, `тело ${plate.bodyLabel}`, `заготовка ${plate.blankLabel}`)
+        }
+        return parts.join(' · ')
+      }
+      // Деревянная балка: полоса по длине марша, толщина и размеры заготовки.
+      const norm = timberStringerNorm(config)
+      if (norm) {
+        const parts = [
+          `норматив ${norm.runLabel}: от ${norm.minThicknessMM} мм`,
+          `заготовка ${norm.blankLabel} мм`,
+          `тело ${norm.bodyLabel}`,
+        ]
+        if (norm.byWidth) parts.push('толщина по ширине марша > 1200 мм')
+        return parts.join(' · ')
+      }
+    }
+    return hints[k]
+  }
 
   const setRiser = (v: boolean) => {
     const next = { ...config, riser: v }
@@ -494,7 +561,11 @@ export function Constructor() {
     setErrors(validateForm(next))
   }
 
-  const calculate = async (cfg: ConfigForm = config) => {
+  // origin — откуда пошёл расчёт: 'user' — человек нажал кнопку или применил
+  // вариант, 'preload' — эталонный вариант при открытии калькулятора. Разница
+  // видна только в аналитике: шаг воронки «расчёт готов» отмечается по
+  // действию человека, иначе автозагрузка завышала бы конверсию в разы.
+  const calculate = async (cfg: ConfigForm = config, origin: 'user' | 'preload' = 'user') => {
     const errs = validateForm(cfg)
     setErrors(errs)
     if (Object.keys(errs).length > 0) {
@@ -523,8 +594,9 @@ export function Constructor() {
       if (!res.validation.blocking) setOpenSection(null)
       // Успех отмечаем ДО разбора валидации: расчёт был, а заблокирован он
       // или нет — это разные вопросы, и их видно по разным событиям
-      // (cta.quote_clicked и blocker.* от живого ответа).
-      track(EVENTS.stepDone, { step: 'quote' })
+      // (cta.quote_clicked и blocker.* от живого ответа). Предзагрузка
+      // эталонного варианта шагом воронки не считается.
+      if (origin === 'user') track(EVENTS.stepDone, { step: 'quote' })
       if (res.validation.blocking) {
         for (const issue of res.validation.issues ?? []) {
           track(EVENTS.blockerApi, { reason: issue.code, element: issue.element ?? '' })
@@ -560,6 +632,18 @@ export function Constructor() {
       setBusy(false)
     }
   }
+
+  // ЭТАЛОННЫЙ ВАРИАНТ СРАЗУ ПРИ ОТКРЫТИИ (решение владельца 2026-10-08).
+  //
+  // Один расчёт на монтирование компонента. Не useEffect по config: такой
+  // перезапускал бы расчёт на каждое движение ползунка — при отзывчивой
+  // живой валидации это десятки запросов в минуту.
+  const preloadStarted = useRef(false)
+  useEffect(() => {
+    if (preloadStarted.current) return
+    preloadStarted.current = true
+    void calculate(referenceConfig, 'preload')
+  }, [])
 
   // Ручной запуск расчёта: сначала проверяем габариты помещения и, если
   // пользователь не ввёл ширину/длину, предлагаем заполнить либо продолжить
@@ -605,10 +689,6 @@ export function Constructor() {
     const next: ConfigForm = { ...config, stepHeightMM: String(s.step_height_mm) }
     if ((config.flight === 'l_shape' || config.flight === 'u_shape') && s.lower_step_count) {
       next.lowerStepCountMM = String(s.lower_step_count)
-    }
-    if (config.flight === 'spiral' && s.outer_radius_mm && s.width_mm) {
-      next.widthMM = String(s.width_mm)
-      next.outerRadiusMM = String(s.outer_radius_mm)
     }
     setConfig(next)
     void calculate(next)
@@ -721,7 +801,7 @@ export function Constructor() {
   }
 
   // Горизонтальный drag ступени: шаг комфорта (2h + b) — им сервер считает
-  // проступь и забег. Спираль шаг комфорта считает сама, поэтому не шлём.
+  // проступь и забег.
   const adjustComfortStep = (comfortStepMM: number) => {
     const next = { ...config, comfortStepMM: String(comfortStepMM) }
     setConfig(next)
@@ -751,7 +831,6 @@ export function Constructor() {
     const next = {
       ...config,
       direction: flip(config.direction),
-      spiralDirection: flip(config.spiralDirection),
     }
     setConfig(next)
     setErrors(validateForm(next))
@@ -761,8 +840,11 @@ export function Constructor() {
   }
 
   const reset = () => {
-    setConfig(emptyConfig)
-    setErrors(validateForm(emptyConfig))
+    // К ЭТАЛОННОМУ ВАРИАНТУ, а не в пустую форму: «Сбросить» означает
+    // «вернуть то, что человек видел при открытии». Возврат в пустую форму
+    // убирал бы 3D с экрана и требовал бы заново заполнить семь полей.
+    setConfig(referenceConfig)
+    setErrors(validateForm(referenceConfig))
     setQuote(null)
     setRequest(null)
     setStatus(null)
@@ -776,6 +858,10 @@ export function Constructor() {
     setSkipRoomPrompt(false)
     liveValidator.current.cancel()
     applyLive(null)
+    // И сразу возвращаем расчёт эталона. Сброс только полей оставлял бы
+    // покупателя перед пустым 3D и требовал ещё одного нажатия — ровно то
+    // возвращение к старому поведению, которое эта правка убирает.
+    void calculate(referenceConfig, 'preload')
   }
 
   // Галерея: снапшоты пользователя + свежие альтернативы бэкенда без дублей
@@ -853,7 +939,6 @@ export function Constructor() {
     'flight',
     'turnKind',
     'direction',
-    'spiralDirection',
     'railing',
     'railingLower',
     'railingLanding',
@@ -864,7 +949,7 @@ export function Constructor() {
     segmentedKeys.has(k) && selectOptions(k) != null
 
   const segmentedCols = (k: keyof ConfigForm): 2 | 3 | 4 =>
-    k === 'flight' ? 3 : k === 'turnKind' || k === 'direction' || k === 'spiralDirection' ? 2 : 2
+    k === 'flight' ? 3 : k === 'turnKind' || k === 'direction' ? 2 : 2
 
   // Один контрол на поле. Вынесен в функцию, потому что секции аккордеона
   // собирают разные наборы полей, и копировать разметку в каждую секцию —
@@ -885,7 +970,7 @@ export function Constructor() {
           <Segmented
             legend={labels[k]}
             value={config[k] as string}
-            options={selectOptions(k)! as Array<{ value: string; label: string }>}
+            options={selectOptions(k)!}
             columns={segmentedCols(k)}
             compact={isRailingField(k)}
             onChange={(v) => update(k, v)}
@@ -978,6 +1063,18 @@ export function Constructor() {
     if (rule.max !== undefined && cur > rule.max) target[key] = String(rule.max)
   }
 
+  // Толщина листа косоура у металла — НЕ входной параметр: её выводит
+  // норматив по длине и ширине марша (решение владельца 2026-10-06). Поле в
+  // форме скрыто, но значение уходит в запрос и показывается в расчёте, так
+  // что в нём не должно оставаться ничего от деревянного косоура. Сервер
+  // приведёт значение к нормативу и сам, но тогда расчёт и предпросмотр
+  // показывали бы разные числа.
+  const applyPlateThickness = (target: ConfigForm) => {
+    if (!isPlateFrame(target.material)) return
+    const mm = plateStringerThicknessMM(target)
+    if (mm > 0) target.stringerThicknessMM = String(mm)
+  }
+
   // Смена изделия приводит конфигурацию в порядок: материалы переезжают в
   // допустимые для нового изделия, толщины подтягиваются под их пределы.
   // Без этого переключение оставляло бы, например, стальной каркас 6 мм в
@@ -1000,6 +1097,10 @@ export function Constructor() {
     // материалу ступеней: это разные детали с разными пределами.
     clampThickness(next, 'stringerThicknessMM', next.material)
     clampThickness(next, 'stepThicknessMM', next.treadMaterial)
+    applyPlateThickness(next)
+    // Металлическая ступень — 5 мм без выбора (решение владельца 2026-10-05).
+    const fixedTread = fixedTreadThicknessMM(next.treadMaterial)
+    if (fixedTread) next.stepThicknessMM = String(fixedTread)
     setProduct(id)
     setConfig(next)
     setFinishId(FINISHES[next.material]?.[0]?.id ?? '')
@@ -1013,13 +1114,21 @@ export function Constructor() {
 
   const setTreadMaterial = (code: string) => {
     const next = { ...config, treadMaterial: code }
-    const limit = fieldRulesFor('stepThicknessMM', next)
-    const cur = Number(config.stepThicknessMM)
-    if (Number.isFinite(cur) && (limit.min !== undefined && cur < limit.min)) {
-      next.stepThicknessMM = String(limit.min)
-    }
-    if (Number.isFinite(cur) && limit.max !== undefined && cur > limit.max) {
-      next.stepThicknessMM = String(limit.max)
+    const fixed = fixedTreadThicknessMM(code)
+    if (fixed) {
+      // Металл: поле скрыто, значение всё равно должно быть правильным —
+      // отправленное 40 мм сервер привёл бы к 5 мм, но расчёт и 3D показали
+      // бы разные числа.
+      next.stepThicknessMM = String(fixed)
+    } else {
+      const limit = fieldRulesFor('stepThicknessMM', next)
+      const cur = Number(config.stepThicknessMM)
+      if (Number.isFinite(cur) && (limit.min !== undefined && cur < limit.min)) {
+        next.stepThicknessMM = String(limit.min)
+      }
+      if (Number.isFinite(cur) && limit.max !== undefined && cur > limit.max) {
+        next.stepThicknessMM = String(limit.max)
+      }
     }
     setTreadFinish(FINISHES[code]?.[0]?.id ?? '')
     // Отделка подступенков меняет материал вместе с материалом ступеней:
@@ -1042,18 +1151,36 @@ export function Constructor() {
           {renderField('widthMM')}
           {/* Подступень — единственный переключатель на «Да/Нет», поэтому
               подпись и сам переключатель стоят в одну строку: отдельная
-              строка под подписью была пустой высотой ради одного слова. */}
+              строка под подписью была пустой высотой ради одного слова.
+
+              Тумблер, а не галочка (решение владельца 2026-10-08): включено —
+              зелёный трек, выключено — приглушённый. Нативный checkbox внутри
+              сохранён: на нём держится htmlFor подписи, клавиатура и тесты,
+              а видимость даёт .switch__track (styles/constructor.css). */}
           <div className="field field--inline">
             <FieldLabel label={labels.riser} htmlFor="cfg-riser" />
-            <label className="checkbox">
+            <span className="switch">
               <input
                 id="cfg-riser"
                 type="checkbox"
+                role="switch"
+                // Доступное имя задаём ЯВНО. Раньше контрол был обёрнут в
+                // второй <label>, и его текст («Да»/«Нет») становился
+                // доступным именем вместо «Подступень» — скринридер объявлял
+                // «Да, переключатель» вместо «Подступень, включено».
+                aria-label={labels.riser}
                 checked={config.riser}
                 onChange={(e) => setRiser(e.target.checked)}
               />
-              <span>{config.riser ? 'Да' : 'Нет'}</span>
-            </label>
+              {/* Трек — <label htmlFor>, поэтому клик по нему переключает, но
+                  текста он не добавляет. */}
+              <label className="switch__track" htmlFor="cfg-riser" aria-hidden="true" />
+              {/* Слово дублирует состояние, которое уже объявляет role=switch;
+                  скринридеру оно не нужно. */}
+              <span className="switch__text" aria-hidden="true">
+                {config.riser ? 'Да' : 'Нет'}
+              </span>
+            </span>
           </div>
         </>
       ),
@@ -1115,6 +1242,7 @@ export function Constructor() {
               const next: ConfigForm = { ...config, material: code }
               // Толщина косоура привязана к материалу каркаса.
               clampThickness(next, 'stringerThicknessMM', code)
+              applyPlateThickness(next)
               setConfig(next)
               setFinishId(FINISHES[code]?.[0]?.id ?? '')
             }}
@@ -1155,11 +1283,15 @@ export function Constructor() {
           )}
 
           {/* Толщина ступени — сразу под выбором материала ступеней, потому
-              что её пределы задаёт ИМЕННО он: у дуба 20–60 мм, у стали 2–6 мм.
-              Раньше поле стояло в «Основных настройках», где до материала
-              ступеней ещё надо было догадаться, — и человек ставил 40 мм,
-              потом переключал на металл и получал отказ сервера. */}
-          {renderField('stepThicknessMM')}
+              что её пределы задаёт ИМЕННО он: у дуба 40–100 мм. Раньше поле
+              стояло в «Основных настройках», где до материала ступеней ещё
+              надо было догадаться, — и человек ставил 40 мм, потом
+              переключал на металл и получал отказ сервера.
+              Для МЕТАЛЛА поле не показывается вовсе: толщина ступени из стали
+              не выбирается, она всегда 5 мм (решение владельца 2026-10-05).
+              Предлагать выбор 3–8 мм было ошибкой — такого изделия нет. */}
+          {!fixedTreadThicknessMM(config.treadMaterial || config.material) &&
+            renderField('stepThicknessMM')}
 
           {frameFinishOptions.length > 0 && (
             <SwatchGroup

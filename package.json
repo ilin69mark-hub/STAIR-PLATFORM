@@ -7,7 +7,6 @@
   },
   "workspaces": [
     "frontend",
-    "frontend-store",
-    "frontend-store-admin"
+    "frontend-store"
   ]
 }

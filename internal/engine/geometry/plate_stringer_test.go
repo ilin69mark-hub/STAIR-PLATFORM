@@ -59,18 +59,18 @@ func TestPlateStringerStandsAtSides(t *testing.T) {
 	}
 }
 
-// Ступени и подступенки идут МЕЖДУ пластинами, с нахлёстом 2 мм внутрь:
-// при касании торец и грань пластины в одной плоскости, и z-fighting то
-// протыкает косоур, то проступает дуб на косоуре.
+// Ступени и подступенки идут ВО ВСЮ ШИРИНУ марша, включая плоскости
+// косоуров: свеса за косоуры нет (решение владельца 2026-10-05). Прежний
+// нахлёст 2 мм внутрь пластины убран — плоскости разводит фронтенд
+// (ROLE_DEPTH_BIAS), а геометрия соответствует чертежу.
 func TestPlateStringerTreadsSpanBetweenPlates(t *testing.T) {
 	cfg := metalConfig(t)
 	model, err := BuildStraightFlight(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tn := cfg.StringerThickness.Millimeters()
 	w := cfg.Width.Millimeters()
-	want0, want1 := tn-plateJoinMM, w-tn+plateJoinMM
+	want0, want1 := 0.0, w
 	var treads, risers int
 	for _, solid := range model.Solids() {
 		var lo, hi float64
@@ -85,7 +85,7 @@ func TestPlateStringerTreadsSpanBetweenPlates(t *testing.T) {
 			continue
 		}
 		if !nearlyEqual(lo, want0) || !nearlyEqual(hi, want1) {
-			t.Fatalf("%s y = [%v, %v], ждём [%v, %v] (между пластинами с нахлёстом)",
+			t.Fatalf("%s y = [%v, %v], ждём [%v, %v] (во всю ширину марша)",
 				solid.Role(), lo, hi, want0, want1)
 		}
 	}

@@ -27,6 +27,23 @@ type ProjectMember struct {
 	UserID    string
 	Role      ProjectRole
 	CreatedAt time.Time
+	// Email и Name — человек, а не UUID. Заполняются списком участников
+	// (ListMembers) и передачей владения; в одиночных проверках членства
+	// (GetMember) остаются пустыми — там они не нужны.
+	Email string
+	Name  string
+}
+
+// Label — как показывать участника в интерфейсе: имя, если есть, иначе почта.
+func (m *ProjectMember) Label() string {
+	switch {
+	case m.Name != "" && m.Email != "":
+		return m.Name + " — " + m.Email
+	case m.Name != "":
+		return m.Name
+	default:
+		return m.Email
+	}
 }
 
 // ParseProjectRole нормализует роль из строки DTO.

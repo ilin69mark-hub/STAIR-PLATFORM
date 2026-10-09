@@ -50,6 +50,8 @@ func TestAPI002_SentinelsMapToClientStatuses(t *testing.T) {
 		{auth.ErrSessionExpired, 401, "session_expired"},
 		{auth.ErrEmailExists, 409, "email_exists"},
 		{auth.ErrWeakPassword, 422, "weak_password"},
+		{auth.ErrLastOwner, 409, "last_owner"},
+		{auth.ErrInvalidRecipient, 422, "invalid_recipient"},
 		{jobs.ErrNotFound, 404, "not_found"},
 		{jobs.ErrInvalid, 422, "invalid_input"},
 		{order.ErrNotFound, 404, "not_found"},

@@ -1,6 +1,9 @@
 package database
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -28,13 +31,17 @@ func readMigrationFile(t *testing.T, name string) string {
 // DOM-003 добавил девять колонок, которые отсутствовали в проекции
 // application-слоя: turn_kind, winder_count, railing, railing_lower,
 // railing_landing, railing_upper, direction, spiral_direction, material_code.
+//
+// После удаления винтового марша (решение владельца 2026-10-06) spiral_direction
+// из проекции убрана: колонка в схеме осталась историей миграции 000030, но
+// приложение её ни читает, ни пишет. Проверяем восемь оставшихся.
 func TestDOM003_ConfigColsCoverAllMappedFields(t *testing.T) {
 	cols := splitCols(configCols)
 
 	want := []string{
 		"turn_kind", "winder_count",
 		"railing", "railing_lower", "railing_landing", "railing_upper",
-		"direction", "spiral_direction", "material_code",
+		"direction", "material_code",
 	}
 	for _, c := range want {
 		if !contains(cols, c) {
@@ -94,6 +101,139 @@ func TestDOM003_WinderCountNeedsWinderTurnKind(t *testing.T) {
 	if !strings.Contains(up, "winder_count >= 3") {
 		t.Error("winder CHECK must require at least 3 winder steps (stable 180° turn)")
 	}
+}
+
+// TestConfigColsMatchScanArgs — регрессия: число колонок в configCols должно
+// совпадать с числом аргументов row.Scan в scanConfig.
+//
+// Предыдущий тест проверял лишь НАЛИЧИЕ нужных колонок, но не их количество.
+// Поэтому лишний аргумент Scan (исторически — &c.OuterRadiusMM после того, как
+// колонку outer_radius_mm выбросили из проекции и из схемы миграцией
+// 000040_drop_spiral_flight) остался незамеченным: любое чтение конфигурации
+// падало в рантайме с ошибкой сканирования, а интеграционные тесты этого не
+// покрывали. Считаем оба числа через go/ast, чтобы регрессия ловилась сразу.
+func TestConfigColsMatchScanArgs(t *testing.T) {
+	ncols := len(splitCols(configCols))
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "project_repo.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse project_repo.go: %v", err)
+	}
+
+	var scanArgs int
+	found := false
+	ast.Inspect(file, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "scanConfig" || fn.Body == nil {
+			return true
+		}
+		ast.Inspect(fn.Body, func(m ast.Node) bool {
+			call, ok := m.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "Scan" {
+				return true
+			}
+			scanArgs = len(call.Args)
+			found = true
+			return false
+		})
+		return false
+	})
+
+	if !found {
+		t.Fatal("row.Scan call not found inside scanConfig")
+	}
+	if scanArgs != ncols {
+		t.Fatalf("scanConfig reads %d columns but configCols lists %d: %v", scanArgs, ncols, splitCols(configCols))
+	}
+}
+
+// TestInsertConfigurationPlaceholdersMatch — регрессия: число выражений в
+// VALUES обязано совпадать с числом колонок в списке INSERT (подзапрос для
+// revision считается выражением).
+//
+// Тот же класс ошибки, что и с лишним аргументом Scan: при удалении колонок
+// outer_radius_mm / spiral_direction из списка колонок плейсхолдеры $28,$29
+// остались в VALUES, и КАЖДОЕ сохранение конфигурации падало на уровне SQL
+// («INSERT has more expressions than target columns»). Интеграционные тесты
+// без БД этого не видят. Считаем через go/ast, чтобы поймать наCI.
+func TestInsertConfigurationPlaceholdersMatch(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "project_repo.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse project_repo.go: %v", err)
+	}
+
+	var targets, exprs int
+	found := false
+	ast.Inspect(file, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "insertConfiguration" || fn.Body == nil {
+			return true
+		}
+		ast.Inspect(fn.Body, func(m ast.Node) bool {
+			call, ok := m.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "QueryRow" {
+				return true
+			}
+			var sql string
+			for _, a := range call.Args {
+				if lit, ok := a.(*ast.BasicLit); ok {
+					sql = strings.ReplaceAll(lit.Value, "`", "")
+					break
+				}
+			}
+			if !strings.Contains(sql, "INSERT INTO stair_configurations") {
+				return true
+			}
+			parts := strings.SplitN(sql, "VALUES", 2)
+			if len(parts) != 2 {
+				t.Fatal("INSERT без VALUES")
+			}
+			targets = countSplit(parts[0])
+			exprs = countSplit(parts[1])
+			found = true
+			return false
+		})
+		return false
+	})
+
+	if !found {
+		t.Fatal("INSERT INTO stair_configurations not found inside insertConfiguration")
+	}
+	if targets != exprs {
+		t.Fatalf("insertConfiguration lists %d columns but VALUES has %d expressions",
+			targets, exprs)
+	}
+}
+
+// countSplit считает элементы списка через запятую на верхнем уровне,
+// игнорируя запятые внутри выражений: COALESCE(MAX(...),0) — это один
+// элемент, хотя запятая внутри есть.
+func countSplit(s string) int {
+	n := 0
+	depth := 0
+	for _, r := range s {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case ',':
+			if depth == 1 {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 func splitCols(s string) []string {

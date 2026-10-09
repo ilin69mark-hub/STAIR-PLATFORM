@@ -90,9 +90,8 @@ func forRoomFitTol(ctx context.Context, cfg *engineering.StairConfiguration, set
 	}
 	// Вариант C — другие типы лестницы (до двух сходившихся вариантов на тип).
 	out = append(out, otherTypeVariants(ctx, cfg, height, comfort, set, rw, rl, tol)...)
-	// Вариант D — та же лестница, но компактнее (уже марш, для спирали ещё и
-	// меньше радиус). Прямое решение для помещений, где другой тип не влезает:
-	// спираль → «спираль компактнее», прямая/L/U → «марш уже».
+	// Вариант D — та же лестница, но компактнее (уже марш). Прямое решение
+	// для помещений, где другой тип не влезает: прямая/L/U → «марш уже».
 	out = append(out, buildOtherTypes(ctx, cfg, cfg.Flight, height, comfort, set, rw, rl, tol)...)
 
 	return out
@@ -209,28 +208,6 @@ func angleVariant(ctx context.Context, cfg *engineering.StairConfiguration, heig
 		}
 		clone.LowerStepCount = n1
 		clone.LandingWidth = lw
-	case engineering.FlightSpiral:
-		w := cfg.Width.Millimeters()
-		if w <= 0 {
-			w = 900
-		}
-		delta := 2 * math.Pi / float64(n)
-		bWalk := h / math.Tan((chDegFromS(h, s))*math.Pi/180)
-		R := bWalk/delta + w/3
-		if R <= w {
-			return validation.Variation{}, false
-		}
-		r, err := solver.SolveSpiral(height, hs, engineering.Length(w), engineering.Length(R))
-		if err != nil {
-			return validation.Variation{}, false
-		}
-		clone.Flight = engineering.FlightSpiral
-		clone.StepCount = r.StepCount
-		clone.StepHeight = r.StepHeight
-		clone.Width = engineering.Length(w)
-		clone.OuterRadius = engineering.Length(R)
-		clone.Angle = r.Angle
-		clone.Length = engineering.Length(bWalk)
 	default:
 		return validation.Variation{}, false
 	}
@@ -289,10 +266,6 @@ func FromSuggestions(issue *validation.Issue, cfg *engineering.StairConfiguratio
 		if (cfg.Flight == engineering.FlightLShape || cfg.Flight == engineering.FlightUShape) && s.LowerStepCount > 0 {
 			clone.LowerStepCount = s.LowerStepCount
 		}
-		if cfg.Flight == engineering.FlightSpiral && s.WidthMm > 0 && s.OuterRadiusMm > 0 {
-			clone.Width = engineering.Length(s.WidthMm)
-			clone.OuterRadius = engineering.Length(s.OuterRadiusMm)
-		}
 		out = append(out, validation.Variation{
 			ID:          fmt.Sprintf("%s — вариант %d", issue.Code, idx+1),
 			Title:       fmt.Sprintf("n=%d, h≈%.0f, b≈%.0f", s.StepCount, s.StepHeightMm, s.TreadDepthMm),
@@ -345,8 +318,6 @@ func steeperVariant(ctx context.Context, cfg *engineering.StairConfiguration, he
 			return validation.Variation{}, false
 		}
 		applyTwoFlight(clone, r.StepCount, r.StepHeight, r.TreadDepth, r.Angle, r.LowerRun)
-	case engineering.FlightSpiral:
-		return validation.Variation{}, false
 	default:
 		return validation.Variation{}, false
 	}
@@ -373,7 +344,7 @@ func smallerLandingVariant(ctx context.Context, cfg *engineering.StairConfigurat
 }
 
 // otherTypeVariants — предлагает другие типы лестницы, которые могут
-// вписаться в то же помещение (прямая / П-образная / L-образная / спираль).
+// вписаться в то же помещение (прямая / П-образная / L-образная).
 // Для каждого кандидата выполняется адаптивный подбор ширины марша и
 // крутизны (см. buildOtherType): система сама подбирает параметры, чтобы
 // лестница влезла в заданный периметр.
@@ -381,13 +352,11 @@ func otherTypeVariants(ctx context.Context, cfg *engineering.StairConfiguration,
 	var candidates []engineering.FlightType
 	switch cfg.Flight {
 	case engineering.FlightLShape:
-		candidates = []engineering.FlightType{engineering.FlightStraight, engineering.FlightUShape, engineering.FlightSpiral}
+		candidates = []engineering.FlightType{engineering.FlightStraight, engineering.FlightUShape}
 	case engineering.FlightUShape:
-		candidates = []engineering.FlightType{engineering.FlightStraight, engineering.FlightLShape, engineering.FlightSpiral}
+		candidates = []engineering.FlightType{engineering.FlightStraight, engineering.FlightLShape}
 	case engineering.FlightStraight:
-		candidates = []engineering.FlightType{engineering.FlightLShape, engineering.FlightUShape, engineering.FlightSpiral}
-	case engineering.FlightSpiral:
-		candidates = []engineering.FlightType{engineering.FlightStraight, engineering.FlightLShape, engineering.FlightUShape}
+		candidates = []engineering.FlightType{engineering.FlightLShape, engineering.FlightUShape}
 	default:
 		candidates = []engineering.FlightType{engineering.FlightStraight, engineering.FlightLShape, engineering.FlightUShape}
 	}
@@ -404,13 +373,12 @@ type otherCand struct {
 	v  validation.Variation
 	w  float64    // итоговая ширина марша
 	h  float64    // итоговая высота ступени
-	r  float64    // наружный радиус (для спирали, иначе 0)
 	bb [2]float64 // габариты по результату Geometry Engine (X, Y)
 }
 
 // buildOtherTypes — адаптивный подбор параметров для альтернативного типа
 // лестницы ft, чтобы она вписалась в помещение. Вместо фиксированной ширины
-// марша перебирает допустимые (тип × крутизна × ширина [× радиус спирали])
+// марша перебирает допустимые (тип × крутизна × ширина)
 // и возвращает до двух вариантов: ближайший к исходным параметрам и самый
 // компактный (минимальная площадь). Если ни один не влезает — пусто.
 func buildOtherTypes(ctx context.Context, cfg *engineering.StairConfiguration, ft engineering.FlightType, height engineering.Length, comfort float64, set *constraint.ConstraintSet, rw, rl, tol float64) []validation.Variation {
@@ -426,16 +394,9 @@ func buildOtherTypes(ctx context.Context, cfg *engineering.StairConfiguration, f
 	if origH <= 0 {
 		origH = 180
 	}
-	// Индекс ближайшего к исходным параметрам. Для спирали учитывается и
-	// наружный радиус (близость радиуса важнее для пользователя, чем выигрыш
-	// в пару миллиметров высоты ступени).
-	origR := cfg.OuterRadius.Millimeters()
+	// Индекс ближайшего к исходным параметрам.
 	score := func(c otherCand) float64 {
-		s := math.Abs(c.w-origW) + 3*math.Abs(c.h-origH)
-		if origR > 0 {
-			s += math.Abs(c.r - origR)
-		}
-		return s
+		return math.Abs(c.w-origW) + 3*math.Abs(c.h-origH)
 	}
 	best := 0
 	bestScore := score(cands[0])
@@ -465,8 +426,8 @@ func buildOtherTypes(ctx context.Context, cfg *engineering.StairConfiguration, f
 
 // collectOtherType перебирает допустимые высоты ступени (вверх до верхней
 // границы нормы — чем круче, тем короче марш) и ширины марша (вниз до
-// абсолютного минимума нормы 300 мм), а для спирали — ещё и наружный радиус.
-// Каждый кандидат прогоняется через Geometry Engine и оставляется, только
+// абсолютного минимума нормы 300 мм). Каждый кандидат прогоняется через
+// Geometry Engine и оставляется, только
 // если вписывается в помещение (с допуском tol).
 func collectOtherType(ctx context.Context, cfg *engineering.StairConfiguration, ft engineering.FlightType, height engineering.Length, comfort float64, set *constraint.ConstraintSet, rw, rl, tol float64) []otherCand {
 	origW := cfg.Width.Millimeters()
@@ -490,24 +451,17 @@ func collectOtherType(ctx context.Context, cfg *engineering.StairConfiguration, 
 	var out []otherCand
 	for h := origH; h <= hMax+1e-6; h += 5 {
 		for w := origW; w >= minW-1e-6; w -= 50 {
-			if ft == engineering.FlightSpiral {
-				for R := w + 500; R >= w+50; R -= 50 {
-					if v, bb, ok := tryOtherAt(ctx, cfg, ft, height, comfort, set, rw, rl, tol, h, w, R); ok {
-						out = append(out, otherCand{v: v, w: w, h: h, r: R, bb: bb})
-					}
-				}
-			} else if v, bb, ok := tryOtherAt(ctx, cfg, ft, height, comfort, set, rw, rl, tol, h, w, 0); ok {
-				out = append(out, otherCand{v: v, w: w, h: h, r: 0, bb: bb})
+			if v, bb, ok := tryOtherAt(ctx, cfg, ft, height, comfort, set, rw, rl, tol, h, w, 0); ok {
+				out = append(out, otherCand{v: v, w: w, h: h, bb: bb})
 			}
 		}
 	}
 	return out
 }
 
-// tryOtherAt строит конфигурацию типа ft с заданными высотой ступени h,
-// шириной марша w (и наружным радиусом R для спирали), проверяет
-// вписываемость через Geometry Engine и возвращает готовую Variation
-// вместе с фактическими габаритами.
+// tryOtherAt строит конфигурацию типа ft с заданными высотой ступени h и
+// шириной марша w, проверяет вписываемость через Geometry Engine и
+// возвращает готовую Variation вместе с фактическими габаритами.
 func tryOtherAt(ctx context.Context, cfg *engineering.StairConfiguration, ft engineering.FlightType, height engineering.Length, comfort float64, set *constraint.ConstraintSet, rw, rl, tol, h, w, R float64) (validation.Variation, [2]float64, bool) {
 	clone := cloneCfg(cfg)
 	clone.Flight = ft
@@ -587,28 +541,6 @@ func tryOtherAt(ctx context.Context, cfg *engineering.StairConfiguration, ft eng
 		clone.LandingDepth = engineering.Length(wp)
 		clone.LowerStepCount = n1
 		// StepHeight НЕ переопределяем вручную (см. выше).
-		return tryGenerateMeta(ctx, clone, set, rw, rl, tol, title, desc)
-	case engineering.FlightSpiral:
-		title, desc := "C: спиральная лестница", "Заменить на спиральную — самая компактная, вписывается в узкое помещение."
-		if sameType {
-			title, desc = "D: спираль компактнее", "Уменьшить радиус и ширину спирали, чтобы вписаться в помещение."
-		}
-		if R <= w {
-			return validation.Variation{}, [2]float64{}, false
-		}
-		r, err := solver.SolveSpiral(height, engineering.Length(h), engineering.Length(w), engineering.Length(R))
-		if err != nil {
-			return validation.Variation{}, [2]float64{}, false
-		}
-		clone.Flight = engineering.FlightSpiral
-		// Apply записывает согласованные параметры марша (StepCount,
-		// StepHeight, TreadDepth=WalkTread, Angle) — без единого источника
-		// проступь в клоне остаётся 0 для конфигов без TreadDepth, и
-		// кандидат ошибочно блокируется по норме проступи (GEO-TREAD-DEPTH).
-		r.Apply(clone)
-		clone.Width = engineering.Length(w)
-		clone.OuterRadius = engineering.Length(R)
-		clone.Length = engineering.Length(r.ArcLength)
 		return tryGenerateMeta(ctx, clone, set, rw, rl, tol, title, desc)
 	}
 	return validation.Variation{}, [2]float64{}, false
@@ -746,13 +678,11 @@ func formFromConfig(cfg *engineering.StairConfiguration) map[string]string {
 		"stepThicknessMM":     ff(cfg.StepThickness.Millimeters()),
 		"turnKind":            string(cfg.TurnKind),
 		"winderCountMM":       strconv.Itoa(cfg.WinderCount),
-		"outerRadiusMM":       ff(cfg.OuterRadius.Millimeters()),
 		"direction":           string(cfg.Direction),
 		"railingLower":        string(cfg.RailingLower),
 		"railingLanding":      string(cfg.RailingLanding),
 		"railingUpper":        string(cfg.RailingUpper),
 		"railing":             string(cfg.Railing),
-		"spiralDirection":     string(cfg.SpiralDirection),
 	}
 	// Вариация несёт только те поля, что реально задаёт: пустые значения
 	// (напр. railing/direction/сегменты перил для варианта, где они не

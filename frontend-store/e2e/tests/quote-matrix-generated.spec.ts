@@ -3,17 +3,17 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
 
-// Матрица 2000 e2e (500/марш × straight/l_shape/u_shape/spiral) из
+// Матрица 1500 e2e (500/марш × straight/l_shape/u_shape) из
 // go run ./scripts/generate-variations.go -n 500.
 // Каждый кейс — полный UI-цикл: конструктор → тип марша → поля из кейса →
 // расчёт → цена (или блокировка) → 3D-вьювер без pageerror.
-// Прогон: 2000×~15с ≈ 8.3ч серийно → шардируется в CI 8×250, workers:4
-// (~16 мин/джоб): npx playwright test quote-matrix-generated --shard=k/8.
+// Прогон: 1500×~15с ≈ 6.2ч серийно → шардируется в CI 6×250, workers:4
+// (~16 мин/джоб): npx playwright test quote-matrix-generated --shard=k/6.
 // Дедупликация бэкенда учитывает хэш тела, поэтому параллельные воркеры
 // с разными payload не получают ложный 429 (dedup.go: DeduplicateByKey).
 
 type GenCase = {
-  flight: 'straight' | 'l_shape' | 'u_shape' | 'spiral'
+  flight: 'straight' | 'l_shape' | 'u_shape'
   width_mm: number
   height_mm: number
   material: string
@@ -28,8 +28,6 @@ type GenCase = {
   landing_width_mm: number
   landing_depth_mm: number
   lower_step_count: number
-  outer_radius_mm: number
-  spiral_direction: string
   direction: string
 }
 
@@ -86,17 +84,10 @@ async function fillCase(page: Page, c: GenCase) {
     for (const label of ['Перила: первый марш', 'Перила: площадка', 'Перила: второй марш']) {
       await selectIfVisible(page, label, c.railing)
     }
-  } else {
-    await fillIfVisible(page, 'Радиус (мм)', num(c.outer_radius_mm))
-    await selectIfVisible(page, 'Направление спирали', c.spiral_direction)
   }
 }
 
-// Спиральный марш временно отключён (S-152, SPIRAL_ENABLED=false): кейсы
-// остаются в наборе данных, но не гоняются. При возврате спирали достаточно
-// убрать фильтр.
-const ENABLED = all.filter(c => c.flight !== 'spiral')
-console.log(`matrix: ${ENABLED.length} кейсов из ${all.length} (спираль отключена S-152)`)
+const ENABLED = all
 
 ENABLED.forEach((c, i) => {
   test(`matrix ${c.flight} #${i}`, async ({ page }) => {

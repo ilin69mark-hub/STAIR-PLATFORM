@@ -37,25 +37,6 @@ describe('adaptValidation (store snake_case)', () => {
     expect(v.fieldErrors.stepHeightMM).toBe(v.issues[0].guide)
   })
 
-  it('spiral: param «Радиус спирали» маппится в outerRadiusMM', () => {
-    const v = adaptValidation({
-      valid: false,
-      blocking: true,
-      issues: [
-        {
-          code: 'GEO-SPIRAL-RADIUS',
-          severity: 'error',
-          element: 'configuration',
-          message: 'Радиус спирали не превышает ширину марша',
-          param: 'Радиус спирали',
-          guide: 'Наружный радиус спирали должен быть больше ширины марша.',
-        },
-      ],
-    })
-    expect(v.fieldErrors.outerRadiusMM).toBeTruthy()
-    expect(fieldKeysFor(v.issues[0])).toEqual(['outerRadiusMM'])
-  })
-
   it('room_fit подсвечивает оба габарита помещения', () => {
     const v = adaptValidation({
       valid: false,
@@ -120,19 +101,6 @@ describe('applySuggestion / applyVariation', () => {
       angleDeg: 31.3,
     })
     expect(next.stepHeightMM).toBe('176.5')
-  })
-
-  it('спираль: подставляет ширину и радиус', () => {
-    const next = applySuggestion({ ...defaultConfig, flight: 'spiral' }, {
-      stepCount: 20,
-      stepHeightMm: 135,
-      treadDepthMm: 210,
-      angleDeg: 31,
-      outerRadiusMm: 1050,
-      widthMm: 900,
-    })
-    expect(next.outerRadiusMM).toBe('1050')
-    expect(next.widthMM).toBe('900')
   })
 
   it('L-марш: подставляет нижний марш', () => {
@@ -254,35 +222,7 @@ describe('LiveValidator', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 })
-describe('adaptValidation · регистр ключей', () => {
-  it('читает guide/fix из PascalCase-ответа (транспорт админки)', () => {
-    const v = adaptValidation({
-      Valid: false,
-      Blocking: true,
-      Issues: [
-        {
-          Code: 'GEO-SPIRAL-RADIUS',
-          Severity: 'error',
-          Element: 'configuration',
-          Message: 'Радиус спирали не превышает ширину марша',
-          Param: 'Радиус спирали',
-          Guide: 'Наружный радиус спирали должен быть больше ширины марша.',
-          Fix: 'Увеличьте радиус спирали',
-          Suggestions: [
-            { StepCount: 18, StepHeightMm: 150, TreadDepthMm: 290, AngleDeg: 31.3, OuterRadiusMm: 1050, WidthMm: 900 },
-          ],
-        },
-      ],
-    })
-    expect(v.blocking).toBe(true)
-    expect(v.valid).toBe(false)
-    expect(v.issues).toHaveLength(1)
-    expect(v.issues[0].guide).toBe('Наружный радиус спирали должен быть больше ширины марша.')
-    expect(v.issues[0].fix).toBe('Увеличьте радиус спирали')
-    expect(v.issues[0].suggestions?.[0].outerRadiusMm).toBe(1050)
-    expect(v.fieldErrors.outerRadiusMM).toBe('Наружный радиус спирали должен быть больше ширины марша.')
-  })
-})
+
 
 // DOM-002 (2026-09-26): вариация GEO-ANGLE обязана реально снимать
 // блокировку, для чего шаг комфорта из вариации ОБЯЗАН применяться.

@@ -34,6 +34,26 @@ type Material struct {
 	Density      float64 // кг/м³
 	MinThickness float64 // мм
 	MaxThickness float64 // мм
+	// FixedTreadThicknessMm — толщина ступени, НАСТРАИВАТЬ КОТОРУЮ НЕЛЬЗЯ.
+	// Ноль означает «толщину ступени выбирает пользователь в пределах
+	// MinTreadThickness…MaxThickness».
+	//
+	// Металлическая ступень — деталь из листа проката: покупатель не
+	// заказывает «ступень 6 мм», он заказывает готовую ступень изделия. Толщина
+	// 5 мм зафиксирована решением владельца 2026-10-05, и выбор в калькуляторе
+	// убран: он предлагал диапазон 3–8 мм, которого в изделии нет.
+	//
+	// Отдельное поле, а не ужесточение MinThickness: у металла 3–12 мм идут
+	// косоур, площадка и обвязка, а ступень у него одна толщина.
+	FixedTreadThicknessMm float64
+	// MinTreadThicknessMm — минимальная толщина ИМЕННО СТУПЕНИ из этого
+	// материала, мм. Ноль означает «действует общий MinThickness».
+	//
+	// Отдельное поле, а не ужесточение MinThickness, потому что ступень и
+	// косоур — разные детали: правило 40 мм у дуба относится к проступи под
+	// скругление R10, а косоур 20 мм из той же породы остаётся допустимым.
+	// Решение владельца 2026-10-05.
+	MinTreadThicknessMm float64
 	// MaxWidthMm — максимальная ширина марша, гарантируемая изготовлением
 	// именно в этом материале (MFG-0012: энвелоп раскройных листов).
 	MaxWidthMm float64
@@ -83,11 +103,36 @@ func (m *Material) Validate() error {
 	if math.IsNaN(m.TreadNoseRadiusMm) || m.TreadNoseRadiusMm < 0 {
 		return fmt.Errorf("manufacturing: material tread nose radius must not be negative")
 	}
-	// Скругление не может быть шире половины минимальной толщины: иначе нос не
-	// поместится в деталь. Это ловится на этапе каталога, а не в расчёте.
-	if m.TreadNoseRadiusMm > 0 && m.TreadNoseRadiusMm > m.MinThickness/2 {
-		return fmt.Errorf("manufacturing: material %q nose radius %v exceeds half of min thickness %v",
-			m.Code, m.TreadNoseRadiusMm, m.MinThickness)
+	// Фиксированная толщина ступени либо не задана (0 — толщину выбирает
+	// пользователь), либо лежит внутри общего диапазона толщин: иначе поле
+	// противоречит самому себе, и такую ступень нельзя было бы изготовить.
+	if math.IsNaN(m.FixedTreadThicknessMm) || m.FixedTreadThicknessMm < 0 ||
+		(m.FixedTreadThicknessMm > 0 &&
+			(m.FixedTreadThicknessMm < m.MinThickness || m.FixedTreadThicknessMm > m.MaxThickness)) {
+		return fmt.Errorf("manufacturing: material %q fixed tread thickness %v is outside thickness range %v–%v",
+			m.Code, m.FixedTreadThicknessMm, m.MinThickness, m.MaxThickness)
+	}
+	// Минимум ступени либо не задан (0 — действует общий MinThickness), либо
+	// лежит внутри общего диапазона толщин: иначе поле противоречит самому
+	// себе и ступень нельзя было бы изготовить ни при какой толщине.
+	if math.IsNaN(m.MinTreadThicknessMm) || m.MinTreadThicknessMm < 0 ||
+		(m.MinTreadThicknessMm > 0 &&
+			(m.MinTreadThicknessMm < m.MinThickness || m.MinTreadThicknessMm > m.MaxThickness)) {
+		return fmt.Errorf("manufacturing: material %q min tread thickness %v is outside thickness range %v–%v",
+			m.Code, m.MinTreadThicknessMm, m.MinThickness, m.MaxThickness)
+	}
+	// Скругление не может быть шире половины минимальной толщины СТУПЕНИ: иначе
+	// нос не поместится в деталь. Проверяется по MinTreadThickness, а не по
+	// общему MinThickness: с радиусом 10 мм при общем минимуме 20 мм равенство
+	// было бы ровно на границе, и порода с чуть меньшим радиусом прошла бы
+	// впритык.
+	minTread := m.MinThickness
+	if m.MinTreadThicknessMm > 0 {
+		minTread = m.MinTreadThicknessMm
+	}
+	if m.TreadNoseRadiusMm > 0 && m.TreadNoseRadiusMm > minTread/2 {
+		return fmt.Errorf("manufacturing: material %q nose radius %v exceeds half of min tread thickness %v",
+			m.Code, m.TreadNoseRadiusMm, minTread)
 	}
 	return nil
 }
@@ -98,6 +143,33 @@ func (m *Material) SupportsThickness(t float64) bool {
 		return false
 	}
 	return t >= m.MinThickness-engineering.Precision && t <= m.MaxThickness+engineering.Precision
+}
+
+// HasFixedTreadThickness — задана ли материалу единственная толщина ступени.
+func (m *Material) HasFixedTreadThickness() bool {
+	return m != nil && m.FixedTreadThicknessMm > 0
+}
+
+// MinTreadThickness — действующий минимум толщины ступени: отдельное поле
+// MinTreadThicknessMm, а при нуле — общий MinThickness.
+func (m *Material) MinTreadThickness() float64 {
+	if m == nil || m.MinTreadThicknessMm <= 0 {
+		if m == nil {
+			return 0
+		}
+		return m.MinThickness
+	}
+	return m.MinTreadThicknessMm
+}
+
+// SupportsTreadThickness — допускает ли материал ступень такой толщины.
+// Верхняя граница общая с деталью, нижняя — MinTreadThickness: у дуба ступень
+// от 40 мм, а косоур от 20 мм (решение владельца 2026-10-05).
+func (m *Material) SupportsTreadThickness(t float64) bool {
+	if m == nil {
+		return false
+	}
+	return t >= m.MinTreadThickness()-engineering.Precision && t <= m.MaxThickness+engineering.Precision
 }
 
 // MaterialRegistry — детерминированный in-memory каталог материалов

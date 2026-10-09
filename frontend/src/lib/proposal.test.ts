@@ -113,7 +113,7 @@ vi.mock('three', () => {
   }
 })
 
-import { generateProposalPdf, flightLabel, rub } from './proposal'
+import { generateProposalPdf, rub } from './proposal'
 
 class FakeImage {
   onload: (() => void) | null = null
@@ -151,18 +151,11 @@ afterEach(() => {
   delete (window as any).__stairLast3D
 })
 
-describe('rub / flightLabel', () => {
+describe('rub', () => {
   it('formats rubles and handles missing values', () => {
     expect(rub(undefined)).toBe('—')
     expect(rub(123456)).toContain('₽')
     expect(rub(100, 0)).toContain('₽')
-  })
-
-  it('labels every flight type', () => {
-    expect(flightLabel(snap({ spiral: {} }))).toBe('Винтовая')
-    expect(flightLabel(snap({ ushape: {} }))).toBe('П-образная')
-    expect(flightLabel(snap({ lshape: {} }))).toBe('Г-образная')
-    expect(flightLabel(snap())).toBe('Прямой марш')
   })
 })
 
@@ -202,9 +195,9 @@ describe('generateProposalPdf', () => {
     expect(h.docs.at(-1).calls.some((c: any[]) => c[0] === 'save')).toBe(true)
   })
 
-  it('handles ushape, spiral and plain flights', async () => {
+  it('handles ushape, lshape and plain flights', async () => {
     await generateProposalPdf(project(), snap({ ushape: { StepCount: 6 } }))
-    await generateProposalPdf(project(), snap({ spiral: { StepCount: 7 } }))
+    await generateProposalPdf(project(), snap({ lshape: { StepCount: 7 } }))
     await generateProposalPdf(project(), snap())
     expect(h.docs.length).toBe(3)
   })

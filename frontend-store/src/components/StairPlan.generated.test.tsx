@@ -16,7 +16,6 @@ interface GenCase {
   landing_width_mm: number
   landing_depth_mm: number
   lower_step_count: number
-  outer_radius_mm: number
   direction: string
   comfort_step_mm: number
 }
@@ -53,12 +52,6 @@ function toPlan(c: GenCase): { flight: PlanFlight; kind: PlanKind; solver: PlanE
     solver.railingLanding = c.railing
     solver.railingUpper = c.railing
     solver.direction = c.direction as 'left' | 'right'
-  }
-  if (c.flight === 'spiral') {
-    solver.outerRadius = c.outer_radius_mm
-    solver.columnRadius = Math.max(50, c.outer_radius_mm - c.width_mm)
-    solver.angularStep = 360 / n
-    solver.angularTotal = 360
   }
   return { flight, kind, solver }
 }

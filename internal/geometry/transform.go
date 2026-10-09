@@ -20,6 +20,9 @@ func Identity() Transform {
 	}
 }
 
+// IsIdentity сообщает, что преобразование ничего не меняет.
+func (t Transform) IsIdentity() bool { return t == Identity() }
+
 // Mul возвращает произведение t * o (сначала применяется o, затем t).
 func (t Transform) Mul(o Transform) Transform {
 	var r Transform

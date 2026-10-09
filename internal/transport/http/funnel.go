@@ -298,7 +298,7 @@ func handleIngestAnalytics(svc FunnelService, hasher visitorHasher) http.Handler
 // 200 — воронка; 403 — нет права analytics.read; 422 — неверное окно.
 func handleFunnelAnalytics(svc FunnelService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionAnalyticsRead) {
+		if !hasCapability(r, auth.CapTrafficFunnel, auth.LevelRead) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}

@@ -240,8 +240,9 @@ func TestFunnelAnalytics_Report(t *testing.T) {
 	}}
 	h := handleFunnelAnalytics(svc)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/analytics/funnel?from=2026-09-01&to=2026-10-01", nil)
-	req = req.WithContext(context.WithValue(req.Context(), authCtxKey{},
-		&auth.User{Role: auth.RoleAdmin}))
+	req = req.WithContext(withGrants(
+		context.WithValue(req.Context(), authCtxKey{}, &auth.User{Role: auth.RoleAdmin}),
+		auth.RoleTemplate(auth.RoleAdmin)))
 	rr := httptest.NewRecorder()
 	h(rr, req)
 	if rr.Code != http.StatusOK {
@@ -275,8 +276,9 @@ func TestFunnelAnalytics_InvalidRange(t *testing.T) {
 	svc := &stubFunnel{err: funnel.ErrInvalidRange}
 	h := handleFunnelAnalytics(svc)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/analytics/funnel?from=2026-10-01&to=2026-09-01", nil)
-	req = req.WithContext(context.WithValue(req.Context(), authCtxKey{},
-		&auth.User{Role: auth.RoleAdmin}))
+	req = req.WithContext(withGrants(
+		context.WithValue(req.Context(), authCtxKey{}, &auth.User{Role: auth.RoleAdmin}),
+		auth.RoleTemplate(auth.RoleAdmin)))
 	rr := httptest.NewRecorder()
 	h(rr, req)
 	if rr.Code != http.StatusUnprocessableEntity {

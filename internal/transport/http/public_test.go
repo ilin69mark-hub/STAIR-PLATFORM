@@ -44,10 +44,18 @@ func TestPublicQuoteSuccess(t *testing.T) {
 	if resp.Pricing == nil {
 		t.Fatal("pricing must be present for non-blocking result")
 	}
-	// Стальной марш 16 ступеней: см. service_test на происхождение значения
-	// (заготовка — лист лазерного раскроя, а не габаритный блок).
-	if resp.Pricing.FinalPriceRub != 287511.79 {
-		t.Fatalf("final price = %v, want 287511.79", resp.Pricing.FinalPriceRub)
+	// Стальной марш 15 ступеней: см. service_test на происхождение значения.
+	// Заготовка деталей — лист лазерного раскроя, а не габаритный блок, и
+	// раскрой идёт по полю стола 3000×1500: косоур длиннее поля режется на
+	// 2 куска со сварным стыком, лист стали 6000×1500 (шпатка технолога
+	// 2026-10-05).
+	// Плюс крепёж по отверстиям пяток (MNT-0001, 2026-10-08): 210 глухарей
+	// 6х35 на обойму выреза + 14 глухарей и 14 дюбелей 10х60 на пол и
+	// перекрытие = 238 шт × 15 ₽, и накрутка на них в базе цены.
+	// Плюс крепёж (238 шт × 15 ₽) и герметик (3 картриджа × 500 ₽) с
+	// накруткой: 341 030,20 + 2 667,60 = 343 697,80 ₽.
+	if resp.Pricing.FinalPriceRub != 343697.8 {
+		t.Fatalf("final price = %v, want 343697.8", resp.Pricing.FinalPriceRub)
 	}
 
 	// Габаритная ширина марша приходит из конфигурации.
@@ -358,17 +366,15 @@ func TestPublicQuoteTallFlightSucceeds(t *testing.T) {
 	}
 }
 
-// TestPublicQuoteSpiralTemporarilyDisabled — винтовой марш выведен из
-// публичного расчёта (S-152): нормы EDR-0007 противоречивы, ни одна
-// конфигурация не проходит. Раньше этот тест проверял, что блокирующая
-// подсказка по спирали несёт варианты; теперь публичный API отвечает 422,
-// а сама логика остаётся в движке и проверяется тестами солвера.
-func TestPublicQuoteSpiralTemporarilyDisabled(t *testing.T) {
+// TestPublicQuoteSpiralIsUnknownType — винтовой марш удалён из проекта
+// (решение владельца 2026-10-06), и публичный расчёт отвечает на «spiral»
+// блокирующей валидацией «Неизвестный тип лестницы», а не 422 с отдельным кодом
+// отключения: типа марша просто больше нет в перечне.
+func TestPublicQuoteSpiralIsUnknownType(t *testing.T) {
 	b := `{
 		"width_mm": 3000,
 		"height_mm": 6000,
 		"flight": "spiral",
-		"outer_radius_mm": 3100,
 		"step_height_mm": 190,
 		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
@@ -377,11 +383,11 @@ func TestPublicQuoteSpiralTemporarilyDisabled(t *testing.T) {
 	}`
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, publicQuoteRequest(b))
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("want 422 for spiral, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200 с валидацией, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "flight_temporarily_disabled") {
-		t.Fatalf("want flight_temporarily_disabled, got %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "Неизвестный тип лестницы") {
+		t.Fatalf("want «Неизвестный тип лестницы», got %s", rec.Body.String())
 	}
 }
 
@@ -529,12 +535,11 @@ func TestPublicQuoteAngle_UserScenario(t *testing.T) {
 		"landingWidthMM": "landing_width_mm", "landingDepthMM": "landing_depth_mm",
 		"lowerStepCountMM": "lower_step_count", "roomWidthMM": "room_width_mm",
 		"roomLengthMM": "room_length_mm", "approachSpaceMM": "approach_space_mm",
-		"outerRadiusMM": "outer_radius_mm",
-		"clearanceMm":   "clearance_mm", "railingMm": "railing_height_mm",
+		"clearanceMm": "clearance_mm", "railingMm": "railing_height_mm",
 		"stringerThicknessMm": "stringer_thickness_mm", "stepThicknessMm": "step_thickness_mm",
 		"direction": "direction", "railingLower": "railing_lower",
 		"railingLanding": "railing_landing", "railingUpper": "railing_upper",
-		"railing": "railing", "spiralDirection": "spiral_direction",
+		"railing":  "railing",
 		"turnKind": "turn_kind", "winderCount": "winder_count",
 	}
 

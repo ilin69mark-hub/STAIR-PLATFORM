@@ -189,10 +189,6 @@ func handleValidate(svc StairService) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid_json", "Некорректный JSON в теле запроса")
 			return
 		}
-		if rejectDisabledFlight(w, req.Flight) {
-			return
-		}
-
 		cfg := toConfig(req)
 		opts, ok := optionsOrReject(r, w, req)
 		if !ok {
@@ -310,7 +306,6 @@ func toResponse(res *stair.Result) calculateResponse {
 	resp.Flight = toFlight(*res)
 	resp.LShape = toLShape(res.LShape, e)
 	resp.UShape = toUShape(res.UShape, e)
-	resp.Spiral = toSpiral(res.Spiral, e)
 	resp.Geometry = toGeometry(*res)
 	resp.Manufacturing = toManufacturing(res.Package)
 	resp.Pricing = toPricing(res.Price)

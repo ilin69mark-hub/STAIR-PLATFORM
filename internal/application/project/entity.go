@@ -24,8 +24,8 @@ type Project struct {
 
 // StairConfiguration — сохранённая конфигурация лестницы проекта
 // (BC-002). Параметры в мм; ComfortStep в мм. LandingWidthMM и
-// LowerStepCount специфичны для L-марша (EDR-0005) и П-марша (EDR-0006);
-// OuterRadiusMM — для спирального марша (EDR-0007). Revision — монотонный
+// LowerStepCount специфичны для L-марша (EDR-0005) и П-марша (EDR-0006).
+// Revision — монотонный
 // номер ревизии внутри проекта (EDR-0012): каждая сохранённая конфигурация
 // иммутабельна и является отдельной версией (DB-0006).
 type StairConfiguration struct {
@@ -48,7 +48,6 @@ type StairConfiguration struct {
 	RoomLengthMM        float64
 	ApproachSpaceMM     float64
 	LowerStepCount      int
-	OuterRadiusMM       float64
 	// DOM-003 (2026-09-26): девять параметров, которых здесь НЕ БЫЛО, хотя
 	// они были в stair.Config. Из-за этого они молча терялись при сохранении
 	// ревизии, при restore и при экспорте CAD (project.ExportCAD строит
@@ -58,21 +57,40 @@ type StairConfiguration struct {
 	// Пустое значение = «не задано» и трактуется как дефолт, поэтому все
 	// строковые поля — string, а не enum-типы домена: так Historical-строки
 	// после миграции (NULL) читаются без специальной обработки.
-	TurnKind        string // "" | platform | winder
-	WinderCount     int    // nw, >= 3 при TurnKind == winder
-	Railing         string // none | left | right | both (прямой марш)
-	RailingLower    string // L/U: первый марш
-	RailingLanding  string // L/U: площадка
-	RailingUpper    string // L/U: второй марш
-	Direction       string // left | right (поворот площадки)
-	SpiralDirection string // cw | ccw (закрутка спирали)
-	MaterialCode    string // материал каркаса, код каталога MFG-0005, "" = автоназначение
+	TurnKind       string // "" | platform | winder
+	WinderCount    int    // nw, >= 3 при TurnKind == winder
+	Railing        string // none | left | right | both (прямой марш)
+	RailingLower   string // L/U: первый марш
+	RailingLanding string // L/U: площадка
+	RailingUpper   string // L/U: второй марш
+	Direction      string // left | right (поворот площадки)
+	MaterialCode   string // материал каркаса, код каталога MFG-0005, "" = автоназначение
 	// TreadMaterialCode — материал ступеней, "" = наследуется от MaterialCode.
 	TreadMaterialCode string
 	// RiserThicknessMM — толщина подступенка; 0 = наследуется от StepThicknessMM.
 	RiserThicknessMM float64
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	// FloorFixing / CeilingFixing — основания крепления (CONF-FIXING,
+	// решение владельца 2026-10-08): "" | concrete | wood. Пусто = бетон.
+	// Колонки добавлены миграцией 000043_fixing_fasteners.
+	FloorFixing   string
+	CeilingFixing string
+	// ExtraFasteners — дополнительный крепёж по объекту: коды позиций
+	// каталога (CONF-FIXING). Список, а не отдельные колонки: позиции
+	// зависят от справочника, который редактируется в админке, и схему
+	// нельзя держать в жёсткой связи с ним.
+	//
+	// В колонку БД уходит JSON-массивом, но кодирует не этот слой, а
+	// инфраструктура: application-слой не сериализует (ADR-0006).
+	ExtraFasteners []string
+	// Герметик (CONF-SEALANT): толщина слоя, мм, и доп. картриджи.
+	SealantLayerMM         float64
+	ExtraSealantCartridges int
+	// IsMeasurement — ревизия снята по факту на объекте (миграция
+	// 000043_fixing_fasteners), а не по телефону. Метка только информационная:
+	// на геометрию, цену и раскрой она не влияет.
+	IsMeasurement bool `json:"is_measurement"`
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // Calculation — сохранённый результат конвейера (снапшот). Result —

@@ -1,30 +1,31 @@
-// E2E: админ-панель (Phase G, EDR-0016). Полный контур: вход админом →
-// «Администрирование» → смена роли, политика безопасности, API-ключи,
-// заказы, отзывы. Админ создаётся напрямую в БД (SEC-0004: роль admin
-// назначается только через БД/seed), поэтому после регистрации повышаем
-// пользователя через psql. Команда psql настраивается через STAIR_E2E_PSQL
-// (локально: docker exec в stair-platform-postgres; в CI: psql к postgres service).
+// E2E: кабинет по плиткам (Phase G, EDR-0016, EDR-0041). Полный контур:
+// вход админом → плитки → сотрудники, политика безопасности, API-ключи и журнал
+// аудита в «Команде», заказы в «Продажах и деньга», отзывы в «Сайте и витрине».
+//
+// Разделы находят по id секции плитки (#staff-users, #finance-sales), а не по
+// вкладкам: у вкладок больше нет, а id плитки совпадает с id раздела из
+// реестра cabinetTiles и переживает перестановку блоков.
+//
+// Админ создаётся напрямую в БД (SEC-0004: роль admin назначается только через
+// БД/seed), поэтому после регистрации повышаем пользователя через psql. Команда
+// psql настраивается через STAIR_E2E_PSQL (локально: docker exec в
+// stair-platform-postgres; в CI: psql к postgres service). Хелперы psql и
+// promoteToAdmin общие со спеком плиток магазина — helpers/db.ts.
 import { expect, test } from '@playwright/test'
-import { execSync } from 'node:child_process'
 import { login, register, uniqueEmail } from '../helpers/auth'
+import { promoteToAdmin, psql } from '../helpers/db'
 
 const adminEmail = uniqueEmail()
+
+/** Открыть плитку по названию и дождаться её разделов. */
+async function openTile(page: import('@playwright/test').Page, title: string) {
+  await page.getByRole('button', { name: new RegExp(`^${title}`) }).click()
+  await expect(page.getByRole('heading', { name: title })).toBeVisible()
+}
 const regularEmail = uniqueEmail()
 let seededOrderId = ''
 
-// Например, локально: `docker exec stair-platform-postgres psql -U stair -d stair_platform`.
-// В CI: `PGPASSWORD=testpassword psql -h localhost -U stair -d stair_platform_test`.
-function psql(sql: string): string {
-  const base = process.env.STAIR_E2E_PSQL ?? 'docker exec stair-platform-postgres psql -U stair -d stair_platform'
-  return execSync(`${base} -tAc "${sql}"`, { encoding: 'utf8' }).trim()
-}
-
-function promoteToAdmin(email: string) {
-  const out = psql(`UPDATE users SET role='admin' WHERE email='${email}' AND role='user' RETURNING id`)
-  if (!out) throw new Error(`Пользователь ${email} не найден — не удалось повысить права`)
-}
-
-test.describe.serial('админ-панель', () => {
+test.describe.serial('кабинет: плитки администратора', () => {
   test.setTimeout(300_000)
 
   test.beforeAll(async ({ browser }) => {
@@ -53,14 +54,29 @@ test.describe.serial('админ-панель', () => {
     if (!seededOrderId) throw new Error('Не удалось создать тестовый заказ')
   })
 
-  test('админ открывает панель и видит разделы', async ({ page }) => {
+  test('админ видит все плитки на приветственном экране', async ({ page }) => {
     await login(page, adminEmail)
-    await page.getByRole('button', { name: 'Администрирование' }).click()
-    await expect(page.getByRole('heading', { name: 'Администрирование' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Пользователи' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'API-ключи' })).toBeVisible()
-    await expect(page.locator('.toc__list')).toContainText('Экспорт')
-    await expect(page.locator('.toc__list')).toContainText('API-ключи')
+    await page.getByRole('button', { name: '← Проекты' }).click()
+    for (const title of [
+      'Проекты',
+      'Сайт и витрина',
+      'Цены и расчёт',
+      'Продажи и деньги',
+      'Производство',
+      'Реклама и трафик',
+      'Команда',
+    ]) {
+      await expect(page.getByRole('button', { name: new RegExp(`^${title}`) })).toBeVisible()
+    }
+  })
+
+  test('плитка «Команда» содержит сотрудников, политику, ключи и аудит', async ({ page }) => {
+    await login(page, adminEmail)
+    await openTile(page, 'Команда')
+    // Все разделы на одном скролле — второй клик больше не нужен.
+    for (const section of ['staff-users', 'staff-policy', 'staff-keys', 'staff-audit']) {
+      await expect(page.locator(`#${section}`)).toBeVisible()
+    }
   })
 
   test('админ меняет роль обычного пользователя', async ({ page, browser }) => {
@@ -72,9 +88,9 @@ test.describe.serial('админ-панель', () => {
     await otherCtx.close()
 
     await login(page, adminEmail)
-    await page.getByRole('button', { name: 'Администрирование' }).click()
+    await openTile(page, 'Команда')
 
-    const roleSelect = page.locator(`select[aria-label="Роль ${regularEmail}"]`)
+    const roleSelect = page.locator(`#staff-users select[aria-label="Роль ${regularEmail}"]`)
     await expect(roleSelect).toBeVisible()
     await expect(roleSelect).toHaveValue('user')
     await roleSelect.selectOption('admin')
@@ -85,9 +101,9 @@ test.describe.serial('админ-панель', () => {
 
   test('админ обновляет политику безопасности', async ({ page }) => {
     await login(page, adminEmail)
-    await page.getByRole('button', { name: 'Администрирование' }).click()
+    await openTile(page, 'Команда')
 
-    const minLen = page.locator('#min-len')
+    const minLen = page.locator('#staff-policy #min-len')
     await expect(minLen).toBeVisible()
     await minLen.fill('10')
     await page.getByRole('button', { name: 'Сохранить политику' }).click()
@@ -103,9 +119,9 @@ test.describe.serial('админ-панель', () => {
 
   test('админ создаёт и отзывает API-ключ', async ({ page }) => {
     await login(page, adminEmail)
-    await page.getByRole('button', { name: 'Администрирование' }).click()
+    await openTile(page, 'Команда')
 
-    const keys = page.locator('#api-keys')
+    const keys = page.locator('#staff-keys')
     await expect(keys).toBeVisible()
 
     // Создание: токен показывается сразу после создания.
@@ -120,8 +136,7 @@ test.describe.serial('админ-панель', () => {
 
     // Токен одноразовый: после перезагрузки его уже нет, в списке ключ есть.
     await page.reload()
-    await expect(page.getByRole('button', { name: 'Администрирование' })).toBeVisible()
-    await page.getByRole('button', { name: 'Администрирование' }).click()
+    await openTile(page, 'Команда')
     const keyRow = keys.locator('.comment', { hasText: keyName })
     await expect(keyRow).toBeVisible()
     await expect(keys.locator('.token-code')).toHaveCount(0)
@@ -136,9 +151,9 @@ test.describe.serial('админ-панель', () => {
 
   test('админ не может создать ключ с неизвестным scope', async ({ page }) => {
     await login(page, adminEmail)
-    await page.getByRole('button', { name: 'Администрирование' }).click()
+    await openTile(page, 'Команда')
 
-    const keys = page.locator('#api-keys')
+    const keys = page.locator('#staff-keys')
     await expect(keys).toBeVisible()
 
     await keys.locator('input[placeholder="Имя ключа (например, CI)"]').fill(`E2E-bad-${Date.now()}`)
@@ -151,9 +166,9 @@ test.describe.serial('админ-панель', () => {
 
   test('админ меняет статус заказа', async ({ page }) => {
     await login(page, adminEmail)
-    await page.getByRole('button', { name: 'Администрирование' }).click()
+    await openTile(page, 'Продажи и деньги')
 
-    const orderPanel = page.locator('#orders')
+    const orderPanel = page.locator('#finance-sales')
     await expect(orderPanel).toBeVisible()
     await expect(orderPanel).toContainText('900 × 2700 мм')
 
@@ -167,9 +182,9 @@ test.describe.serial('админ-панель', () => {
 
   test('админ добавляет, публикует и удаляет отзыв', async ({ page }) => {
     await login(page, adminEmail)
-    await page.getByRole('button', { name: 'Администрирование' }).click()
+    await openTile(page, 'Сайт и витрина')
 
-    const reviews = page.locator('#testimonials')
+    const reviews = page.locator('#site-reviews')
     await expect(reviews).toBeVisible()
 
     const author = `Е2Е Отзыв ${Date.now()}`

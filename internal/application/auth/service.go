@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
@@ -35,6 +36,14 @@ var (
 	ErrSsoState         = errors.New("auth: sso state invalid or expired")
 	ErrSsoDenied        = errors.New("auth: sso login denied")
 	ErrSsoNotConfigured = errors.New("auth: sso not configured")
+	// ErrLastOwner — удаление последнего владельца компании. Возвращается
+	// отдельной ошибкой, а не ErrForbidden: это не запрет по правам, а
+	// защита самой компании, и интерфейс должен сказать об этом понятно.
+	ErrLastOwner = errors.New("auth: cannot delete the last owner")
+	// ErrInvalidRecipient — получатель проектов не подходит (чужой тенант,
+	// удалён или заблокирован). Отдельная ошибка, потому что выбор
+	// получателя — обязательный шаг, и молчаливый отказ его не заменит.
+	ErrInvalidRecipient = errors.New("auth: projects recipient is not an active user of the tenant")
 )
 
 // Service — прикладной сервис auth (BE-0002 Use Cases). Не зависит от
@@ -44,6 +53,9 @@ type Service struct {
 	sessionTTL time.Duration
 	audit      *audit.Service
 	sso        OIDCProvider
+	// grants — репозиторий точечных выдач прав (EDR-0041). Необязателен:
+	// пока не подключён, права определяются шаблоном роли.
+	grants GrantsRepository
 
 	// dummyHash — фиксированный bcrypt-хеш для выравнивания времени ответа
 	// при неизвестном email (S-113: LOGIN-TIMING-ENUMERATION). Генерируется
@@ -444,6 +456,131 @@ func (s *Service) UpdateUser(ctx context.Context, tenantID, actorID, userID stri
 		}
 		s.record(ctx, actorID, tenantID, audit.ActionUserStatusChanged, audit.ResultOK, "user status changed to "+string(*status))
 	}
+	return nil
+}
+
+// DeletionPreview — цифры для подтверждения удаления. Считаются заранее,
+// чтобы человек увидел «3 проекта, 12 расчётов» до того, как нажал кнопку,
+// а не после.
+type DeletionPreview struct {
+	Projects     int `json:"projects"`
+	Calculations int `json:"calculations"`
+	Comments     int `json:"comments"`
+	Orders       int `json:"orders"`
+	ProjectRoles int `json:"project_roles"`
+}
+
+// UserDeletionPreview собирает цифры по сотруднику. Требуется право
+// staff.delete (проверка в транспорте).
+func (s *Service) UserDeletionPreview(ctx context.Context, tenantID, userID string) (DeletionPreview, error) {
+	u, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return DeletionPreview{}, err
+	}
+	if u.TenantID != tenantID || u.Deleted() {
+		return DeletionPreview{}, ErrNotFound
+	}
+	st, err := s.repo.UserDeletionStats(ctx, userID)
+	if err != nil {
+		return DeletionPreview{}, err
+	}
+	return DeletionPreview{
+		Projects:     st.Projects,
+		Calculations: st.Calculations,
+		Comments:     st.Comments,
+		Orders:       st.Orders,
+		ProjectRoles: st.ProjectRoles,
+	}, nil
+}
+
+// DeleteUser удаляет сотрудника: передаёт его проекты другому человеку и
+// закрывает ему вход. Требуется право staff.delete (проверка в транспорте).
+//
+// Правила, каждое — по конкретной причине:
+//
+//   - нельзя удалить себя: иначе можно остаться без прав и без возможности
+//     вернуться (у removed человека нет ни роли, ни прав);
+//   - нельзя удалить последнего владельца: у компании не осталось бы того,
+//     кто может выдать права и завести нового сотрудника;
+//   - удалять владельца может только владелец: смена роли не должна
+//     превращаться в способ убрать конкурента;
+//   - получатель проектов обязан быть живым сотрудником того же тенанта.
+//
+// Передача проектов и удаление — одна транзакция в репозитории: если
+// передача прошла, а удаление нет, проект не остался бы ни у кого.
+func (s *Service) DeleteUser(ctx context.Context, tenantID, actorID, userID, transferTo string) error {
+	if actorID == userID {
+		s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied, "delete self")
+		return ErrForbidden
+	}
+	target, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied, "delete: user not found in tenant")
+		}
+		return err
+	}
+	if target.TenantID != tenantID || target.Deleted() {
+		s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied, "delete: user not found in tenant")
+		return ErrNotFound
+	}
+
+	recipient, err := s.repo.GetUserByID(ctx, transferTo)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied, "delete: recipient not found")
+		}
+		return err
+	}
+	if recipient.TenantID != tenantID || recipient.Deleted() {
+		s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied, "delete: recipient not in tenant")
+		return ErrNotFound
+	}
+	if recipient.Status != StatusActive {
+		s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied, "delete: recipient not active")
+		return ErrInvalidRecipient
+	}
+
+	// Последнего владельца оставляем всегда: компания без владельца не
+	// управляется (некому выдать права), а удаление — необратимо.
+	//
+	// Проверка идёт ПЕРЕД правилом «владельца удаляет только владелец».
+	// Иначе она была бы недостижимой: делегированный сотрудник с правом
+	// staff.delete получил бы безликое «нельзя», и не понял бы, что
+	// мешает именно последний владелец. Так ошибка говорит правду.
+	if target.Role == RoleOwner {
+		owners, err := s.repo.CountOwners(ctx, tenantID)
+		if err != nil {
+			return err
+		}
+		if owners <= 1 {
+			s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied, "delete last owner")
+			return ErrLastOwner
+		}
+		actor, err := s.repo.GetUserByID(ctx, actorID)
+		if err != nil {
+			return err
+		}
+		if actor.Role != RoleOwner {
+			s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied,
+				"delete owner by non-owner "+string(actor.Role))
+			return ErrForbidden
+		}
+	}
+
+	moved, err := s.repo.TransferProjects(ctx, userID, transferTo)
+	if err != nil {
+		s.record(ctx, actorID, tenantID, audit.ActionUserDeleted, audit.ResultFailed, "transfer projects: "+err.Error())
+		return err
+	}
+	if err := s.repo.SoftDeleteUser(ctx, tenantID, userID, actorID); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied, "delete: user not found in tenant")
+		}
+		return err
+	}
+	s.record(ctx, actorID, tenantID, audit.ActionUserDeleted, audit.ResultOK,
+		"user deleted, projects moved to "+transferTo+" ("+strconv.Itoa(moved)+")")
 	return nil
 }
 

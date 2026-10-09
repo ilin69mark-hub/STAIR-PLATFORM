@@ -77,7 +77,6 @@ var configFieldToColumn = map[string]string{
 	"LowerStepCount":    "LowerStepCount",
 	"TurnKind":          "TurnKind",
 	"WinderCount":       "WinderCount",
-	"OuterRadius":       "OuterRadiusMM",
 	"Material":          "MaterialCode",
 	"TreadMaterial":     "TreadMaterialCode",
 	"RiserThickness":    "RiserThicknessMM",
@@ -86,7 +85,12 @@ var configFieldToColumn = map[string]string{
 	"RailingLanding":    "RailingLanding",
 	"RailingUpper":      "RailingUpper",
 	"Direction":         "Direction",
-	"SpiralDir":         "SpiralDirection",
+	"FloorFixing":       "FloorFixing",
+	"CeilingFixing":     "CeilingFixing",
+	"ExtraFasteners":    "ExtraFasteners",
+	// Герметик (CONF-SEALANT): толщина слоя и доп. картриджи по объекту.
+	"SealantLayerMM":         "SealantLayerMM",
+	"ExtraSealantCartridges": "ExtraSealantCartridges",
 }
 
 // TestARCH001_StairConfigProjectionParity — каждое поле stair.Config обязано
@@ -125,6 +129,10 @@ func TestARCH001_ProjectionHasNoUnmappedFields(t *testing.T) {
 		"ProjectID":     "владелец ревизии",
 		"Revision":      "номер ревизии, присваивается репозиторием",
 		"ComfortStepMM": "приходит из stair.Options, а не из stair.Config",
+		// IsMeasurement ставится не из stair.Config, а отдельным вызовом
+		// MarkConfigurationAsMeasurement: метку «замер» вешают на уже
+		// сохранённую ревизию, а не в момент её создания.
+		"IsMeasurement": "метка «замер», ставится отдельным вызовом сервиса",
 		"CreatedAt":     "метка времени",
 		"UpdatedAt":     "метка времени",
 	}
@@ -146,7 +154,7 @@ func TestARCH001_ProjectionHasNoUnmappedFields(t *testing.T) {
 // TestARCH001_RoundTripCoversEveryMappedField — поведенческая проверка:
 // проход по всем полям проекции туда-обратно обязан сохранить каждое
 // непустое значение. Это ловит не только отсутствие поля, но и потерю при
-// преобразовании типов/имён (как было с SpiralDir → SpiralDirection).
+// преобразовании типов/имён.
 func TestARCH001_RoundTripCoversEveryMappedField(t *testing.T) {
 	// Заполняем каждое поле проекции осмысленным НЕ-нулевым значением.
 	ents := toConfigEntity("p-1", fullyPopulatedConfig(), stair.Options{ComfortStep: 617})
@@ -168,7 +176,6 @@ func TestARCH001_RoundTripCoversEveryMappedField(t *testing.T) {
 		"RoomLength":        {num(ents.RoomLengthMM), "1900"},
 		"ApproachSpace":     {num(ents.ApproachSpaceMM), "1000"},
 		"LowerStepCount":    {strconv.Itoa(ents.LowerStepCount), "7"},
-		"OuterRadius":       {num(ents.OuterRadiusMM), "900"},
 		"TurnKind":          {ents.TurnKind, "winder"},
 		"WinderCount":       {strconv.Itoa(ents.WinderCount), "3"},
 		"Railing":           {ents.Railing, "both"},
@@ -176,7 +183,6 @@ func TestARCH001_RoundTripCoversEveryMappedField(t *testing.T) {
 		"RailingLanding":    {ents.RailingLanding, "right"},
 		"RailingUpper":      {ents.RailingUpper, "none"},
 		"Direction":         {ents.Direction, "left"},
-		"SpiralDirection":   {ents.SpiralDirection, "ccw"},
 		"Material":          {ents.MaterialCode, "STEEL-S235"},
 	}
 	for name, chk := range checks {
@@ -198,9 +204,6 @@ func TestARCH001_RoundTripCoversEveryMappedField(t *testing.T) {
 	}
 	if back.TurnKind != "winder" || back.WinderCount != 3 {
 		t.Errorf("winder потерян: TurnKind=%q WinderCount=%d", back.TurnKind, back.WinderCount)
-	}
-	if back.SpiralDir != "ccw" {
-		t.Errorf("SpiralDir потерян: %q", back.SpiralDir)
 	}
 	if back.Material != "STEEL-S235" {
 		t.Errorf("Material потерян: %q", back.Material)

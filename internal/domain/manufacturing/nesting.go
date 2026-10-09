@@ -81,6 +81,14 @@ type PlacedPart struct {
 	Width      engineering.Length
 	X          float64 // мм — вдоль длины листа
 	Y          float64 // мм — вдоль ширины листа
+
+	// Сварной стык «шип-паз» (см. CutItem): HasTongue рисуется как шип на
+	// торце детали, HasMortise — как сквозной паз на её кромке.
+	HasTongue    bool
+	HasMortise   bool
+	JointOnWidth bool
+	JointIndex   int
+	JointCount   int
 }
 
 // SheetLayout — заполненный лист: размещённые детали.

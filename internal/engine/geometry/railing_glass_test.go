@@ -31,22 +31,29 @@ func TestGlassPanelsSitOnSteps(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Railing = engineering.RailingRight
 	cfg.RailingHeight = mustLength(t, 900)
+	// Стеклянное ограждение — отдельный тип конструкции, в нержавеющей
+	// стали панелей нет.
+	cfg.RailingType = engineering.RailingTypeGlass
 	decor, err := BuildRailingDecor(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	panels := solidsByRole(decor, roleRailingGlass)
+	// Панели стоят между ОПОРАМИ (равномерный шаг), а не между ступенями.
 	n := cfg.StepCount
-	if len(panels) != n-1 {
-		t.Fatalf("glass panels = %d, want %d (between %d balusters)", len(panels), n-1, n)
+	want := len(balusterSteps(n, cfg.TreadDepth.Millimeters())) - 1
+	if len(panels) != want {
+		t.Fatalf("glass panels = %d, want %d (between %d balusters)", len(panels), want, want+1)
 	}
-	balY := 900 - balusterSize/2 // edgeInset по правой кромке
+	balY := 900 - balusterD/2 // edgeInset по правой кромке, стойка круглая Ø42,4
+	// Нижняя кромка панели — на уровне ступени, где стоит её нижняя опора.
 	for i, p := range panels {
-		k := i + 1
+		steps := balusterSteps(n, cfg.TreadDepth.Millimeters())
+		k := steps[i]
 		bb := kerngeo.SolidBoundingBox(p)
 		wantLow := float64(k)*180 + glassBaseGap
 		if !nearlyEqual(bb.Min.Z, wantLow) {
-			t.Errorf("panel %d: bottom = %v, want %v (step %d)", k, bb.Min.Z, wantLow, k)
+			t.Errorf("panel %d: bottom = %v, want %v (step %d)", i+1, bb.Min.Z, wantLow, k)
 		}
 		if got := bb.Max.Y - bb.Min.Y; !nearlyEqual(got, glassThickness) {
 			t.Errorf("panel %d: thickness = %v, want %v", k, got, glassThickness)
@@ -76,6 +83,9 @@ func TestGlassTopStaysUnderHandrail(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Railing = engineering.RailingRight
 	cfg.RailingHeight = mustLength(t, 900)
+	// Стеклянное ограждение — отдельный тип конструкции, в нержавеющей
+	// стали панелей нет.
+	cfg.RailingType = engineering.RailingTypeGlass
 	decor, err := BuildRailingDecor(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -119,6 +129,9 @@ func TestRailingProfileIsRoundedButKeepsOuterSize(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Railing = engineering.RailingRight
 	cfg.RailingHeight = mustLength(t, 900)
+	// Стеклянное ограждение — отдельный тип конструкции, в нержавеющей
+	// стали панелей нет.
+	cfg.RailingType = engineering.RailingTypeGlass
 	decor, err := BuildRailingDecor(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +143,9 @@ func TestRailingProfileIsRoundedButKeepsOuterSize(t *testing.T) {
 	// Те же A/B, что и в straightRailingSolids для правой кромки.
 	w, b, h, rh, n := 900.0, 270.0, 180.0, 900.0, float64(cfg.StepCount)
 	railY := w - railWidth/2
-	overhang := b / 2
+	// Те же A/B, что и в straightRailingSolids: вылет от центров крайних
+	// ступеней на половину проступи.
+	overhang := railOverhangFrac * b
 	slope := h / b
 	a := kerngeo.NewPoint3(b/2-overhang, railY, h+rh-slope*overhang)
 	bb := kerngeo.NewPoint3((n-0.5)*b+overhang, railY, n*h+rh+slope*overhang)

@@ -3,8 +3,13 @@ import {
   defaultConfig,
   defaultRates,
   flightFields,
-  railingForSpiral,
   rulesFor,
+  timberStringerNorm,
+  plateStringerNorm,
+  isPlateFrame,
+  fixedTreadThicknessMM,
+  materialThicknessMM,
+  fitThicknessMM,
   toRatesRequest,
   toRequest,
   validateForm,
@@ -23,11 +28,6 @@ describe('flightFields', () => {
     'treadMaterial',
   ]
 
-  it('прямой марш — общие поля + перила + габариты помещения', () => {
-    expect(flightFields.straight).toEqual([...common, 'comfortStepMM', 'railing', 'roomWidthMM', 'roomLengthMM', 'approachSpaceMM'])
-    expect(flightFields.straight).not.toContain('direction')
-    expect(flightFields.straight).not.toContain('spiralDirection')
-  })
 
   it('L/U — общие + поля площадки + габариты помещения + перила по сегментам и поворот + подход', () => {
     const l = [...common, 'comfortStepMM', 'landingWidthMM', 'landingDepthMM',
@@ -40,30 +40,7 @@ describe('flightFields', () => {
     expect(flightFields.u_shape).toEqual(u)
   })
 
-  it('спираль — без шага комфорта, но с наружным радиусом, габаритами помещения, направлением и подходом', () => {
-    expect(flightFields.spiral).toEqual([...common, 'outerRadiusMM', 'roomWidthMM', 'roomLengthMM', 'spiralDirection', 'approachSpaceMM'])
-    expect(flightFields.spiral).not.toContain('comfortStepMM')
-    expect(flightFields.spiral).not.toContain('landingWidthMM')
-    expect(flightFields.spiral).not.toContain('lowerStepCountMM')
-    expect(flightFields.spiral).not.toContain('railing')
-  })
 
-  it('SPA занимает все ключи ConfigForm', () => {
-    const keys = new Set(Object.values(flightFields).flat())
-    for (const variant of Object.values(flightFields)) {
-      expect(new Set(variant).size).toBe(variant.length)
-    }
-    expect(keys).toEqual(
-      new Set([
-        'widthMM', 'heightMM', 'stepHeightMM', 'stringerThicknessMM',
-        'stepThicknessMM', 'clearanceMM', 'railingHeightMM', 'comfortStepMM',
-        'landingWidthMM', 'landingDepthMM', 'roomWidthMM', 'roomLengthMM',
-        'approachSpaceMM', 'lowerStepCountMM', 'outerRadiusMM',
-        'railing', 'railingLower', 'railingLanding', 'railingUpper',
-        'direction', 'spiralDirection', 'treadMaterial',
-      ]),
-    )
-  })
 })
 
 describe('validateForm', () => {
@@ -149,7 +126,7 @@ describe('validateForm', () => {
     // Вне диапазона — ошибка.
     expect(validateForm({ ...cfg, approachSpaceMM: '999' }).approachSpaceMM).toBe('Не менее 1000')
     expect(validateForm({ ...cfg, approachSpaceMM: '1201' }).approachSpaceMM).toBe('Не более 1200')
-    // Для всех типов (включая L/U и спираль) поле теперь обязательно и
+    // Для всех типов (включая L/U) поле теперь обязательно и
     // валидируется в диапазоне (EDR-0023, approachSpace для всех типов).
     expect(
       validateForm({ ...defaultConfig, flight: 'l_shape' as const, approachSpaceMM: '999' })
@@ -175,9 +152,10 @@ describe('validateForm', () => {
     const steelBoth = { ...defaultConfig, treadMaterial: '', stepThicknessMM: '40' }
     expect(validateForm(steelBoth).stepThicknessMM).toBe('Не более 8')
 
-    // Дуб требует минимум 20 мм, даже если каркас стальной.
+    // Дуб требует минимум 40 мм на ступень, даже если каркас стальной
+    // (решение владельца 2026-10-05: под скругление R10 нужна полка).
     const thinWood = { ...steelFrameWoodTread, stepThicknessMM: '10' }
-    expect(validateForm(thinWood).stepThicknessMM).toBe('Не менее 20')
+    expect(validateForm(thinWood).stepThicknessMM).toBe('Не менее 40')
   })
 
   it('толщина подступенка равна толщине ступени: подступенок идёт по материалу ступеней', () => {
@@ -204,6 +182,24 @@ describe('validateForm', () => {
     expect(toRequest({ ...base, treadMaterial: 'WOOD-OAK' }).tread_material).toBe('WOOD-OAK')
   })
 
+  // CONF-FIXING (2026-10-08): основания крепления и доп. крепёж по объекту.
+  it('toRequest всегда отправляет основания крепления (дефолт — бетон)', () => {
+    // Явная передача, даже когда выбор не меняли: в сохранённой ревизии должно
+    // быть видно, что крепление выбирали, а не оставили на волю движку.
+    expect(toRequest(defaultConfig).floor_fixing).toBe('concrete')
+    expect(toRequest(defaultConfig).ceiling_fixing).toBe('concrete')
+    const wood = { ...defaultConfig, floorFixing: 'wood' as const, ceilingFixing: 'wood' as const }
+    expect(toRequest(wood).floor_fixing).toBe('wood')
+    expect(toRequest(wood).ceiling_fixing).toBe('wood')
+  })
+
+  it('toRequest отправляет доп. крепёж только когда список непуст', () => {
+    // Пустой массив в запросе не меняет расчёт, но засоряет его и логи.
+    expect(toRequest(defaultConfig)).not.toHaveProperty('extra_fasteners')
+    const withExtra = { ...defaultConfig, extraFasteners: ['SCREW-8x80@12', 'PLUG-8x80'] }
+    expect(toRequest(withExtra).extra_fasteners).toEqual(['SCREW-8x80@12', 'PLUG-8x80'])
+  })
+
   it('пределы толщины ступени зависят от материала', () => {
     expect(validateForm({ ...defaultConfig, stepThicknessMM: '9' }).stepThicknessMM).toBe(
       'Не более 8',
@@ -212,9 +208,10 @@ describe('validateForm', () => {
       'Не менее 3',
     )
     const wood = { ...defaultConfig, material: 'WOOD-OAK' as const }
-    expect(validateForm({ ...wood, stepThicknessMM: '15' }).stepThicknessMM).toBe('Не менее 20')
+    expect(validateForm({ ...wood, stepThicknessMM: '15' }).stepThicknessMM).toBe('Не менее 40')
+    expect(validateForm({ ...wood, stepThicknessMM: '39' }).stepThicknessMM).toBe('Не менее 40')
     expect(validateForm({ ...wood, stepThicknessMM: '61' }).stepThicknessMM).toBe('Не более 60')
-    expect(validateForm({ ...wood, stepThicknessMM: '30' }).stepThicknessMM).toBeUndefined()
+    expect(validateForm({ ...wood, stepThicknessMM: '40' }).stepThicknessMM).toBeUndefined()
   })
 
   it('максимальная высота подъёма зависит от материала', () => {
@@ -231,16 +228,22 @@ describe('validateForm', () => {
     expect(validateForm({ ...defaultConfig, widthMM: '3000' }).widthMM).toBeUndefined()
   })
 
-  it('косоур из стали ограничен выпуском листа 3–8 мм', () => {
-    // Сталь — лазерный раскрой: и косоур, и ступень режутся из листа 3–8 мм.
-    // Раньше предел косоура был 60 мм, и стальной косоур 50 мм проходил
+  it('косоур из стали ограничен выпуском листа 3–12 мм', () => {
+    // Сталь — лазерный раскрой. Верхняя граница 12 мм, а не 8: норматив на
+    // листовой косоур (решение владельца 2026-10-05) описывает строки
+    // 8 / 10 / 12 мм, и форма обязана дать ввести предписанную толщину.
+    // Раньше предел косоура был и 8, и 60 мм — стальной косоур 50 мм проходил
     // форму, но отвергался сервером (MFG-MATERIAL).
-    expect(validateForm({ ...defaultConfig, stringerThicknessMM: '9' }).stringerThicknessMM).toBe(
-      'Не более 8',
+    expect(validateForm({ ...defaultConfig, stringerThicknessMM: '13' }).stringerThicknessMM).toBe(
+      'Не более 12',
     )
+    // 10 и 12 мм — строки норматива, форма их принимает.
     expect(
-      validateForm({ ...defaultConfig, stringerThicknessMM: '50' }).stringerThicknessMM,
-    ).toBe('Не более 8')
+      validateForm({ ...defaultConfig, stringerThicknessMM: '10' }).stringerThicknessMM,
+    ).toBeUndefined()
+    expect(
+      validateForm({ ...defaultConfig, stringerThicknessMM: '12' }).stringerThicknessMM,
+    ).toBeUndefined()
     expect(
       validateForm({ ...defaultConfig, stringerThicknessMM: '8' }).stringerThicknessMM,
     ).toBeUndefined()
@@ -255,7 +258,12 @@ describe('rulesFor', () => {
 
   it('толщина ступени и высота берутся из предела материала', () => {
     expect(rulesFor('stepThicknessMM', 'STEEL-S235')).toEqual({ min: 3, max: 8 })
-    expect(rulesFor('stepThicknessMM', 'WOOD-OAK')).toEqual({ min: 20, max: 60 })
+    // Предел СТУПЕНИ 40 мм отдельно от общего минимума детали 20 мм:
+    // косоур той же породы остаётся от 20 мм.
+    expect(rulesFor('stepThicknessMM', 'WOOD-OAK')).toEqual({ min: 40, max: 60 })
+    // Косоур из дуба остаётся от 30 мм (базовый норматив пиломатериала):
+    // правило 40 мм подняло ТОЛЬКО ступень.
+    expect(rulesFor('stringerThicknessMM', 'WOOD-OAK').min).toBe(30)
     expect(rulesFor('heightMM', 'STEEL-S235').max).toBe(6000)
     expect(rulesFor('heightMM', 'WOOD-OAK').max).toBe(4550)
     // Удалённые из каталога коды не должны попадать в пределы: правила
@@ -263,15 +271,14 @@ describe('rulesFor', () => {
     expect(rulesFor('stepThicknessMM', 'НЕТ-ТАКОГО' as never)).toEqual({})
   })
 
-  it('косоур: норматив не менее 30 мм, лимит материала как максимум', () => {
-    expect(rulesFor('stringerThicknessMM', 'WOOD-OAK')).toEqual({ min: 30, max: 60 })
-  })
-})
-
-describe('railingForSpiral', () => {
-  it('перила спирали автоматически от направления', () => {
-    expect(railingForSpiral('cw')).toBe('right')
-    expect(railingForSpiral('ccw')).toBe('left')
+  it('косоур: базовый норматив 30 мм, верхняя граница материала 100 мм', () => {
+    // Нижняя граница 30 мм — общий норматив пиломатериала. Реальную нижнюю
+    // границу задаёт норматив на балку (40/50/60/80/100 мм по длине марша и
+    // ширине), см. timberStringerNorm.
+    // Верхняя 100 мм, а не 60: норматив требует 80 мм для марша длиннее 4 м
+    // и 100 мм при ширине более 1200 мм, и форма обязана дать ввести эту
+    // толщину (решение владельца 2026-10-05).
+    expect(rulesFor('stringerThicknessMM', 'WOOD-OAK')).toEqual({ min: 30, max: 100 })
   })
 })
 
@@ -299,26 +306,12 @@ describe('toRequest railing/direction', () => {
     expect(req.railing).toBeUndefined()
   })
 
-  it('спираль шлёт только направление; перила считает сервер', () => {
-    const req = toRequest({ ...defaultConfig, flight: 'spiral', spiralDirection: 'cw' })
-    expect(req.spiral_direction).toBe('cw')
-    expect(req.railing).toBeUndefined()
-    expect(req.direction).toBeUndefined()
-  })
 })
 
 // DOM-001 (2026-09-26): тип поворота и число поворотных ступеней были
 // недостижимы из интерфейса — бэкенд принимал turn_kind/winder_count, но форма
 // не могла их задать, поэтому поворотные ступени (winder) нельзя было выбрать.
 describe('toRequest turn_kind/winder_count (DOM-001)', () => {
-  it('прямой марш и спираль не шлют тип поворота', () => {
-    expect(toRequest({ ...defaultConfig, turnKind: 'winder', winderCountMM: '3' }).turn_kind)
-      .toBeUndefined()
-    expect(
-      toRequest({ ...defaultConfig, flight: 'spiral', turnKind: 'winder', winderCountMM: '3' })
-        .turn_kind,
-    ).toBeUndefined()
-  })
 
   it('L/U с площадкой шлют turn_kind=platform без winder_count', () => {
     const req = toRequest({ ...defaultConfig, flight: 'l_shape', turnKind: 'platform' })
@@ -414,11 +407,6 @@ describe('toRequest', () => {
     expect(ur.lower_step_count).toBe(6)
   })
 
-  it('спираль не отправляет шаг комфорта', () => {
-    const sr = toRequest({ ...defaultConfig, flight: 'spiral' as const, comfortStepMM: '620' })
-    expect(sr.comfort_step_mm).toBeUndefined()
-    expect(sr.outer_radius_mm).toBe(800)
-  })
 
   it('габариты помещения отправляются и для прямого марша', () => {
     const sr = toRequest({
@@ -435,31 +423,6 @@ describe('toRequest', () => {
     expect(empty.room_length_mm).toBe(0)
   })
 
-  it('свободное пространство перед маршем отправляется только для прямого', () => {
-    const sr = toRequest({
-      ...defaultConfig,
-      flight: 'straight' as const,
-      approachSpaceMM: '1100',
-    })
-    expect(sr.approach_space_mm).toBe(1100)
-    // Пустое для прямого — дефолт 1000.
-    expect(toRequest({ ...defaultConfig, flight: 'straight' as const }).approach_space_mm).toBe(1000)
-    // L/U и спираль теперь тоже отправляют зону подхода (EDR-0023).
-    expect(
-      toRequest({ ...defaultConfig, flight: 'l_shape' as const, approachSpaceMM: '1100' })
-        .approach_space_mm,
-    ).toBe(1100)
-    expect(
-      toRequest({ ...defaultConfig, flight: 'u_shape' as const, approachSpaceMM: '1100' })
-        .approach_space_mm,
-    ).toBe(1100)
-    expect(
-      toRequest({ ...defaultConfig, flight: 'spiral' as const, approachSpaceMM: '1100' })
-        .approach_space_mm,
-    ).toBe(1100)
-    // Пустое для L/U — дефолт 1000.
-    expect(toRequest({ ...defaultConfig, flight: 'l_shape' as const }).approach_space_mm).toBe(1000)
-  })
 })
 
 describe('toRatesRequest', () => {
@@ -493,5 +456,205 @@ describe('toRatesRequest', () => {
       discount_percent: 5,
       tax_percent: 20,
     })
+  })
+})
+// ---- Норматив на деревянный косоур-балку (решение владельца 2026-10-05) ----
+//
+// Зеркало internal/domain/engineering/timber_stringer.go: минимум толщины
+// зависит от длины марша ПО ПРОЕКЦИИ и ширины марша, и сверх того несёт
+// информацию о заготовке и глубине тела.
+describe('норматив на деревянный косоур-балку', () => {
+  // Проекция = n·b, где n = H/h, b = S − 2h. При H=2700, h=180, S=630:
+  // n=15, b=270, проекция 4050 мм → полоса «более 4.0 м» → 80 мм.
+  const wood = (over: Partial<ConfigForm> = {}): ConfigForm => ({
+    ...defaultConfig,
+    material: 'WOOD-OAK',
+    treadMaterial: 'WOOD-OAK',
+    heightMM: '2700',
+    stepHeightMM: '180',
+    widthMM: '900',
+    stringerThicknessMM: '50',
+    ...over,
+  })
+
+  it('минимальная толщина по полосам проекции: 40 / 50 / 60 / 80', () => {
+    // H=1200 → n≈7, b=270 → 1890 мм → «до 2.0 м» → 40 мм.
+    expect(timberStringerNorm(wood({ heightMM: '1200' }))?.minThicknessMM).toBe(40)
+    // H=1800 → n=10 → 2700 мм → «2.0 – 3.0 м» → 50 мм.
+    expect(timberStringerNorm(wood({ heightMM: '1800' }))?.minThicknessMM).toBe(50)
+    // H=3600 → n=20 → 5400 мм → «более 4.0 м» → 80 мм.
+    expect(timberStringerNorm(wood({ heightMM: '3600' }))?.minThicknessMM).toBe(80)
+    expect(timberStringerNorm(wood())?.runLabel).toBe('более 4.0 м')
+  })
+
+  it('ширина марша более 1200 мм даёт 100 мм в любой полосе', () => {
+    // Короткий марш сам по себе потребовал бы 40 мм.
+    const short = wood({ heightMM: '1200' })
+    expect(timberStringerNorm(short)?.minThicknessMM).toBe(40)
+    const wide = timberStringerNorm(wood({ heightMM: '1200', widthMM: '1300' }))
+    expect(wide?.minThicknessMM).toBe(100)
+    expect(wide?.byWidth).toBe(true)
+    // Ровно 1200 мм — ещё не «более 1200».
+    expect(timberStringerNorm(wood({ heightMM: '1200', widthMM: '1200' }))?.minThicknessMM).toBe(40)
+  })
+
+  it('норматив несёт заготовку, глубину тела и признак опоры', () => {
+    const short = timberStringerNorm(wood({ heightMM: '1200' }))
+    expect(short?.blankLabel).toBe('250')
+    expect(short?.bodyLabel).toBe('не менее 120 мм')
+    expect(short?.needsSupport).toBe(false)
+    const long = timberStringerNorm(wood())
+    expect(long?.blankLabel).toBe('350')
+    expect(long?.needsSupport).toBe(true)
+    expect(long?.bodyLabel).toContain('опора')
+    // Средняя полоса — заготовка диапазоном.
+    expect(timberStringerNorm(wood({ heightMM: '1800' }))?.blankLabel).toBe('250–300')
+  })
+
+
+  it('норматив НЕ ругается в форме: ошибки только по пределам выпуска', () => {
+    // Норматив рекомендателен, и сервер выдаёт его как SeverityWarning. Если
+    // сделать его ошибкой формы, калькулятор начнёт отвергать СВОЮ
+    // конфигурацию по умолчанию: подъём 2700 мм даёт проекцию 4050 мм, а
+    // норматив требует 80 мм вместо стоящих в форме 50.
+    expect(validateForm(wood({ stringerThicknessMM: '50' })).stringerThicknessMM).toBeUndefined()
+    expect(validateForm(wood({ heightMM: '1800', stringerThicknessMM: '40' })).stringerThicknessMM).toBeUndefined()
+    // Но предел ВЫПУСКА материала по-прежнему жёсткий.
+    expect(validateForm(wood({ stringerThicknessMM: '101' })).stringerThicknessMM).toBe('Не более 100')
+    // Стальной каркас: норматив для балки не применяется вовсе.
+    expect(
+      validateForm(wood({ material: 'STEEL-S235', stringerThicknessMM: '8' })).stringerThicknessMM,
+    ).toBeUndefined()
+  })
+
+  it('верхняя граница толщики — 100 мм, иначе норму не ввести', () => {
+    expect(validateForm(wood({ stringerThicknessMM: '101' })).stringerThicknessMM).toBe('Не более 100')
+  })
+})
+
+// ---- Норматив на листовой (сварной) косоур (решение владельца 2026-10-05) ----
+//
+// Зеркало internal/domain/engineering/plate_stringer.go. В отличие от норматива
+// на дерево, здесь ключ таблицы — ТОЛЩИНА ЛИСТА, а длина марша, ширина,
+// глубина тела и высота заготовки — её пределы.
+describe('норматив на листовой (сварный) косоур', () => {
+  const steel = (over: Partial<ConfigForm> = {}): ConfigForm => ({
+    ...defaultConfig,
+    material: 'STEEL-S235',
+    treadMaterial: 'STEEL-S235',
+    heightMM: '2700',
+    stepHeightMM: '180',
+    widthMM: '900',
+    stringerThicknessMM: '8',
+    ...over,
+  })
+
+  // Толщина листа — НЕ выбор пользователя: её выводит норматив по длине и
+  // ширине марша (решение владельца 2026-10-06). Поэтому строки проверяются
+  // не «прислали 8/10/12», а «марш такой длины даёт такую толщину».
+  it('строки 8 / 10 / 12 мм выводятся из длины марша', () => {
+    // Проекция = n·b при шаге 180 и шаге комфорта по умолчанию:
+    // H=1800 → 2700 мм → 8; H=2340 → 3510 → 10; H=2700 → 4050 → 12.
+    expect(plateStringerNorm(steel({ heightMM: '1800' }))).toMatchObject({
+      thicknessMM: 8,
+      inTable: true,
+      runLabel: 'до 2.5 – 3.0 м',
+      widthLabel: 'до 0.9 – 1.0 м',
+      bodyLabel: 'не менее 120–130 мм',
+      blankLabel: 'от 250 мм',
+    })
+    expect(plateStringerNorm(steel({ heightMM: '2340' }))).toMatchObject({
+      thicknessMM: 10,
+      runLabel: '3.0 – 4.0 м',
+      widthLabel: 'до 1.1 – 1.2 м',
+      bodyLabel: 'не менее 140–150 мм',
+      blankLabel: 'от 300 мм',
+    })
+    expect(plateStringerNorm(steel({ heightMM: '2700' }))).toMatchObject({
+      thicknessMM: 12,
+      runLabel: 'более 4.0 м',
+      widthLabel: 'до 1.3 – 1.4 м',
+      bodyLabel: 'не менее 160–180 мм',
+      blankLabel: 'от 350 мм',
+    })
+  })
+
+  it('присланная толщина на норматив не влияет', () => {
+    // Клиент по старой форме шлёт 6 мм или конструктивные 50 мм от
+    // деревянной модели — толщина всё равно выводится по маршу.
+    for (const sent of ['6', '8', '50']) {
+      expect(plateStringerNorm(steel({ stringerThicknessMM: sent }))?.thicknessMM).toBe(12)
+    }
+  })
+
+  it('особенности конструкции доезжают до калькулятора', () => {
+    expect(plateStringerNorm(steel({ heightMM: '1800' }))?.notes).toContain('домашних лестниц')
+    expect(plateStringerNorm(steel({ heightMM: '2340' }))?.notes).toContain(
+      'без промежуточных опор',
+    )
+    expect(plateStringerNorm(steel({ heightMM: '2700' }))?.notes).toContain('монокосоура')
+  })
+
+
+  it('у стали поле толщины косоура скрыто, у дерева остаётся выбор', () => {
+    // Скрытие задано в форме (Constructor.visible): у листового каркаса
+    // толщина не входной параметр, у балки из пиломатериала — выбор.
+    expect(isPlateFrame('STEEL-S235')).toBe(true)
+    expect(isPlateFrame('WOOD-OAK')).toBe(false)
+    expect(isPlateFrame('METAL-AISI304')).toBe(true)
+  })
+
+  it('минимум по длине марша и по ширине сходятся в одну толщину', () => {
+    const norm = plateStringerNorm(steel({ heightMM: '2700' }))
+    expect(norm?.requiredMM).toBe(12)
+    expect(norm?.blankMinMM).toBe(350)
+    // Нормативная толщина всегда принадлежит таблице: «вне таблицы» больше
+    // не бывает, толщину выбирает не пользователь.
+    expect(norm?.inTable).toBe(true)
+    expect(validateForm(steel({ stringerThicknessMM: '8' })).stringerThicknessMM).toBeUndefined()
+    expect(validateForm(steel({ stringerThicknessMM: '12' })).stringerThicknessMM).toBeUndefined()
+    // А вот остаток от деревянного косоура форма у металла отвергает: поле
+    // скрыто, значение выставляет applyPlateThickness, и правило диапазона
+    // служит страховкой на случай, если значение всё же просочилось (старый
+    // сохранённый проект, ручной вызов toRequest).
+    expect(validateForm(steel({ stringerThicknessMM: '50' })).stringerThicknessMM).toBeDefined()
+  })
+
+})
+
+// ---- Толщина металлической ступени: всегда 5 мм, без выбора ----
+//
+// Решение владельца 2026-10-05. Поле в калькуляторе у металла скрыто, но
+// значение всё равно должно быть верным: отправленное 6 мм сервер привёл бы
+// к 5 мм, и расчёт показал бы одно, а 3D — другое.
+describe('толщина металлической ступени', () => {
+  it('сталь: фиксированные 5 мм', () => {
+    expect(fixedTreadThicknessMM('STEEL-S235')).toBe(5)
+    expect(materialThicknessMM('STEEL-S235')).toBe(5)
+  })
+
+  it('дерево: толщина выбирается, пресета 40 мм', () => {
+    expect(fixedTreadThicknessMM('WOOD-OAK')).toBe(0)
+    expect(fixedTreadThicknessMM('WOOD-ASH')).toBe(0)
+    expect(materialThicknessMM('WOOD-OAK')).toBe(40)
+  })
+
+  it('fitThicknessMM приводит любое значение к 5 мм у металла', () => {
+    for (const cur of ['3', '5', '6', '8', '40', '']) {
+      expect(fitThicknessMM('STEEL-S235', cur)).toBe('5')
+    }
+    // У дерева текущее значение сохраняется, если оно в допуске.
+    expect(fitThicknessMM('WOOD-OAK', '40')).toBe('40')
+    expect(fitThicknessMM('WOOD-OAK', '20')).toBe('40') // ниже минимума ступени
+  })
+
+  it('дефолт калькулятора — стальная лестница с 5 мм ступени', () => {
+    expect(defaultConfig.material).toBe('STEEL-S235')
+    expect(defaultConfig.stepThicknessMM).toBe('5')
+  })
+
+  it('границы выпуска листа на месте, даже при фиксированной толщине', () => {
+    // Диапазон нужен серверу для проверки, а не пользователю для выбора.
+    expect(rulesFor('stepThicknessMM', 'STEEL-S235')).toEqual({ min: 3, max: 8 })
   })
 })

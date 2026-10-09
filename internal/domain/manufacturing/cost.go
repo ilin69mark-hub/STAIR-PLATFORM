@@ -27,6 +27,15 @@ type MaterialConsumption struct {
 type ManufacturingCostDataset struct {
 	MaterialConsumption []MaterialConsumption
 
+	// FastenerConsumption — потребность в крепеже по кодам (MNT-0001).
+	// Физическая величина: количество в штуках. Денег здесь нет, цену
+	// подставляет Pricing по ставкам справочника.
+	FastenerConsumption []FastenerDemand
+	// SealantConsumption — потребность в герметике (CONF-SEALANT):
+	// площадь стыков, толщина слоя, объём и КАРТРИДЖИ. Картриджи, а не
+	// литры: литры нужны только для проверки расчёта, а покупают картриджи.
+	SealantConsumption *SealantDemand
+
 	PartCount      Quantity
 	OperationCount int
 	FastenerCount  Quantity

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"stairplatform/internal/domain/engineering"
@@ -57,10 +58,7 @@ type Config struct {
 	TurnKind engineering.TurnKind
 	// WinderCount — число поворотных ступеней (только TurnWinder, U-образный).
 	WinderCount int
-	// OuterRadius — специфичен для спиральной лестницы (EDR-0007):
-	// наружный радиус марша R (радиус колонны r = R − W).
-	OuterRadius engineering.Length
-	// Material — материал КАРКАСА: косоуры, подступенки, колонна
+	// Material — материал КАРКАСА: косоуры, подступенки
 	// (код каталога MFG-0005); пустое значение — автоназначение по толщине.
 	Material dommfg.MaterialCode
 	// TreadMaterial — материал СТУПЕНЕЙ: проступи, площадки, поворотные
@@ -70,13 +68,24 @@ type Config struct {
 	// RiserThickness — толщина подступенка. Ноль → равно толщине ступени
 	// (поведение до разделения материалов).
 	RiserThickness engineering.Length
-	// Перила и направления (CONF-RAILING/DIRECTION/SPIRAL).
-	Railing        engineering.RailingSide     // прямой марш
-	RailingLower   engineering.RailingSide     // L/U: первый марш
-	RailingLanding engineering.RailingSide     // L/U: площадка
-	RailingUpper   engineering.RailingSide     // L/U: второй марш
-	Direction      engineering.TurnDirection   // L/U: поворот площадки
-	SpiralDir      engineering.SpiralDirection // спираль: закрутка
+	// Перила и направления (CONF-RAILING/DIRECTION).
+	Railing        engineering.RailingSide   // прямой марш
+	RailingLower   engineering.RailingSide   // L/U: первый марш
+	RailingLanding engineering.RailingSide   // L/U: площадка
+	RailingUpper   engineering.RailingSide   // L/U: второй марш
+	Direction      engineering.TurnDirection // L/U: поворот площадки
+	// FloorFixing / CeilingFixing — основания крепления (CONF-FIXING,
+	// решение владельца 2026-10-08): бетон или дерево. Пусто → бетон.
+	// Влияют только на состав крепежа в смете, геометрию не трогают.
+	FloorFixing   engineering.FixingBase
+	CeilingFixing engineering.FixingBase
+	// ExtraFasteners — дополнительный крепёж по объекту, коды позиций
+	// каталога в формате «КОД» или «КОД@количество» (см.
+	// manufacturing.parseExtraFasteners).
+	ExtraFasteners []string
+	// Герметик (CONF-SEALANT): толщина слоя, мм, и доп. картриджи по объекту.
+	SealantLayerMM         float64
+	ExtraSealantCartridges int
 }
 
 // Options — опциональные настройки расчёта; нулевое значение даёт дефолты.
@@ -112,8 +121,8 @@ type Options struct {
 	// конвейера, когда лестница не вписывается в помещение. Замер: Calculate
 	// L-образной лестницы, не вписывающейся в комнату, — 138 мс против
 	// 0.6 мс у вписывающейся (в 230 раз). Причина: variation.ForRoomFit
-	// перебирает тройной вложенный цикл (высота ступени × ширина марша ×
-	// радиус спирали) и для каждой комбинации прогоняет полный конвейер.
+	// перебирает двойной вложенный цикл (высота ступени × ширина марша)
+	// и для каждой комбинации прогоняет полный конвейер.
 	//
 	// Для РАНЖИРОВАНИЯ кандидатов вариации не нужны: оценщику достаточно
 	// res.Validation.Blocking и res.Price. Поэтому перебор Optimize
@@ -128,7 +137,6 @@ type Result struct {
 	Flight         solver.FlightResult  // прямой марш
 	LShape         *solver.LShapeResult // L-образный марш (Flight == LShape)
 	UShape         *solver.UShapeResult // П-образный марш (Flight == UShape)
-	Spiral         *solver.SpiralResult // спиральный марш (Flight == Spiral)
 	Measurement    geometry.Measurement
 	GeometryIssues []kerngeo.ValidationIssue
 	Mesh           *kerngeo.Mesh                // preview mesh для визуализации (ENG-GEO-0008)
@@ -149,14 +157,18 @@ type Result struct {
 	Width             engineering.Length
 	Riser             bool
 	StringerThickness engineering.Length
-	// Эхо перил/направлений (CONF-RAILING/DIRECTION/SPIRAL): для спирали
-	// Railing уже деривирован из направления закрутки.
+	// StringerSpine — эхо ширины спинки косоура-гребёнки металлокаркаса,
+	// отмеренной ПО НОРМАЛИ к линии посадок (CombFrame.StringerSpine,
+	// чертеж 2026-10-05: 300 мм). Нужно 2D-схеме: боковой профиль гребёнки
+	// рисуется именно этой глубиной, а не толщиной листа. Для дерева —
+	// толщина косоура, гребёнки там нет.
+	StringerSpine engineering.Length
+	// Эхо перил/направлений (CONF-RAILING/DIRECTION).
 	Railing        engineering.RailingSide
 	RailingLower   engineering.RailingSide
 	RailingLanding engineering.RailingSide
 	RailingUpper   engineering.RailingSide
 	Direction      engineering.TurnDirection
-	SpiralDir      engineering.SpiralDirection
 	// Эхо поворота (CONF-TURN-KIND): тип поворота и число поворотных ступеней.
 	TurnKind    engineering.TurnKind
 	WinderCount int
@@ -399,12 +411,12 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	res.Width = c.Width
 	res.Riser = c.Riser
 	res.StringerThickness = c.StringerThickness
+	res.StringerSpine = engineering.Length(c.CombOrDefault().StringerSpine)
 	res.Railing = c.Railing
 	res.RailingLower = c.RailingLower
 	res.RailingLanding = c.RailingLanding
 	res.RailingUpper = c.RailingUpper
 	res.Direction = c.Direction
-	res.SpiralDir = c.SpiralDirection
 	res.TurnKind = c.TurnKind
 	res.WinderCount = c.WinderCount
 	return res, nil
@@ -434,7 +446,6 @@ func (s *Service) advise(ctx context.Context, cfg Config, c *engineering.StairCo
 		WinderCount:     cfg.WinderCount,
 		LandingMm:       cfg.LandingWidth.Millimeters(),
 		WidthMm:         cfg.Width.Millimeters(),
-		OuterRadiusMm:   cfg.OuterRadius.Millimeters(),
 		ClearanceMm:     cfg.Clearance.Millimeters(),
 		RailingMm:       cfg.RailingHeight.Millimeters(),
 		StringerThickMm: cfg.StringerThickness.Millimeters(),
@@ -488,19 +499,6 @@ func (s *Service) checkedSolve(ctx context.Context, cfg Config, c *engineering.S
 		}
 		res.Validation = vr
 		res.UShape = &ures
-	case engineering.FlightSpiral:
-		sres, vr, err := solver.SolveCheckedSpiral(c, s.constraints)
-		if err != nil {
-			if vr, ok := inputIssue(err); ok {
-				return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
-			}
-			return nil, err
-		}
-		if vr.Blocking {
-			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
-		}
-		res.Validation = vr
-		res.Spiral = &sres
 	default:
 		// DOM-001 (forensic 2026-09-24): неизвестный тип марша больше НЕ
 		// трактуется как прямой. Раньше эта ветка молча считала «diagonal»
@@ -511,12 +509,225 @@ func (s *Service) checkedSolve(ctx context.Context, cfg Config, c *engineering.S
 			Code:    constraint.GEO_HEIGHT,
 			Field:   "Тип марша",
 			Message: "Неизвестный тип марша",
-			Guide:   "Допустимые типы марша: straight (прямой), l_shape (Г-образный), u_shape (П-образный), spiral (спиральный).",
+			Guide:   "Допустимые типы марша: straight (прямой), l_shape (Г-образный), u_shape (П-образный).",
 			Fix:     "Выберите тип марша из списка",
 		})
 		return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
 	}
+	// Нормативы на косоур (решение владельца 2026-10-05): деревянная балка и
+	// листовая сварная. Минимальная толщина зависит от длины марша по проекции
+	// и ширины, а узнать длину можно ТОЛЬКО после решалки — до неё её нет.
+	// Поэтому проверки живут здесь, а не в normalize.
+	res.Validation.Issues = append(res.Validation.Issues, timberStringerIssues(cfg, c, res)...)
+	res.Validation.Issues = append(res.Validation.Issues, plateStringerIssues(c, res)...)
 	return res, nil
+}
+
+// plateStringerIssues сверяет листовой (сварный) косоур с нормативом: таблица
+// ключом имеет ТОЛЩИНУ ЛИСТА, а длина марша, ширина, глубина тела и высота
+// заготовки — её пределы. Проверяются два независимых требования:
+//
+//   - толщина листа достаточна для длины и ширины марша;
+//   - ширина заготовки гребёнки (CombFrame.StringerSpine) достаточна для
+//     этой толщины: 8 мм → от 250 мм, 10 мм → от 300, 12 мм → от 350.
+//
+// Уровень — ПРЕДУПРЕЖДЕНИЕ, как и норматив на дерево: он подсказывает, но не
+// блокирует расчёт. Перевод в блокирующий — одна строка Severity.
+func plateStringerIssues(c *engineering.StairConfiguration, res *Result) []validation.Issue {
+	// Правило про ЛИСТОВОЙ каркас: у дерева своя таблица (timberStringerIssues).
+	if !strings.HasPrefix(string(c.Material), "STEEL") && !strings.HasPrefix(string(c.Material), "METAL") {
+		return nil
+	}
+	run := flightRuns(res)
+	if len(run) == 0 {
+		return nil
+	}
+	width := c.Width.Millimeters()
+	thickness := c.StringerThickness.Millimeters()
+	spine := c.CombOrDefault().StringerSpine
+
+	var issues []validation.Issue
+	for i, sg := range run {
+		sp := engineering.PlateStringerSpecFor(thickness, sg.run, width)
+		var reasons []string
+		if !sp.BandFound {
+			reasons = append(reasons, fmt.Sprintf(
+				"Толщина листа %.0f мм в нормативе не значится: таблица описывает 8, 10 и 12 мм.",
+				thickness))
+		}
+		if sp.ThicknessTooThin {
+			// Полоса берётся ПО ДЛИНЕ МАРША, а не по выбранной толщине:
+			// иначе текст назвал бы марш 4050 мм строкой «до 2.5 – 3.0 м».
+			runBand := engineering.PlateStringerBandForRun(sg.run)
+			reasons = append(reasons, fmt.Sprintf(
+				"Марш %.0f мм по проекции попадает в строку «%s», для неё нужен лист от %.0f мм (сейчас %.0f мм).",
+				sg.run, runBand.RunLabel, sp.RequiredMM, thickness))
+		}
+		if sp.WidthBeyondNarrow {
+			reasons = append(reasons, fmt.Sprintf(
+				"Ширина марша %.0f мм больше %.0f мм — за пределами норматива (самая широкая строка до 1.4 м).",
+				width, engineering.PlateStringerBands[len(engineering.PlateStringerBands)-1].WidthMaxMM))
+		}
+		if sp.BandFound && spine+0.1 < sp.Band.BlankMinMM {
+			reasons = append(reasons, fmt.Sprintf(
+				"Ширина заготовки гребёнки %.0f мм меньше %.0f мм, положенных норме для листа %.0f мм.",
+				spine, sp.Band.BlankMinMM, thickness))
+		}
+		if len(reasons) == 0 {
+			continue
+		}
+		el := "stringer"
+		if len(run) > 1 {
+			el = fmt.Sprintf("stringer:%d", i)
+		}
+		guide := ""
+		if sp.BandFound {
+			guide = fmt.Sprintf(
+				"Листовой косоур %.0f мм: предел марша %s, ширина %s, глубина тела %s, заготовка %s. Особенность конструкции: %s",
+				thickness, sp.Band.RunLabel, sp.Band.WidthLabel,
+				sp.Band.BodyLabel, sp.Band.BlankLabel(), sp.Band.Notes)
+		}
+		issues = append(issues, validation.Issue{
+			ID:       "plate_stringer_norm",
+			Code:     constraint.GEO_STRINGER_THICKNESS_SHEET,
+			Severity: constraint.SeverityWarning,
+			Element:  el,
+			Param:    "Толщина косоура",
+			Message: fmt.Sprintf("Листовой косоур: норматив не выполнен (%s)",
+				joinReasons(reasons)),
+			Guide: guide,
+			Fix: fmt.Sprintf("Возьмите лист по нормативу: от %.0f мм, заготовка от %.0f мм",
+				sp.RequiredMM, minPlateBlankFor(sp.RequiredMM)),
+		})
+	}
+	return issues
+}
+
+// flightRun — длина марша по проекции из результата решалки. У L/П-лестницы
+// маршей два, и норматив применяется к каждому отдельно.
+type flightRun struct {
+	run float64
+}
+
+// flightRuns — длины всех маршей изделия, детерминированно по типам марша.
+func flightRuns(res *Result) []flightRun {
+	switch {
+	case res.Flight.Run > 0:
+		return []flightRun{{res.Flight.Run.Millimeters()}}
+	case res.LShape != nil:
+		return []flightRun{
+			{res.LShape.LowerRun.Millimeters()},
+			{res.LShape.UpperRun.Millimeters()},
+		}
+	case res.UShape != nil:
+		return []flightRun{
+			{res.UShape.LowerRun.Millimeters()},
+			{res.UShape.UpperRun.Millimeters()},
+		}
+	default:
+		return nil
+	}
+}
+
+// joinReasons — reasons через «; », чтобы причина читалась одним предложением.
+func joinReasons(reasons []string) string {
+	out := ""
+	for i, r := range reasons {
+		if i > 0 {
+			out += "; "
+		}
+		out += r
+	}
+	return out
+}
+
+// minPlateBlankFor — минимальная высота заготовки для требуемой толщины.
+func minPlateBlankFor(thicknessMM float64) float64 {
+	if b, ok := engineering.PlateStringerBandForThickness(thicknessMM); ok {
+		return b.BlankMinMM
+	}
+	return engineering.PlateStringerBands[0].BlankMinMM
+}
+
+// timberStringerIssues сверяет толщину деревянного косоура с нормативом по
+// длине и ширине КАЖДОГО марша. У L/П-лестницы два марша, и норматив
+// применяется к каждому отдельно: короткий нижний при длинном верхнем не
+// вытянет толщину обоих.
+//
+// Возвращает ПРЕДУПРЕЖДЕНИЕ, а не блокировку — тем же уровнем, что и
+// действующее правило GEO-STRINGER-THICKNESS (SeverityWarning). Норматив
+// владельца носит рекомендательный характер: он подсказывает толщину и
+// размеры заготовки, но не отменяет уже посчитанные изделия. Перевести в
+// блокирующее — одна строка Severity ниже.
+//
+// Косоур проверяется по МАТЕРИАЛУ КАРКАСА: правило про балку, а ступень из
+// дуба при стальном каркасе косоур не делает.
+func timberStringerIssues(cfg Config, c *engineering.StairConfiguration, res *Result) []validation.Issue {
+	if !strings.HasPrefix(string(c.Material), "WOOD") {
+		return nil // листовой металлокаркас: балки нет
+	}
+	width := c.Width.Millimeters()
+	thickness := c.StringerThickness.Millimeters()
+	type seg struct {
+		name string
+		run  float64
+	}
+	var segs []seg
+	switch {
+	case res.Flight.Run > 0:
+		segs = append(segs, seg{"марша", res.Flight.Run.Millimeters()})
+	case res.LShape != nil:
+		segs = append(segs,
+			seg{"нижнего марша", res.LShape.LowerRun.Millimeters()},
+			seg{"верхнего марша", res.LShape.UpperRun.Millimeters()})
+	case res.UShape != nil:
+		segs = append(segs,
+			seg{"нижнего марша", res.UShape.LowerRun.Millimeters()},
+			seg{"верхнего марша", res.UShape.UpperRun.Millimeters()})
+	default:
+		return nil
+	}
+	var issues []validation.Issue
+	for i, sg := range segs {
+		if sg.run <= 0 {
+			continue
+		}
+		sp := engineering.TimberStringerSpecFor(sg.run, width)
+		if thickness+0.1 >= sp.MinThicknessMM {
+			continue
+		}
+		// Метка элемента: у двух маршей она должна различаться, иначе
+		// фронтенд покажет две одинаковые строки предупреждений.
+		el := "stringer"
+		if len(segs) > 1 {
+			el = fmt.Sprintf("stringer:%d", i)
+		}
+		why := ""
+		if sp.ThicknessByWidth {
+			why = fmt.Sprintf(" Ширина марша %.0f мм больше %.0f мм, поэтому толщина %.0f мм берётся по ширине, а не по длине.",
+				width, float64(engineering.TimberWideWidthMM), float64(engineering.TimberWideThickMM))
+		}
+		support := ""
+		if sp.Band.NeedsSupport {
+			support = fmt.Sprintf(" Длина марша по проекции %.0f мм — сверх %.0f мм: по нормативу нужна промежуточная опора (столб); правило опор вносится позже, поэтому расчёт не блокируется.",
+				sg.run, engineering.TimberStringerBands[len(engineering.TimberStringerBands)-2].RunMaxMM)
+		}
+		issues = append(issues, validation.Issue{
+			ID:       "timber_stringer_thickness",
+			Code:     constraint.GEO_STRINGER_THICKNESS,
+			Severity: constraint.SeverityWarning,
+			Element:  el,
+			Param:    "Толщина косоура",
+			Message: fmt.Sprintf("Толщина косоура %.0f мм меньше нормативных %.0f мм для %s длиной по проекции %.0f мм",
+				thickness, sp.MinThicknessMM, sp.Band.RunLabel, sg.run),
+			Guide: fmt.Sprintf(
+				"Деревянный косоур: полоса норматива «%s» (ширина марша «%s») требует толщину не менее %.0f мм, заготовку %s, глубину тела после выпила гребёнки — %s. Сейчас %.0f мм.%s%s",
+				sp.Band.RunLabel, sp.Band.WidthLabel, sp.MinThicknessMM,
+				sp.Band.BlankLabel(), sp.Band.BodyLabel(), thickness, why, support),
+			Fix: fmt.Sprintf("Увеличьте толщину косоура до %.0f мм или возьмите заготовку по нормативу", sp.MinThicknessMM),
+		})
+	}
+	return issues
 }
 
 // Validate выполняет глубокую проверку конфигурации без полного конвейера:
@@ -579,8 +790,6 @@ func attachVariations(ctx context.Context, vr *validation.Result, c *engineering
 			constraint.GEO_COMFORT_STEP,
 			constraint.GEO_LANDING_WIDTH,
 			constraint.GEO_LOWER_STEP,
-			constraint.GEO_SPIRAL_RADIUS,
-			constraint.GEO_SPIRAL_TREAD,
 			constraint.GEO_TREAD_POSITIVE,
 			constraint.GEO_STRINGER_NARROW,
 			constraint.MFG_MATERIAL:
@@ -609,17 +818,30 @@ func flightLabel(f engineering.FlightType) string {
 // стандартный лист. Советник не имеет для неё вариантов — выпускаем
 // только понятное описание причины.
 func manufacturingBlocked(feas *engmfg.FeasibilityError, stringerThick engineering.Length, material dommfg.MaterialCode) validation.Result {
-	maxLen, maxWid := 6000.0, 3000.0
-	if material == "" {
-		var err error
-		material, err = engmfg.DefaultMaterialForThickness(stringerThick.Millimeters())
-		if err != nil {
-			material = dommfg.MaterialCode("STEEL-S235")
-		}
+	// Предел — РАБОЧЕЕ ПОЛЕ лазерного стола 3000×1500, а не купленный лист.
+	// Лист 6000×1500 режется на две заготовки 3000×1500, и деталь длиннее
+	// заготовки делится на куски со сварным стыком «шип-паз»; не влезает в
+	// поле только такая деталь, которую нечем разрезать — по ширине.
+	fieldLen, fieldWid := feas.FieldLength, feas.FieldWidth
+	if fieldLen <= 0 || fieldWid <= 0 {
+		fieldLen, fieldWid = dommfg.BlankLengthMM, dommfg.BlankWidthMM
 	}
-	if sheets, err := engmfg.DefaultStockSheetRegistry(); err == nil {
-		if l, w, ok := engmfg.LargestStockSheet(sheets, material); ok {
-			maxLen, maxWid = l, w
+	thick := feas.Thickness
+	if thick <= 0 {
+		if material == "" {
+			var err error
+			material, err = engmfg.DefaultMaterialForThickness(stringerThick.Millimeters())
+			if err != nil {
+				material = dommfg.MaterialCode("STEEL-S235")
+			}
+		}
+		if reg, err := engmfg.DefaultMaterialRegistry(); err == nil {
+			if m, ok := reg.Find(material); ok {
+				thick = m.FixedTreadThicknessMm
+				if thick <= 0 {
+					thick = stringerThick.Millimeters()
+				}
+			}
 		}
 	}
 	return validation.Result{
@@ -630,12 +852,13 @@ func manufacturingBlocked(feas *engmfg.FeasibilityError, stringerThick engineeri
 			Code:     constraint.MFG_SHEET,
 			Severity: constraint.SeverityError,
 			Element:  "stringer",
-			Message:  "косоур не помещается на стандартный лист",
+			Message:  "косоур не помещается в поле лазерного стола",
 			Param:    "Изготовление",
 			Guide: fmt.Sprintf(
-				"Косоур %.0f×%.0f мм (рез %d мм) не помещается на стандартный лист (макс. %.0f×%.0f мм). Изготовление при текущем каталоге листов невозможно — уменьшите высоту подъёма или измените число ступеней, чтобы косоур влез на лист.",
-				feas.PartLen, feas.PartWid, int(feas.Kerf), maxLen, maxWid),
-			Fix: "Уменьшите высоту подъёма или измените число ступеней",
+				"Косоур %.0f×%.0f мм не влезает в рабочее поле лазерного стола %.0f×%.0f мм (лист %.0f мм, отступ %.0f, зазор %.0f). По длине длинный косоур режется кусками со сварным стыком «шип-паз», но ширина %.0f мм превышает поле вместе с отступом — уменьшите ширину марша или измените число ступеней.",
+				feas.PartLen, feas.PartWid, fieldLen, fieldWid, dommfg.StockSheetLengthMM,
+				dommfg.CutEdgeOffsetMM(thick), dommfg.CutGapMM(thick), feas.PartWid),
+			Fix: "Уменьшите ширину марша или высоту подъёма",
 		}},
 	}
 }
@@ -685,7 +908,6 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 	c.LowerStepCount = cfg.LowerStepCount
 	c.TurnKind = cfg.TurnKind
 	c.WinderCount = cfg.WinderCount
-	c.OuterRadius = cfg.OuterRadius
 	c.Material = string(cfg.Material)
 	// Материал ступеней и толщина подступенка. Разрешение наследования
 	// (TreadMaterial → Material, RiserThickness → StepThickness) делается
@@ -705,13 +927,21 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 	c.RailingLanding = cfg.RailingLanding
 	c.RailingUpper = cfg.RailingUpper
 	c.Direction = cfg.Direction
-	c.SpiralDirection = cfg.SpiralDir
-	// Спираль: перила автоматически — сторона по направлению закрутки
-	// (CONF-SPIRAL-RAILING): по часовой — справа, против часовой — слева.
-	// Перила всегда с одной стороны (по наружному краю марша).
-	if cfg.Flight == engineering.FlightSpiral {
-		c.Railing = cfg.SpiralDir.DefaultRailing()
+	// Основания крепления (CONF-FIXING). Значения не из перечня отбрасываются
+	// ЗДЕСЬ, а не в Validate: пустое значение допустимо (бетон), а вот
+	// «concretee» должно превратиться в бетон, а не уронить расчёт на
+	// 422 — клиентский конфиг приходит из витрины и может быть устаревшим.
+	c.FloorFixing = cfg.FloorFixing
+	if !c.FloorFixing.Valid() {
+		c.FloorFixing = engineering.BaseConcrete
 	}
+	c.CeilingFixing = cfg.CeilingFixing
+	if !c.CeilingFixing.Valid() {
+		c.CeilingFixing = engineering.BaseConcrete
+	}
+	c.ExtraFasteners = append([]string(nil), cfg.ExtraFasteners...)
+	c.SealantLayerMM = cfg.SealantLayerMM
+	c.ExtraSealantCartridges = cfg.ExtraSealantCartridges
 	// Разрешение материалов (MFG-0005). Каркас и ступени проверяются
 	// РАЗДЕЛЬНО: раньше один материал должен был поддерживать и толщину
 	// косоура, и толщину ступени, из-за чего стальной косоур 8 мм с деревянной
@@ -732,6 +962,23 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 		if err != nil {
 			return nil, configInputError(fmt.Errorf(
 				"stair: catalog unavailable: %w", err))
+		}
+		// Толщина ступени из металла НЕ выбирается (решение владельца
+		// 2026-10-05): в каталоге у стали одна ступень — 5 мм. Значит клиент
+		// может прислать что угодно (старая форма предлагала 3–8 мм, старые
+		// проекты хранят 6 мм), и это «что угодно» обязано схлопнуться в 5 мм
+		// ДО проверки толщин, до геометрии и до раскроя.
+		//
+		// Раньше здесь стоял обратный порядок: сначала проверка, потом всё
+		// остальное, — и клиентские 6 мм проходили как законное значение.
+		if mat, ok := reg.Find(treadCode); ok && mat.HasFixedTreadThickness() {
+			c.StepThickness = engineering.Length(mat.FixedTreadThicknessMm)
+			if cfg.RiserThickness <= 0 || riserTh == cfg.StepThickness.Millimeters() {
+				// Подступенок из того же листа: без собственного выбора он
+				// идёт толщиной ступени, иначе у лестницы были бы две разные
+				// толщины листа из одного проката.
+				riserTh = mat.FixedTreadThicknessMm
+			}
 		}
 		// Радиус скругления носа — производная величина от материала ступеней
 		// (Material.TreadNoseRadiusMm): у металла он нулевой, поэтому
@@ -766,10 +1013,19 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 			code dommfg.MaterialCode
 			t    float64
 			name string
+			// tread — деталь ступени: у неё своя нижняя граница
+			// (Material.MinTreadThicknessMm, у дуба 40 мм под скругление R10),
+			// а косоур ограничен общим MinThickness. Поэтому проверка
+			// выбирается по виду детали, а не по названию.
+			tread bool
 		}
 		checks := []thicknessCheck{
-			{cfg.Material, cfg.StringerThickness.Millimeters(), "косоура"},
-			{treadCode, cfg.StepThickness.Millimeters(), "ступени"},
+			{cfg.Material, cfg.StringerThickness.Millimeters(), "косоура", false},
+			// Толщина ступени берётся ИЗ c, а не из cfg: выше она уже могла
+			// быть приведена к единственной толщине материала. Иначе клиентские
+			// 40 мм проверялись бы как 40 и отвергались, хотя в расчёт ушло бы
+			// 5 мм, — то есть ошибка была бы про число, которого в изделии нет.
+			{treadCode, c.StepThickness.Millimeters(), "ступени", true},
 		}
 		if mat, ok := reg.Find(treadCode); ok && !mat.SupportsThickness(riserTh) {
 			riserTh = cfg.StepThickness.Millimeters()
@@ -778,7 +1034,7 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 		// cfg.RiserThickness), поэтому нормализованное значение обязано
 		// попасть в c, а не остаться в локальной переменной.
 		c.RiserThickness = engineering.Length(riserTh)
-		checks = append(checks, thicknessCheck{treadCode, riserTh, "подступенка"})
+		checks = append(checks, thicknessCheck{treadCode, riserTh, "подступенка", false})
 		for _, ck := range checks {
 			if ck.code == "" {
 				continue
@@ -788,7 +1044,21 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 				return nil, configInputError(fmt.Errorf(
 					"stair: material %q not found in catalog", ck.code))
 			}
-			if !mat.SupportsThickness(ck.t) {
+			okThickness := mat.SupportsThickness(ck.t)
+			if ck.tread {
+				okThickness = mat.SupportsTreadThickness(ck.t)
+			}
+			// Толщина ЛИСТОВОГО косоура у металла не входной параметр: её
+			// выводит норматив по длине и ширине марша (NormalizePlateStringer,
+			// вызывается в решалке после того, как длина марша станет известна).
+			// Проверять присланное число против выпуска нельзя: клиент по
+			// старой форме присылает конструктивные 50 мм от деревянной модели
+			// (ширина сечения бруса), и такой запрос отбраковывался с
+			// MFG-MATERIAL ДО того, как норматив успевал его заменить.
+			if !ck.tread && engineering.IsPlateFrameMaterial(string(ck.code)) {
+				okThickness = true
+			}
+			if !okThickness {
 				return nil, configInputError(fmt.Errorf(
 					"stair: material %q does not support thickness %v mm of %s",
 					ck.code, ck.t, ck.name))
@@ -819,30 +1089,6 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 			"stair: rise height %v mm exceeds supported maximum %v mm",
 			c.Height.Millimeters(), maxSupportedHeightMM))
 	}
-	if c.Flight == engineering.FlightSpiral && c.OuterRadius.Millimeters() > maxSupportedRadiusMM {
-		return nil, configInputError(fmt.Errorf(
-			"stair: spiral outer radius %v mm exceeds supported maximum %v mm",
-			c.OuterRadius.Millimeters(), maxSupportedRadiusMM))
-	}
-	// EDR-0007 §4.4: колонна имеет положительный радиус (R > W). Проверяется
-	// здесь с цифрами, чтобы подсказка была конкретной (c.Validate() даёт
-	// общий текст без значений).
-	if c.Flight == engineering.FlightSpiral && c.OuterRadius.Millimeters() <= c.Width.Millimeters() {
-		return nil, &solver.InputError{
-			Code:    constraint.GEO_SPIRAL_RADIUS,
-			Field:   "Радиус спирали",
-			Value:   c.OuterRadius.Millimeters(),
-			Min:     c.Width.Millimeters(),
-			HasMin:  true,
-			Message: "Радиус спирали не превышает ширину марша",
-			Guide: fmt.Sprintf(
-				"Наружный радиус спирали %.0f мм должен быть больше ширины марша %.0f мм. Колонна в центре спирали имеет радиус = радиус − ширина марша; при %.0f мм колонна исчезает. Увеличьте радиус минимум до %.0f мм или уменьшите ширину марша.",
-				c.OuterRadius.Millimeters(), c.Width.Millimeters(),
-				c.OuterRadius.Millimeters()-c.Width.Millimeters(),
-				c.Width.Millimeters()+1),
-			Fix: fmt.Sprintf("Увеличьте радиус спирали минимум до %.0f мм", c.Width.Millimeters()+1),
-		}
-	}
 	if err := c.Validate(); err != nil {
 		if inp := configInputError(err); inp != nil {
 			return nil, inp
@@ -856,7 +1102,4 @@ const (
 	// maxSupportedHeightMM — максимальная высота подъёма, гарантируемая
 	// каталогом листов (лимит конструкторов 6000 мм).
 	maxSupportedHeightMM = 6000.0
-	// maxSupportedRadiusMM — максимальный наружный радиус спирали
-	// (лимит конструкторов 5000 мм).
-	maxSupportedRadiusMM = 5000.0
 )

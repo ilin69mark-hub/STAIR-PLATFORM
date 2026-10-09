@@ -100,3 +100,77 @@ describe('ассортимент калькулятора', () => {
     })
   })
 })
+
+// Толщина ступени из металла не выбирается: всегда 5 мм (решение владельца
+// 2026-10-05). Поле у металла скрыто, потому что диапазон 3–8 мм предлагал
+// выбор, которого в изделии нет.
+//
+// Проверяется через сегмент «Дерево / Металл» в самой форме: у дефолтной
+// дубовой ступени поле видно, после переключения на металл — нет.
+describe('толщина ступени из металла', () => {
+  const labelVisible = () => screen.queryByText('Толщина ступени (мм)') !== null
+  // Сегмент материала ступеней «Дерево / Металл». Слово «Металл» есть и в
+  // легенде сегмента, поэтому берём именно ЯРЛЫК кнопки.
+  const treadMetalOption = () => treadOption('Металл')
+  const treadWoodOption = () => treadOption('Дерево')
+  const treadOption = (label: string): HTMLElement =>
+    screen.queryAllByText(label).find((el) => el.className.includes('segmented__label'))!
+
+  it('у дубовой ступени поле есть, у стальной — скрыто', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<Constructor />)
+    fireEvent.click(screen.getByText('Цвет и материал'))
+
+    // Дефолт витрины — стальной каркас с ДЕРЕВЯНОЙ ступенью: у дуба толщина
+    // выбирается, поэтому поле на месте.
+    expect(labelVisible()).toBe(true)
+
+    // Переключаем ступень на металл.
+    fireEvent.click(treadMetalOption())
+
+    expect(labelVisible()).toBe(false)
+  })
+
+  it('возврат к дереву возвращает поле', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<Constructor />)
+    fireEvent.click(screen.getByText('Цвет и материал'))
+
+    fireEvent.click(treadMetalOption())
+    expect(labelVisible()).toBe(false)
+
+    fireEvent.click(treadWoodOption())
+    expect(labelVisible()).toBe(true)
+  })
+})
+
+// Толщина ЛИСТА косоура у металла — не входной параметр: её выводит норматив
+// по длине и ширине марша (решение владельца 2026-10-06). Поле у листового
+// каркаса не показывается, потому что выбирать нечего: 8 / 10 / 12 мм решает
+// длина марша.
+describe('толщина листа косоура', () => {
+  const labelVisible = () => screen.queryByText('Толщина косоура (мм)') !== null
+  const woodTab = () => screen.getByRole('tab', { name: /Деревянные/ })
+  const metalTab = () => screen.getByRole('tab', { name: /Металлокаркас/ })
+
+  it('у стального каркаса поля нет ни в одном изделии', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<Constructor />)
+    fireEvent.click(screen.getByText('Цвет и материал'))
+    expect(labelVisible()).toBe(false)
+
+    // Переключение изделия туда-обратно не должно поле вернуть.
+    fireEvent.click(woodTab())
+    fireEvent.click(metalTab())
+    expect(labelVisible()).toBe(false)
+  })
+
+  it('у деревянного каркаса поле скрыто тоже: толщина балки выводится по маршу', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<Constructor />)
+    fireEvent.click(screen.getByText('Цвет и материал'))
+    fireEvent.click(woodTab())
+
+    expect(labelVisible()).toBe(false)
+  })
+})

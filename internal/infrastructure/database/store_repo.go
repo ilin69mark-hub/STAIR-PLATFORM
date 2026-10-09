@@ -131,3 +131,122 @@ func (r *StoreRepository) DeleteMaterialPrice(ctx context.Context, tenantID, cod
 	}
 	return nil
 }
+
+// ---- Прайс крепежа (MNT-0001) ----
+//
+// Отдельные методы рядом с материальными, а не обобщение «прайс по коду»:
+// единица у них разная (₽/кг против ₽/шт), и таблицы разные. Общий метод
+// означал бы колонку «цена» с плавающим смыслом.
+
+// ListFastenerPrices возвращает цены крепежа, заданные магазином (₽ за штуку).
+func (r *StoreRepository) ListFastenerPrices(ctx context.Context, tenantID string) ([]store.FastenerPrice, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT fastener_code, price_per_pc_rub FROM store_fastener_prices
+		 WHERE tenant_id = $1 ORDER BY fastener_code`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list fastener prices: %w", err)
+	}
+	defer rows.Close()
+	var out []store.FastenerPrice
+	for rows.Next() {
+		var p store.FastenerPrice
+		if err := rows.Scan(&p.Code, &p.PricePerPcRub); err != nil {
+			return nil, fmt.Errorf("store: scan fastener price: %w", err)
+		}
+		p.Overridden = true
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: list fastener prices rows: %w", err)
+	}
+	return out, nil
+}
+
+// SetFastenerPrice сохраняет цену крепежа магазина (upsert).
+func (r *StoreRepository) SetFastenerPrice(ctx context.Context, tenantID, code string, price int64, updatedBy string) error {
+	var by any
+	if updatedBy != "" {
+		by = updatedBy
+	}
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO store_fastener_prices (tenant_id, fastener_code, price_per_pc_rub, updated_by, updated_at)
+		 VALUES ($1, $2, $3, $4, now())
+		 ON CONFLICT (tenant_id, fastener_code) DO UPDATE
+		   SET price_per_pc_rub = EXCLUDED.price_per_pc_rub,
+		       updated_by = EXCLUDED.updated_by,
+		       updated_at = now()`,
+		tenantID, code, price, by); err != nil {
+		return fmt.Errorf("store: set fastener price: %w", err)
+	}
+	return nil
+}
+
+// DeleteFastenerPrice возвращает крепёж к встроенной ставке.
+func (r *StoreRepository) DeleteFastenerPrice(ctx context.Context, tenantID, code string) error {
+	if _, err := r.pool.Exec(ctx,
+		`DELETE FROM store_fastener_prices WHERE tenant_id = $1 AND fastener_code = $2`,
+		tenantID, code); err != nil {
+		return fmt.Errorf("store: delete fastener price: %w", err)
+	}
+	return nil
+}
+
+// ---- Прайс герметика (CONF-SEALANT) ----
+//
+// Методы рядом с крепёжными, а не обобщение «прайс по коду»: единица одна
+// (₽/штука), но ТАБЛИЦЫ разные и смысл цены разный (дюбель/глухарь против
+// картриджа герметика). Общий метод с флагом вида заставил бы вызывающий
+// помнить, что именно он правит.
+
+// ListSealantPrices возвращает цены герметика, заданные магазином (₽ за картридж).
+func (r *StoreRepository) ListSealantPrices(ctx context.Context, tenantID string) ([]store.SealantPrice, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT sealant_code, price_per_cartridge_rub FROM store_sealant_prices
+		 WHERE tenant_id = $1 ORDER BY sealant_code`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list sealant prices: %w", err)
+	}
+	defer rows.Close()
+	var out []store.SealantPrice
+	for rows.Next() {
+		var p store.SealantPrice
+		if err := rows.Scan(&p.Code, &p.PricePerCartridgeRub); err != nil {
+			return nil, fmt.Errorf("store: scan sealant price: %w", err)
+		}
+		p.Overridden = true
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: list sealant prices rows: %w", err)
+	}
+	return out, nil
+}
+
+// SetSealantPrice сохраняет цену герметика магазина (upsert).
+func (r *StoreRepository) SetSealantPrice(ctx context.Context, tenantID, code string, price int64, updatedBy string) error {
+	var by any
+	if updatedBy != "" {
+		by = updatedBy
+	}
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO store_sealant_prices (tenant_id, sealant_code, price_per_cartridge_rub, updated_by, updated_at)
+		 VALUES ($1, $2, $3, $4, now())
+		 ON CONFLICT (tenant_id, sealant_code) DO UPDATE
+		   SET price_per_cartridge_rub = EXCLUDED.price_per_cartridge_rub,
+		       updated_by = EXCLUDED.updated_by,
+		       updated_at = now()`,
+		tenantID, code, price, by); err != nil {
+		return fmt.Errorf("store: set sealant price: %w", err)
+	}
+	return nil
+}
+
+// DeleteSealantPrice возвращает герметик к встроенной ставке.
+func (r *StoreRepository) DeleteSealantPrice(ctx context.Context, tenantID, code string) error {
+	if _, err := r.pool.Exec(ctx,
+		`DELETE FROM store_sealant_prices WHERE tenant_id = $1 AND sealant_code = $2`,
+		tenantID, code); err != nil {
+		return fmt.Errorf("store: delete sealant price: %w", err)
+	}
+	return nil
+}

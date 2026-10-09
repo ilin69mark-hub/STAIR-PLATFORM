@@ -61,8 +61,8 @@ func (r *AuthRepository) CreateUser(ctx context.Context, u *auth.User) error {
 
 func (r *AuthRepository) GetUserByEmail(ctx context.Context, email string) (*auth.User, error) {
 	u, err := r.scanUser(r.pool.QueryRow(ctx,
-		`SELECT id, tenant_id, email, name, password_hash, role, status, created_at, updated_at
-		 FROM users WHERE email = $1`, email))
+		`SELECT id, tenant_id, email, name, password_hash, role, status, grants_initialized, created_at, updated_at, deleted_at
+		 FROM users WHERE email = $1 AND deleted_at IS NULL`, email))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, auth.ErrNotFound
 	}
@@ -74,7 +74,7 @@ func (r *AuthRepository) GetUserByEmail(ctx context.Context, email string) (*aut
 
 func (r *AuthRepository) GetUserByID(ctx context.Context, id string) (*auth.User, error) {
 	u, err := r.scanUser(r.pool.QueryRow(ctx,
-		`SELECT id, tenant_id, email, name, password_hash, role, status, created_at, updated_at
+		`SELECT id, tenant_id, email, name, password_hash, role, status, grants_initialized, created_at, updated_at, deleted_at
 		 FROM users WHERE id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, auth.ErrNotFound
@@ -88,7 +88,7 @@ func (r *AuthRepository) GetUserByID(ctx context.Context, id string) (*auth.User
 func (r *AuthRepository) scanUser(row pgx.Row) (*auth.User, error) {
 	var u auth.User
 	if err := row.Scan(&u.ID, &u.TenantID, &u.Email, &u.Name, &u.PasswordHash,
-		&u.Role, &u.Status, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		&u.Role, &u.Status, &u.GrantsInitialized, &u.CreatedAt, &u.UpdatedAt, &u.DeletedAt); err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -98,8 +98,8 @@ func (r *AuthRepository) scanUser(row pgx.Row) (*auth.User, error) {
 // password_hash намеренно не выбирается — он не нужен вызывающему коду.
 func (r *AuthRepository) ListUsers(ctx context.Context, tenantID string) ([]*auth.User, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT id, tenant_id, email, name, role, status, created_at, updated_at
-		 FROM users WHERE tenant_id = $1 ORDER BY created_at`, tenantID)
+		`SELECT id, tenant_id, email, name, role, status, grants_initialized, created_at, updated_at
+		 FROM users WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY created_at`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("auth: list users: %w", err)
 	}
@@ -108,7 +108,7 @@ func (r *AuthRepository) ListUsers(ctx context.Context, tenantID string) ([]*aut
 	for rows.Next() {
 		var u auth.User
 		if err := rows.Scan(&u.ID, &u.TenantID, &u.Email, &u.Name,
-			&u.Role, &u.Status, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			&u.Role, &u.Status, &u.GrantsInitialized, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("auth: scan user: %w", err)
 		}
 		out = append(out, &u)
@@ -342,6 +342,136 @@ func (r *AuthRepository) DisableUser(ctx context.Context, tenantID, userID strin
 		}
 		return nil
 	})
+}
+
+// SoftDeleteUser — мягкое удаление сотрудника. Строка остаётся, но человек
+// скрыт из списков и больше не может войти: deleted_at + deleted_by +
+// status=disabled, сессии удаляются, API-ключи отзываются — всё в одной
+// транзакции (как при блокировке, CRITICAL-05: промежуточного состояния
+// «удалён, но с живым ключом» быть не должно).
+//
+// Почему мягко, а не каскадом: на сотрудника ссылаются audit_events,
+// calc_jobs, payment_intents и выдача прав с запретом удаления
+// (ON DELETE NO ACTION). Полное удаление означало бы либо снести чужую
+// историю, либо разом переписать её — и то и другое хуже, чем оставить
+// человека в архиве.
+func (r *AuthRepository) SoftDeleteUser(ctx context.Context, tenantID, userID, deletedBy string) error {
+	if tenantID == "" || userID == "" {
+		return auth.ErrNotFound
+	}
+	return WithTx(ctx, r.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx,
+			`UPDATE users SET status = 'disabled', deleted_at = now(), deleted_by = $3, updated_at = now()
+			 WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`, userID, tenantID, deletedBy)
+		if err != nil {
+			return fmt.Errorf("auth: soft delete user: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return auth.ErrNotFound
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, userID); err != nil {
+			return fmt.Errorf("auth: revoke deleted user sessions: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`UPDATE api_keys SET revoked_at = now()
+			 WHERE tenant_id = $1 AND created_by = $2 AND revoked_at IS NULL`,
+			tenantID, userID); err != nil {
+			return fmt.Errorf("auth: revoke deleted user api keys: %w", err)
+		}
+		return nil
+	})
+}
+
+// TransferProjects переводит все проекты с одного сотрудника на другого.
+//
+// Два места, и оба обязательны: projects.owner_id — денормализация, а
+// project_members хранит настоящего владельца (уникальный индекс
+// project_members_one_owner — на проект ровно один owner). Обновить только
+// owner_id нельзя: проект остался бы без человека в списке участников.
+// И наоборот.
+//
+// Порядок важен: сначала убираем старую строку владельца (иначе уникальный
+// индекс споткнётся), потом ставим новую, а если получатель уже был участником
+// под другой ролью — заменяем его строку (иначе конфликт первичного ключа
+// (project_id, user_id)).
+func (r *AuthRepository) TransferProjects(ctx context.Context, fromUserID, toUserID string) (int, error) {
+	if fromUserID == "" || toUserID == "" || fromUserID == toUserID {
+		return 0, nil
+	}
+	var moved int
+	err := WithTx(ctx, r.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT id FROM projects WHERE owner_id = $1`, fromUserID)
+		if err != nil {
+			return fmt.Errorf("auth: collect owned projects: %w", err)
+		}
+		var ids []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return fmt.Errorf("auth: scan owned project: %w", err)
+			}
+			ids = append(ids, id)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("auth: collect owned projects: %w", err)
+		}
+		moved = len(ids)
+		if moved == 0 {
+			return nil
+		}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM project_members WHERE project_id = ANY($1) AND user_id = $2`, ids, fromUserID); err != nil {
+			return fmt.Errorf("auth: drop previous owner membership: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM project_members WHERE project_id = ANY($1) AND user_id = $2`, ids, toUserID); err != nil {
+			return fmt.Errorf("auth: drop recipient membership: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO project_members (project_id, user_id, role) SELECT id, $2, 'owner' FROM projects WHERE id = ANY($1)`,
+			ids, toUserID); err != nil {
+			return fmt.Errorf("auth: insert new owner membership: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE projects SET owner_id = $2, updated_at = now() WHERE id = ANY($1)`, ids, toUserID); err != nil {
+			return fmt.Errorf("auth: move project ownership: %w", err)
+		}
+		return nil
+	})
+	return moved, err
+}
+
+// CountOwners считает неудалённых владельцев tenant. Ноль оставить нельзя:
+// компания без владельца не может ни выдать права, ни завести нового
+// сотрудника — счётчик защищает ровно от этого.
+func (r *AuthRepository) CountOwners(ctx context.Context, tenantID string) (int, error) {
+	var n int
+	if err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM users WHERE tenant_id = $1 AND role = 'owner' AND deleted_at IS NULL`,
+		tenantID).Scan(&n); err != nil {
+		return 0, fmt.Errorf("auth: count owners: %w", err)
+	}
+	return n, nil
+}
+
+// UserDeletionStats считает, что произойдёт при удалении сотрудника.
+// Считается здесь, а не на клиенте: цифры должны быть теми же, что и
+// реальные транзакции, иначе предупреждение «у него 3 проекта» врёт.
+func (r *AuthRepository) UserDeletionStats(ctx context.Context, userID string) (auth.UserDeletionStats, error) {
+	var st auth.UserDeletionStats
+	err := r.pool.QueryRow(ctx,
+		`SELECT
+		   (SELECT count(*) FROM projects WHERE owner_id = $1),
+		   (SELECT count(*) FROM calc_jobs WHERE user_id = $1),
+		   (SELECT count(*) FROM project_comments WHERE author_id = $1),
+		   (SELECT count(*) FROM orders WHERE user_id = $1),
+		   (SELECT count(*) FROM project_members WHERE user_id = $1 AND role <> 'owner')`,
+		userID).Scan(&st.Projects, &st.Calculations, &st.Comments, &st.Orders, &st.ProjectRoles)
+	if err != nil {
+		return auth.UserDeletionStats{}, fmt.Errorf("auth: user deletion stats: %w", err)
+	}
+	return st, nil
 }
 
 // RevokeApiKeysByUser отзывает все неотозванные API-ключи пользователя.

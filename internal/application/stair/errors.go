@@ -100,14 +100,6 @@ func configInputError(err error) *solver.InputError {
 			Guide:   "Максимальная высота подъёма — 6000 мм (ограничение стандартных листов). Уменьшите высоту до 6000 мм или менее.",
 			Fix:     "Уменьшите высоту подъёма до 6000 мм или менее",
 		}
-	case strings.Contains(msg, "supported maximum 5000"):
-		return &solver.InputError{
-			Code:    constraint.GEO_SPIRAL_RADIUS,
-			Field:   "Радиус спирали",
-			Message: "Радиус спирали превышает поддерживаемый максимум",
-			Guide:   "Максимальный наружный радиус спирали — 5000 мм (ограничение стандартных листов). Уменьшите радиус до 5000 мм или менее.",
-			Fix:     "Уменьшите радиус спирали до 5000 мм или менее",
-		}
 	case strings.Contains(msg, "width must be positive"):
 		return &solver.InputError{
 			Code: constraint.GEO_WIDTH, Field: "Ширина марша",
@@ -126,7 +118,7 @@ func configInputError(err error) *solver.InputError {
 		return &solver.InputError{
 			Code: constraint.GEO_HEIGHT, Field: "Тип лестницы",
 			Message: "Не выбран тип лестницы",
-			Guide:   "Выберите тип марша (прямой, L-образный, П-образный или спиральный).",
+			Guide:   "Выберите тип марша (прямой, L-образный или П-образный).",
 			Fix:     "Выберите тип марша",
 		}
 	// DOM-005 (2026-09-26): следующие доменные ошибки НЕ имели кейса и
@@ -138,7 +130,7 @@ func configInputError(err error) *solver.InputError {
 		return &solver.InputError{
 			Code: constraint.GEO_HEIGHT, Field: "Тип лестницы",
 			Message: "Неизвестный тип лестницы",
-			Guide:   "Допустимые типы марша: straight (прямой), l_shape (L-образный), u_shape (П-образный), spiral (спираль).",
+			Guide:   "Допустимые типы марша: straight (прямой), l_shape (Г-образный), u_shape (П-образный).",
 			Fix:     "Выберите тип марша из списка",
 		}
 	case strings.Contains(msg, "step count must be positive"):
@@ -260,13 +252,6 @@ func configInputError(err error) *solver.InputError {
 			Guide:   "Число ступеней нижнего марша должно быть неотрицательным.",
 			Fix:     "Задайте число ступеней нижнего марша",
 		}
-	case strings.Contains(msg, "outer radius must exceed the stair width"):
-		return &solver.InputError{
-			Code: constraint.GEO_SPIRAL_RADIUS, Field: "Радиус спирали",
-			Message: "Радиус спирали не превышает ширину марша",
-			Guide:   "Наружный радиус спирали должен быть больше ширины марша (радиус колонны должен оставаться положительным).",
-			Fix:     "Увеличьте радиус спирали",
-		}
 	case strings.Contains(msg, "landing width must be at least the flight width"):
 		return &solver.InputError{
 			Code: constraint.GEO_LANDING_WIDTH, Field: "Ширина площадки",
@@ -302,6 +287,13 @@ func configInputError(err error) *solver.InputError {
 		if reg, err := engmfg.DefaultMaterialRegistry(); err == nil {
 			if m, ok := reg.Find(dommfg.MaterialCode(mat)); ok {
 				minT, maxT = m.MinThickness, m.MaxThickness
+				// У ступени своя нижняя граница: у дуба 40 мм под скругление
+				// R10, тогда как косоур той же породы остаётся от 20 мм.
+				// Подсказка в ошибке обязана называть ПРАВИЛЬНЫЙ предел,
+				// иначе пользователь «чинит» конфигурацию до неверного числа.
+				if materialPartFromError(msg) == "ступени" {
+					minT = m.MinTreadThickness()
+				}
 			}
 		}
 		return &solver.InputError{
@@ -358,13 +350,6 @@ func configInputError(err error) *solver.InputError {
 			Message: "Неверное направление поворота площадки",
 			Guide:   "Поворот площадки задаётся влево или вправо относительно хода подъёма.",
 			Fix:     "Выберите направление поворота",
-		}
-	case strings.Contains(msg, "invalid spiral direction"):
-		return &solver.InputError{
-			Code: constraint.GEO_SPIRAL_RADIUS, Field: "Направление спирали",
-			Message: "Неверное направление закрутки спирали",
-			Guide:   "Направление спирали: по часовой (cw) или против часовой (ccw) стрелки при виде сверху.",
-			Fix:     "Выберите направление спирали",
 		}
 	default:
 		// API-001 (forensic 2026-09-24): любая ошибка engineering.Validate(),

@@ -17,7 +17,6 @@ type publicQuoteDTO struct {
 	Flight      flightDTO         `json:"flight"`
 	LShape      *lshapeDTO        `json:"lshape,omitempty"`
 	UShape      *ushapeDTO        `json:"ushape,omitempty"`
-	Spiral      *spiralDTO        `json:"spiral,omitempty"`
 	Geometry    geometryDTO       `json:"geometry"`
 	Pricing     *publicPricingDTO `json:"pricing,omitempty"`
 	Mesh        *kerngeo.Mesh     `json:"mesh,omitempty"`
@@ -52,10 +51,6 @@ func handlePublicQuote(svc StairService, storeSvc StoreService, authSvc AuthServ
 		// ставки из тела — аутентифицированный клиент обнулял цену. Теперь
 		// отказ единый для всех маршрутов (rejectClientRates).
 		if rejectClientRates(w, req) {
-			return
-		}
-
-		if rejectDisabledFlight(w, req.Flight) {
 			return
 		}
 
@@ -103,15 +98,11 @@ func toPublicQuote(res *stair.Result, cfg stair.Config) publicQuoteDTO {
 	out.Flight = f
 	out.LShape = toLShape(res.LShape, e)
 	out.UShape = toUShape(res.UShape, e)
-	out.Spiral = toSpiral(res.Spiral, e)
 	if out.LShape != nil {
 		out.LShape.WidthMm = w
 	}
 	if out.UShape != nil {
 		out.UShape.WidthMm = w
-	}
-	if out.Spiral != nil {
-		out.Spiral.WidthMm = w
 	}
 	out.Geometry = toGeometry(*res)
 	// Только валюта и итог: маржа/накладные/себестоимость — не для

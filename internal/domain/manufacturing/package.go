@@ -11,6 +11,17 @@ type ManufacturingPackage struct {
 	BOM     BOM
 	CutList CutList
 	Nesting *NestingResult
+	// Fasteners — потребность в крепеже (MNT-0001): что и сколько штук
+	// ввернуть. Считается по отверстиям пяток и по доп. крепежу объекта.
+	//
+	// Это физическая величина (штуки), а не стоимость: цены живут в ставках
+	// расчёта, как и цены материалов за кг.
+	Fasteners []FastenerDemand
+	// Sealant — потребность в герметике (CONF-SEALANT): площадь швов,
+	// толщина слоя, объём и картриджи. nil, если герметик не считался.
+	Sealant *SealantDemand
+	// SealantZones — площади швов по зонам для детализации сметы.
+	SealantZones SealantZones
 }
 
 // Validate проверяет инварианты Manufacturing (BC-007): наличие деталей,

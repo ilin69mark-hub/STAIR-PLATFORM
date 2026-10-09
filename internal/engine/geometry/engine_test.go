@@ -202,7 +202,6 @@ func TestGenerateApproachShiftAllKinds(t *testing.T) {
 	}{
 		{"l_shape", makeLShapeConfigForTest},
 		{"u_shape", makeUShapeConfigForTest},
-		{"spiral", makeSpiralConfigForTest},
 	}
 	const a1, a2 = 500.0, 1500.0
 	delta := a2 - a1
@@ -255,13 +254,5 @@ func makeUShapeConfigForTest(t *testing.T) *engineering.StairConfiguration {
 	c.Flight = engineering.FlightUShape
 	c.LowerStepCount = 7
 	c.LandingWidth = mustLength(t, 1000)
-	return c
-}
-
-func makeSpiralConfigForTest(t *testing.T) *engineering.StairConfiguration {
-	c := testConfig(t)
-	c.Flight = engineering.FlightSpiral
-	// Наружный радиус должен превышать ширину марша (радиус колонны = R − W > 0).
-	c.OuterRadius = mustLength(t, 1300)
 	return c
 }

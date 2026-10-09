@@ -167,7 +167,7 @@ describe('ProjectDetail', () => {
     expect(screen.queryByLabelText(/Наружный радиус R/)).not.toBeInTheDocument()
   })
 
-  it('спиральный марш скрыт из выбора типов (S-152)', async () => {
+  it('в выборе типов ровно три марша', async () => {
     vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
     renderDetail()
     await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
@@ -176,12 +176,9 @@ describe('ProjectDetail', () => {
       screen.getByLabelText('Тип марша').querySelectorAll('option'),
     ).map((o) => (o as HTMLOptionElement).value)
     expect(options).toEqual(['straight', 'l_shape', 'u_shape'])
-    expect(options).not.toContain('spiral')
-    // Поля площадки (спиральные) в форме тоже нет.
-    expect(screen.queryByLabelText(/Наружный радиус R/)).not.toBeInTheDocument()
   })
 
-  it('проект, сохранённый со спиралью, открывается без падения', async () => {
+  it('проект открывается без падения: поля прямого марша на месте', async () => {
     vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
     renderDetail()
     await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
@@ -189,7 +186,7 @@ describe('ProjectDetail', () => {
     expect(screen.getByLabelText(/Ширина марша/)).toBeInTheDocument()
   })
 
-  it('прямой марш скрывает радиус и поля площадки', async () => {
+  it('прямой марш скрывает поля площадки', async () => {
     vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
     renderDetail()
     await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
@@ -202,10 +199,9 @@ describe('ProjectDetail', () => {
 // ---- Живая валидация при вводе в редакторе проекта (S-P5) ----
 // PascalCase — клиентский transport преобразует ответы API в формате
 // ValidationResult (snake_case на проводе → CamelCase в DTO).
-// Спиральный марш отключён (S-152), поэтому блокирующий сценарий живой
-// валидации проверяем на прямом марше: проступь вне нормы + готовое
+// Блокирующий сценарий живой валидации: проступь вне нормы + готовое
 // предложение «Применить».
-const liveBlockedSpiral = {
+const liveBlockedTread = {
   Valid: false,
   Blocking: true,
   Issues: [
@@ -222,8 +218,6 @@ const liveBlockedSpiral = {
           StepHeightMm: 150,
           TreadDepthMm: 290,
           AngleDeg: 31.3,
-          OuterRadiusMm: 1050,
-          WidthMm: 900,
         },
       ],
     },
@@ -233,7 +227,7 @@ const liveBlockedSpiral = {
 describe('ProjectDetail · живая валидация (S-P5)', () => {
   it('вызывает :validate при изменении полей, показывает баннер и «Применить» пересчитывает', async () => {
     vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
-    const validate = vi.spyOn(projectsApi, 'validateStair').mockResolvedValue(liveBlockedSpiral)
+    const validate = vi.spyOn(projectsApi, 'validateStair').mockResolvedValue(liveBlockedTread)
     const calculate = vi.spyOn(projectsApi, 'calculate').mockResolvedValue(makeCalculation())
     renderDetail()
 

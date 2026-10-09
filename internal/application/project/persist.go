@@ -24,7 +24,6 @@ type Snapshot struct {
 	Flight     solver.FlightResult  `json:"flight"`
 	LShape     *solver.LShapeResult `json:"lshape,omitempty"`
 	UShape     *solver.UShapeResult `json:"ushape,omitempty"`
-	Spiral     *solver.SpiralResult `json:"spiral,omitempty"`
 	// Производственные параметры конфигурации (эхо, BC-002): толщина
 	// проступи, высота перил, наличие подступенков — для 2D-рендера.
 	StepThickness float64 `json:"step_thickness"`
@@ -35,8 +34,12 @@ type Snapshot struct {
 	Width             float64 `json:"width"`
 	Riser             bool    `json:"riser"`
 	StringerThickness float64 `json:"stringer_thickness"`
-	// Стороны перил (CONF-RAILING) — для 2D-рендера: прямой/спираль —
-	// Railing, L/П — по сегментам (RailingLower/Landing/Upper).
+	// StringerSpine — ширина спинки косоура-гребёнки по нормали к линии
+	// посадок (CombFrame.StringerSpine, 300 мм). 2D-профиль гребёнки рисуется
+	// этой глубиной; без поля схема показывала вместо неё толщину листа.
+	StringerSpine float64 `json:"stringer_spine"`
+	// Стороны перил (CONF-RAILING) — для 2D-рендера: прямой — Railing,
+	// L/П — по сегментам (RailingLower/Landing/Upper).
 	Railing        string                           `json:"railing,omitempty"`
 	RailingLower   string                           `json:"railing_lower,omitempty"`
 	RailingLanding string                           `json:"railing_landing,omitempty"`
@@ -59,12 +62,12 @@ func NewSnapshot(projectID string, res *stair.Result) Snapshot {
 		Flight:            res.Flight,
 		LShape:            res.LShape,
 		UShape:            res.UShape,
-		Spiral:            res.Spiral,
 		StepThickness:     res.StepThickness.Millimeters(),
 		RailingHeight:     res.RailingHeight.Millimeters(),
 		Width:             res.Width.Millimeters(),
 		Riser:             res.Riser,
 		StringerThickness: res.StringerThickness.Millimeters(),
+		StringerSpine:     res.StringerSpine.Millimeters(),
 		Railing:           string(res.Railing),
 		RailingLower:      string(res.RailingLower),
 		RailingLanding:    string(res.RailingLanding),
@@ -100,7 +103,6 @@ func toConfigEntity(projectID string, cfg stair.Config, opts stair.Options) *Sta
 		RoomLengthMM:        cfg.RoomLength.Millimeters(),
 		ApproachSpaceMM:     cfg.ApproachSpace.Millimeters(),
 		LowerStepCount:      cfg.LowerStepCount,
-		OuterRadiusMM:       cfg.OuterRadius.Millimeters(),
 		// DOM-003: девять параметров, которые раньше терялись при сохранении.
 		TurnKind:          string(cfg.TurnKind),
 		WinderCount:       cfg.WinderCount,
@@ -109,10 +111,12 @@ func toConfigEntity(projectID string, cfg stair.Config, opts stair.Options) *Sta
 		RailingLanding:    string(cfg.RailingLanding),
 		RailingUpper:      string(cfg.RailingUpper),
 		Direction:         string(cfg.Direction),
-		SpiralDirection:   string(cfg.SpiralDir),
 		MaterialCode:      string(cfg.Material),
 		TreadMaterialCode: string(cfg.TreadMaterial),
 		RiserThicknessMM:  cfg.RiserThickness.Millimeters(),
+		FloorFixing:       string(cfg.FloorFixing),
+		CeilingFixing:     string(cfg.CeilingFixing),
+		ExtraFasteners:    append([]string(nil), cfg.ExtraFasteners...),
 	}
 }
 
@@ -175,10 +179,6 @@ func fromConfigEntity(e *StairConfiguration) (stair.Config, stair.Options, error
 	if err != nil {
 		return stair.Config{}, stair.Options{}, err
 	}
-	outer, err := mk(e.OuterRadiusMM)
-	if err != nil {
-		return stair.Config{}, stair.Options{}, err
-	}
 	cfg := stair.Config{
 		Width:             width,
 		Height:            height,
@@ -195,21 +195,24 @@ func fromConfigEntity(e *StairConfiguration) (stair.Config, stair.Options, error
 		RoomLength:        roomLength,
 		ApproachSpace:     approach,
 		LowerStepCount:    e.LowerStepCount,
-		OuterRadius:       outer,
 		// DOM-003: восстановление девяти параметров. Раньше они не
 		// восстанавливались, из-за чего CAD-экспорт отдавал другую
 		// конструкцию, чем рассчитал пользователь.
-		TurnKind:       engineering.TurnKind(e.TurnKind),
-		WinderCount:    e.WinderCount,
-		Railing:        engineering.RailingSide(e.Railing),
-		RailingLower:   engineering.RailingSide(e.RailingLower),
-		RailingLanding: engineering.RailingSide(e.RailingLanding),
-		RailingUpper:   engineering.RailingSide(e.RailingUpper),
-		Direction:      engineering.TurnDirection(e.Direction),
-		SpiralDir:      engineering.SpiralDirection(e.SpiralDirection),
-		Material:       dommfg.MaterialCode(e.MaterialCode),
-		TreadMaterial:  dommfg.MaterialCode(e.TreadMaterialCode),
-		RiserThickness: engineering.Length(e.RiserThicknessMM),
+		TurnKind:               engineering.TurnKind(e.TurnKind),
+		WinderCount:            e.WinderCount,
+		Railing:                engineering.RailingSide(e.Railing),
+		RailingLower:           engineering.RailingSide(e.RailingLower),
+		RailingLanding:         engineering.RailingSide(e.RailingLanding),
+		RailingUpper:           engineering.RailingSide(e.RailingUpper),
+		Direction:              engineering.TurnDirection(e.Direction),
+		Material:               dommfg.MaterialCode(e.MaterialCode),
+		TreadMaterial:          dommfg.MaterialCode(e.TreadMaterialCode),
+		RiserThickness:         engineering.Length(e.RiserThicknessMM),
+		FloorFixing:            engineering.FixingBase(e.FloorFixing),
+		CeilingFixing:          engineering.FixingBase(e.CeilingFixing),
+		ExtraFasteners:         append([]string(nil), e.ExtraFasteners...),
+		SealantLayerMM:         e.SealantLayerMM,
+		ExtraSealantCartridges: e.ExtraSealantCartridges,
 	}
 	return cfg, stair.Options{ComfortStep: e.ComfortStepMM}, nil
 }

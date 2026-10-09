@@ -38,7 +38,7 @@ func toPolicyDTO(p auth.Policy) policyDTO {
 // 200 — политика безопасности tenant; 403 — нет права settings.read.
 func handleGetSettings(svc AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionSettingsRead) {
+		if !hasCapability(r, auth.CapSecurityPolicy, auth.LevelRead) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
@@ -58,7 +58,7 @@ func handleGetSettings(svc AuthService) http.HandlerFunc {
 // 422 — невалидные значения.
 func handleUpdateSettings(svc AuthService, auditSvc AuditService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionSettingsWrite) {
+		if !hasCapability(r, auth.CapSecurityPolicy, auth.LevelWrite) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
@@ -102,7 +102,7 @@ func handleUpdateSettings(svc AuthService, auditSvc AuditService) http.HandlerFu
 // 403 — нет права data.export; 422 — невалидные scope/format.
 func handleExport(svc AuthService, projects ProjectService, audits AuditService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionDataExport) {
+		if !hasCapability(r, auth.CapDataExport, auth.LevelAction) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
@@ -227,10 +227,10 @@ type createApiKeyResponse struct {
 }
 
 // handleListApiKeys — GET /api/v1/admin/api-keys (auth+admin).
-// 200 — список ключей tenant; 403 — нет права api_keys.manage.
+// 200 — список ключей tenant; 403 — нет права видеть ключи.
 func handleListApiKeys(svc AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionApiKeysManage) {
+		if !hasCapability(r, auth.CapSecurityKeys, auth.LevelRead) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
@@ -254,7 +254,7 @@ func handleListApiKeys(svc AuthService) http.HandlerFunc {
 // 403 — нет права api_keys.manage; 422 — пустое имя/невалидный scope.
 func handleCreateApiKey(svc AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionApiKeysManage) {
+		if !hasCapability(r, auth.CapSecurityKeysIssue, auth.LevelAction) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
@@ -267,10 +267,13 @@ func handleCreateApiKey(svc AuthService) http.HandlerFunc {
 			writeError(w, http.StatusUnprocessableEntity, "invalid_input", "Укажите имя")
 			return
 		}
+		// Скоупы ключа — имена метрик (EDR-0041), а не старые Permission:
+		// один справочник вместо двух, иначе «выдать ключу finance.sales»
+		// и «показать сотруднику Заказы» проверялись бы разными списками.
 		var scopes []auth.Permission
 		for _, s := range req.Scopes {
 			p := auth.Permission(strings.TrimSpace(s))
-			if p == "" || !p.IsKnown() {
+			if p == "" || !auth.IsKnownCapability(string(p)) {
 				writeError(w, http.StatusUnprocessableEntity, "invalid_scope",
 					fmt.Sprintf("Неизвестный scope %q", s))
 				return
@@ -293,7 +296,7 @@ func handleCreateApiKey(svc AuthService) http.HandlerFunc {
 // 200 — ключ отозван; 403 — нет права api_keys.manage; 404 — ключ вне tenant.
 func handleRevokeApiKey(svc AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionApiKeysManage) {
+		if !hasCapability(r, auth.CapSecurityKeysIssue, auth.LevelAction) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}

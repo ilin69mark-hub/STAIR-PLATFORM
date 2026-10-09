@@ -293,7 +293,7 @@ func toCostReportDTO(rep *analytics.CostReport) costReportDTO {
 // 422 — невалидные from/to/granularity; 500 — внутренняя ошибка.
 func handleUsageAnalytics(svc AnalyticsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionAnalyticsRead) {
+		if !hasCapability(r, auth.CapTrafficUsage, auth.LevelRead) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
@@ -336,7 +336,7 @@ func handleUsageAnalytics(svc AnalyticsService) http.HandlerFunc {
 // 422 — невалидный диапазон; 500 — внутренняя ошибка.
 func handleProjectsAnalytics(svc AnalyticsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionAnalyticsRead) {
+		if !hasCapability(r, auth.CapProjectReport, auth.LevelRead) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
@@ -371,7 +371,7 @@ func handleProjectsAnalytics(svc AnalyticsService) http.HandlerFunc {
 // analytics.read; 422 — невалидные from/to/granularity; 500 — ошибка.
 func handleManufacturingAnalytics(svc AnalyticsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionAnalyticsRead) {
+		if !hasCapability(r, auth.CapProductionReport, auth.LevelRead) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}
@@ -414,7 +414,7 @@ func handleManufacturingAnalytics(svc AnalyticsService) http.HandlerFunc {
 // 422 — невалидные from/to/granularity; 500 — ошибка.
 func handleCostAnalytics(svc AnalyticsService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionAnalyticsRead) {
+		if !hasCapability(r, auth.CapFinanceCost, auth.LevelRead) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуются права администратора")
 			return
 		}

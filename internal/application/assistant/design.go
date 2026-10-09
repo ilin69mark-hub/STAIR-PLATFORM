@@ -81,7 +81,6 @@ var flightOrders = []engineering.FlightType{
 	engineering.FlightStraight,
 	engineering.FlightLShape,
 	engineering.FlightUShape,
-	engineering.FlightSpiral,
 }
 
 // flightTitle — русское название типа марша.
@@ -93,8 +92,6 @@ func flightTitle(f engineering.FlightType) string {
 		return "L-образный марш (с площадкой)"
 	case engineering.FlightUShape:
 		return "П-образный марш (с двумя маршами и площадкой)"
-	case engineering.FlightSpiral:
-		return "спиральный марш (винтовой)"
 	default:
 		return "прямой марш"
 	}
@@ -134,13 +131,6 @@ func (designExpert) analyze(ctx context.Context, tools *Tools, req Request) (*Re
 		}
 		cfg := d.Config
 		cfg.Flight = f
-		// Спираль требует R > W; если пользователь не задал радиус —
-		// подставляем пробный R = 2·W (детерминированная эвристика).
-		if f == engineering.FlightSpiral && cfg.OuterRadius.Millimeters() <= cfg.Width.Millimeters() {
-			cfg.OuterRadius = engineering.Length(2 * cfg.Width.Millimeters())
-			notes = append(notes, fmt.Sprintf(
-				"спираль: наружный радиус R не задан, принят R=2·W=%g мм", cfg.OuterRadius.Millimeters()))
-		}
 
 		opt, err := tools.Optimize(ctx, cfg, stair.Options{}, stair.OptimizeRequest{Target: prio.target()})
 		if err != nil {
@@ -210,8 +200,6 @@ func comfortStepOf(res *stair.Result) float64 {
 		return 0
 	}
 	switch {
-	case res.Spiral != nil:
-		return res.Spiral.ComfortStep
 	case res.LShape != nil:
 		return 2*res.LShape.StepHeight.Millimeters() + res.LShape.TreadDepth.Millimeters()
 	case res.UShape != nil:
@@ -305,8 +293,6 @@ func clamp01(v float64) float64 {
 
 func stepCountOf(res *stair.Result) int {
 	switch {
-	case res.Spiral != nil:
-		return res.Spiral.StepCount
 	case res.LShape != nil:
 		return res.LShape.StepCount
 	case res.UShape != nil:
@@ -318,8 +304,6 @@ func stepCountOf(res *stair.Result) int {
 
 func stepHeightOf(res *stair.Result) engineering.Length {
 	switch {
-	case res.Spiral != nil:
-		return res.Spiral.StepHeight
 	case res.LShape != nil:
 		return res.LShape.StepHeight
 	case res.UShape != nil:
@@ -331,8 +315,6 @@ func stepHeightOf(res *stair.Result) engineering.Length {
 
 func treadOf(res *stair.Result) engineering.Length {
 	switch {
-	case res.Spiral != nil:
-		return res.Spiral.WalkTread
 	case res.LShape != nil:
 		return res.LShape.TreadDepth
 	case res.UShape != nil:

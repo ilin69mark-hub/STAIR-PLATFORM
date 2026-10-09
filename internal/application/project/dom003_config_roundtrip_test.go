@@ -14,7 +14,7 @@ import (
 //
 // stair.Config содержит 28 полей, аStairConfiguration раньше содержал 19.
 // Девять параметров (turn_kind, winder_count, railing, railing_lower,
-// railing_landing, railing_upper, direction, spiral_direction, material_code)
+// railing_landing, railing_upper, direction, material_code)
 // молча терялись при сохранении ревизии, при restore и при экспорте CAD:
 // экспорт пересобирал конфигурацию из усечённой ревизии и возвращал другую
 // лестницу, чем рассчитал пользователь.
@@ -28,7 +28,6 @@ func TestDOM003_ConfigRoundTripPreservesNineParams(t *testing.T) {
 	cfg.RailingLanding = engineering.RailingNone
 	cfg.RailingUpper = engineering.RailingRight
 	cfg.Direction = engineering.TurnRight
-	cfg.SpiralDir = engineering.SpiralCCW
 	cfg.Material = dommfg.MaterialCode("STEEL-S235")
 
 	e := toConfigEntity("p-1", cfg, stair.Options{ComfortStep: 630})
@@ -46,9 +45,6 @@ func TestDOM003_ConfigRoundTripPreservesNineParams(t *testing.T) {
 	}
 	if e.Direction != "right" {
 		t.Errorf("Direction: got %q, want %q", e.Direction, "right")
-	}
-	if e.SpiralDirection != "ccw" {
-		t.Errorf("SpiralDirection: got %q, want %q", e.SpiralDirection, "ccw")
 	}
 	if e.MaterialCode == "" {
 		t.Error("MaterialCode must not be empty after round trip")
@@ -71,41 +67,11 @@ func TestDOM003_ConfigRoundTripPreservesNineParams(t *testing.T) {
 	if got.Direction != cfg.Direction {
 		t.Errorf("Direction: got %q, want %q", got.Direction, cfg.Direction)
 	}
-	if got.SpiralDir != cfg.SpiralDir {
-		t.Errorf("SpiralDir: got %q, want %q", got.SpiralDir, cfg.SpiralDir)
-	}
 	if got.Material != cfg.Material {
 		t.Errorf("Material: got %q, want %q", got.Material, cfg.Material)
 	}
 	if opts.ComfortStep != 630 {
 		t.Errorf("ComfortStep: got %v, want 630", opts.ComfortStep)
-	}
-}
-
-// TestDOM003_SpiralDirectionSurvivesRestore — регрессия DOM-003.
-//
-// SpiralDirection("") по DefaultRailing() даёт RailingLeft, то есть у КАЖДОЙ
-// сохранённой спирали перила оказывались с левой стороны независимо от заданных.
-// Восстановление ревизии обязано возвращать закрутку пользователя.
-func TestDOM003_SpiralDirectionSurvivesRestore(t *testing.T) {
-	cfg := testConfig()
-	cfg.Flight = engineering.FlightSpiral
-	cfg.Railing = engineering.RailingNone
-	cfg.SpiralDir = engineering.SpiralCW
-
-	e := toConfigEntity("p-1", cfg, stair.Options{})
-	if e.SpiralDirection != "cw" {
-		t.Fatalf("SpiralDirection not persisted: %q", e.SpiralDirection)
-	}
-	got, _, err := fromConfigEntity(e)
-	if err != nil {
-		t.Fatalf("fromConfigEntity: %v", err)
-	}
-	if got.SpiralDir != engineering.SpiralCW {
-		t.Fatalf("spiral direction lost on restore: got %q, want cw", got.SpiralDir)
-	}
-	if got.SpiralDir.DefaultRailing() != engineering.RailingRight {
-		t.Errorf("DefaultRailing after restore: got %q, want right for cw spiral", got.SpiralDir.DefaultRailing())
 	}
 }
 
@@ -121,19 +87,17 @@ func TestDOM003_EmptyOptionalFieldsRoundTripAsUnset(t *testing.T) {
 	cfg.RailingLanding = ""
 	cfg.RailingUpper = ""
 	cfg.Direction = ""
-	cfg.SpiralDir = ""
 	cfg.Material = ""
 
 	e := toConfigEntity("p-1", cfg, stair.Options{})
-	if e.TurnKind != "" || e.Railing != "" || e.Direction != "" ||
-		e.SpiralDirection != "" || e.MaterialCode != "" {
+	if e.TurnKind != "" || e.Railing != "" || e.Direction != "" || e.MaterialCode != "" {
 		t.Fatalf("empty values must be stored as empty (written as NULL), got %+v", e)
 	}
 	got, _, err := fromConfigEntity(e)
 	if err != nil {
 		t.Fatalf("fromConfigEntity must accept NULL/empty optional fields: %v", err)
 	}
-	if got.TurnKind != "" || got.Direction != "" || got.SpiralDir != "" {
+	if got.TurnKind != "" || got.Direction != "" {
 		t.Errorf("unset fields must stay unset, got %+v", got)
 	}
 }
@@ -236,14 +200,12 @@ func fullyPopulatedConfig() stair.Config {
 		LowerStepCount:    7,
 		TurnKind:          engineering.TurnWinder,
 		WinderCount:       3,
-		OuterRadius:       engineering.Length(900),
 		Material:          dommfg.MaterialCode("STEEL-S235"),
 		Railing:           engineering.RailingBoth,
 		RailingLower:      engineering.RailingLeft,
 		RailingLanding:    engineering.RailingRight,
 		RailingUpper:      engineering.RailingNone,
 		Direction:         engineering.TurnLeft,
-		SpiralDir:         engineering.SpiralCCW,
 	}
 }
 

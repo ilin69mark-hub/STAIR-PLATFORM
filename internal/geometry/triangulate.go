@@ -38,21 +38,38 @@ func Triangulate(points []Point3) ([][3]int, error) {
 			idx[l], idx[r] = idx[r], idx[l]
 		}
 	}
+	return earClip(pts, idx, rev, len(pts))
+}
 
+// earClip — собственно алгоритм отрезания ушей по подготовленному CCW-
+// контуру pts. idx переводит позицию в контуре в индекс во входном срезе
+// points; rev восстанавливает исходную ориентацию треугольников.
+func earClip(pts [][2]float64, idx []int, rev bool, count int) ([][3]int, error) {
+	n := count
 	prev := make([]int, n)
 	next := make([]int, n)
 	for i := 0; i < n; i++ {
 		prev[i] = (i + n - 1) % n
 		next[i] = (i + 1) % n
 	}
+	return earClipLoop(pts, idx, rev, n, prev, next)
+}
 
+// earClipLoop — тело отрезания ушей: работает по двусвязному списку вершин
+// prev/next, который может быть расширен «мостиками» (см. TriangulateWithHoles).
+func earClipLoop(pts [][2]float64, idx []int, rev bool, n int, prev, next []int) ([][3]int, error) {
+	return earClipLoopBody(pts, idx, rev, n, prev, next)
+}
+
+// earClipLoopBody — тело отрезания ушей по двусвязному списку вершин.
+func earClipLoopBody(pts [][2]float64, idx []int, rev bool, n int, prev, next []int) ([][3]int, error) {
 	// Reflex-список (B2, EDR-0033): для CCW-контура вершина рефлексная,
 	// если поворот в ней не левый. Теорема: если ухо (a,b,c) содержит
 	// вершину, то содержит reflex-вершину — поэтому isEar проверяет только
 	// reflex-вершины вместо всех (O(n²) вместо O(n³) в худшем случае).
 	// После среза уха reflex-статус меняется только у двух соседей.
-	removed := make([]bool, n)
-	reflex := make([]bool, n)
+	removed := make([]bool, len(pts))
+	reflex := make([]bool, len(pts))
 	for i := 0; i < n; i++ {
 		reflex[i] = isReflexVertex(pts, prev[i], i, next[i])
 	}
@@ -68,7 +85,11 @@ func Triangulate(points []Point3) ([][3]int, error) {
 			return nil, fmt.Errorf("geometry: polygon is not simple")
 		}
 		a, b, c := prev[i], i, next[i]
-		if isEar(pts, removed, reflex, a, b, c) {
+		if !isEar(pts, removed, reflex, a, b, c) {
+			i = next[i]
+			continue
+		}
+		{
 			tris = append(tris, [3]int{idx[a], idx[b], idx[c]})
 			removed[b] = true
 			next[a] = c
@@ -78,9 +99,7 @@ func Triangulate(points []Point3) ([][3]int, error) {
 			reflex[c] = isReflexVertex(pts, prev[c], c, next[c])
 			remaining--
 			i = a
-			continue
 		}
-		i = next[i]
 	}
 	tris = append(tris, [3]int{idx[prev[i]], idx[i], idx[next[i]]})
 	// Восстанавливаем исходную ориентацию: алгоритм всегда выдаёт

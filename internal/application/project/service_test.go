@@ -23,6 +23,7 @@ type fakeRepo struct {
 	comments     map[string][]*Comment               // ключ: projectID → []*Comment
 	reviews      map[string][]*ProjectReview         // ключ: projectID → []*ProjectReview
 	approvals    map[string][]*ConfigurationApproval // ключ: projectID → []*ConfigurationApproval
+	ownerOf      map[string]string                   // projectID → userID текущего владельца
 	next         int
 	err          error
 }
@@ -30,6 +31,7 @@ type fakeRepo struct {
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{
 		projects:     map[string]*Project{},
+		ownerOf:      map[string]string{},
 		members:      map[string]map[string]*ProjectMember{},
 		usersByEmail: map[string]string{"editor@test.dev": "u-editor", "viewer@test.dev": "u-viewer"},
 		configs:      map[string][]*StairConfiguration{},
@@ -185,6 +187,39 @@ func (f *fakeRepo) RemoveMember(ctx context.Context, tenantID, projectID, userID
 		return fmt.Errorf("%v", ErrNotFound)
 	}
 	delete(f.members[projectID], userID)
+	return nil
+}
+
+// TransferOwnership повторяет порядок реальной транзакции: прежний владелец
+// → редактор, новый → владелец. Порядок важен (уникальный индекс на owner),
+// и фейк должен ловить попытку сделать наоборот.
+func (f *fakeRepo) TransferOwnership(ctx context.Context, tenantID, projectID, toUserID string) error {
+	// Проекты в фейке лежат под ключом tenantID/projectID.
+	projectKey := tenantID + "/" + projectID
+	if _, ok := f.projects[projectKey]; !ok {
+		return ErrNotFound
+	}
+	target, ok := f.memberLookup(tenantID, projectID, toUserID)
+	if !ok {
+		return fmt.Errorf("%w", ErrNotFound)
+	}
+	if target.Role == RoleOwner {
+		return ErrConflict
+	}
+	demoted := false
+	for userID, m := range f.members[projectID] {
+		if m.Role == RoleOwner {
+			m.Role = RoleEditor
+			f.members[projectID][userID] = m
+			demoted = true
+		}
+	}
+	if !demoted {
+		return ErrConflict
+	}
+	target.Role = RoleOwner
+	f.members[projectID][toUserID] = target
+	f.ownerOf[projectID] = toUserID
 	return nil
 }
 
@@ -442,6 +477,19 @@ func (f *fakeRepo) RestoreConfiguration(ctx context.Context, tenantID, projectID
 	}
 	p := f.projects[key(tenantID, projectID)]
 	p.CurrentConfigurationID = configurationID
+	return nil
+}
+
+func (f *fakeRepo) MarkConfigurationAsMeasurement(ctx context.Context, tenantID, projectID, configurationID string, mark bool) error {
+	for _, list := range f.configs {
+		for _, c := range list {
+			if c == nil || c.ID != configurationID || c.ProjectID != projectID {
+				continue
+			}
+			c.IsMeasurement = mark
+			return nil
+		}
+	}
 	return nil
 }
 

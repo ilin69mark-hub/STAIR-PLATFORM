@@ -23,7 +23,7 @@ const straight: QuoteResult = {
 }
 
 // zeroFlight — нулевое поле flight, которое API присылает всегда, даже для
-// L/U/спирали (их реальные данные лежат в lshape/ushape/spiral).
+// L/U (их реальные данные лежат в lshape/ushape).
 const zeroFlight: QuoteResult['flight'] = {
   step_count: 0,
   step_height_mm: 0,
@@ -62,7 +62,6 @@ describe('solverOf', () => {
     expect(s.flight?.StepCount).toBe(15)
     expect(s.kind).toBe('straight')
     expect(s.lowerStepCount).toBeUndefined()
-    expect(s.outerRadius).toBeUndefined()
   })
 
   it('прямой марш: approachSpace из явного ввода (approachMM) приоритетнее bbox', () => {
@@ -218,39 +217,6 @@ describe('solverOf', () => {
     expect(s.kind).toBe('u_shape')
     expect(s.flight?.StepCount).toBe(12)
     expect(s.flight?.Run).toBeCloseTo(8280)
-  })
-
-  it('спираль: объект с радиусом и комфортом', () => {
-    const q: QuoteResult = {
-      ...straight,
-      flight: zeroFlight,
-      spiral: {
-        step_count: 14,
-        step_height_mm: 192.86,
-        outer_radius_mm: 800,
-        column_radius_mm: 80,
-        walk_radius_mm: 440,
-        inner_tread_mm: 100,
-        walk_tread_mm: 300,
-        outer_tread_mm: 500,
-        angle_deg: 38.1,
-        angular_step_deg: 25.71,
-        arc_length_mm: 7037.2,
-        comfort_step_mm: 685,
-        angular_total_deg: 360,
-        width_mm: 900,
-        step_thickness_mm: 40,
-        railing_height_mm: 900,
-        riser: true,
-        stringer_thickness_mm: 50,
-      },
-    }
-    const s = solverOf(q)
-    expect(s.kind).toBe('spiral')
-    expect(s.outerRadius).toBe(800)
-    expect(s.comfortStep).toBe(685)
-    expect(s.angularTotal).toBe(360)
-    expect(s.flight?.StepCount).toBe(14)
   })
 
   it('пустой результат при отсутствии маршей', () => {

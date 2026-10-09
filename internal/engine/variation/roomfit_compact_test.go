@@ -10,9 +10,16 @@ import (
 	"stairplatform/internal/engine/validation"
 )
 
-// S-P6: обогащение вариантов ForRoomFit. ВАЖНО: на тесных помещениях
-// физически может помещаться только один тип (спираль) — движок обязан
-// предложить его варианты, а не вернуть «вариантов нет» без причины.
+// Обогащение вариантов ForRoomFit.
+//
+// Последствие удаления винтового марша (решение владельца 2026-10-06): на
+// тесных помещениях самым компактным типом остался П-образный, и помещения,
+// куда раньше влезала только спираль, теперь честно дают «вариантов нет».
+// Раньше эти тесты держались именно на спирали — она была единственным
+// ответом для комнат 1650×1100 и 2500×1800 мм.
+
+// fitTolMM — запас, при котором вариант помечается «впритык» (см.
+// tryGenerateMeta: summary с «впритык» появляется при tol > fitEps).
 
 // straightBase — типовая прямая лестница (H=2600, 15 ступеней) с уже
 // согласованными с солвером параметрами (как после checkedSolve): при
@@ -41,11 +48,14 @@ func straightBase() *engineering.StairConfiguration {
 // вариантов (ближайший к исходному И самый компактный), а не один.
 func TestRoomFit_UpToTwoPerType(t *testing.T) {
 	c := straightBase()
-	c.RoomWidth = 2500
-	c.RoomLength = 1600
+	c.RoomWidth = 4000
+	c.RoomLength = 1100
 	vars := ForRoomFit(context.Background(), c, constraint.StandardProfile("STANDARD"))
+	// Комната 4000×1100 влезает для П-образного марша (габарит 3526×1100) и
+	// не влезает ни для L, ни для прямого, поэтому предлагаются два варианта
+	// одного типа — ближайший и самый компактный.
 	if len(vars) != 2 {
-		t.Fatalf("expected 2 variants (nearest+compact spiral), got %d", len(vars))
+		t.Fatalf("expected 2 variants (nearest + compact), got %d", len(vars))
 	}
 	for i, v := range vars {
 		if !v.Fits {
@@ -57,41 +67,6 @@ func TestRoomFit_UpToTwoPerType(t *testing.T) {
 // TestRoomFit_SpiralBase_OffersCompactD — для исходной спирали, не
 // помещающейся в помещение, предлагается «D: спираль компактнее» (более
 // узкий марш и меньший радиус) — ранние версии возвращали «вариантов нет».
-func TestRoomFit_SpiralBase_OffersCompactD(t *testing.T) {
-	cfg := &engineering.StairConfiguration{
-		Width:             800,
-		Height:            2600,
-		Flight:            engineering.FlightSpiral,
-		Riser:             true,
-		StepCount:         15,
-		StepHeight:        185,
-		OuterRadius:       1400,
-		Length:            630,
-		StringerThickness: 40,
-		StepThickness:     6,
-		Clearance:         1900,
-		RailingHeight:     900,
-		ApproachSpace:     1000,
-		RoomWidth:         2000,
-		RoomLength:        1500,
-	}
-	vars := ForRoomFit(context.Background(), cfg, constraint.StandardProfile("STANDARD"))
-	if len(vars) == 0 {
-		t.Fatal("expected compact-spiral variants, got 0")
-	}
-	hasCompact := false
-	for _, v := range vars {
-		if strings.HasPrefix(v.Title, "D: спираль") {
-			hasCompact = true
-		}
-		if !v.Fits {
-			t.Fatalf("variant не вписывается: %s", v.Title)
-		}
-	}
-	if !hasCompact {
-		t.Fatalf("expected «D: спираль компактнее», got: %v", titlesOf(vars))
-	}
-}
 
 // TestRoomFit_NarrowerSameType — узкий марш того же типа предлагается для
 // слишком широкой исходной лестницы (длина влезает, ширины помещения мало).
@@ -119,8 +94,11 @@ func TestRoomFit_NarrowerSameType(t *testing.T) {
 // «впритык» (ранние версии возвращали пустой список).
 func TestRoomFit_NearFitFallback(t *testing.T) {
 	c := straightBase()
-	c.RoomWidth = 1650
-	c.RoomLength = 1100
+	// Комната 3240×850: лучший кандидат — П-образный марш габаритом
+	// 3276×600 мм, то есть шире комнаты на 36 мм. Это в пределах
+	// допустимого запаса, поэтому вариант предлагается с честной пометкой.
+	c.RoomWidth = 3240
+	c.RoomLength = 850
 	vars := ForRoomFit(context.Background(), c, constraint.StandardProfile("STANDARD"))
 	if len(vars) == 0 {
 		t.Fatal("expected near-fit fallback variant, got 0")
@@ -130,9 +108,10 @@ func TestRoomFit_NearFitFallback(t *testing.T) {
 	}
 }
 
-// TestRoomFit_LShapeTightRoom_AtLeastSpiral — в тесном помещении хотя бы
-// компактный вариант спирали предлагается (раньше — только один).
-func TestRoomFit_LShapeTightRoom_AtLeastSpiral(t *testing.T) {
+// TestRoomFit_LShapeTightRoom_AtLeastCompactUShape — в тесном помещении, где
+// сам L-марш не помещается, предлагается смена типа на более компактный
+// П-образный, а не сужение того же L («D:»).
+func TestRoomFit_LShapeTightRoom_AtLeastCompactUShape(t *testing.T) {
 	c := straightBase()
 	c.Flight = engineering.FlightLShape
 	c.Height = 2700
@@ -141,14 +120,30 @@ func TestRoomFit_LShapeTightRoom_AtLeastSpiral(t *testing.T) {
 	c.LowerStepCount = 8
 	c.LandingWidth = 1000
 	c.LandingDepth = 1000
-	c.RoomWidth = 2500
+	c.RoomWidth = 3400
 	c.RoomLength = 1800
 	vars := ForRoomFit(context.Background(), c, constraint.StandardProfile("STANDARD"))
 	if len(vars) == 0 {
-		t.Fatal("expected at least a spiral variant, got 0")
+		t.Fatal("expected at least one cross-type variant, got 0")
 	}
 	if strings.HasPrefix(vars[0].Title, "D:") {
-		t.Fatalf("expected cross-type spiral FIRST, got: %v", titlesOf(vars))
+		t.Fatalf("expected cross-type change FIRST, got: %v", titlesOf(vars))
+	}
+}
+
+// TestRoomFit_NoTypeFits_ReturnsNothing — комната 2500×1800 мм раньше
+// влезала только под спираль: винтовой марш диаметром ~2.6 м был самым
+// компактным из четырёх. После его удаления такого типа больше нет, и
+// движок честно возвращает пустой список, а не выдумывает невписывающийся
+// вариант. Тест фиксирует именно это следствие решения владельца.
+func TestRoomFit_NoTypeFits_ReturnsNothing(t *testing.T) {
+	c := straightBase()
+	c.RoomWidth = 2500
+	c.RoomLength = 1800
+	vars := ForRoomFit(context.Background(), c, constraint.StandardProfile("STANDARD"))
+	if len(vars) != 0 {
+		t.Fatalf("room that only the removed spiral could fit must yield no variants, got %d: %v",
+			len(vars), titlesOf(vars))
 	}
 }
 

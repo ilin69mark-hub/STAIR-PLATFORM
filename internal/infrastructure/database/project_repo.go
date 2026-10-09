@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -132,7 +133,18 @@ func (r *ProjectRepository) ListTenantProjects(ctx context.Context, tenantID str
 
 // ---- members (EDR-0008) ----
 
+// scanMember читает шесть колонок: без почты и имени (см. GetMember).
 func scanMember(row pgx.Row) (*project.ProjectMember, error) {
+	var m project.ProjectMember
+	if err := row.Scan(&m.ProjectID, &m.UserID, &m.Role, &m.CreatedAt, &m.Email, &m.Name); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// scanMemberBrief читает четыре колонки — одиночная проверка членства, где
+// имя и почта не нужны.
+func scanMemberBrief(row pgx.Row) (*project.ProjectMember, error) {
 	var m project.ProjectMember
 	if err := row.Scan(&m.ProjectID, &m.UserID, &m.Role, &m.CreatedAt); err != nil {
 		return nil, err
@@ -141,7 +153,7 @@ func scanMember(row pgx.Row) (*project.ProjectMember, error) {
 }
 
 func (r *ProjectRepository) GetMember(ctx context.Context, tenantID, projectID, userID string) (*project.ProjectMember, error) {
-	m, err := scanMember(r.pool.QueryRow(ctx,
+	m, err := scanMemberBrief(r.pool.QueryRow(ctx,
 		`SELECT pm.project_id, pm.user_id, pm.role, pm.created_at
 		 FROM project_members pm
 		 JOIN projects p ON p.id = pm.project_id
@@ -158,9 +170,14 @@ func (r *ProjectRepository) GetMember(ctx context.Context, tenantID, projectID, 
 
 func (r *ProjectRepository) ListMembers(ctx context.Context, tenantID, projectID string) ([]*project.ProjectMember, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT pm.project_id, pm.user_id, pm.role, pm.created_at
+		// Джойн с users — чтобы участник был человеком, а не UUID. Список
+		// отдаётся только после проверки членства (project.Service.ListMembers),
+		// поэтому чужие почты наружу не уходят.
+		`SELECT pm.project_id, pm.user_id, pm.role, pm.created_at,
+		        COALESCE(u.email, ''), COALESCE(u.name, '')
 		 FROM project_members pm
 		 JOIN projects p ON p.id = pm.project_id
+		 LEFT JOIN users u ON u.id = pm.user_id
 		 WHERE pm.project_id = $1 AND p.tenant_id = $2
 		 ORDER BY pm.created_at ASC`, projectID, tenantID)
 	if err != nil {
@@ -228,6 +245,65 @@ func (r *ProjectRepository) UpdateMemberRole(ctx context.Context, tenantID, proj
 	return nil
 }
 
+// TransferOwnership передаёт владение проектом другому участнику.
+//
+// Порядок операций задан индексом project_members_one_owner (на проект ровно
+// один owner): сначала прежний владелец понижается до редактора, и только
+// потом новый повышается до владельца. Обратный порядок нарушил бы уникальность.
+//
+// Прежний владелец не удаляется, а становится редактором: он работал с
+// проектом, и уход — его решение (кнопка «Удалить» в панели участников).
+func (r *ProjectRepository) TransferOwnership(ctx context.Context, tenantID, projectID, toUserID string) error {
+	return WithTx(ctx, r.pool, func(tx pgx.Tx) error {
+		// Новый владелец обязан быть участником проекта: передача «на улице»
+		// (человека нет в проекте) означала бы, что он появится в плитке
+		// проектов без явного приглашения.
+		var memberRole string
+		err := tx.QueryRow(ctx,
+			`SELECT pm.role FROM project_members pm
+			 JOIN projects p ON p.id = pm.project_id
+			 WHERE pm.project_id = $1 AND pm.user_id = $2 AND p.tenant_id = $3`,
+			projectID, toUserID, tenantID).Scan(&memberRole)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("project: recipient is not a member: %w", project.ErrNotFound)
+		}
+		if err != nil {
+			return fmt.Errorf("project: lookup transfer recipient: %w", err)
+		}
+		if memberRole == string(project.RoleOwner) {
+			// Уже владелец — нечего передавать.
+			return fmt.Errorf("project: recipient is already owner: %w", project.ErrConflict)
+		}
+
+		tag, err := tx.Exec(ctx,
+			`UPDATE project_members SET role = 'editor'
+			 WHERE project_id = $1 AND role = 'owner'
+			   AND EXISTS (SELECT 1 FROM projects p WHERE p.id = $1 AND p.tenant_id = $2)`,
+			projectID, tenantID)
+		if err != nil {
+			return fmt.Errorf("project: demote previous owner: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			// Владельца нет — проект остался бы с новым owner в members и без
+			// owner в projects.
+			return fmt.Errorf("project: no current owner: %w", project.ErrConflict)
+		}
+
+		if _, err := tx.Exec(ctx,
+			`UPDATE project_members SET role = 'owner' WHERE project_id = $1 AND user_id = $2`,
+			projectID, toUserID); err != nil {
+			return fmt.Errorf("project: promote recipient: %w", err)
+		}
+
+		if _, err := tx.Exec(ctx,
+			`UPDATE projects SET owner_id = $3, updated_at = now()
+			 WHERE id = $1 AND tenant_id = $2`, projectID, tenantID, toUserID); err != nil {
+			return fmt.Errorf("project: move ownership: %w", err)
+		}
+		return nil
+	})
+}
+
 func (r *ProjectRepository) RemoveMember(ctx context.Context, tenantID, projectID, userID string) error {
 	tag, err := r.pool.Exec(ctx,
 		`DELETE FROM project_members pm
@@ -251,10 +327,12 @@ func (r *ProjectRepository) RemoveMember(ctx context.Context, tenantID, projectI
 const configCols = `id, project_id, revision, width_mm, height_mm, flight, step_height_mm,
 	stringer_thickness_mm, step_thickness_mm, riser, clearance_mm, railing_height_mm,
 	comfort_step_mm, landing_width_mm, landing_depth_mm, room_width_mm, room_length_mm,
-	approach_space_mm, lower_step_count, outer_radius_mm,
+	approach_space_mm, lower_step_count,
 	turn_kind, winder_count,
 	railing, railing_lower, railing_landing, railing_upper,
-	direction, spiral_direction, material_code, tread_material_code, riser_thickness_mm,
+	direction, material_code, tread_material_code, riser_thickness_mm,
+	floor_fixing, ceiling_fixing, extra_fasteners,
+	sealant_layer_mm, extra_sealant_cartridges, is_measurement,
 	created_at, updated_at`
 
 // nullableStr — TEXT-колонка, допускающая NULL: пустая строка означает
@@ -270,15 +348,21 @@ func nullableStr(v string) *string {
 func scanConfig(row pgx.Row) (*project.StairConfiguration, error) {
 	var c project.StairConfiguration
 	var turnKind, railing, railingLower, railingLanding, railingUpper *string
-	var direction, spiralDirection, materialCode, treadMaterialCode *string
+	var direction, materialCode, treadMaterialCode *string
+	var floorFixing, ceilingFixing *string
+	// extra_fasteners — JSONB-массив кодов. Сканируется строкой: разбором
+	// занимается decodeFastenerList, а не pgx (в проекции поле хранится
+	// списком строк, сериализация — дело инфраструктуры, ADR-0006).
+	var extraFasteners []byte
 	if err := row.Scan(&c.ID, &c.ProjectID, &c.Revision, &c.WidthMM, &c.HeightMM, &c.Flight,
 		&c.StepHeightMM, &c.StringerThicknessMM, &c.StepThicknessMM, &c.Riser, &c.ClearanceMM,
 		&c.RailingHeightMM, &c.ComfortStepMM, &c.LandingWidthMM, &c.LandingDepthMM,
 		&c.RoomWidthMM, &c.RoomLengthMM, &c.ApproachSpaceMM, &c.LowerStepCount,
-		&c.OuterRadiusMM,
 		&turnKind, &c.WinderCount,
 		&railing, &railingLower, &railingLanding, &railingUpper,
-		&direction, &spiralDirection, &materialCode, &treadMaterialCode, &c.RiserThicknessMM,
+		&direction, &materialCode, &treadMaterialCode, &c.RiserThicknessMM,
+		&floorFixing, &ceilingFixing, &extraFasteners,
+		&c.SealantLayerMM, &c.ExtraSealantCartridges, &c.IsMeasurement,
 		&c.CreatedAt, &c.UpdatedAt); err != nil {
 		return nil, err
 	}
@@ -288,10 +372,53 @@ func scanConfig(row pgx.Row) (*project.StairConfiguration, error) {
 	c.RailingLanding = deref(railingLanding)
 	c.RailingUpper = deref(railingUpper)
 	c.Direction = deref(direction)
-	c.SpiralDirection = deref(spiralDirection)
 	c.MaterialCode = deref(materialCode)
 	c.TreadMaterialCode = deref(treadMaterialCode)
+	c.FloorFixing = deref(floorFixing)
+	c.CeilingFixing = deref(ceilingFixing)
+	c.ExtraFasteners = decodeFastenerList(extraFasteners)
 	return &c, nil
+}
+
+// decodeFastenerList разбирает JSONB-массив кодов доп. крепежа.
+//
+// Любой мусор (NULL, пустая строка, не-массив, не-строки внутри) даёт пустой
+// список, и расчёт продолжается без доп. крепежа. Это осознанно: список
+// только ДОПОЛНЯЕТ смету, и испорченная колонка не должна ломать
+// восстановление проекта и экспорт CAD. Потерянные позиции при этом видны
+// в смете как отсутствие строк, а не как 500.
+func decodeFastenerList(raw []byte) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var out []string
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil
+	}
+	clean := out[:0]
+	for _, s := range out {
+		if s = strings.TrimSpace(s); s != "" {
+			clean = append(clean, s)
+		}
+	}
+	if len(clean) == 0 {
+		return nil
+	}
+	return clean
+}
+
+// encodeFastenerList кодирует список кодов доп. крепежа в JSONB. Пустой
+// список кодируется как "[]", а не в NULL: колонка NOT NULL с дефолтом "[]",
+// и NULL означал бы «неизвестно» там, где на самом деле «не нужно».
+func encodeFastenerList(list []string) []byte {
+	if len(list) == 0 {
+		return []byte("[]")
+	}
+	raw, err := json.Marshal(list)
+	if err != nil {
+		return []byte("[]")
+	}
+	return raw
 }
 
 // deref — NULL-колонка TEXT в строку ("" == «не задано»).
@@ -329,24 +456,29 @@ func insertConfiguration(ctx context.Context, tx pgx.Tx, c *project.StairConfigu
 		`INSERT INTO stair_configurations (project_id, width_mm, height_mm, flight,
 			step_height_mm, stringer_thickness_mm, step_thickness_mm, riser, clearance_mm,
 			railing_height_mm, comfort_step_mm, landing_width_mm, landing_depth_mm,
-			room_width_mm, room_length_mm, approach_space_mm, lower_step_count, outer_radius_mm,
+			room_width_mm, room_length_mm, approach_space_mm, lower_step_count,
 			turn_kind, winder_count,
 			railing, railing_lower, railing_landing, railing_upper,
-			direction, spiral_direction, material_code, tread_material_code, riser_thickness_mm,
+			direction, material_code, tread_material_code, riser_thickness_mm,
+			floor_fixing, ceiling_fixing, extra_fasteners,
+			sealant_layer_mm, extra_sealant_cartridges,
 			revision)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
-		        $19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
+		        $19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,
 		   (SELECT COALESCE(MAX(s.revision),0)+1 FROM stair_configurations s WHERE s.project_id = $1))
 		 RETURNING id, created_at, updated_at, revision`,
 		c.ProjectID, c.WidthMM, c.HeightMM, c.Flight, c.StepHeightMM,
 		c.StringerThicknessMM, c.StepThicknessMM, c.Riser, c.ClearanceMM, c.RailingHeightMM,
 		c.ComfortStepMM, c.LandingWidthMM, c.LandingDepthMM, c.RoomWidthMM, c.RoomLengthMM,
-		c.ApproachSpaceMM, c.LowerStepCount, c.OuterRadiusMM,
+		c.ApproachSpaceMM, c.LowerStepCount,
 		nullableStr(c.TurnKind), c.WinderCount,
 		nullableStr(c.Railing), nullableStr(c.RailingLower), nullableStr(c.RailingLanding),
 		nullableStr(c.RailingUpper),
-		nullableStr(c.Direction), nullableStr(c.SpiralDirection), nullableStr(c.MaterialCode),
+		nullableStr(c.Direction), nullableStr(c.MaterialCode),
 		nullableStr(c.TreadMaterialCode), c.RiserThicknessMM,
+		nullableStr(c.FloorFixing), nullableStr(c.CeilingFixing),
+		encodeFastenerList(c.ExtraFasteners),
+		c.SealantLayerMM, c.ExtraSealantCartridges,
 	).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt, &c.Revision); err != nil {
 		return fmt.Errorf("project: save config: %w", err)
 	}
@@ -843,4 +975,30 @@ func (r *ProjectRepository) ListApprovals(ctx context.Context, tenantID, project
 		return nil, fmt.Errorf("project: list approvals: %w", err)
 	}
 	return out, nil
+}
+
+// MarkConfigurationAsMeasurement ставит или снимает метку «замер» на ревизии.
+//
+// Проверка принадлежности tenant повторяет RestoreConfiguration: без неё
+// можно было бы пометить чужую ревизию, зная её UUID. Метка информационная
+// и на расчёт не влияет, но она попадает в аудит и в историю проекта.
+func (r *ProjectRepository) MarkConfigurationAsMeasurement(ctx context.Context, tenantID, projectID, configurationID string, mark bool) error {
+	var ok bool
+	if err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM stair_configurations
+		   WHERE id = $1 AND project_id = $2
+		     AND project_id IN (SELECT id FROM projects WHERE tenant_id = $3 AND id = $2))`,
+		configurationID, projectID, tenantID).Scan(&ok); err != nil {
+		return fmt.Errorf("project: check config: %w", err)
+	}
+	if !ok {
+		return project.ErrNotFound
+	}
+	if _, err := r.pool.Exec(ctx,
+		`UPDATE stair_configurations SET is_measurement = $1, updated_at = now()
+		 WHERE id = $2 AND project_id = $3`,
+		mark, configurationID, projectID); err != nil {
+		return fmt.Errorf("project: mark measurement: %w", err)
+	}
+	return nil
 }

@@ -178,6 +178,17 @@ const ROLE_DEPTH_BIAS: Record<string, { factor: number; units: number }> = {
   landing: { factor: 1, units: 1 },
   winder: { factor: 2, units: 2 },
   riser: { factor: 3, units: 3 },
+  // Пять пяток выреза металлокаркаса (heel, web, first_web, anchor,
+  // top_anchor) приварены к ВНУТРЕННЕЙ грани косоура-гребёнки, поэтому их
+  // приваренные плоскости совпадают с плоскостью косоура. Раньше зазор
+  // plateJoinMM = 2 мм держал их раздельно; по чертежу 2026-10-05 свеса
+  // нет, и разводить их стало нечем — значит разводит рендер. Смещение
+  // меньше, чем у косоура: снаружи видна грань гребёнки, пятка за ней.
+  heel: { factor: 3, units: 3 },
+  web: { factor: 3, units: 3 },
+  first_web: { factor: 3, units: 3 },
+  anchor: { factor: 3, units: 3 },
+  top_anchor: { factor: 3, units: 3 },
   stringer: { factor: 4, units: 4 },
 }
 

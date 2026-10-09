@@ -37,8 +37,6 @@ export function ResultPanel({ snapshot, onApplyVariation, activeVariantId, heigh
     <LShapePanel snapshot={s} heightMM={heightMM} />
   ) : s.ushape ? (
     <UShapePanel snapshot={s} heightMM={heightMM} />
-  ) : s.spiral ? (
-    <SpiralPanel snapshot={s} heightMM={heightMM} />
   ) : s.flight ? (
     <FlightPanel snapshot={s} heightMM={heightMM} />
   ) : null
@@ -113,12 +111,12 @@ function SolverDrawings({ snapshot, heightMM }: { snapshot: Snapshot; heightMM?:
 
   // Фиолетовая линия верха марша на 3D: суммарный подъём марша.
   const stairTop =
-    sch.flight && sch.kind !== 'spiral'
+    sch.flight
       ? { rise: sch.flight.StepHeight * sch.flight.StepCount }
       : undefined
 
-  // Профиль (вид сбоку) осмыслен только для прямого марша; L/U/спираль
-  // показываем планом по умолчанию.
+  // Профиль (вид сбоку) осмыслен только для прямого марша; L/U показываем
+  // планом по умолчанию.
   const activeTab = sch.kind === 'straight' ? tab : tab === 'profile' ? 'plan' : tab
   const tabs: Array<['profile' | 'plan' | 'threed', string]> =
     sch.kind === 'straight'
@@ -421,64 +419,6 @@ function UShapePanel({ snapshot, heightMM }: { snapshot: Snapshot; heightMM?: nu
   )
 }
 
-// SpiralPanel — результат Solver спиральной лестницы с центральной колонной
-// (EDR-0007): веерные проступи вокруг оси Z, полный поворот 360°.
-function SpiralPanel({ snapshot, heightMM }: { snapshot: Snapshot; heightMM?: number }) {
-  const sp = snapshot.spiral
-  if (!sp) return null
-  return (
-    <section className="panel">
-      <h2 className="panel__title">Спиральный марш (Solver)</h2>
-      <dl className="kv">
-        <div>
-          <dt>Ступеней (полный поворот 360°)</dt>
-          <dd>{sp.StepCount}</dd>
-        </div>
-        <div>
-          <dt>Высота ступени</dt>
-          <dd>{fmt.mm(sp.StepHeight)}</dd>
-        </div>
-        <div>
-          <dt>Наружный радиус R</dt>
-          <dd>{fmt.mm(sp.OuterRadius)}</dd>
-        </div>
-        <div>
-          <dt>Радиус колонны r</dt>
-          <dd>{fmt.mm(sp.ColumnRadius)}</dd>
-        </div>
-        <div>
-          <dt>Радиус линии хода r_ход</dt>
-          <dd>{fmt.mm(sp.WalkRadius)}</dd>
-        </div>
-        <div>
-          <dt>Проступь у колонны / по линии хода / у кромки</dt>
-          <dd>
-            {fmt.mm(sp.InnerTread)} / {fmt.mm(sp.WalkTread)} / {fmt.mm(sp.OuterTread)}
-          </dd>
-        </div>
-        <div>
-          <dt>Угол подъёма</dt>
-          <dd>{fmt.deg(sp.Angle)}</dd>
-        </div>
-        <div>
-          <dt>Угловой шаг / полный угол</dt>
-          <dd>
-            {fmt.deg(sp.AngularStep)} / {fmt.deg(sp.AngularTotal)}
-          </dd>
-        </div>
-        <div>
-          <dt>Длина дуги по наружной кромке</dt>
-          <dd>{fmt.mm(sp.ArcLength)}</dd>
-        </div>
-        <div>
-          <dt>Шаг комфорта S = 2h + b_ход</dt>
-          <dd>{fmt.mm(sp.ComfortStep)}</dd>
-        </div>
-      </dl>
-      <SolverDrawings snapshot={snapshot} heightMM={heightMM} />
-    </section>
-  )
-}
 
 function GeometryPanel({ snapshot, heightMM }: { snapshot: Snapshot; heightMM?: number }) {
   const m = snapshot.measurement
@@ -722,6 +662,16 @@ function PricingPanel({ snapshot, pricing }: { snapshot: Snapshot; pricing: Pric
     ['Материалы', p.Material],
     ['Обработка (станки)', p.Machine],
     ['Труд', p.Labor],
+    // Крепёж (MNT-0001) — отдельной строкой: дюбели и глухари считаются по
+    // отверстиям пяток, и без этой строки в смете не видно, сколько стоит
+    // крепёж, хотя в детализации он есть.
+    ['Крепёж (дюбели, глухари)', p.Fastener],
+    // Герметик (CONF-SEALANT) — отдельной строкой: расход идёт по
+    // формуле V = S × t по площади швов, и без этой строки не видно, что
+    // три картриджа взялись из 0,69 м² шва.
+    // Герметик (CONF-SEALANT). Расход всегда в картриджах, с запасом 15%
+    // на брак и обрезку; объём в литрах — только в детализации строки.
+    ['Герметик (картриджи, запас 15%)', p.Sealant],
     ['Накладные расходы', p.Overhead],
     ['Производственная себестоимость', p.ProductionCost],
     ['Маржа', p.Margin],
