@@ -27,7 +27,16 @@
 - ADR-0008 (Engineering Coordinate and Units System)
 - ADR-0012 (Graph Engine as Foundation)
 - ADR-0015 (Engineering Domain Model)
-- BC-003 (Constraints Bounded Context)
+- BC-003 (Solver Bounded Context)
+
+> Номера BC — по DOM-0004 `04_DOMAIN/03_BOUNDED_CONTEXTS.md`:
+> BC-001 Project, BC-002 Geometry, BC-003 Solver, BC-004 Validation,
+> BC-005 Manufacturing, BC-006 Pricing, BC-007 Rendering.
+> Раньше здесь стояло «BC-003 (Constraints Bounded Context)», но контекста
+> Constraints в реестре нет, а BC-003 — это Solver. Правильная привязка
+> для ограничений — BC-004 (Validation) или BC-002 (Geometry); решение
+> владельца не принято, поэтому здесь стоит канонический BC-003, а не
+> выдуманный.
 - FR-080 (Инженерный расчет)
 - FR-081 (Повторный расчет)
 - FR-100 (Проверка ограничений)

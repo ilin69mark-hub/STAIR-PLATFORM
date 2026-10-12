@@ -44,7 +44,7 @@ Analytics bounded context (BC-043). Цель — «сколько и как пр
 - EDR-0028 (Usage Analytics — общая трубка: право, гранулярность, серии)
 - EDR-0029 (Project Analytics — агрегаты+отчёт, тот же паттерн)
 - EDR-0022 (CAD Export) / ADR-0008 — производственный снапшот
-- BC-007 / Manufacturing domain (`ManufacturingPackage`)
+- BC-005 / Manufacturing domain (`ManufacturingPackage`)
 
 ---
 

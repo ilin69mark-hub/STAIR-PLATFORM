@@ -29,7 +29,7 @@
 - ADR-0003 (Single Source of Engineering Formulas)
 - ADR-0008 (Engineering Coordinate and Units System)
 - BC-002 (Constraints Bounded Context)
-- BC-003 (Geometry Bounded Context)
+- BC-002 (Geometry Bounded Context)
 - EDR-0001 (Calculation of Straight Stair Flight)
 - EDR-0002 (Geometry Limits)
 - EDR-0003 (Validation Model)

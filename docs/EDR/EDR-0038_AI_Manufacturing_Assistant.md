@@ -46,7 +46,7 @@ Platform (BC-007): полнота и качество раскроя, доля �
 - ROADMAP-0011 (Phase D — AI: AI Manufacturing Assistant, D3)
 - EDR-0036/0037 (каркас AI Layer: Service/ModelRouter/Tools/audit,
   `AnalysisRequest` — переиспользуются)
-- BC-007/EDR-0010 (Manufacturing Platform), MFG-0012 (NestingResult),
+- BC-005/EDR-0010 (Manufacturing Platform), MFG-0012 (NestingResult),
   MFG-0001 (BOM/CutList), MFG-0005 (MaterialCode)
 - ADR-0003 (детерминизм), AI-0000 (истина в конвейере)
 - `internal/domain/manufacturing/{package,bom,nesting,cost}.go`,
