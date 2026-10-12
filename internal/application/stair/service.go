@@ -161,6 +161,17 @@ type Result struct {
 	Width             engineering.Length
 	Riser             bool
 	StringerThickness engineering.Length
+	// Hints — подсказки по полям живой формы (S-173). Ключ — имя поля формы
+	// («stringerThicknessMM»), значение — готовый текст для человека.
+	//
+	// Раньше норматив на косоур считался ДУБЛИРУЮЩЕЙ таблицей в TypeScript
+	// (frontend/shared/src/config.ts, где в комментарии прямо стояло
+	// «Зеркало timber_stringer.go»). Это нарушало 02_PROJECT_PRINCIPLES
+	// P-012 «запрещается дублирование инженерных правил» — ровно тот класс
+	// ошибок, что уже случился в проекте со ставками. Теперь единственный
+	// источник — engineering/timber_stringer.go, а форма получает текст
+	// готовым из ответа :validate.
+	Hints map[string]string
 	// StringerSpine — эхо ширины спинки косоура-гребёнки металлокаркаса,
 	// отмеренной ПО НОРМАЛИ к линии посадок (CombFrame.StringerSpine,
 	// чертеж 2026-10-05: 300 мм). Нужно 2D-схеме: боковой профиль гребёнки
@@ -524,6 +535,7 @@ func (s *Service) checkedSolve(ctx context.Context, cfg Config, c *engineering.S
 	// Поэтому проверки живут здесь, а не в normalize.
 	res.Validation.Issues = append(res.Validation.Issues, timberStringerIssues(cfg, c, res)...)
 	res.Validation.Issues = append(res.Validation.Issues, plateStringerIssues(c, res)...)
+	res.Hints = stringerNormHints(cfg, c, res)
 	return res, nil
 }
 
@@ -1137,3 +1149,88 @@ const (
 	// длиннее 6000 мм не изготовить — это производственный предел.
 	maxSupportedHeightMM = engineering.MaxFloorHeightMM
 )
+
+// stringerNormHints собирает текстовую подсказку по нормативу косоура для
+// поля формы «Толщина косоура» (S-173).
+//
+// Отдаётся ВСЕГДА, а не только при нарушении: подсказка нужна человеку
+// при вводе, а не только когда норма нарушена. Текст собирается из того же
+// timber_stringer.go / plate_stringer.go, что и предупреждения выше, —
+// поэтому подсказка и проверка не могут разойтись.
+//
+// Ключ — имя поля формы фронтенда. Формат ключа зафиксирован здесь и в
+// adaptValidation (frontend/shared/src/liveValidate.ts).
+func stringerNormHints(cfg Config, c *engineering.StairConfiguration, res *Result) map[string]string {
+	runs := flightRuns(res)
+	if len(runs) == 0 {
+		return nil
+	}
+	width := c.Width.Millimeters()
+	thickness := c.StringerThickness.Millimeters()
+	isTimber := strings.HasPrefix(string(c.Material), "WOOD")
+
+	// Деревянная балка: полоса берётся по ДЛИНЕ марша, листовой каркас — по
+	// толщине листа. Для двух маршей берём самую требовательную строку: одна
+	// подсказка на поле, а не две одинаковых.
+	band, runMM := worstTimberBand(runs, width)
+	var parts []string
+	switch {
+	case isTimber && band != nil:
+		parts = []string{
+			fmt.Sprintf("норматив %s: от %.0f мм", band.RunLabel, timberMinThickness(*band, width)),
+			fmt.Sprintf("заготовка %s", band.BlankLabel()),
+			fmt.Sprintf("тело %s", band.BodyLabel()),
+		}
+		if width > engineering.TimberWideWidthMM {
+			parts = append(parts, fmt.Sprintf("толщина по ширине марша > %.0f мм", float64(engineering.TimberWideWidthMM)))
+		}
+	case !isTimber:
+		ps := engineering.PlateStringerSpecFor(thickness, runMM, width)
+		runBand := engineering.PlateStringerBandForRun(runMM)
+		parts = []string{fmt.Sprintf("лист %.0f мм: марш %s", ps.RequiredMM, runBand.RunLabel)}
+		if ps.BandFound && !ps.WidthBeyondNarrow {
+			parts = append(parts,
+				fmt.Sprintf("ширина %s", runBand.WidthLabel),
+				fmt.Sprintf("тело %s", runBand.BodyLabel),
+				fmt.Sprintf("заготовка %s", runBand.BlankLabel()))
+		}
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	return map[string]string{"stringerThicknessMM": strings.Join(parts, " · ")}
+}
+
+// timberMinThickness — толщина по нормативу с учётом правила широкого
+// марша: при ширине больше TimberWideWidthMM толщина берётся по ширине,
+// а не по длине.
+func timberMinThickness(b engineering.TimberStringerBand, width float64) float64 {
+	if width > engineering.TimberWideWidthMM {
+		return engineering.TimberWideThickMM
+	}
+	return b.MinThicknessMM
+}
+
+// worstTimberBand — самая требовательная полоса из полос по длинам маршей:
+// при L- и П-образном марше длины разные, и подсказка должна показывать
+// худший случай, иначе человек увидит «всё хорошо» там, где второй марш
+// требует толще.
+func worstTimberBand(runs []flightRun, width float64) (*engineering.TimberStringerBand, float64) {
+	var worst *engineering.TimberStringerBand
+	var worstRun float64
+	worstMin := 0.0
+	for _, r := range runs {
+		if r.run <= 0 {
+			continue
+		}
+		b := engineering.TimberStringerBandFor(r.run)
+		min := timberMinThickness(b, width)
+		if worst == nil || min > worstMin {
+			worstMin = min
+			bb := b
+			worst = &bb
+			worstRun = r.run
+		}
+	}
+	return worst, worstRun
+}

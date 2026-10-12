@@ -4,8 +4,6 @@ import {
   defaultRates,
   flightFields,
   rulesFor,
-  timberStringerNorm,
-  plateStringerNorm,
   isPlateFrame,
   fixedTreadThicknessMM,
   materialThicknessMM,
@@ -274,15 +272,6 @@ describe('rulesFor', () => {
     expect(rulesFor('stepThicknessMM', 'НЕТ-ТАКОГО' as never)).toEqual({})
   })
 
-  it('косоур: базовый норматив 30 мм, верхняя граница материала 100 мм', () => {
-    // Нижняя граница 30 мм — общий норматив пиломатериала. Реальную нижнюю
-    // границу задаёт норматив на балку (40/50/60/80/100 мм по длине марша и
-    // ширине), см. timberStringerNorm.
-    // Верхняя 100 мм, а не 60: норматив требует 80 мм для марша длиннее 4 м
-    // и 100 мм при ширине более 1200 мм, и форма обязана дать ввести эту
-    // толщину (решение владельца 2026-10-05).
-    expect(rulesFor('stringerThicknessMM', 'WOOD-OAK')).toEqual({ min: 30, max: 100 })
-  })
 })
 
 describe('toRequest railing/direction', () => {
@@ -480,39 +469,8 @@ describe('норматив на деревянный косоур-балку', (
     ...over,
   })
 
-  it('минимальная толщина по полосам проекции: 40 / 50 / 60 / 80', () => {
-    // H=1200 → n≈7, b=270 → 1890 мм → «до 2.0 м» → 40 мм.
-    expect(timberStringerNorm(wood({ heightMM: '1200' }))?.minThicknessMM).toBe(40)
-    // H=1800 → n=10 → 2700 мм → «2.0 – 3.0 м» → 50 мм.
-    expect(timberStringerNorm(wood({ heightMM: '1800' }))?.minThicknessMM).toBe(50)
-    // H=3600 → n=20 → 5400 мм → «более 4.0 м» → 80 мм.
-    expect(timberStringerNorm(wood({ heightMM: '3600' }))?.minThicknessMM).toBe(80)
-    expect(timberStringerNorm(wood())?.runLabel).toBe('более 4.0 м')
-  })
 
-  it('ширина марша более 1200 мм даёт 100 мм в любой полосе', () => {
-    // Короткий марш сам по себе потребовал бы 40 мм.
-    const short = wood({ heightMM: '1200' })
-    expect(timberStringerNorm(short)?.minThicknessMM).toBe(40)
-    const wide = timberStringerNorm(wood({ heightMM: '1200', widthMM: '1300' }))
-    expect(wide?.minThicknessMM).toBe(100)
-    expect(wide?.byWidth).toBe(true)
-    // Ровно 1200 мм — ещё не «более 1200».
-    expect(timberStringerNorm(wood({ heightMM: '1200', widthMM: '1200' }))?.minThicknessMM).toBe(40)
-  })
 
-  it('норматив несёт заготовку, глубину тела и признак опоры', () => {
-    const short = timberStringerNorm(wood({ heightMM: '1200' }))
-    expect(short?.blankLabel).toBe('250')
-    expect(short?.bodyLabel).toBe('не менее 120 мм')
-    expect(short?.needsSupport).toBe(false)
-    const long = timberStringerNorm(wood())
-    expect(long?.blankLabel).toBe('350')
-    expect(long?.needsSupport).toBe(true)
-    expect(long?.bodyLabel).toContain('опора')
-    // Средняя полоса — заготовка диапазоном.
-    expect(timberStringerNorm(wood({ heightMM: '1800' }))?.blankLabel).toBe('250–300')
-  })
 
 
   it('норматив НЕ ругается в форме: ошибки только по пределам выпуска', () => {
@@ -555,48 +513,8 @@ describe('норматив на листовой (сварный) косоур',
   // Толщина листа — НЕ выбор пользователя: её выводит норматив по длине и
   // ширине марша (решение владельца 2026-10-06). Поэтому строки проверяются
   // не «прислали 8/10/12», а «марш такой длины даёт такую толщину».
-  it('строки 8 / 10 / 12 мм выводятся из длины марша', () => {
-    // Проекция = n·b при шаге 180 и шаге комфорта по умолчанию:
-    // H=1800 → 2700 мм → 8; H=2340 → 3510 → 10; H=2700 → 4050 → 12.
-    expect(plateStringerNorm(steel({ heightMM: '1800' }))).toMatchObject({
-      thicknessMM: 8,
-      inTable: true,
-      runLabel: 'до 2.5 – 3.0 м',
-      widthLabel: 'до 0.9 – 1.0 м',
-      bodyLabel: 'не менее 120–130 мм',
-      blankLabel: 'от 250 мм',
-    })
-    expect(plateStringerNorm(steel({ heightMM: '2340' }))).toMatchObject({
-      thicknessMM: 10,
-      runLabel: '3.0 – 4.0 м',
-      widthLabel: 'до 1.1 – 1.2 м',
-      bodyLabel: 'не менее 140–150 мм',
-      blankLabel: 'от 300 мм',
-    })
-    expect(plateStringerNorm(steel({ heightMM: '2700' }))).toMatchObject({
-      thicknessMM: 12,
-      runLabel: 'более 4.0 м',
-      widthLabel: 'до 1.3 – 1.4 м',
-      bodyLabel: 'не менее 160–180 мм',
-      blankLabel: 'от 350 мм',
-    })
-  })
 
-  it('присланная толщина на норматив не влияет', () => {
-    // Клиент по старой форме шлёт 6 мм или конструктивные 50 мм от
-    // деревянной модели — толщина всё равно выводится по маршу.
-    for (const sent of ['6', '8', '50']) {
-      expect(plateStringerNorm(steel({ stringerThicknessMM: sent }))?.thicknessMM).toBe(12)
-    }
-  })
 
-  it('особенности конструкции доезжают до калькулятора', () => {
-    expect(plateStringerNorm(steel({ heightMM: '1800' }))?.notes).toContain('домашних лестниц')
-    expect(plateStringerNorm(steel({ heightMM: '2340' }))?.notes).toContain(
-      'без промежуточных опор',
-    )
-    expect(plateStringerNorm(steel({ heightMM: '2700' }))?.notes).toContain('монокосоура')
-  })
 
 
   it('у стали поле толщины косоура скрыто, у дерева остаётся выбор', () => {
@@ -607,21 +525,6 @@ describe('норматив на листовой (сварный) косоур',
     expect(isPlateFrame('METAL-AISI304')).toBe(true)
   })
 
-  it('минимум по длине марша и по ширине сходятся в одну толщину', () => {
-    const norm = plateStringerNorm(steel({ heightMM: '2700' }))
-    expect(norm?.requiredMM).toBe(12)
-    expect(norm?.blankMinMM).toBe(350)
-    // Нормативная толщина всегда принадлежит таблице: «вне таблицы» больше
-    // не бывает, толщину выбирает не пользователь.
-    expect(norm?.inTable).toBe(true)
-    expect(validateForm(steel({ stringerThicknessMM: '8' })).stringerThicknessMM).toBeUndefined()
-    expect(validateForm(steel({ stringerThicknessMM: '12' })).stringerThicknessMM).toBeUndefined()
-    // А вот остаток от деревянного косоура форма у металла отвергает: поле
-    // скрыто, значение выставляет applyPlateThickness, и правило диапазона
-    // служит страховкой на случай, если значение всё же просочилось (старый
-    // сохранённый проект, ручной вызов toRequest).
-    expect(validateForm(steel({ stringerThicknessMM: '50' })).stringerThicknessMM).toBeDefined()
-  })
 
 })
 

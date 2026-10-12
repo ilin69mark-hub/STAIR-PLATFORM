@@ -51,6 +51,16 @@ export interface LiveValidation {
   issues: LiveIssue[]
   /** Ошибки, привязанные к полям формы (уже нормированные в FieldErrors). */
   fieldErrors: FieldErrors
+  /**
+   * Подсказки по полям от сервера (S-173). Ключ — имя поля ConfigForm.
+   *
+   * Сюда приходит норматив на косоур: полоса по длине марша, толщина,
+   * размеры заготовки. Раньше это считалось в TypeScript копией таблицы
+   * timber_stringer.go (в комментарии там прямо стояло «Зеркало»).
+   * Дублирование инженерных правил запрещено 02_PROJECT_PRINCIPLES P-012,
+   * а отличались витрина и админка в похожих ситуациях со ставками.
+   */
+  hints: Record<string, string>
 }
 
 // ---- Raw-формы ответа :validate (обе сущности, чтобы не дублировать типы) ----
@@ -77,6 +87,8 @@ interface RawIssue {
 }
 
 interface RawValidation {
+  hints?: Record<string, string>
+  Hints?: Record<string, string>
   valid?: boolean
   Valid?: boolean
   blocking?: boolean
@@ -208,7 +220,8 @@ export function adaptValidation(raw: RawValidation): LiveValidation {
       if (!fieldErrors[key]) fieldErrors[key] = it.guide ?? it.message
     }
   }
-  return { valid, blocking, issues, fieldErrors }
+  const hints = raw?.hints ?? raw?.Hints ?? {}
+  return { valid, blocking, issues, fieldErrors, hints }
 }
 
 // ---- Ключ идентичности конфига (дедуп запросов) ----

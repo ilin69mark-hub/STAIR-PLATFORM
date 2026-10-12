@@ -201,7 +201,15 @@ func handleValidate(svc StairService) http.HandlerFunc {
 			return
 		}
 
-		writeJSON(w, http.StatusOK, map[string]any{"validation": toValidationResult(res, false)})
+		// hints — текстовые подсказки по полям формы (S-173). Норматив на
+		// косоур раньше жил дублирующей таблицей в TypeScript; теперь
+		// единственный источник — engineering/timber_stringer.go, а форма
+		// получает готовый текст. Ключи совпадают с именами полей ConfigForm.
+		body := map[string]any{"validation": toValidationResult(res, false)}
+		if len(res.Hints) > 0 {
+			body["hints"] = res.Hints
+		}
+		writeJSON(w, http.StatusOK, body)
 	}
 }
 

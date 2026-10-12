@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ConfigForm } from '@shared/config'
-import { defaultConfig, directionOptions, flightOptions, materialOptions, fitThicknessMM, fieldRulesFor, railingOptions, rulesFor, fixedTreadThicknessMM, timberStringerNorm, plateStringerNorm, plateStringerThicknessMM, isPlateFrame, toRequest, turnKindOptions, validateForm, REQUIRED_VALUE_ERROR, type FieldErrors, type FieldRule } from '@shared/config'
+import { defaultConfig, directionOptions, flightOptions, materialOptions, fitThicknessMM, fieldRulesFor, railingOptions, rulesFor, fixedTreadThicknessMM, plateStringerThicknessMM, isPlateFrame, toRequest, turnKindOptions, validateForm, REQUIRED_VALUE_ERROR, type FieldErrors, type FieldRule } from '@shared/config'
 import type { QuoteResult, QuoteSuggestion, Variation } from '@shared/types'
 import {
   LiveValidator,
@@ -342,6 +342,10 @@ export function Constructor() {
   // «поле + код» до ближайшего успеха.
   const reportedBlockers = useRef<Set<string>>(new Set())
 
+  // Подсказки по полям от сервера (S-173): норматив на косоур приходит
+  // готовым текстом, локальной копии таблицы больше нет.
+  const [liveHints, setLiveHints] = useState<Record<string, string>>({})
+
   const applyLive = (v: LiveValidation | null) => {
     if (clearLive.current) {
       clearLive.current = false
@@ -351,6 +355,8 @@ export function Constructor() {
     setLiveBlocking(withIssues)
     setLiveIssues(withIssues ? v!.issues : [])
     setLiveFieldErrors(withIssues ? v!.fieldErrors : {})
+    // Подсказки приходят и при НЕ блокирующем ответе: норматив нужен всегда.
+    setLiveHints(v?.hints ?? {})
     if (!withIssues) {
       reportedBlockers.current.clear()
       return
@@ -529,32 +535,15 @@ export function Constructor() {
   // поле и ровно они вводили в заблуждение у дубовых ступеней, где пределы
   // считаются по материалу ступеней, а не каркаса.
   const hintOf = (k: keyof ConfigForm): string | undefined => {
-    // Норматив на косоур (решения владельца 2026-10-05 и 2026-10-06):
-    // под полем «Толщина косоура» показываем полосу норматива, толщину и
-    // размеры заготовки — их больше нигде не видно, а именно по ним заказывают
-    // материал.
-    if (k === 'stringerThicknessMM') {
-      // Листовой (сварный) косоур: строки 8 / 10 / 12 мм с их пределами.
-      const plate = plateStringerNorm(config)
-      if (plate) {
-        const parts = [`лист ${plate.thicknessMM} мм: марш ${plate.runLabel}`]
-        if (plate.inTable) {
-          parts.push(`ширина ${plate.widthLabel}`, `тело ${plate.bodyLabel}`, `заготовка ${plate.blankLabel}`)
-        }
-        return parts.join(' · ')
-      }
-      // Деревянная балка: полоса по длине марша, толщина и размеры заготовки.
-      const norm = timberStringerNorm(config)
-      if (norm) {
-        const parts = [
-          `норматив ${norm.runLabel}: от ${norm.minThicknessMM} мм`,
-          `заготовка ${norm.blankLabel} мм`,
-          `тело ${norm.bodyLabel}`,
-        ]
-        if (norm.byWidth) parts.push('толщина по ширине марша > 1200 мм')
-        return parts.join(' · ')
-      }
-    }
+    // Норматив на косоур — строки нормативов владельца 2026-10-05 и
+    // 2026-10-06: полоса, толщина, размеры заготовки. Их больше нигде не
+    // видно, а именно по ним заказывают материал.
+    //
+    // Текст ПРИХОДИТ С СЕРВЕРА полем `hints` ответа :validate (S-173). Раньше
+    // он собирался здесь из копии timber_stringer.go — дублирование
+    // инженерных правил, запрещённое 02_PROJECT_PRINCIPLES P-012.
+    const fromServer = liveHints[k]
+    if (fromServer) return fromServer
     return hints[k]
   }
 
@@ -608,7 +597,7 @@ export function Constructor() {
       // Полный расчёт выполнен: его validation и есть актуальная картина —
       // живой баннер и подсветка больше не нужны.
       liveValidator.current.invalidate(configKey(cfg))
-      applyLive({ valid: true, blocking: false, issues: [], fieldErrors: {} })
+      applyLive({ valid: true, blocking: false, issues: [], fieldErrors: {}, hints: {} })
       // Новый блокирующий ответ с вариациями заменяет список альтернатив.
       // Текущий (заблокированный) конфиг якорим как снапшот — исходный марш
       // остаётся в галерее и к нему можно вернуться.

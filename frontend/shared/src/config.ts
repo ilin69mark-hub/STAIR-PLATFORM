@@ -520,89 +520,19 @@ export function fieldRulesFor(key: keyof ConfigForm, cfg: ConfigForm): FieldRule
   return rulesFor(key, materialForField(key, cfg))
 }
 
-// ---- Норматив на деревянный косоур-балку (решение владельца 2026-10-05) ----
+// ---- Норматив на косоур ----
 //
-// Зеркало internal/domain/engineering/timber_stringer.go. Таблица:
+// Убран 2026-10-12 (S-173). Раньше здесь стояла копия таблицы
+// internal/domain/engineering/timber_stringer.go — в комментарии так и было
+// написано: «Зеркало timber_stringer.go». Это нарушало 02_PROJECT_PRINCIPLES
+// P-012 («запрещается дублирование инженерных правил»), а отличались витрина
+// и админка в похожих ситуациях со ставками.
 //
-//   до 2.0 м → 40 мм | 2.0–3.0 м → 50 мм | 3.0–4.0 м → 60 мм | > 4.0 м → 80 мм
-//   при ширине марша БОЛЕЕ 1200 мм — 100 мм в любой полосе
-//   заготовка 250 / 250–300 / 300 / 350 мм
-//   глубина тела после выпила гребёнки ≥ 120 / 130 / 150 мм
-//   марш длиннее 4 м — нужна промежуточная опора (вносится позже)
-//
-// Длина марша берётся ПО ПРОЕКЦИИ: n = H/h, b = S − 2h, проекция = n·b.
-// Сервер считает это точно после решалки, здесь — оценка по полям формы,
-// чтобы подсказка появлялась при вводе, а не после отправки.
-export interface TimberStringerNorm {
-  runLabel: string
-  widthLabel: string
-  minThicknessMM: number
-  blankLabel: string
-  bodyLabel: string
-  needsSupport: boolean
-  byWidth: boolean
-}
+// Теперь норматив приходит готовым текстом с сервера в ответе
+// POST /api/v1/public/stairs:validate (поле `hints`), и единственным
+// источником остаётся timber_stringer.go. Разбор — adaptValidation в
+// liveValidate.ts, показ — hintFor в Constructor.tsx.
 
-const TIMBER_BANDS: Array<
-  Pick<TimberStringerNorm, 'runLabel' | 'widthLabel' | 'minThicknessMM' | 'blankLabel' | 'bodyLabel' | 'needsSupport'> & {
-    runMaxMM: number
-  }
-> = [
-  { runMaxMM: 2000, runLabel: 'до 2.0 м', widthLabel: 'до 0.9 м', minThicknessMM: 40, blankLabel: '250', bodyLabel: 'не менее 120 мм', needsSupport: false },
-  { runMaxMM: 3000, runLabel: '2.0 – 3.0 м', widthLabel: 'до 1.0 м', minThicknessMM: 50, blankLabel: '250–300', bodyLabel: 'не менее 130 мм', needsSupport: false },
-  { runMaxMM: 4000, runLabel: '3.0 – 4.0 м', widthLabel: '1.0 – 1.2 м', minThicknessMM: 60, blankLabel: '300', bodyLabel: 'не менее 150 мм', needsSupport: false },
-  { runMaxMM: 0, runLabel: 'более 4.0 м', widthLabel: 'более 1.2 м', minThicknessMM: 80, blankLabel: '350', bodyLabel: 'требуется промежуточная опора (столб)', needsSupport: true },
-]
-
-/** Ширина марша, выше которой толщина косоура 100 мм в любой полосе. */
-const TIMBER_WIDE_WIDTH_MM = 1200
-/** Верхняя граница толщины, до которой каталог выпускает дерево. */
-export const TIMBER_MAX_THICKNESS_MM = 100
-const DEFAULT_COMFORT_STEP_MM = 630
-
-/** Полоса норматива для проекции марша runMM. */
-function timberBand(runMM: number): TimberStringerNorm['runLabel'] extends string ? (typeof TIMBER_BANDS)[number] : never {
-  for (const b of TIMBER_BANDS) {
-    if (b.runMaxMM <= 0 || runMM <= b.runMaxMM) return b
-  }
-  return TIMBER_BANDS[TIMBER_BANDS.length - 1]
-}
-
-/**
- * Проекция марша по полям формы: n = H/h, b = S − 2h, проекция = n·b.
- */
-function timberRunMM(f: ConfigForm): number {
-  const H = Number(f.heightMM)
-  const h = Number(f.stepHeightMM)
-  if (!(H > 0) || !(h > 0)) return 0
-  const S = f.comfortStepMM.trim() === '' ? DEFAULT_COMFORT_STEP_MM : Number(f.comfortStepMM)
-  if (!(S > 0)) return 0
-  const b = S - 2 * h
-  if (!(b > 0)) return 0
-  return Math.round((H / h) * b)
-}
-
-/**
- * Норматив на деревянный косоур для текущих полей формы. null — правило не
- * применяется (металлокаркас или не хватает чисел для оценки проекции).
- */
-export function timberStringerNorm(f: ConfigForm): TimberStringerNorm | null {
-  if (!f.material.startsWith('WOOD-')) return null
-  const run = timberRunMM(f)
-  if (run <= 0) return null
-  const band = timberBand(run)
-  const width = Number(f.widthMM)
-  const byWidth = width > TIMBER_WIDE_WIDTH_MM
-  return {
-    runLabel: band.runLabel,
-    widthLabel: band.widthLabel,
-    minThicknessMM: byWidth ? TIMBER_MAX_THICKNESS_MM : band.minThicknessMM,
-    blankLabel: band.blankLabel,
-    bodyLabel: band.bodyLabel,
-    needsSupport: band.needsSupport,
-    byWidth,
-  }
-}
 
 // ---- Норматив на листовой (сварной) косоур (решение владельца 2026-10-05) ----
 //
@@ -678,6 +608,32 @@ export function isPlateFrame(code: string): boolean {
 }
 
 /**
+ * Проекция марша по полям формы: n = H/h, b = S − 2h, проекция = n·b
+ * (те же формулы, что в internal/engine/solver/solve.go, EDR-0001 §4).
+ *
+ * ОСТАЛОСЬ ЛОКАЛЬНО В ОТЛИЧИЕ от норматива выше, и это осознанно: значение
+ * нужно ДО отправки формы — чтобы предзаполнить СКРЫТОЕ поле толщины
+ * листа, иначе предпросмотр показывал бы одно число, а расчёт другое.
+ * Это предзаполнение ввода, а не инженерное правило: сервер значение всё
+ * равно приводит к нормативу сам (plate_stringer.go) и ответственен за него.
+ *
+ * Всё, что ПОКАЗЫВАЕТСЯ человеку — норматив, полосы, размеры заготовки —
+ * приходит с сервера полем `hints` ответа :validate.
+ */
+const DEFAULT_COMFORT_STEP_MM = 630
+
+function timberRunMM(f: ConfigForm): number {
+  const H = Number(f.heightMM)
+  const h = Number(f.stepHeightMM)
+  if (!(H > 0) || !(h > 0)) return 0
+  const S = f.comfortStepMM.trim() === '' ? DEFAULT_COMFORT_STEP_MM : Number(f.comfortStepMM)
+  if (!(S > 0)) return 0
+  const b = S - 2 * h
+  if (!(b > 0)) return 0
+  return Math.round((H / h) * b)
+}
+
+/**
  * Нормативная толщина листа косоура для текущих полей формы: 8 / 10 / 12 мм
  * по длине и ширине марша. 0 — данных не хватает (не заполнены высота или
  * шаг комфорта).
@@ -697,26 +653,6 @@ export function plateStringerThicknessMM(f: ConfigForm): number {
  * Норматив на листовой косоур для текущих полей формы. null — каркас не
  * листовой (дерево) или не хватает чисел для оценки проекции.
  */
-export function plateStringerNorm(f: ConfigForm): PlateStringerNorm | null {
-  if (!isPlateFrame(f.material)) return null
-  const run = timberRunMM(f)
-  if (run <= 0) return null
-  const width = Number(f.widthMM)
-  const thickness = minPlateStringerThicknessMM(run, width)
-  const band = PLATE_BANDS.find((b) => b.thicknessMM === thickness)
-  const runBand = plateBandForRun(run)
-  return {
-    thicknessMM: thickness,
-    inTable: !!band,
-    runLabel: runBand.runLabel,
-    widthLabel: runBand.widthLabel,
-    bodyLabel: band ? band.bodyLabel : '—',
-    blankLabel: band ? `от ${band.blankMinMM} мм` : '—',
-    notes: band ? band.notes : '',
-    requiredMM: thickness,
-    blankMinMM: band ? band.blankMinMM : 0,
-  }
-}
 
 export type FieldErrors = Partial<Record<keyof ConfigForm, string>>
 

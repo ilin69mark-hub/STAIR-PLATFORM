@@ -321,3 +321,52 @@ describe('ключи вариации совпадают с полями ConfigF
     expect(next.winderCountMM).toBe('3')
   })
 })
+
+// --- S-173: подсказки норматива приходят с сервера -------------------------
+//
+// Раньше текст подсказки собирался на клиенте из копии timber_stringer.go.
+// Теперь единственный источник — сервер, а adaptValidation разбирает поле
+// `hints` ответа :validate.
+
+describe('adaptValidation: hints (S-173)', () => {
+  it('подсказки достаются из snake_case-ответа', () => {
+    const v = adaptValidation({
+      valid: true,
+      blocking: false,
+      issues: [],
+      hints: {
+        stringerThicknessMM:
+          'норматив 2.0 – 3.0 м: от 50 мм · заготовка 250–300 · тело не менее 130 мм',
+      },
+    })
+    expect(v.hints.stringerThicknessMM).toContain('2.0 – 3.0 м')
+    expect(v.hints.stringerThicknessMM).toContain('от 50 мм')
+  })
+
+  it('принимается и PascalCase-форма', () => {
+    const v = adaptValidation({
+      Valid: true,
+      Blocking: false,
+      Issues: [],
+      Hints: { stringerThicknessMM: 'норматив до 2.0 м: от 40 мм' },
+    })
+    expect(v.hints.stringerThicknessMM).toContain('40 мм')
+  })
+
+  it('без hints подсказки пусты, а не undefined', () => {
+    const v = adaptValidation({ valid: true, blocking: false, issues: [] })
+    expect(v.hints).toEqual({})
+  })
+
+  it('подсказки приходят даже при блокирующем ответе', () => {
+    const v = adaptValidation({
+      valid: false,
+      blocking: true,
+      issues: [{ code: 'GEO-WIDTH', severity: 'error', element: 'configuration', message: 'много' }],
+      hints: { stringerThicknessMM: 'норматив до 2.0 м: от 40 мм' },
+    })
+    expect(v.blocking).toBe(true)
+    // Подсказка нужна всегда: человек вводит параметры и при ошибке тоже.
+    expect(v.hints.stringerThicknessMM).toContain('40 мм')
+  })
+})
