@@ -250,16 +250,16 @@ func TestExtraTryOtherAt_Errors(t *testing.T) {
 	ctx := context.Background()
 	cfg := extraStraightCfg()
 
-	if _, _, ok := tryOtherAt(ctx, cfg, engineering.FlightStraight, cfg.Height, 630, nil, 30000, 30000, fitEps, 0, 900, 0); ok {
+	if _, _, ok := tryOtherAt(ctx, cfg, engineering.FlightStraight, cfg.Height, 630, nil, 30000, 30000, fitEps, 0, 900); ok {
 		t.Fatal("straight: expected false")
 	}
-	if _, _, ok := tryOtherAt(ctx, cfg, engineering.FlightLShape, 100, 630, nil, 30000, 30000, fitEps, 200, 900, 0); ok {
+	if _, _, ok := tryOtherAt(ctx, cfg, engineering.FlightLShape, 100, 630, nil, 30000, 30000, fitEps, 200, 900); ok {
 		t.Fatal("L-shape: expected false")
 	}
-	if _, _, ok := tryOtherAt(ctx, cfg, engineering.FlightUShape, 100, 630, nil, 30000, 30000, fitEps, 200, 900, 0); ok {
+	if _, _, ok := tryOtherAt(ctx, cfg, engineering.FlightUShape, 100, 630, nil, 30000, 30000, fitEps, 200, 900); ok {
 		t.Fatal("U-shape: expected false")
 	}
-	if _, _, ok := tryOtherAt(ctx, cfg, "bogus", cfg.Height, 630, nil, 30000, 30000, fitEps, 200, 900, 0); ok {
+	if _, _, ok := tryOtherAt(ctx, cfg, "bogus", cfg.Height, 630, nil, 30000, 30000, fitEps, 200, 900); ok {
 		t.Fatal("bogus: expected false")
 	}
 }

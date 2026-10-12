@@ -116,9 +116,10 @@ func TestTreadNoseRadiusClampedByThickness(t *testing.T) {
 // стороны — вершина в углу (min X, max Z): при фаске на стороне свеса она
 // срезана и её нет, при фаске на другой стороне — есть.
 func TestTreadFilletSitsOnOverhangSide(t *testing.T) {
-	// Углы вершин каждой проступи: есть ли угол (min X, max Z) — то есть
-	// свесовая сторона — и (max X, max Z) — сторона подъёма.
-	treadCorners := func(nose float64) (overhang, toplimit int) {
+	// Считает проступи со скруглённым углом (min X, max Z) — то есть на
+	// стороне свеса. Второй возвращаемый результат (toplimit, сторона подъёма)
+	// был удалён: он никогда не вычислялся и не читался вызывающими.
+	treadCorners := func(nose float64) (overhang int) {
 		t.Helper()
 		res, err := Generate(context.Background(), woodNoseConfig(t, nose))
 		if err != nil {
@@ -157,15 +158,15 @@ func TestTreadFilletSitsOnOverhangSide(t *testing.T) {
 				}
 			}
 		}
-		return overhang, toplimit
+		return overhang
 	}
 
-	sharpOverhang, _ := treadCorners(0)
+	sharpOverhang := treadCorners(0)
 	if sharpOverhang == 0 {
 		t.Fatal("без фаски угол (min X, max Z) у проступи должен быть — конфигурация или сборка модели сломана")
 	}
 
-	filletOverhang, _ := treadCorners(10)
+	filletOverhang := treadCorners(10)
 	if filletOverhang != 0 {
 		t.Fatalf("фаска стоит НЕ на стороне свеса: угол (min X, max Z) у %d проступей не срезан", filletOverhang)
 	}

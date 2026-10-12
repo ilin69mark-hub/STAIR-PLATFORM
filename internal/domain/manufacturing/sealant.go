@@ -271,9 +271,9 @@ func SealantDemandFor(areas SealantAreaSource, reg *SealantRegistry,
 		Code: s.Code, Name: s.NameRu, Kind: s.Kind,
 		AreaM2: area, LayerMM: layerMM, VolumeL: volume,
 		ReservePercent: SealantReservePercent, VolumeWithReserveL: withReserve,
-		MassKg:          volume * s.DensityKgPerL,
-		Cartridges:      auto + extraCartridges,
-		AutoCartridges:  auto, ExtraCartridges: extraCartridges,
+		MassKg:         volume * s.DensityKgPerL,
+		Cartridges:     auto + extraCartridges,
+		AutoCartridges: auto, ExtraCartridges: extraCartridges,
 		Purpose: PurposeSealantJoints,
 	}, nil
 }

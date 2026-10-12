@@ -484,13 +484,10 @@ func (s *Service) UserDeletionPreview(ctx context.Context, tenantID, userID stri
 	if err != nil {
 		return DeletionPreview{}, err
 	}
-	return DeletionPreview{
-		Projects:     st.Projects,
-		Calculations: st.Calculations,
-		Comments:     st.Comments,
-		Orders:       st.Orders,
-		ProjectRoles: st.ProjectRoles,
-	}, nil
+	// Преобразование, а не поэлементный литерал: типы идентичны, и если в
+	// UserDeletionStats добавят счётчик, компилятор потребует решить, попадает
+	// ли он в предпросмотр. Литерал молча выбросил бы новое поле.
+	return DeletionPreview(st), nil
 }
 
 // DeleteUser удаляет сотрудника: передаёт его проекты другому человеку и

@@ -366,11 +366,13 @@ func TestVisitorHash_StableBehindProxy(t *testing.T) {
 // и проверяется то, что действительно должно выполняться.
 func TestVisitorHash_IsStableAndSeparatesIPs(t *testing.T) {
 	h := newVisitorHasherX("salt")
-	if h.hash("1.1.1.1") != h.hash("1.1.1.1") {
-		t.Fatal("один IP обязан давать один visitor")
-	}
 	if h.hash("1.1.1.1") == h.hash("2.2.2.2") {
 		t.Error("разные IP дали одинаковый visitor")
+	}
+	// Соль обязана менять хеш, иначе посетителя можно было бы склеить между
+	// разными установками.
+	if newVisitorHasherX("salt").hash("1.1.1.1") == newVisitorHasherX("other").hash("1.1.1.1") {
+		t.Error("разные соли дали одинаковый visitor")
 	}
 }
 

@@ -359,8 +359,9 @@ func grantSetFrom(items []grantItem) (*auth.GrantSet, error) {
 }
 
 func grantItemsOf(s *auth.GrantSet) []grantItem {
-	out := []grantItem{}
-	for _, g := range s.Pairs() {
+	pairs := s.Pairs()
+	out := make([]grantItem, 0, len(pairs))
+	for _, g := range pairs {
 		out = append(out, grantItem{Capability: string(g.Capability), Level: string(g.Level)})
 	}
 	return out

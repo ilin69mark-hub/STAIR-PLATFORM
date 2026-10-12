@@ -165,6 +165,8 @@ var defaultFastenerDiametersMM = []float64{8, 10}
 // вариант в движке ценообразования (DefaultFastenerPrice), чтобы расчёт не
 // падал на пустом справочнике.
 func DefaultFastenerRegistry() *FastenerRegistry {
+	//nolint:prealloc // список задаётся литералом и нигде не дополняется;
+	// переписывать его в make+append ради одной строки — ухудшение читаемости.
 	items := []Fastener{
 		{
 			Code: ScrewTreadRiserCode, NameRu: "Глухарь 6х35", Kind: FastenerScrew,

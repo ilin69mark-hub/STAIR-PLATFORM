@@ -242,7 +242,9 @@ func buildChainForTest(mux *http.ServeMux) http.Handler {
 	timeout := RouteTimeoutMiddleware(DefaultAPIRouteTimeouts())
 	version := VersionMiddleware
 
-	var h http.Handler = withLogging(PanicRecoveryMiddleware(mux))
+	// Тип выводится: withLogging возвращает http.Handler, так что h остаётся
+	// http.Handler и цепочка ниже собирается как раньше.
+	var h = withLogging(PanicRecoveryMiddleware(mux))
 	h = sec(h)
 	h = dedup(h)
 	h = respCacheMW(h)

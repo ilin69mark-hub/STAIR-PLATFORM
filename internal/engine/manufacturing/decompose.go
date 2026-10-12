@@ -7,7 +7,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"stairplatform/internal/domain/engineering"
-	engmfg "stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
 	enggeo "stairplatform/internal/engine/geometry"
 	kerngeo "stairplatform/internal/geometry"
@@ -118,7 +117,8 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 				// заготовка это габарит самой детали в осях раскроя,
 				// а не блок по габаритам марша.
 				s.kind = dommfg.PartStringer
-				s.thickness, s.length, s.width, s.pieces = stringerBlank(cfg, ext, solid)
+				s.thickness, s.length, s.width = stringerBlank(cfg, ext, solid)
+				s.pieces = 1
 			default:
 				s.kind, s.thickness, s.length, s.width = classify(ext, solid.Role())
 			}
@@ -241,7 +241,7 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 // 8 мм такой косоур тарифицировался бы как более тонкий.
 const (
 	laserPlateMinMM = 3.0
-	laserPlateMaxMM = engmfg.PlateMaxThicknessMM
+	laserPlateMaxMM = engineering.PlateMaxThicknessMM
 )
 
 // jointCutMM — дополнительная длина лазерного реза на сварной стык
@@ -307,7 +307,9 @@ func laserPlateMM(design float64) float64 {
 // stringerBlank возвращает толщину листа, длину и ширину заготовки косоура и
 // число кусков: длинная пластина режется на части со сварным стыком, потому
 // что одна деталь длиннее предела материала не проходит MFG-0012.
-func stringerBlank(cfg *engineering.StairConfiguration, ext [3]float64, solid *kerngeo.Solid) (thickness, length, width float64, pieces int) {
+// pieces не возвращается: тело косоура режется на одну деталь, это было
+// единственное значение, которое функция когда-либо отдавала.
+func stringerBlank(cfg *engineering.StairConfiguration, ext [3]float64, solid *kerngeo.Solid) (thickness, length, width float64) {
 	// Тонкая ось — это ширина сечения косоура в плане; по ней и определяем
 	// «длину марша»: у прямого и L-образного марша ось подъёма может быть
 	// любой из двух горизонтальных.
@@ -359,9 +361,8 @@ func stringerBlank(cfg *engineering.StairConfiguration, ext [3]float64, solid *k
 		}
 		// Разбиение решается позже, когда известна толщина ЛИСТА: предел поля
 		// стола и припуск на шип зависят от неё (см. SplitToField).
-		return thickness, length, width, 1
+		return thickness, length, width
 	}
-	pieces = 1
 	width = cfg.StepHeight.Millimeters()
 	if width <= 0 {
 		// Шаг не задан (тестовая/вырожденная конфигурация) — берём высоту
@@ -373,7 +374,7 @@ func stringerBlank(cfg *engineering.StairConfiguration, ext [3]float64, solid *k
 	if width > length {
 		length, width = width, length
 	}
-	return thickness, length, width, pieces
+	return thickness, length, width
 }
 
 // plateBlankOf — габарит заготовки боковой пластины по её телу.

@@ -451,7 +451,7 @@ func collectOtherType(ctx context.Context, cfg *engineering.StairConfiguration, 
 	var out []otherCand
 	for h := origH; h <= hMax+1e-6; h += 5 {
 		for w := origW; w >= minW-1e-6; w -= 50 {
-			if v, bb, ok := tryOtherAt(ctx, cfg, ft, height, comfort, set, rw, rl, tol, h, w, 0); ok {
+			if v, bb, ok := tryOtherAt(ctx, cfg, ft, height, comfort, set, rw, rl, tol, h, w); ok {
 				out = append(out, otherCand{v: v, w: w, h: h, bb: bb})
 			}
 		}
@@ -462,7 +462,9 @@ func collectOtherType(ctx context.Context, cfg *engineering.StairConfiguration, 
 // tryOtherAt строит конфигурацию типа ft с заданными высотой ступени h и
 // шириной марша w, проверяет вписываемость через Geometry Engine и
 // возвращает готовую Variation вместе с фактическими габаритами.
-func tryOtherAt(ctx context.Context, cfg *engineering.StairConfiguration, ft engineering.FlightType, height engineering.Length, comfort float64, set *constraint.ConstraintSet, rw, rl, tol, h, w, R float64) (validation.Variation, [2]float64, bool) {
+// R (радиус скругления) принимался параметром, но все вызовы передавали 0,
+// поэтому он и не использовался. Параметр убран.
+func tryOtherAt(ctx context.Context, cfg *engineering.StairConfiguration, ft engineering.FlightType, height engineering.Length, comfort float64, set *constraint.ConstraintSet, rw, rl, tol, h, w float64) (validation.Variation, [2]float64, bool) {
 	clone := cloneCfg(cfg)
 	clone.Flight = ft
 	clone.Width = engineering.Length(w)

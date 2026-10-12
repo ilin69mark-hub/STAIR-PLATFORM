@@ -26,7 +26,8 @@ const holeRadius = 6.0
 // slotLength — длина овала во всех вызовах была 30 мм.
 const slotLength = 30.0
 
-func slotRing2D(cx, width float64) []Point3 {
+func slotRing2D(cx float64) []Point3 {
+	const width = 12.0
 	r := width / 2
 	half := slotLength/2 - r
 	var out []Point3
@@ -55,7 +56,7 @@ func circleRingXZ(cx, cz, r float64, n int) []Point3 {
 }
 
 // slotRingXZ — овал длиной length по Z и шириной width по X в плоскости Y=0.
-func slotRingXZ(cx, cz, length, width float64) []Point3 {
+func slotRingXZ(cx, cz, width float64) []Point3 {
 	r := width / 2
 	half := slotLength/2 - r
 	var out []Point3
@@ -104,10 +105,10 @@ func TestExtrudeWithHolesVolume(t *testing.T) {
 		{X: 0, Y: 0}, {X: 280, Y: 0}, {X: 280, Y: 50}, {X: 0, Y: 50},
 	}
 	holes := [][]Point3{
-		slotRing2D(24, 12),
+		slotRing2D(24),
 		circleRing2D(120, 32),
 		circleRing2D(180, 32),
-		slotRing2D(240, 12),
+		slotRing2D(240),
 	}
 	const th = 4.0
 	solid, err := ExtrudeWithHoles(prof, holes, Vector3{Z: 1}, th)
@@ -135,9 +136,9 @@ func TestExtrudeWithHolesArea(t *testing.T) {
 		{X: 0, Y: 0}, {X: 280, Y: 0}, {X: 280, Y: 50}, {X: 0, Y: 50},
 	}
 	holes := [][]Point3{
-		slotRing2D(24, 12),
+		slotRing2D(24),
 		circleRing2D(120, 32),
-		slotRing2D(240, 12),
+		slotRing2D(240),
 	}
 	const th = 4.0
 	solid, err := ExtrudeWithHoles(prof, holes, Vector3{Z: 1}, th)
@@ -172,7 +173,7 @@ func TestExtrudeWithHolesHorizontal(t *testing.T) {
 		{X: 0, Z: 0}, {X: 50, Z: 0}, {X: 50, Z: 280}, {X: 0, Z: 280},
 	}
 	holes := [][]Point3{
-		slotRingXZ(25, 24, 30, 12),
+		slotRingXZ(25, 24, 12),
 		circleRingXZ(25, 120, 6, 32),
 		circleRingXZ(25, 180, 6, 32),
 	}

@@ -1024,8 +1024,7 @@ func buildRailingDecor(cfg *engineering.StairConfiguration, q Quality) ([]*kerng
 	switch cfg.RailingType.Effective() {
 	case engineering.RailingTypeGlass:
 		if cfg.Flight == engineering.FlightStraight {
-			return glassRailingSolids(q, n, b, h, rh, w,
-				cfgProfileNosing(cfg), cfg.Railing), nil
+			return glassRailingSolids(q, n, b, h, rh, w, cfg.Railing), nil
 		}
 		return buildLURNailing(q, cfg, rh)
 	case engineering.RailingTypeSteel:
@@ -1434,7 +1433,11 @@ func cfgProfileNosing(cfg *engineering.StairConfiguration) float64 {
 // glassRailingSolids строит стеклянное ограждение прямого сегмента:
 // опоры + стеклянные панели между ними. Это ОТДЕЛЬНЫЙ тип конструкции
 // (engineering.RailingTypeGlass), в нержавеющей стали стекла нет.
-func glassRailingSolids(q Quality, n int, b, h, rh, w, nosingGlass float64, side engineering.RailingSide) []*kerngeo.Solid {
+// nosingGlass передавался сюда, но в теле функции не использовался ни разу:
+// стеклянные секции позиционируются от zTop, без поправки на свес проступи.
+// Параметр убран; если свес должен двигать верх стекла, это отдельная задача,
+// потому что правка меняет положение ограждения, а значит и цену.
+func glassRailingSolids(q Quality, n int, b, h, rh, w float64, side engineering.RailingSide) []*kerngeo.Solid {
 	sides := railingSides(side, w)
 	if len(sides) == 0 || rh <= 0 || n <= 0 {
 		return nil

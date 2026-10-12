@@ -54,7 +54,7 @@ func slotRing(cx, cy, length, width, z float64) []Point3 {
 		}
 		return out
 	}
-	var out []Point3
+	out := make([]Point3, 0, 12)
 	out = append(out, arc(cx+r, cy1, -math.Pi/2, math.Pi/2, 6)...)
 	out = append(out, arc(cx-r, cy0, math.Pi/2, 3*math.Pi/2, 6)...)
 	return out

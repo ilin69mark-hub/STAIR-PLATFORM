@@ -51,11 +51,9 @@ func TriangulateWithHoles(outer []Point3, inner [][]Point3) ([]Point3, [][3]int,
 
 	// Работаем в 2D-проекции: обратное отображение в 3D в конце.
 	flat := make([][2]float64, 0, 16)
-	offs := make([]int, 0, len(rings))
 	edges := make([][2]int, 0, 32) // индексы пар в flat
 	for _, ring := range rings {
 		p2 := project2D(ring, normal)
-		offs = append(offs, len(flat))
 		base := len(flat)
 		flat = append(flat, p2...)
 		for i := 0; i < len(p2); i++ {

@@ -1061,6 +1061,8 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 			// выбирается по виду детали, а не по названию.
 			tread bool
 		}
+		//nolint:prealloc // список задаётся литералом и обходится range, а не
+		// дополняется в цикле; prealloc здесь ложное срабатывание.
 		checks := []thicknessCheck{
 			{cfg.Material, cfg.StringerThickness.Millimeters(), "косоура", false},
 			// Толщина ступени берётся ИЗ c, а не из cfg: выше она уже могла
