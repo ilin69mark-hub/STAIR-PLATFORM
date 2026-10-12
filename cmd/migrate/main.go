@@ -114,7 +114,10 @@ func runPreflight(ctx context.Context, pool *pgxpool.Pool) {
 	}
 	fmt.Print(rep.String())
 	if rep.Failed() {
-		//nolint:gosec // G706: в форматную строку идёт len() — целое число, внедрение невозможно
+		// #nosec G706 — ложное срабатывание: в форматную строку идёт len(),
+		// то есть целое число, и подставить в неё произвольный текст нельзя.
+		// Директива #nosec, а не //nolint: отдельный джоб Security Scan
+		// запускает gosec напрямую и директивы golangci-lint не читает.
 		log.Fatalf("preflight: %d нарушений — миграция будет отвергнута (схема останется чистой)", len(rep.Violations))
 	}
 }

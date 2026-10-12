@@ -93,6 +93,15 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+    # Переменная поднята на уровень джобы, а не продублирована по шагам.
+    # Раньше STAIR_TEST_DATABASE_URL стояла только у части шагов: шаг
+    # «Coverage gate» её не видел, а scripts/coverage-check.sh специально
+    # отказывается считать покрытие без БД — иначе integration-пакет тихо
+    # исключается и гейт показывает завышенный процент. Джоба падала с
+    # ошибкой про переменную, а не про покрытие, и это выглядело как
+    # «85% не набрано», хотя тесты были зелёные.
+    env:
+      STAIR_TEST_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_test?sslmode=disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
 
@@ -106,8 +115,6 @@ jobs:
       # golang-migrate ловит «Dirty database version» при параллельных пакетах.
       - name: Run tests (unit + DB integration, -race)
         run: go test -race -p 1 -coverprofile=coverage.out ./... -timeout 25m
-        env:
-          STAIR_TEST_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_test?sslmode=disable
 
       # Покрытие-гейт (TEST-0028): порог 85%, повторный прогон не нужен —
       # переиспользуем coverage.out. Если регресс ниже порога — джоба падает.
@@ -121,7 +128,6 @@ jobs:
       - name: OpenAPI spec in sync with generator
         run: python3 hack/gen_swagger.py
         env:
-          STAIR_TEST_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_test?sslmode=disable
           COVERAGE_PROFILE: coverage.out
 
       - name: Upload coverage
@@ -153,8 +159,6 @@ jobs:
 
       - name: Verify DB integration tests actually ran
         run: ./scripts/check-db-integration-ran.sh
-        env:
-          STAIR_TEST_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_test?sslmode=disable
 
       # Тот же гейт локально/в Makefile — чтобы падение воспроизводилось одной
       # командой, а не только в CI.
@@ -162,8 +166,6 @@ jobs:
         run: |
           go run ./cmd/migrate -dir migrations -database "$STAIR_TEST_DATABASE_URL"
           go run ./cmd/migrate -dir migrations/seeds -table schema_migrations_seeds -database "$STAIR_TEST_DATABASE_URL"
-        env:
-          STAIR_TEST_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_test?sslmode=disable
 
   test-frontend-store:
     name: Test Store Frontend
