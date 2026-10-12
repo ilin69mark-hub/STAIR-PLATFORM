@@ -4,6 +4,7 @@
 // type-only импорт: значение jsPDF тянется динамически при генерации КП
 // (S4-1 — иначе тяжёлый чанк jspdf лежит в стартовом бандле).
 import type { jsPDF } from 'jspdf'
+import { drawSvgVector, type VectorDoc } from './svgVector'
 import type { Mesh, Snapshot, Project } from '@shared/types'
 
 const FONT_NAME = 'NotoSans'
@@ -62,18 +63,46 @@ function svgElementToDataUrl(svgEl: SVGSVGElement): string | null {
   }
 }
 
-function tryCaptureSvg(): string | null {
+/**
+ * Векторная вставка 2D-чертежа в КП (S-177).
+ *
+ * Возвращает высоту вставки в мм, либо 0 если вектор не получился — тогда
+ * вызывающий падает обратно на растр. Отказ ловится и на отсутствии
+ * импорта, и на исключении внутри рисования: КП должно сохраниться любой
+ * ценой, лучше мыльная картинка, чем пустая страница.
+ */
+function tryDrawVector(
+  doc: jsPDF,
+  svgEl: SVGSVGElement,
+  x: number,
+  y: number,
+  widthMM: number,
+): number {
   try {
-    const svg = document.querySelector<SVGSVGElement>('.draw svg')
-    if (!svg) return null
-    return svgElementToDataUrl(svg)
+    // Если рисовать нечего, честно отдаём 0: drawSvgVector возвращает высоту
+    // области независимо от того, что нарисовал, и проверка «высота > 0» была
+    // бы вечно истинной — запасной растр не срабатывал бы никогда.
+    if (!svgEl.querySelector('line, path, rect, polyline, text')) return 0
+    // Ставим белый фон: схема рисуется тёмным по прозрачному, а на белой
+    // странице PDF прозрачный фон означал бы «видно предыдущий слой».
+    doc.setFillColor(255, 255, 255)
+    doc.rect(x, y, widthMM, 0, 'F')
+    return drawSvgVector(doc as unknown as VectorDoc, svgEl, x, y, widthMM)
+  } catch {
+    return 0
+  }
+}
+
+function tryCaptureSvg(): SVGSVGElement | null {
+  try {
+    return document.querySelector<SVGSVGElement>('.draw svg')
   } catch {
     return null
   }
 }
 
 // Офлайн-рендер 2D чертежа без зависимости от активного таба
-async function renderOffscreenSvg(snapshot: Snapshot): Promise<string | null> {
+async function renderOffscreenSvg(snapshot: Snapshot): Promise<SVGSVGElement | null> {
   try {
     const { schematicOf } = await import('../components/snapshotView')
     const sch = schematicOf(snapshot)
@@ -100,11 +129,13 @@ async function renderOffscreenSvg(snapshot: Snapshot): Promise<string | null> {
     // Два rAF + таймаут — гарантируем, что React успел отрендерить SVG
     await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
     await new Promise((r) => setTimeout(r, 80))
+    // Отдаём ЭЛЕМЕНТ, а не data-URL: векторный рендер идёт по DOM-узлам,
+    // растеризация нужна только запасным путём (S-177).
     const svg = container.querySelector('svg') as SVGSVGElement | null
-    const dataUrl = svg ? svgElementToDataUrl(svg) : null
+    const keep = svg ? svg.cloneNode(true) as SVGSVGElement : null
     root.unmount()
     container.remove()
-    return dataUrl
+    return keep
   } catch {
     return null
   }
@@ -368,23 +399,35 @@ export async function generateProposalPdf(project: Project, snapshot: Snapshot):
   doc.text('Чертёж (вид сверху / профиль)', margin, y)
   y += 6
   {
-    let svgRaw = tryCaptureSvg()
-    if (!svgRaw) svgRaw = await renderOffscreenSvg(snapshot)
-    if (svgRaw) {
-      let png: string | null = null
-      if (svgRaw.startsWith('data:image/svg+xml')) {
-        png = await svgDataUrlToPng(svgRaw, 2400, 1240)
+    let svgEl = tryCaptureSvg()
+    if (!svgEl) svgEl = await renderOffscreenSvg(snapshot)
+    if (svgEl) {
+      // СНАЧАЛА вектор: чертёж должен оставаться чертёжом — печатным, с
+      // измеримыми линиями (S-177). Растр остаётся запасным путём: если
+      // векторный проход не смог нарисовать, лучше мыльная картинка, чем
+      // пустое место в КП.
+      const drawn = tryDrawVector(doc, svgEl, margin, y, contentW)
+      if (drawn > 0) {
+        y += drawn + 8
       } else {
-        png = svgRaw.startsWith('data:image/png') ? svgRaw : null
-      }
-      if (png) {
-        // без сжатия: ширина = contentW, высота по пропорции 2400×1240 (~94мм)
-        const h = (contentW * 1240) / 2400
-        doc.addImage(png, 'PNG', margin, y, contentW, h)
-        y += h + 8
-      } else {
-        doc.setFontSize(8); doc.setTextColor(140,140,140)
-        doc.text('Не удалось сформировать изображение чертежа.', margin, y); y += 6
+        let png: string | null = null
+        const dataUrl = svgElementToDataUrl(svgEl)
+        if (dataUrl === null) {
+          png = null
+        } else if (dataUrl.startsWith('data:image/svg+xml')) {
+          png = await svgDataUrlToPng(dataUrl, 2400, 1240)
+        } else if (dataUrl.startsWith('data:image/png')) {
+          png = dataUrl
+        }
+        if (png) {
+          const h = (contentW * 1240) / 2400
+          doc.addImage(png, 'PNG', margin, y, contentW, h)
+          y += h + 8
+        } else {
+          doc.setFontSize(8); doc.setTextColor(140, 140, 140)
+          doc.text('Не удалось сформировать изображение чертежа.', margin, y)
+          y += 6
+        }
       }
     } else {
       doc.setFontSize(8); doc.setTextColor(140,140,140)
