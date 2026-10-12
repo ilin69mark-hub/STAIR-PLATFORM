@@ -91,14 +91,6 @@ func slotRingY(cx, cy, length, width, z float64) []Point3 {
 	return out
 }
 
-func sumLens(rings [][]Point3) int {
-	n := 0
-	for _, r := range rings {
-		n += len(r)
-	}
-	return n
-}
-
 func TestTriangulateWithHolesSingleSquare(t *testing.T) {
 	outer := rectRing(0, 100, 0, 100, 0)
 	holes := [][]Point3{rectRing(30, 70, 30, 70, 0)}

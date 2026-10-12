@@ -335,9 +335,6 @@ func geometry(in Input, set *constraint.ConstraintSet) (out []validation.Suggest
 	return out, infeasible, worst
 }
 
-func mathMax3f(a, b, c float64) float64 { return math.Max(a, math.Max(b, c)) }
-func mathMin3f(a, b, c float64) float64 { return math.Min(a, math.Min(b, c)) }
-
 // clampF ограничивает значение диапазоном [lo, hi].
 func clampF(v, lo, hi float64) float64 {
 	if v < lo {

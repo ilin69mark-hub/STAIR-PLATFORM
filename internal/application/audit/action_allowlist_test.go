@@ -17,9 +17,6 @@ import (
 // allowedActionRe выделяет значения из CHECK в тексте миграции.
 var allowedActionRe = regexp.MustCompile(`'([a-z][a-z0-9_.]*)'`)
 
-// newActionRe выделяет имя константы из строки `ActionXxx Action = "x.y"`.
-var newActionRe = regexp.MustCompile(`(Action\w+)\s+Action\s*=\s*"([^"]+)"`)
-
 // TestWrittenActionsAreAllowedByMigration — регрессия: каждое действие аудита,
 // которое реально пишется в журнал, должно быть разрешено CHECK из последней
 // миграции.

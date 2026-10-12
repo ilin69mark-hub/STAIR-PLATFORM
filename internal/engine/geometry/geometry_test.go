@@ -103,8 +103,8 @@ func TestOpenRiserTreadFitsInsideStringer(t *testing.T) {
 		// первой ступени (x = b). Ещё левее — пустота, ещё правее — врезание
 		// в гребёнку.
 		boxes := roleBoxes(model, "tread")
-		if len(boxes) != int(cfg.StepCount) {
-			t.Fatalf("%s: проступей %d, хотим %d", tc.name, len(boxes), int(cfg.StepCount))
+		if len(boxes) != cfg.StepCount {
+			t.Fatalf("%s: проступей %d, хотим %d", tc.name, len(boxes), cfg.StepCount)
 		}
 		if got := boxes[0].Max.X; got != tc.frontEnd {
 			t.Fatalf("%s: передняя кромка ступени на x=%.1f, хотим %.1f (плоскость зуба) — "+
@@ -142,7 +142,7 @@ func TestNoTreadVertexInsideStringer(t *testing.T) {
 			b, h, st := 270.0, 180.0, 40.0
 			var poly [][2]float64
 			if plate {
-				pts, err := combStringerProfile(int(cfg.StepCount), b, h, st, cfg.CombOrDefault().StringerSpine)
+				pts, err := combStringerProfile(cfg.StepCount, b, h, st, cfg.CombOrDefault().StringerSpine)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -150,7 +150,7 @@ func TestNoTreadVertexInsideStringer(t *testing.T) {
 					poly = append(poly, [2]float64{p.X, p.Z})
 				}
 			} else {
-				for _, p := range stringerProfile(int(cfg.StepCount), b, h, st, 0, 50) {
+				for _, p := range stringerProfile(cfg.StepCount, b, h, st, 0, 50) {
 					poly = append(poly, [2]float64{p.X, p.Z})
 				}
 			}
@@ -228,10 +228,10 @@ func TestOpenRiserKeepsPlatesExceptWeb(t *testing.T) {
 	}
 	want := map[string]int{
 		"stringer":   2,
-		"tread":      int(cfg.StepCount),
-		"heel":       2 * int(cfg.StepCount), // по пятке под ступень на каждый косоур
-		"anchor":     2,                      // пол
-		"top_anchor": 2,                      // перекрытие 2-го этажа
+		"tread":      cfg.StepCount,
+		"heel":       2 * cfg.StepCount, // по пятке под ступень на каждый косоур
+		"anchor":     2,                 // пол
+		"top_anchor": 2,                 // перекрытие 2-го этажа
 		"riser":      0,
 		"web":        0, // пятка 2 (ребро обоймы выреза) — только вместе с подступенком
 		"first_web":  0, // подкладка 1-го подступенка — только вместе с ним
@@ -258,7 +258,7 @@ func TestOpenRiserKeepsPlatesExceptWeb(t *testing.T) {
 			webs++
 		}
 	}
-	if wantWebs := 2 * (int(cfg.StepCount) - 1); webs != wantWebs {
+	if wantWebs := 2 * (cfg.StepCount - 1); webs != wantWebs {
 		t.Fatalf("с подступенком пяток 2 = %d, хотим %d", webs, wantWebs)
 	}
 	// Подкладка первого подступенка тоже возвращается — исключение по флагу.

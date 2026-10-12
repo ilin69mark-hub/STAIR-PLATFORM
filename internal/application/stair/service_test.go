@@ -342,7 +342,6 @@ func TestCalculateRailingConfig(t *testing.T) {
 		t.Fatalf("L-shape railing echo mismatch: got %s/%s/%s dir=%s",
 			resL.RailingLower, resL.RailingLanding, resL.RailingUpper, resL.Direction)
 	}
-
 }
 
 // TestCalculateInvalidRailingConfig — невалидные значения перил/направлений
@@ -368,7 +367,6 @@ func TestCalculateInvalidRailingConfig(t *testing.T) {
 		t.Fatalf("input issues must not be hard errors: %v", err)
 	}
 	assertBlockingInput(t, resT, constraint.GEO_LANDING_WIDTH, "влево или вправо")
-
 }
 
 // TestCalculateWithinMaterialLimits — габариты на границе предела каждого

@@ -52,7 +52,7 @@ func Validate(cfg *engineering.StairConfiguration, set *constraint.ConstraintSet
 	var issues []Issue
 	// Класс материала каркаса: правила с чужим классом не проверяются. Если
 	// материал не задан, класс выводится из толщины косоура (лист — металл).
-	materialClass := constraint.MaterialClassFor(string(cfg.Material), cfg.StringerThickness.Millimeters())
+	materialClass := constraint.MaterialClassFor(cfg.Material, cfg.StringerThickness.Millimeters())
 	for _, b := range bindings() {
 		rule, ok := set.Resolve(b.code, b.value(cfg))
 		if ok {

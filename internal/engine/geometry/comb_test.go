@@ -197,24 +197,6 @@ func TestAnchorHolesFirstLastAreSlots(t *testing.T) {
 	}
 }
 
-// ringSpan — размах кольца по Y.
-func ringSpan(r []kerngeo.Point3) float64 {
-	lo, hi := r[0].Y, r[0].Y
-	for _, p := range r {
-		lo, hi = math.Min(lo, p.Y), math.Max(hi, p.Y)
-	}
-	return hi - lo
-}
-
-// alongSpan — размах кольца по X.
-func alongSpan(r []kerngeo.Point3) float64 {
-	lo, hi := r[0].X, r[0].X
-	for _, p := range r {
-		lo, hi = math.Min(lo, p.X), math.Max(hi, p.X)
-	}
-	return hi - lo
-}
-
 // TestGenerateCombFrameBuilds — конвейер Generate строит модель узла целиком.
 func TestGenerateCombFrameBuilds(t *testing.T) {
 	res, err := Generate(context.Background(), combConfig())

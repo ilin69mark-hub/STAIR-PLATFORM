@@ -147,13 +147,6 @@ func hasCapability(r *http.Request, c auth.Capability, level auth.Level) bool {
 	return g.Has(c, level)
 }
 
-// hasPermission — совместимость для API-ключей и старых мест: проверяет
-// «есть ли у субъекта право на чтение этой метрики». Правописание новых
-// мест — hasCapability с явным уровнем.
-func hasPermission(r *http.Request, p auth.Permission) bool {
-	return hasCapability(r, auth.Capability(p), auth.LevelRead)
-}
-
 // tenantID возвращает tenant аутентифицированного субъекта (пользователя
 // или API-ключа).
 func tenantID(ctx context.Context) string {

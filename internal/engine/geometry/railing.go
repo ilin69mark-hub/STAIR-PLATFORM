@@ -139,9 +139,6 @@ const (
 	// а его нижняя грань не должна лежать в одной плоскости с верхней гранью
 	// ступени (иначе z-fighting по всей длине контакта).
 	glassBaseGap = 2.0
-	// glassNoseClear — отступ вертикальной кромки панели от линии носка внутрь
-	// марша: кромка не должна совпадать с плоскостью носка (z-fighting).
-	glassNoseClear = 1.0
 )
 
 // railingSides возвращает координаты кромки марша для выбранной стороны:
@@ -568,77 +565,6 @@ func perpTo(v kerngeo.Vector3) (kerngeo.Vector3, bool) {
 		return kerngeo.Vector3{}, false
 	}
 	return n, true
-}
-
-// glassPanelStepped строит стеклянную панель ограждения между двумя
-// соседними стойками прямого марша.
-//
-// НИЖНЯЯ кромка повторяет ступени. Панель наклонена вместе с маршем, и если
-// опустить её на одну высоту, она на половине длины уйдёт в грунт (в ступень
-// высотой h) или, наоборот, повиснет над ступенью с зазором. Поэтому профиль
-// строится в плоскости XZ лесенкой: xStep — линия носка ступени, и панель
-// лежит на нижней ступени до носка и на верхней после него.
-//
-// ВЕРХНЯЯ кромка параллельна поручню: та же формула, что у оси поручня
-// (z = h/2 + rh + slope·x), поэтому стекло уходит ровно в зазор glassRailGap
-// под брусом и нигде не пересекает его.
-//
-// Смещение панели внутрь марша (xStep−glassNoseClear) и вверх от ступени
-// (glassBaseGap) — не украшение: кромки панели иначе лежат в одной плоскости
-// с носком и с верхней гранью ступени, а это z-fighting на самом видном
-// месте конструкции.
-func glassPanelStepped(x0, x1, xStep, y, zLow, zHigh, slope, rh float64) *kerngeo.Solid {
-	// Верхняя кромка стекла — параллельно оси поручня и ниже НИЗА бруса.
-	//
-	// Опорная точка наклона — ЦЕНТР панели xc, а не линия носка xStep. Ось
-	// поручня проходит через верх стойки: над центром стойки она ровно на rh
-	// над ступенью, то есть axis(x) = zLow + rh + slope·(x − xc). Если
-	// отсчитать наклон от носка, вся панель поднимется на slope·st (для
-	// 180/270 и st=40 это 27 мм) и стекло уйдёт В поручень.
-	//
-	// Сдвиг вниз считается по ПЕРПЕНДИКУЛЯРУ к оси, а не по вертикали: низ
-	// бруса — это точка оси, сдвинутая на railThickness/2 перпендикулярно, и
-	// для наклонного поручня это выше, чем вертикальный сдвиг на ту же
-	// величину. Вертикальная аппроксимация здесь дала бы зазор в 3 мм
-	// вместо 9 и стекло снова срослось бы с брусом.
-	cosTheta := 1 / math.Sqrt(1+slope*slope)
-	xc := (x0 + x1) / 2
-	top := func(x float64) float64 {
-		axis := zLow + rh + slope*(x-xc)
-		return axis - railThickness/2*cosTheta - glassRailGap
-	}
-	// Вырожденные конфигурации, где профиль не лечь: поручень вплотную к
-	// ступени (панели без высоты) либо толщина проступи больше выноса, и
-	// линия носка уходит за левый край панели. Без этих проверок точки
-	// профиля идут назад по X, контур самопересекается — и падает триангуляция
-	// ВСЕЙ сцены на «polygon is not simple», включая несвязанные марши.
-	if top(x0) <= zHigh+glassBaseGap || top(x1) <= zHigh+glassBaseGap {
-		return nil
-	}
-	eps := math.Min(glassThickness, (x1-x0)/4)
-	if xStep <= x0+eps+glassNoseClear {
-		xStep = x0 + eps + glassNoseClear
-	}
-	if xStep >= x1-eps {
-		return nil
-	}
-	yNear := y - glassThickness/2
-	pt := func(x, z float64) kerngeo.Point3 {
-		return kerngeo.NewPoint3(x, yNear, z)
-	}
-	profile := dedupeProfile([]kerngeo.Point3{
-		pt(x0, zLow+glassBaseGap),
-		pt(xStep-glassNoseClear, zLow+glassBaseGap),
-		pt(xStep-glassNoseClear, zHigh+glassBaseGap),
-		pt(x1, zHigh+glassBaseGap),
-		pt(x1, top(x1)),
-		pt(x0, top(x0)),
-	}, glassThickness)
-	s, err := kerngeo.Extrude(profile, kerngeo.NewVector3(0, 1, 0), glassThickness)
-	if err != nil {
-		return nil
-	}
-	return s.WithRole(roleRailingGlass)
 }
 
 // glassPanelFlat строит вертикальную панель ограждения вдоль отрезка p0→p1 на

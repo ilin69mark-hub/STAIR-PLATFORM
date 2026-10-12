@@ -135,7 +135,7 @@ func TestTreadFilletSitsOnOverhangSide(t *testing.T) {
 			minX, maxZ := math.Inf(1), math.Inf(-1)
 			for i := pr.Start; i < pr.End; i++ {
 				for _, vi := range m.Triangles[i] {
-					if int(vi) >= len(m.Vertices) {
+					if vi >= len(m.Vertices) {
 						t.Fatalf("треугольник ссылается на вершину %d из %d", vi, len(m.Vertices))
 					}
 					p := m.Vertices[vi]

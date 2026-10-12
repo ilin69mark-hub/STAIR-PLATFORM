@@ -385,10 +385,6 @@ func plateBlankOf(solid *kerngeo.Solid) (length, width float64) {
 }
 
 // defaultSteelCode — сталь по умолчанию: ею заполняется каркас, когда
-// материал в конфигурации не задан (лист 3–8 мм выводится в сталь, тот же
-// вывод, что в engine.go).
-const defaultSteelCode = dommfg.MaterialCode("STEEL-S235")
-
 // roleKind сопоставляет семантическую метку тела типу детали.
 // Площадка (landing) — горизонтальная плита, обрабатывается как проступь
 // (PartTread), но получает уникальный номер (TRD).

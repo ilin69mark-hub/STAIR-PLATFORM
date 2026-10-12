@@ -239,9 +239,9 @@ func holeWallsNeedFlip(wall []Point3, shift Vector3) bool {
 		return false
 	}
 	a, b := wall[ai], wall[bi]
-	n := Vector3(b.Sub(a)).Cross(shift)
-	mid := Point3(a.Add(b.Sub(a).Scale(0.5)))
-	inward := Vector3(centroid(wall).Sub(mid))
+	n := b.Sub(a).Cross(shift)
+	mid := a.Add(b.Sub(a).Scale(0.5))
+	inward := centroid(wall).Sub(mid)
 	// нормаль уже смотрит внутрь — разворот не нужен
 	return n.Dot(inward) <= 0
 }

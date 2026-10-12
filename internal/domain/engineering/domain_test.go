@@ -77,7 +77,6 @@ func TestRailingFieldsValidate(t *testing.T) {
 	if err := badTurn.Validate(); err == nil {
 		t.Fatal("invalid turn direction must be rejected")
 	}
-
 }
 
 func TestParameterLifecycle(t *testing.T) {

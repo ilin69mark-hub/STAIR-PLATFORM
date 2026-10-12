@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-
 func nearlyEqual(a, b float64) bool {
 	return math.Abs(a-b) <= 1e-6
 }
@@ -172,7 +171,3 @@ func TestTopologyStructure(t *testing.T) {
 		t.Fatal("topo kinds")
 	}
 }
-
-
-
-

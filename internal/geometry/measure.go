@@ -241,9 +241,10 @@ func CutLengthMM(solid *Solid) float64 {
 func onPlane(pts []Point3, axis int, val float64) bool {
 	for _, p := range pts {
 		v := p.X
-		if axis == 1 {
+		switch axis {
+		case 1:
 			v = p.Y
-		} else if axis == 2 {
+		case 2:
 			v = p.Z
 		}
 		if math.Abs(v-val) > Precision {

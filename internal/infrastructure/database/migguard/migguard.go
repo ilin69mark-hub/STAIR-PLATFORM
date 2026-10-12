@@ -47,16 +47,6 @@ var ErrDirtyState = errors.New("migguard: dirty migration state")
 // ErrPreflightFailed — данные нарушают ограничения будущих миграций.
 var ErrPreflightFailed = errors.New("migguard: preflight found data violations")
 
-// violation — одно найденное нарушение: какое правило, в какой таблице и
-// сколько строк.
-type violation struct {
-	Constraint string
-	Table      string
-	Detail     string
-	Rows       int64
-	Samples    []string
-}
-
 // checks — набор правил, зеркалящих ограничения миграций 000029/000031/000037-39.
 // Держится в коде, а не в SQL-файле, потому что обязан быть read-only и
 // работать ДО того, как версия станет dirty.

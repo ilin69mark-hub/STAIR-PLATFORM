@@ -326,7 +326,7 @@ func groupPatch(body []byte) (json.RawMessage, error) {
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return nil, fmt.Errorf("тело запроса должно быть объектом JSON")
 	}
-	patch, ok := doc[string(groupKeyOf(doc))]
+	patch, ok := doc[groupKeyOf(doc)]
 	if !ok {
 		return nil, fmt.Errorf("в теле нет секции с настройками группы")
 	}
