@@ -241,7 +241,7 @@ func TestMIG001_QueryIndexesDefined(t *testing.T) {
 		p := filepath.Join(migrationsDir(t), fmt.Sprintf("%06d_", i))
 		matches, _ := filepath.Glob(p + "*.up.sql")
 		for _, m := range matches {
-			raw, err := os.ReadFile(m)
+			raw, err := os.ReadFile(m) //nolint:gosec // G304: путь к эталону/фикстуре задаёт сам тест
 			if err != nil {
 				continue
 			}

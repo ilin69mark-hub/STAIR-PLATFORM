@@ -22,7 +22,7 @@ const (
 	// JobCleanupWebEvents — очистка событий воронки витрины (миграция
 	// 000035). Срок короче, чем у аудита: события нужны для разбора оттока
 	// «почему бросили», а не как доказательство на годы.
-	JobCleanupWebEvents = "sys.cleanup_web_events"
+	JobCleanupWebEvents = "sys.cleanup_web_events" //nolint:gosec // G101: имя задания очистки, не учётные данные
 	// JobQuoteSend — доставка коммерческого предложения в ERP (EDR-0023).
 	// Payload: {event_id, endpoint_id}.
 	JobQuoteSend = "erp.quote_send"

@@ -146,7 +146,7 @@ func TestSEC005_AuthMeWithAPIKey(t *testing.T) {
 func TestSEC005_AuthMeWithSession(t *testing.T) {
 	h := sec5Router()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
-	req.AddCookie(&http.Cookie{Name: "session", Value: "sess-user"})
+	req.AddCookie(&http.Cookie{Name: "session", Value: "sess-user"}) //nolint:gosec // G124: cookie подставляется в запрос теста, атрибуты Secure/HttpOnly не применимы
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

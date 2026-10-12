@@ -36,10 +36,10 @@ type calculateRequest struct {
 	// Витрина ставит true: картинка легче, а цена та же — она считается по
 	// производственной модели вторым, отдельным проходом. Админка оставляет
 	// false и получает точную сетку для замеров и раскроя.
-	PreviewMesh bool `json:"preview_mesh,omitempty"`
-	ApproachSpaceMM     float64 `json:"approach_space_mm,omitempty"`
-	LowerStepCount      int     `json:"lower_step_count,omitempty"`
-	Material            string  `json:"material,omitempty"`
+	PreviewMesh     bool    `json:"preview_mesh,omitempty"`
+	ApproachSpaceMM float64 `json:"approach_space_mm,omitempty"`
+	LowerStepCount  int     `json:"lower_step_count,omitempty"`
+	Material        string  `json:"material,omitempty"`
 	// TreadMaterial — материал СТУПЕНЕЙ (проступи, площадки, поворотные
 	// ступени), отдельно от материала каркаса. Пусто → наследуется от
 	// material (лестница из одного материала). Нужен потому, что у дерева

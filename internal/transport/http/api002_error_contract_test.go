@@ -207,7 +207,7 @@ func TestAPI002_DomainErrorRegistryIsExhaustive(t *testing.T) {
 				strings.HasSuffix(entry.Name(), "_test.go") {
 				continue
 			}
-			raw, err := os.ReadFile(filepath.Join("..", "..", "application", pkg, entry.Name()))
+			raw, err := os.ReadFile(filepath.Join("..", "..", "application", pkg, entry.Name())) //nolint:gosec // G304: путь к эталону/фикстуре задаёт сам тест
 			if err != nil {
 				t.Fatalf("read %s: %v", entry.Name(), err)
 			}

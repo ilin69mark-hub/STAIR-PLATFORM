@@ -14,7 +14,7 @@ import (
 // readMigrationFile читает файл миграции из migrations/.
 func readMigrationFile(t *testing.T, name string) string {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(migrationsDir(t), name))
+	raw, err := os.ReadFile(filepath.Join(migrationsDir(t), name)) //nolint:gosec // G304: путь к эталону/фикстуре задаёт сам тест
 	if err != nil {
 		t.Fatalf("read migration %s: %v", name, err)
 	}

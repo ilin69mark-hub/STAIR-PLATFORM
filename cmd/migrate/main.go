@@ -114,6 +114,7 @@ func runPreflight(ctx context.Context, pool *pgxpool.Pool) {
 	}
 	fmt.Print(rep.String())
 	if rep.Failed() {
+		//nolint:gosec // G706: в форматную строку идёт len() — целое число, внедрение невозможно
 		log.Fatalf("preflight: %d нарушений — миграция будет отвергнута (схема останется чистой)", len(rep.Violations))
 	}
 }

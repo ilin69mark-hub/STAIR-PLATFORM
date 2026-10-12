@@ -216,7 +216,7 @@ func sec4Router(js *sec4Jobs, ps *sec4Payments) http.Handler {
 func sec4Get(t *testing.T, h http.Handler, path, session string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, path, nil)
-	req.AddCookie(&http.Cookie{Name: "session", Value: session})
+	req.AddCookie(&http.Cookie{Name: "session", Value: session}) //nolint:gosec // G124: cookie подставляется в запрос теста, атрибуты Secure/HttpOnly не применимы
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec
@@ -239,8 +239,8 @@ func TestSEC004_CrossUserIsolation(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/stairs:calculate/async",
 		strings.NewReader(postBody))
 	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(&http.Cookie{Name: "session", Value: "sess-userA"})
-	req.AddCookie(&http.Cookie{Name: "csrf", Value: "x"})
+	req.AddCookie(&http.Cookie{Name: "session", Value: "sess-userA"}) //nolint:gosec // G124: cookie подставляется в запрос теста, атрибуты Secure/HttpOnly не применимы
+	req.AddCookie(&http.Cookie{Name: "csrf", Value: "x"})             //nolint:gosec // G124: cookie подставляется в запрос теста, атрибуты Secure/HttpOnly не применимы
 	req.Header.Set(csrfHeader, "x")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

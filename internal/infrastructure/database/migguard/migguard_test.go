@@ -111,7 +111,7 @@ func migrationsSource(t *testing.T) string {
 	}
 	var b strings.Builder
 	for _, f := range files {
-		raw, err := os.ReadFile(f)
+		raw, err := os.ReadFile(f) //nolint:gosec // G304: путь к эталону/фикстуре задаёт сам тест
 		if err != nil {
 			t.Fatalf("read %s: %v", f, err)
 		}

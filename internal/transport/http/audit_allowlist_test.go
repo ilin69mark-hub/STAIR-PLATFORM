@@ -117,8 +117,8 @@ func sec2Post(t *testing.T, h http.Handler, body string) *httptest.ResponseRecor
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/audit", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(&http.Cookie{Name: "session", Value: "sess"})
-	req.AddCookie(&http.Cookie{Name: "csrf", Value: "x"})
+	req.AddCookie(&http.Cookie{Name: "session", Value: "sess"}) //nolint:gosec // G124: cookie подставляется в запрос теста, атрибуты Secure/HttpOnly не применимы
+	req.AddCookie(&http.Cookie{Name: "csrf", Value: "x"})       //nolint:gosec // G124: cookie подставляется в запрос теста, атрибуты Secure/HttpOnly не применимы
 	req.Header.Set(csrfHeader, "x")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -340,7 +340,7 @@ func TestSEC002_RegistryConsistency(t *testing.T) {
 // бы к 500 на легитимном серверном событии.
 func TestSEC002_MigrationAllowlistMatchesRegistry(t *testing.T) {
 	mig := filepath.Join("..", "..", "..", "migrations", "000029_audit_action_allowlist.up.sql")
-	raw, err := os.ReadFile(mig)
+	raw, err := os.ReadFile(mig) //nolint:gosec // G304: путь к эталону/фикстуре задаёт сам тест
 	if err != nil {
 		t.Fatalf("read migration: %v", err)
 	}

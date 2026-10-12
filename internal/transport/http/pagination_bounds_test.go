@@ -130,7 +130,7 @@ func TestAPI001_NoPanicOverHTTP(t *testing.T) {
 			for _, pp := range []string{"20", "100", "1", "-1"} {
 				q := path + "?page=" + pg + "&per_page=" + pp
 				req := httptest.NewRequest(http.MethodGet, q, nil)
-				req.AddCookie(&http.Cookie{Name: "session", Value: "sess"})
+				req.AddCookie(&http.Cookie{Name: "session", Value: "sess"}) //nolint:gosec // G124: cookie подставляется в запрос теста, атрибуты Secure/HttpOnly не применимы
 				rec := httptest.NewRecorder()
 				func() {
 					defer func() {

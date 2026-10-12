@@ -70,7 +70,7 @@ func liveCheckActions(t *testing.T) map[string]bool {
 	// Последняя по номеру миграция, которая вообще задаёт этот CHECK.
 	var newest string
 	for _, f := range files {
-		raw, err := os.ReadFile(f)
+		raw, err := os.ReadFile(f) //nolint:gosec // G304: путь к эталону/фикстуре задаёт сам тест
 		if err != nil {
 			t.Fatalf("read %s: %v", f, err)
 		}
@@ -86,7 +86,7 @@ func liveCheckActions(t *testing.T) map[string]bool {
 		t.Fatal("ни одна миграция не задаёт audit_events_action_check")
 	}
 
-	raw, err := os.ReadFile(newest)
+	raw, err := os.ReadFile(newest) //nolint:gosec // G304: путь к эталону/фикстуре задаёт сам тест
 	if err != nil {
 		t.Fatalf("read %s: %v", newest, err)
 	}
@@ -159,7 +159,7 @@ func writtenActions(t *testing.T) map[string]string {
 			if strings.HasSuffix(path, "audit/entity.go") {
 				return nil
 			}
-			raw, err := os.ReadFile(path)
+			raw, err := os.ReadFile(path) //nolint:gosec // G304: путь к эталону/фикстуре задаёт сам тест
 			if err != nil {
 				return nil
 			}
