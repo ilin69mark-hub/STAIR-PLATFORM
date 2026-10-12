@@ -105,6 +105,12 @@ func PrepareCost(pkg *dommfg.ManufacturingPackage, materials *dommfg.MaterialReg
 		dataset.FastenerCount += f.Quantity
 	}
 
+	// Покупные детали ограждения (S-162). Раньше потребность в них нигде не
+	// фиксировалась: 29 позиций были в пакете, но не доходили до сметы, и
+	// менеджер выдавал цену без ограждения. Считается так же, как крепёж, —
+	// физическое количество в штуках, цену подставит Pricing.
+	dataset.PurchasedConsumption = dommfg.PurchasedDemandFor(pkg.Parts)
+
 	plan, err := PlanOperations(pkg, rates)
 	if err != nil {
 		return nil, err

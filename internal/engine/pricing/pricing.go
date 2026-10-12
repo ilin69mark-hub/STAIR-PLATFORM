@@ -25,6 +25,10 @@ type Rates struct {
 	// Отдельная карта: у крепежа своя единица (шт), и смешать его с ценой за
 	// кг нельзя — иначе 210 глухарей уехали бы в килограммы.
 	Fastener map[string]domprc.Money
+	// Purchased — закупочная цена покупной детали за ШТУКУ по коду позиции
+	// (S-162). Пустая — не ошибка: строка попадёт в смету с нулём, и
+	// расхождение «в пакете 29 позиций, в смете 0 ₽» будет видно.
+	Purchased map[string]domprc.Money
 	// Sealant — цена герметика за КАРТРИДЖ по коду позиции (CONF-SEALANT).
 	// Отдельная карта: единица картриджа, и смешивать её с ценой за кг или за
 	// штуку нельзя.
@@ -168,6 +172,34 @@ func Price(ds *dommfg.ManufacturingCostDataset, rates Rates) (*domprc.PriceBreak
 			Category: domprc.CategoryFastener,
 			Amount:   amount,
 			Source:   fmt.Sprintf("fastener:%s,qty:%d,purpose:%s", f.Code, f.Quantity, f.Purpose),
+		})
+	}
+
+	// Покупные детали ограждения (S-162). Цена за штуку по коду позиции.
+	//
+	// Позиция без ставки не выбрасывается: сумма не увеличивается, но строка
+	// остаётся. Так же устроен крепёж выше — и по той же причине: раньше
+	// покупные детали не доходили до сметы ВООБЩЕ, и менеджер выдавал цену
+	// без ограждения, не подозревая об этом.
+	for _, p := range ds.PurchasedConsumption {
+		price, ok := rates.Purchased[string(p.Code)]
+		if !ok {
+			// Ставки нет: строка остаётся нулевой, чтобы разрыв был виден.
+			b.Lines = append(b.Lines, domprc.CostComponent{
+				Name:     fmt.Sprintf("Закупка: %s — %s, %d шт", p.Name, p.Material, p.Quantity),
+				Category: domprc.CategoryMaterial,
+				Amount:   0,
+				Source:   fmt.Sprintf("purchased:%s,qty:%d", p.Code, p.Quantity),
+			})
+			continue
+		}
+		amount := moneyFromQuantity(float64(p.Quantity), price)
+		b.Material = b.Material.Add(amount)
+		b.Lines = append(b.Lines, domprc.CostComponent{
+			Name:     fmt.Sprintf("Закупка: %s — %s, %d шт", p.Name, p.Material, p.Quantity),
+			Category: domprc.CategoryMaterial,
+			Amount:   amount,
+			Source:   fmt.Sprintf("purchased:%s,qty:%d", p.Code, p.Quantity),
 		})
 	}
 

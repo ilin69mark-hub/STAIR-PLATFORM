@@ -119,9 +119,19 @@ func TestPriceChainConsistency(t *testing.T) {
 	}
 	// 5 строк крепежа (глухарь и дюбель по полю, по перекрытию, плюс обойма
 	// выреза) + 1 строка герметика + 1 материал + станок + труд + накладные
-	// + маржа + скидка + НДС.
-	if len(b.Lines) != 13 {
-		t.Fatalf("lines = %d, want 13 (5 крепёж + 1 герметик + 1 material + machine + labor + overhead + margin + discount + tax)", len(b.Lines))
+	// + маржа + скидка + НДС + по одной строке на покупную позицию (S-162).
+	purchasedLines := 0
+	for _, l := range b.Lines {
+		if l.Source != "" && len(l.Source) >= 9 && l.Source[:9] == "purchased" {
+			purchasedLines++
+		}
+	}
+	want := 13 + purchasedLines
+	if len(b.Lines) != want {
+		t.Fatalf("lines = %d, want %d (13 базовых + %d покупных)", len(b.Lines), want, purchasedLines)
+	}
+	if purchasedLines == 0 {
+		t.Fatal("покупные позиции не попали в смету ни одной строкой — разрыв вернулся")
 	}
 }
 
