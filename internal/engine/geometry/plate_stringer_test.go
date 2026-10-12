@@ -97,8 +97,8 @@ func TestPlateStringerTreadsSpanBetweenPlates(t *testing.T) {
 // Профиль пластины: пять вершин, верхнее ребро — посадочная линия ступеней
 // (прямая, без зубьев), нижнее — та же линия, сдвинутая на глубину пластины.
 func TestPlateStringerProfileIsStraightPlate(t *testing.T) {
-	n, b, h, st, y, tn, depth := 16, 280.0, 175.0, 40.0, 0.0, 8.0, StringerPlateDepthMM
-	pts := plateStringerProfile(n, b, h, st, y, tn, depth)
+	n, b, h, st, depth := 16, 280.0, 175.0, 40.0, StringerPlateDepthMM
+	pts := plateStringerProfile(n, b, h, st, depth)
 	// 5 вершин: пол, передняя грань, верхнее ребро, задний срез, пятка.
 	if len(pts) != 5 {
 		t.Fatalf("вершин профиля = %d, ждём 5 (прямая пластина без зубьев)", len(pts))
@@ -156,7 +156,7 @@ func TestPlateStringerProfileIsStraightPlate(t *testing.T) {
 func TestPlateDepthIsConstantAcrossFlightAngles(t *testing.T) {
 	for _, h := range []float64{150, 175, 200, 250} {
 		b, st, n := 280.0, 40.0, 16
-		pts := plateStringerProfile(n, b, h, st, 0, 8, StringerPlateDepthMM)
+		pts := plateStringerProfile(n, b, h, st, StringerPlateDepthMM)
 		perp := (pts[2].Z - pts[3].Z) * b / math.Hypot(b, h)
 		if math.Abs(perp-StringerPlateDepthMM) > 1e-6 {
 			t.Errorf("подъём %v: перпендикулярная глубина = %v, ждём %v",
@@ -177,7 +177,7 @@ func TestPlateStringerSeatLineCarriesTreads(t *testing.T) {
 	h := cfg.StepHeight.Millimeters()
 	st := cfg.StepThickness.Millimeters()
 	n := cfg.StepCount
-	pts := plateStringerProfile(n, b, h, st, 0, cfg.StringerThickness.Millimeters(), StringerPlateDepthMM)
+	pts := plateStringerProfile(n, b, h, st, StringerPlateDepthMM)
 	// Верхнее ребро: от первой посадки (0, h−st) до последней
 	// ((n−1)·b, n·h−st).
 	x0, z0 := pts[1].X, pts[1].Z
@@ -235,7 +235,7 @@ func TestPlateFrameMaterialAutoByThickness(t *testing.T) {
 // нормали. Считается из тела, поэтому одинаково работает для прямого
 // марша и для сегментов Г- и П-образных лестниц.
 func TestPlateBlankMatchesPartGeometry(t *testing.T) {
-	pts := plateStringerProfile(16, 280, 175, 40, 0, 8, StringerPlateDepthMM)
+	pts := plateStringerProfile(16, 280, 175, 40, StringerPlateDepthMM)
 	solid, err := kerngeo.Extrude(pts, kerngeo.NewVector3(0, 1, 0), 8)
 	if err != nil {
 		t.Fatal(err)

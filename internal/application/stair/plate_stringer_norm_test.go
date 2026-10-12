@@ -27,12 +27,17 @@ func plateIssue(t *testing.T, res *Result) *validation.Issue {
 	return nil
 }
 
-func steelPlateConfig(height, width, thick float64) Config {
+// steelTestWidthMM — ширина, которую задавал каждый вызов. Параметр убран:
+// по решению владельца от 2026-10-06 ширина заготовки, как и толщина, берётся
+// из норматива автоматически, и значение из теста всё равно не доезжает.
+const steelTestWidthMM = 900.0
+
+func steelPlateConfig(height, thick float64) Config {
 	cfg := referenceConfig()
 	cfg.Material = "STEEL-S235"
 	cfg.TreadMaterial = "STEEL-S235"
 	cfg.Height = engineering.Length(height)
-	cfg.Width = engineering.Length(width)
+	cfg.Width = engineering.Length(steelTestWidthMM)
 	cfg.StringerThickness = engineering.Length(thick)
 	cfg.StepThickness = engineering.Length(6)
 	return cfg
@@ -46,7 +51,7 @@ func TestPlateStringerNormThicknessIsAutomatic(t *testing.T) {
 	s := NewService()
 	// H=2700 → проекция 4050 мм → строка «более 4.0 м» → лист 12 мм.
 	for _, sent := range []float64{8, 50} {
-		res, err := s.Calculate(context.Background(), steelPlateConfig(2700, 900, sent), Options{})
+		res, err := s.Calculate(context.Background(), steelPlateConfig(2700, sent), Options{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -66,7 +71,7 @@ func TestPlateStringerNormThicknessIsAutomatic(t *testing.T) {
 // ответе: раскрой и цена считаются по ней.
 func TestPlateStringerNormReachesPartBlank(t *testing.T) {
 	s := NewService()
-	res, err := s.Calculate(context.Background(), steelPlateConfig(2700, 900, 50), Options{})
+	res, err := s.Calculate(context.Background(), steelPlateConfig(2700, 50), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +107,7 @@ func TestPlateStringerNormFollowsFlightLength(t *testing.T) {
 		{2700, 12}, // проекция 4050 мм — строка «более 4.0 м»
 	}
 	for _, c := range cases {
-		res, err := s.Calculate(context.Background(), steelPlateConfig(c.height, 900, 8), Options{})
+		res, err := s.Calculate(context.Background(), steelPlateConfig(c.height, 8), Options{})
 		if err != nil {
 			t.Fatalf("H=%.0f: %v", c.height, err)
 		}
@@ -116,7 +121,7 @@ func TestPlateStringerNormFollowsFlightLength(t *testing.T) {
 // утверждённые 300 не годятся. Подставляется сама, без предупреждения.
 func TestPlateStringerNormBlankIsAutomatic(t *testing.T) {
 	s := NewService()
-	res, err := s.Calculate(context.Background(), steelPlateConfig(2700, 900, 12), Options{})
+	res, err := s.Calculate(context.Background(), steelPlateConfig(2700, 12), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +133,7 @@ func TestPlateStringerNormBlankIsAutomatic(t *testing.T) {
 	}
 	// Короткий марш остаётся на утверждённых 300 мм: норматив 8 мм требует
 	// от 250, и увеличивать заготовку незачем.
-	res, err = s.Calculate(context.Background(), steelPlateConfig(1800, 900, 8), Options{})
+	res, err = s.Calculate(context.Background(), steelPlateConfig(1800, 8), Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +150,7 @@ func TestPlateStringerNormBlankIsAutomatic(t *testing.T) {
 func TestPlateSteelThicknessTenAndTwelveAreAllowed(t *testing.T) {
 	s := NewService()
 	for _, th := range []float64{8, 10, 12} {
-		res, err := s.Calculate(context.Background(), steelPlateConfig(1800, 900, th), Options{})
+		res, err := s.Calculate(context.Background(), steelPlateConfig(1800, th), Options{})
 		if err != nil {
 			t.Fatalf("лист %.0f мм: %v", th, err)
 		}
@@ -162,7 +167,7 @@ func TestPlateSteelThicknessTenAndTwelveAreAllowed(t *testing.T) {
 // К деревянному каркасу норматив для листа не применяется — там своя таблица.
 func TestPlateStringerNormIgnoresWoodFrame(t *testing.T) {
 	s := NewService()
-	cfg := steelPlateConfig(2700, 900, 8)
+	cfg := steelPlateConfig(2700, 8)
 	cfg.Material = "WOOD-OAK"
 	cfg.TreadMaterial = "WOOD-OAK"
 	cfg.StepThickness = engineering.Length(40)

@@ -26,15 +26,16 @@ func triangulate(t *testing.T, outer []Point3, holes [][]Point3) (float64, int) 
 	return ringArea(tris, pts), len(tris)
 }
 
-func rectRing(x0, x1, y0, y1, z float64) []Point3 {
-	return []Point3{{X: x0, Y: y0, Z: z}, {X: x1, Y: y0, Z: z}, {X: x1, Y: y1, Z: z}, {X: x0, Y: y1, Z: z}}
+// Плоскость Z=0: все вызовы передавали z=0, поэтому параметр убран.
+func rectRing(x0, x1, y0, y1 float64) []Point3 {
+	return []Point3{{X: x0, Y: y0}, {X: x1, Y: y0}, {X: x1, Y: y1}, {X: x0, Y: y1}}
 }
 
-func circleRing(cx, cy, r, z float64, n int) []Point3 {
+func circleRing(cx, cy, r float64, n int) []Point3 {
 	out := make([]Point3, n)
 	for i := 0; i < n; i++ {
 		a := 2 * math.Pi * float64(i) / float64(n)
-		out[i] = Point3{X: cx + r*math.Cos(a), Y: cy + r*math.Sin(a), Z: z}
+		out[i] = Point3{X: cx + r*math.Cos(a), Y: cy + r*math.Sin(a)}
 	}
 	return out
 }
@@ -60,12 +61,12 @@ func slotRing(cx, cy, length, width, z float64) []Point3 {
 }
 
 func TestTriangulateWithHolesCoversPlateMinusHoles(t *testing.T) {
-	outer := rectRing(0, 280, 0, 50, 0)
+	outer := rectRing(0, 280, 0, 50)
 	holes := [][]Point3{
-		circleRing(24, 25, 6, 0, 24),
-		circleRing(101.333, 25, 6, 0, 24),
-		circleRing(178.667, 25, 6, 0, 24),
-		circleRing(256, 25, 6, 0, 24),
+		circleRing(24, 25, 6, 24),
+		circleRing(101.333, 25, 6, 24),
+		circleRing(178.667, 25, 6, 24),
+		circleRing(256, 25, 6, 24),
 	}
 	got, n := triangulate(t, outer, holes)
 	want := 280*50.0 - 4*polyArea2D(project2D(holes[0], mustNormal(outer)))
@@ -92,8 +93,8 @@ func slotRingY(cx, cy, length, width, z float64) []Point3 {
 }
 
 func TestTriangulateWithHolesSingleSquare(t *testing.T) {
-	outer := rectRing(0, 100, 0, 100, 0)
-	holes := [][]Point3{rectRing(30, 70, 30, 70, 0)}
+	outer := rectRing(0, 100, 0, 100)
+	holes := [][]Point3{rectRing(30, 70, 30, 70)}
 	got, _ := triangulate(t, outer, holes)
 	if want := 100.0*100 - 40*40; math.Abs(got-want) > 1e-6 {
 		t.Fatalf("area = %.6f, want %.6f", got, want)
@@ -101,10 +102,10 @@ func TestTriangulateWithHolesSingleSquare(t *testing.T) {
 }
 
 func TestTriangulateWithHolesReversedOrientation(t *testing.T) {
-	outer := rectRing(0, 200, 0, 80, 0)
+	outer := rectRing(0, 200, 0, 80)
 	// Внешний контур CW, отверстие CCW — нормализация обязана это скрыть.
 	outerCW := reverse3(outer)
-	holes := [][]Point3{reverse3(circleRing(50, 40, 8, 0, 20))}
+	holes := [][]Point3{reverse3(circleRing(50, 40, 8, 20))}
 	got, _ := triangulate(t, outerCW, holes)
 	want := 200*80.0 - polyArea2D(project2D(holes[0], mustNormal(outer)))
 	if math.Abs(got-want) > 1e-6 {
@@ -115,11 +116,11 @@ func TestTriangulateWithHolesReversedOrientation(t *testing.T) {
 func TestTriangulateWithHolesSlots(t *testing.T) {
 	// Пятка пола с эталонной раскладкой: 4 отверстия, первое и последнее —
 	// овалы 30×12, средние — круглые Ø12.
-	outer := rectRing(0, 280, 0, 50, 0)
+	outer := rectRing(0, 280, 0, 50)
 	holes := [][]Point3{
 		slotRing(24, 25, 30, 12, 0),
-		circleRing(101.333, 25, 6, 0, 24),
-		circleRing(178.667, 25, 6, 0, 24),
+		circleRing(101.333, 25, 6, 24),
+		circleRing(178.667, 25, 6, 24),
 		slotRingY(256, 25, 30, 12, 0),
 	}
 	got, _ := triangulate(t, outer, holes)

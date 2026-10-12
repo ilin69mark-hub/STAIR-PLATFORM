@@ -102,7 +102,7 @@ func TestManufactureUShapeDimensions(t *testing.T) {
 		if p == nil {
 			t.Fatalf("part %q not found", c.number)
 		}
-		if !nearlyEqualTol(p.Length.Millimeters(), c.l, 0.01) || !nearlyEqualTol(p.Width.Millimeters(), c.wd, 0.01) {
+		if !nearlyEqualTol(p.Length.Millimeters(), c.l) || !nearlyEqualTol(p.Width.Millimeters(), c.wd) {
 			t.Fatalf("part %q dims = %v×%v, want %v×%v",
 				c.number, p.Length.Millimeters(), p.Width.Millimeters(), c.l, c.wd)
 		}
@@ -188,7 +188,7 @@ func TestManufactureUShapeBOM(t *testing.T) {
 		if int(line.Quantity) != w.quantity {
 			t.Fatalf("line %d quantity = %d, want %d", i, int(line.Quantity), w.quantity)
 		}
-		if !nearlyEqualTol(line.Length.Millimeters(), w.length, 0.01) || !nearlyEqualTol(line.Width.Millimeters(), w.width, 0.01) {
+		if !nearlyEqualTol(line.Length.Millimeters(), w.length) || !nearlyEqualTol(line.Width.Millimeters(), w.width) {
 			t.Fatalf("line %d dims = %v×%v, want %v×%v", i,
 				line.Length.Millimeters(), line.Width.Millimeters(), w.length, w.width)
 		}

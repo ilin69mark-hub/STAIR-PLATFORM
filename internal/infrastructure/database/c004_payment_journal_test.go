@@ -20,7 +20,7 @@ import (
 //
 // Проверяется на живой БД; без STAIR_TEST_DATABASE_URL тест скипается.
 
-func c004PaidIntent(t *testing.T, payRepo *PaymentRepository, checkoutID string) *payments.PaymentIntent {
+func c004PaidIntent(t *testing.T, checkoutID string) *payments.PaymentIntent {
 	t.Helper()
 	intent := &payments.PaymentIntent{
 		TenantID: "unused", AmountMinor: 90_000, Currency: "RUB",
@@ -51,7 +51,7 @@ func TestCRIT004_RejectedTransitionWritesNoEvent(t *testing.T) {
 	projectID := testProject(t, ctx, projRepo, tenant, "C004 conflict")
 	owner := testOwnerID(t, projRepo, tenant)
 
-	intent := c004PaidIntent(t, payRepo, "c004-conflict-1")
+	intent := c004PaidIntent(t, "c004-conflict-1")
 	intent.TenantID, intent.ProjectID, intent.UserID = tenant, projectID, owner
 	if err := payRepo.CreateIntent(ctx, intent); err != nil {
 		t.Fatalf("create intent: %v", err)
@@ -111,7 +111,7 @@ func TestCRIT004_UpdateStatusReportsRejection(t *testing.T) {
 	projectID := testProject(t, ctx, projRepo, tenant, "C004 update")
 	owner := testOwnerID(t, projRepo, tenant)
 
-	intent := c004PaidIntent(t, payRepo, "c004-update-1")
+	intent := c004PaidIntent(t, "c004-update-1")
 	intent.TenantID, intent.ProjectID, intent.UserID = tenant, projectID, owner
 	if err := payRepo.CreateIntent(ctx, intent); err != nil {
 		t.Fatalf("create intent: %v", err)
@@ -172,7 +172,7 @@ func TestCRIT004_IdempotentRedeliveryIsAcceptedAndRecordedOnce(t *testing.T) {
 	projectID := testProject(t, ctx, projRepo, tenant, "C004 retry")
 	owner := testOwnerID(t, projRepo, tenant)
 
-	intent := c004PaidIntent(t, payRepo, "c004-retry-1")
+	intent := c004PaidIntent(t, "c004-retry-1")
 	intent.TenantID, intent.ProjectID, intent.UserID = tenant, projectID, owner
 	if err := payRepo.CreateIntent(ctx, intent); err != nil {
 		t.Fatalf("create intent: %v", err)

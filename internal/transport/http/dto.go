@@ -484,7 +484,11 @@ type calculateResponse struct {
 // включает фильтрацию вариантов отключённых типов марша (S-152): публичные
 // ручки передают true, внутренние — false, чтобы поведение не зависело от
 // глобального состояния и было безопасно при параллельных запросах.
-func toValidationResult(r *stair.Result, dropDisabledFlights bool) validationDTO {
+// Раньше принимала dropDisabledFlights, и публичный путь звал её с true, но
+// фильтра в теле не было никогда — аргумент ничего не менял. Параметр убран;
+// если отбрасывание замечаний выключенных маршей понадобится, это отдельная
+// задача, а не молчаливо работающий флаг.
+func toValidationResult(r *stair.Result) validationDTO {
 	issues := make([]validationIssueDTO, 0, len(r.Validation.Issues))
 	for _, i := range r.Validation.Issues {
 		dto := validationIssueDTO{

@@ -35,7 +35,11 @@ type publicQuoteDTO struct {
 //	422 — невалидный вход, отключённый марш или rates в теле (волна 0);
 //	429 — превышен rate-limit;
 //	500 — внутренняя ошибка.
-func handlePublicQuote(svc StairService, storeSvc StoreService, authSvc AuthService) http.HandlerFunc {
+// storeSvc параметром больше не принимается: по CRITICAL-03 выбор источника
+// ставок перенесён из транспорта в stair.Service.resolveRates, транспорт лишь
+// называет контекст через publicStoreTenant. Служба магазина тут стала не
+// нужна, но в подписи осталась.
+func handlePublicQuote(svc StairService, authSvc AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req calculateRequest
 		if err := decodeJSON(w, r, &req); err != nil {
@@ -86,7 +90,7 @@ func handlePublicQuote(svc StairService, storeSvc StoreService, authSvc AuthServ
 // проставляется во все варианты flight-результата из конфигурации.
 func toPublicQuote(res *stair.Result, cfg stair.Config) publicQuoteDTO {
 	out := publicQuoteDTO{
-		Validation: toValidationResult(res, true),
+		Validation: toValidationResult(res),
 	}
 	if res.Validation.Blocking || res.Price == nil {
 		return out

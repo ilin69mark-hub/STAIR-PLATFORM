@@ -557,7 +557,7 @@ func (s *Service) checkedSolve(ctx context.Context, cfg Config, c *engineering.S
 	// листовая сварная. Минимальная толщина зависит от длины марша по проекции
 	// и ширины, а узнать длину можно ТОЛЬКО после решалки — до неё её нет.
 	// Поэтому проверки живут здесь, а не в normalize.
-	res.Validation.Issues = append(res.Validation.Issues, timberStringerIssues(cfg, c, res)...)
+	res.Validation.Issues = append(res.Validation.Issues, timberStringerIssues(c, res)...)
 	res.Validation.Issues = append(res.Validation.Issues, plateStringerIssues(c, res)...)
 	res.Hints = stringerNormHints(c, res)
 	return res, nil
@@ -702,7 +702,7 @@ func minPlateBlankFor(thicknessMM float64) float64 {
 //
 // Косоур проверяется по МАТЕРИАЛУ КАРКАСА: правило про балку, а ступень из
 // дуба при стальном каркасе косоур не делает.
-func timberStringerIssues(cfg Config, c *engineering.StairConfiguration, res *Result) []validation.Issue {
+func timberStringerIssues(c *engineering.StairConfiguration, res *Result) []validation.Issue {
 	if !strings.HasPrefix(c.Material, "WOOD") {
 		return nil // листовой металлокаркас: балки нет
 	}

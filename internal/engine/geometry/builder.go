@@ -976,7 +976,11 @@ func shiftY(pts []kerngeo.Point3, y0 float64) []kerngeo.Point3 {
 }
 
 // plateStringerProfile строит профиль боковой пластины косоура
-// металлокаркаса в плоскости XZ при y = yOff — копия решения Ниоры.
+// металлокаркаса в плоскости XZ — копия решения Ниоры.
+//
+// Плоскость профиля фиксирована (y=0); параметр yOff ушёл, когда выяснилось,
+// что все вызовы передавали ноль, а держать ради этого «гибкость» значило
+// держать неиспользуемый параметр.
 //
 // Форма: ровная наклонная полоса ПОСТОЯННОЙ глубины depth по нормали к
 // линии подъёма, на всём марше. Верхнее ребро — посадочная линия ступеней:
@@ -990,7 +994,10 @@ func shiftY(pts []kerngeo.Point3, y0 float64) []kerngeo.Point3 {
 // «заужалась» к верху, и это было видно в 3D. Теперь полоса везде
 // одинаковой глубины, а сверху её накрывает отдельная горизонтальная
 // площадка (см. landingProfile) — ровно как у Ниоры.
-func plateStringerProfile(n int, b, h, st, yOff, t, depth float64) []kerngeo.Point3 {
+// plateProfilePlaneY — координата плоскости профиля пластины по Y.
+const plateProfilePlaneY = 0.0
+
+func plateStringerProfile(n int, b, h, st, depth float64) []kerngeo.Point3 {
 	// Глубина пластины отсчитывается ПО НОРМАЛИ к линии подъёма: это и есть
 	// «300 мм пластины» из чертежа. Раньше сдвиг нижнего ребра был задан
 	// ВЕРТИКАЛЬНЫМ отрезком depth·b/L, и перпендикулярная глубина выходила
@@ -1035,11 +1042,11 @@ func plateStringerProfile(n int, b, h, st, yOff, t, depth float64) []kerngeo.Poi
 		floorX = 0
 	}
 	return []kerngeo.Point3{
-		kerngeo.NewPoint3(0, yOff, 0),
-		kerngeo.NewPoint3(0, yOff, firstZ),
-		kerngeo.NewPoint3(lastSeatX, yOff, topZ),
-		kerngeo.NewPoint3(lastSeatX, yOff, topZ-drop),
-		kerngeo.NewPoint3(floorX, yOff, 0),
+		kerngeo.NewPoint3(0, plateProfilePlaneY, 0),
+		kerngeo.NewPoint3(0, plateProfilePlaneY, firstZ),
+		kerngeo.NewPoint3(lastSeatX, plateProfilePlaneY, topZ),
+		kerngeo.NewPoint3(lastSeatX, plateProfilePlaneY, topZ-drop),
+		kerngeo.NewPoint3(floorX, plateProfilePlaneY, 0),
 	}
 }
 
@@ -1052,7 +1059,7 @@ func plateStringerProfile(n int, b, h, st, yOff, t, depth float64) []kerngeo.Poi
 // 4480×308 против фактических 5024×300 — деталь короче геометрии на 544 мм
 // и шире её на 8 мм, то есть CAD-деталь не совпадала с моделью.
 func PlateBlankMM(n int, b, h, st, depth float64) (length, width float64) {
-	pts := plateStringerProfile(n, b, h, st, 0, 0, depth)
+	pts := plateStringerProfile(n, b, h, st, depth)
 	L := math.Hypot(b, h)
 	if L <= kerngeo.Precision {
 		return 0, 0

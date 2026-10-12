@@ -21,14 +21,18 @@ import (
 //     глотались через `_ =`. Сбой отзыва ключей давал «заблокированного»
 //     пользователя с живым Bearer-ключом — заметить можно было только по логам.
 
-func c005Owner(t *testing.T, repo *fakeRepo, id, tenant string, status Status) *User {
+// c005OwnerID — идентификатор владельца во всех вызовах был один и тот же,
+// поэтому параметром не передаётся.
+const c005OwnerID = "u-1"
+
+func c005Owner(t *testing.T, repo *fakeRepo, tenant string, status Status) *User {
 	t.Helper()
 	u := &User{
-		ID: id, TenantID: tenant, Email: id + "@example.com",
+		ID: c005OwnerID, TenantID: tenant, Email: c005OwnerID + "@example.com",
 		Role: RoleUser, Status: status,
 	}
 	repo.byID[u.ID] = u
-	repo.users[tenant+"/"+id] = u
+	repo.users[tenant+"/"+c005OwnerID] = u
 	return u
 }
 
@@ -36,7 +40,7 @@ func c005Owner(t *testing.T, repo *fakeRepo, id, tenant string, status Status) *
 func TestCRIT005_ApiKeyOfDisabledUserIsRejected(t *testing.T) {
 	repo := newFakeRepo()
 	svc := NewService(repo, 0)
-	owner := c005Owner(t, repo, "u-1", "t-1", StatusActive)
+	owner := c005Owner(t, repo, "t-1", StatusActive)
 	_, token, _ := svc.CreateApiKey(context.Background(), "t-1", owner.ID, "CI",
 		[]Permission{PermissionUsersList})
 
@@ -104,7 +108,7 @@ func TestCRIT005_DisableUserRevokesKeyAndSession(t *testing.T) {
 func TestCRIT005_DisableFailurePropagates(t *testing.T) {
 	repo := newFakeRepo()
 	svc := NewService(repo, 0)
-	owner := c005Owner(t, repo, "u-1", "t-1", StatusActive)
+	owner := c005Owner(t, repo, "t-1", StatusActive)
 	_, apiToken, _ := svc.CreateApiKey(context.Background(), "t-1", owner.ID, "CI",
 		[]Permission{PermissionUsersList})
 
@@ -150,7 +154,7 @@ func TestCRIT005_KeyWithoutOwnerIsRejected(t *testing.T) {
 func TestCRIT005_KeyOfDeletedOwnerIsRejected(t *testing.T) {
 	repo := newFakeRepo()
 	svc := NewService(repo, 0)
-	owner := c005Owner(t, repo, "u-1", "t-1", StatusActive)
+	owner := c005Owner(t, repo, "t-1", StatusActive)
 	_, token, _ := svc.CreateApiKey(context.Background(), "t-1", owner.ID, "CI",
 		[]Permission{PermissionUsersList})
 	if _, err := svc.AuthenticateApiKey(context.Background(), token); err != nil {
@@ -170,7 +174,7 @@ func TestCRIT005_KeyOfDeletedOwnerIsRejected(t *testing.T) {
 func TestCRIT005_ReactivationRestoresAccess(t *testing.T) {
 	repo := newFakeRepo()
 	svc := NewService(repo, 0)
-	owner := c005Owner(t, repo, "u-1", "t-1", StatusActive)
+	owner := c005Owner(t, repo, "t-1", StatusActive)
 	_, token, _ := svc.CreateApiKey(context.Background(), "t-1", owner.ID, "CI",
 		[]Permission{PermissionUsersList})
 

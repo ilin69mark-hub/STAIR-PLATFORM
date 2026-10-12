@@ -137,7 +137,7 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 	// Каталог материалов для витрины (этап 3): единственный источник истины
 	// для кодов, плотностей, диапазонов и ставок — бэкенд, не фронт.
 	mux.Handle("GET /api/v1/public/materials", limitRate(validateLimiter, trusted, handlePublicMaterials(storeSvc, authSvc)))
-	mux.Handle("POST /api/v1/public/stairs:quote", limitRate(quoteLimiter, trusted, handlePublicQuote(svc, storeSvc, authSvc)))
+	mux.Handle("POST /api/v1/public/stairs:quote", limitRate(quoteLimiter, trusted, handlePublicQuote(svc, authSvc)))
 	// Живая валидация при вводе для клиентского сайта (S-P5): тот же блок
 	// validation, что и в расчёте, но без геометрии/производства/цены.
 	mux.Handle("POST /api/v1/public/stairs:validate", limitRate(validateLimiter, trusted, handleValidate(svc)))

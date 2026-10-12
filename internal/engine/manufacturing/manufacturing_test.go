@@ -19,7 +19,8 @@ func nearlyEqual(a, b float64) bool {
 // nearlyEqualTol — сравнение с допуском: размеры заготовки пластины
 // иррациональны (длина по склону через корень), и сверять их с точностью
 // 1e-6 бессмысленно.
-func nearlyEqualTol(a, b, tol float64) bool {
+func nearlyEqualTol(a, b float64) bool {
+	const tol = 0.01
 	return math.Abs(a-b) <= tol
 }
 
@@ -121,7 +122,7 @@ func TestManufacturePartDimensions(t *testing.T) {
 	// равных куска: (4845,31 + 12 мм припуска на шип) / 2 = 2428,65. Куски
 	// равные — короткий хвост съел бы целый ряд заготовки.
 	if p := findPart(pkg, "STR-01"); p != nil {
-		if !nearlyEqualTol(p.Length.Millimeters(), 2428.653107013688, 0.01) || !nearlyEqual(p.Width.Millimeters(), 300) ||
+		if !nearlyEqualTol(p.Length.Millimeters(), 2428.653107013688) || !nearlyEqual(p.Width.Millimeters(), 300) ||
 			!nearlyEqual(p.Thickness.Millimeters(), 12) {
 			t.Fatalf("stringer dims = %v×%v×%v, want 2428.65×300×12 (2 куска, гребёнка со спиной 300)",
 				p.Length.Millimeters(), p.Width.Millimeters(), p.Thickness.Millimeters())

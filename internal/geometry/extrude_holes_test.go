@@ -6,27 +6,36 @@ import (
 )
 
 // circleRing2D — круглое отверстие из n точек в плоскости Z=0.
-func circleRing2D(cx, cy, r float64, n int) []Point3 {
+func circleRing2D(cx float64, n int) []Point3 {
 	out := make([]Point3, n)
 	for i := 0; i < n; i++ {
 		a := 2 * math.Pi * float64(i) / float64(n)
-		out[i] = Point3{X: cx + r*math.Cos(a), Y: cy + r*math.Sin(a)}
+		out[i] = Point3{X: cx + holeRadius*math.Cos(a), Y: holeCenterY + holeRadius*math.Sin(a)}
 	}
 	return out
 }
 
+// holeCenterY — ось отверстий: все вызовы передавали cy=25, параметр убран.
+const holeCenterY = 25.0
+
+// holeRadius — радиус, который задавал каждый вызов; параметром не нужен.
+const holeRadius = 6.0
+
 // slotRing2D — овал длиной length по X и шириной width по Y в плоскости Z=0.
 // Полуокружности по краям, прямые участки между ними.
-func slotRing2D(cx, cy, length, width float64) []Point3 {
+// slotLength — длина овала во всех вызовах была 30 мм.
+const slotLength = 30.0
+
+func slotRing2D(cx, width float64) []Point3 {
 	r := width / 2
-	half := length/2 - r
+	half := slotLength/2 - r
 	var out []Point3
 	arc := func(ox float64, from, to float64) {
 		for i := 0; i <= 6; i++ {
 			a := from + (to-from)*float64(i)/6
 			out = append(out, Point3{
 				X: cx + ox + r*math.Cos(a),
-				Y: cy + r*math.Sin(a),
+				Y: holeCenterY + r*math.Sin(a),
 			})
 		}
 	}
@@ -48,7 +57,7 @@ func circleRingXZ(cx, cz, r float64, n int) []Point3 {
 // slotRingXZ — овал длиной length по Z и шириной width по X в плоскости Y=0.
 func slotRingXZ(cx, cz, length, width float64) []Point3 {
 	r := width / 2
-	half := length/2 - r
+	half := slotLength/2 - r
 	var out []Point3
 	arc := func(oz float64, from, to float64) {
 		for i := 0; i <= 6; i++ {
@@ -95,10 +104,10 @@ func TestExtrudeWithHolesVolume(t *testing.T) {
 		{X: 0, Y: 0}, {X: 280, Y: 0}, {X: 280, Y: 50}, {X: 0, Y: 50},
 	}
 	holes := [][]Point3{
-		slotRing2D(24, 25, 30, 12),
-		circleRing2D(120, 25, 6, 32),
-		circleRing2D(180, 25, 6, 32),
-		slotRing2D(240, 25, 30, 12),
+		slotRing2D(24, 12),
+		circleRing2D(120, 32),
+		circleRing2D(180, 32),
+		slotRing2D(240, 12),
 	}
 	const th = 4.0
 	solid, err := ExtrudeWithHoles(prof, holes, Vector3{Z: 1}, th)
@@ -126,9 +135,9 @@ func TestExtrudeWithHolesArea(t *testing.T) {
 		{X: 0, Y: 0}, {X: 280, Y: 0}, {X: 280, Y: 50}, {X: 0, Y: 50},
 	}
 	holes := [][]Point3{
-		slotRing2D(24, 25, 30, 12),
-		circleRing2D(120, 25, 6, 32),
-		slotRing2D(240, 25, 30, 12),
+		slotRing2D(24, 12),
+		circleRing2D(120, 32),
+		slotRing2D(240, 12),
 	}
 	const th = 4.0
 	solid, err := ExtrudeWithHoles(prof, holes, Vector3{Z: 1}, th)
@@ -202,7 +211,7 @@ func TestExtrudeWithHolesInvalid(t *testing.T) {
 func TestFaceWithHolesMesh(t *testing.T) {
 	solid, err := ExtrudeWithHoles(
 		[]Point3{{X: 0, Y: 0}, {X: 200, Y: 0}, {X: 200, Y: 50}, {X: 0, Y: 50}},
-		[][]Point3{circleRing2D(100, 25, 6, 24)}, Vector3{Z: 1}, 4)
+		[][]Point3{circleRing2D(100, 24)}, Vector3{Z: 1}, 4)
 	if err != nil {
 		t.Fatalf("ExtrudeWithHoles: %v", err)
 	}
@@ -219,7 +228,7 @@ func TestFaceWithHolesMesh(t *testing.T) {
 	for _, tr := range tess.Tris {
 		sum += triangleArea(tess.Points[tr[0]], tess.Points[tr[1]], tess.Points[tr[2]])
 	}
-	want := 200*50.0 - ringArea2D(circleRing2D(100, 25, 6, 24))
+	want := 200*50.0 - ringArea2D(circleRing2D(100, 24))
 	if math.Abs(sum-want) > 1e-6 {
 		t.Fatalf("площадь грани = %.4f, want %.4f", sum, want)
 	}

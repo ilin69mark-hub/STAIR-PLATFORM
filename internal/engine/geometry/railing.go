@@ -705,7 +705,7 @@ func balusterSteps(n int, b float64) []int {
 //
 // st — толщина проступи: ею задаётся линия носка, на которой нижняя кромка
 // панели переходит с нижней ступени на верхнюю.
-func straightRailingSolids(q Quality, n int, b, h, rh, w, st, nosing float64, side engineering.RailingSide) []*kerngeo.Solid {
+func straightRailingSolids(q Quality, n int, b, h, rh, w, nosing float64, side engineering.RailingSide) []*kerngeo.Solid {
 	sides := railingSides(side, w)
 	if len(sides) == 0 || rh <= 0 || n <= 0 {
 		return nil
@@ -1024,14 +1024,14 @@ func buildRailingDecor(cfg *engineering.StairConfiguration, q Quality) ([]*kerng
 	switch cfg.RailingType.Effective() {
 	case engineering.RailingTypeGlass:
 		if cfg.Flight == engineering.FlightStraight {
-			return glassRailingSolids(q, n, b, h, rh, w, cfg.StepThickness.Millimeters(),
+			return glassRailingSolids(q, n, b, h, rh, w,
 				cfgProfileNosing(cfg), cfg.Railing), nil
 		}
 		return buildLURNailing(q, cfg, rh)
 	}
 	switch cfg.Flight {
 	case engineering.FlightStraight:
-		return straightRailingSolids(q, n, b, h, rh, w, cfg.StepThickness.Millimeters(),
+		return straightRailingSolids(q, n, b, h, rh, w,
 			cfgProfileNosing(cfg), cfg.Railing), nil
 	case engineering.FlightLShape, engineering.FlightUShape:
 		return buildLURNailing(q, cfg, rh)
@@ -1079,7 +1079,7 @@ func buildLURNailing(q Quality, cfg *engineering.StairConfiguration, rh float64)
 		if left {
 			lowerT = kerngeo.Translate(w+l1, flightW, 0).Mul(kerngeo.RotateZ(math.Pi))
 		}
-		for _, s := range straightRailingSolids(q, n1, b, h, rh, flightW, cfg.StepThickness.Millimeters(),
+		for _, s := range straightRailingSolids(q, n1, b, h, rh, flightW,
 			cfgProfileNosing(cfg), side) {
 			sols = append(sols, kerngeo.TransformSolid(s, lowerT))
 		}
@@ -1158,7 +1158,7 @@ func buildLURNailing(q Quality, cfg *engineering.StairConfiguration, rh float64)
 				rot = math.Pi
 			}
 		}
-		for _, s := range straightRailingSolids(q, n2, b, h, rh, flightW, cfg.StepThickness.Millimeters(),
+		for _, s := range straightRailingSolids(q, n2, b, h, rh, flightW,
 			cfgProfileNosing(cfg), swapSidesForTurn(side, rot)) {
 			sols = append(sols, kerngeo.TransformSolid(s, upperT))
 		}
@@ -1431,7 +1431,7 @@ func cfgProfileNosing(cfg *engineering.StairConfiguration) float64 {
 // glassRailingSolids строит стеклянное ограждение прямого сегмента:
 // опоры + стеклянные панели между ними. Это ОТДЕЛЬНЫЙ тип конструкции
 // (engineering.RailingTypeGlass), в нержавеющей стали стекла нет.
-func glassRailingSolids(q Quality, n int, b, h, rh, w, st, nosingGlass float64, side engineering.RailingSide) []*kerngeo.Solid {
+func glassRailingSolids(q Quality, n int, b, h, rh, w, nosingGlass float64, side engineering.RailingSide) []*kerngeo.Solid {
 	sides := railingSides(side, w)
 	if len(sides) == 0 || rh <= 0 || n <= 0 {
 		return nil

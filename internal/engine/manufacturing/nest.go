@@ -145,7 +145,7 @@ func SheetFeasible(thickness float64, rects ...Rect) bool {
 // каталог листов (там есть форматы до 2500×600 и крупнее).
 func SheetFeasibleFor(material dommfg.MaterialCode, thickness float64, rects ...Rect) bool {
 	cut := normalizeRects(rects)
-	if isLaserGroup(nil, material) {
+	if isLaserGroup(material) {
 		return fitsLaserField(cut, thickness)
 	}
 	return fitsStockSheet(material, cut)
@@ -162,7 +162,7 @@ func SheetFeasibleFor(material dommfg.MaterialCode, thickness float64, rects ...
 // Дерево не разрезается стыком (другой станок, сварка не предусмотрена), и его
 // проверяют против каталога листов целиком.
 func SplittableFeasibleFor(material dommfg.MaterialCode, thickness, lengthMM, widthMM float64) bool {
-	if isLaserGroup(nil, material) {
+	if isLaserGroup(material) {
 		l, w := lengthMM, widthMM
 		if l < w {
 			l, w = w, l
@@ -339,7 +339,7 @@ func Nest(cut dommfg.CutList, registry *dommfg.StockSheetRegistry) (*dommfg.Nest
 		if err != nil {
 			return err
 		}
-		if isLaserGroup(registry, k.material) {
+		if isLaserGroup(k.material) {
 			groupLayouts[i] = blanksToSheets(nestBlanks(rects, k.thickness), sheet, k.thickness)
 		} else {
 			groupLayouts[i] = nestWood(rects, sheet, k.thickness)
@@ -373,10 +373,10 @@ func Nest(cut dommfg.CutList, registry *dommfg.StockSheetRegistry) (*dommfg.Nest
 // IsLaserMaterial режется ли материал лазером: его ограничение — рабочее поле
 // стола, а не каталог листов.
 func IsLaserMaterial(material dommfg.MaterialCode) bool {
-	return isLaserGroup(nil, material)
+	return isLaserGroup(material)
 }
 
-func isLaserGroup(registry *dommfg.StockSheetRegistry, material dommfg.MaterialCode) bool {
+func isLaserGroup(material dommfg.MaterialCode) bool {
 	registryMat, err := DefaultMaterialRegistry()
 	if err != nil {
 		return false
@@ -387,7 +387,7 @@ func isLaserGroup(registry *dommfg.StockSheetRegistry, material dommfg.MaterialC
 
 // pickSheet возвращает лист, из которого режутся заготовки.
 func pickSheet(registry *dommfg.StockSheetRegistry, material dommfg.MaterialCode, rects []cutRect, thickness float64) (*dommfg.StockSheet, error) {
-	if isLaserGroup(registry, material) && !fitsLaserField(rects, thickness) {
+	if isLaserGroup(material) && !fitsLaserField(rects, thickness) {
 		maxLen, maxWid := bounds(rects)
 		return nil, &FeasibilityError{
 			PartLen:     maxLen,
@@ -403,7 +403,7 @@ func pickSheet(registry *dommfg.StockSheetRegistry, material dommfg.MaterialCode
 	}
 	// Для металла поле стола важнее размера листа: типоразмер один
 	// (6000×1500), выбирать не из чего.
-	if isLaserGroup(registry, material) {
+	if isLaserGroup(material) {
 		return sheets[0], nil
 	}
 	// Для дерева листов несколько, и берётся наименьший ПО ПЛОЩАДИ ИЗ

@@ -205,7 +205,7 @@ func handleValidate(svc StairService) http.HandlerFunc {
 		// косоур раньше жил дублирующей таблицей в TypeScript; теперь
 		// единственный источник — engineering/timber_stringer.go, а форма
 		// получает готовый текст. Ключи совпадают с именами полей ConfigForm.
-		body := map[string]any{"validation": toValidationResult(res, false)}
+		body := map[string]any{"validation": toValidationResult(res)}
 		if len(res.Hints) > 0 {
 			body["hints"] = res.Hints
 		}
@@ -304,7 +304,7 @@ func handleOptimize(svc StairService) http.HandlerFunc {
 
 func toResponse(res *stair.Result) calculateResponse {
 	resp := calculateResponse{
-		Validation: toValidationResult(res, false),
+		Validation: toValidationResult(res),
 	}
 	if res.Validation.Blocking || res.Package == nil || res.Price == nil {
 		// Конвейер остановлен: производственных и финансовых данных нет.
