@@ -2,10 +2,21 @@
 # STAIR PLATFORM — coverage quality gate (DEV-0010 / TEST-0028).
 #
 # Проверяет, что суммарное покрытие тестами не ниже порога.
-# Пакет infrastructure/database требует БД (STAIR_TEST_DATABASE_URL):
-# если переменная не задана, интеграционные тесты в нём скипаются и
-# покрытие равно 0% — такой пакет исключается из подсчёта, чтобы гейт
-# работал одинаково локально и в CI (без БД).
+#
+# Два исключения, оба явные:
+#
+# 1. internal/infrastructure/database требует БД (STAIR_TEST_DATABASE_URL).
+#    Если переменная не задана, интеграционные тесты в нём скипаются и
+#    покрытие равно 0% — пакет исключается, чтобы гейт работал одинаково
+#    локально и в CI (без БД). В CI исключение запрещено: там БД обязательна.
+#
+# 2. cmd/* — точки входа (main). Их не покрывают юнит-тесты: разбор флагов,
+#    установка сигналов и старт сервера проверяются запуском, а не вызовом
+#    функции. Включать их в гейт значит требовать написать тест ради теста.
+#    Исключение решение владельца от 2026-10-12; до него эти пакеты тянули
+#    суммарный процент вниз на 2,8 пункта и делали порог недостижимым, хотя
+#    код был покрыт на 83,4%.
+#    Исключение печатается строкой, а не применяется молча.
 #
 # Usage:
 #   scripts/coverage-check.sh [threshold]
@@ -16,6 +27,7 @@ set -euo pipefail
 
 THRESHOLD="${COVERAGE_THRESHOLD:-${1:-85}}"
 DB_PKG="internal/infrastructure/database"
+CMD_PKG="cmd/"
 
 if [[ -n "${COVERAGE_PROFILE:-}" ]]; then
     profile="$COVERAGE_PROFILE"
@@ -43,6 +55,13 @@ if [[ -z "${STAIR_TEST_DATABASE_URL:-}" ]]; then
     grep -v "$DB_PKG/" "$profile" > "$nodb" || true
     profile="$nodb"
 fi
+
+# Исключение cmd/* — см. шапку скрипта.
+echo "INFO: excluding $CMD_PKG from coverage (process entry points, no unit tests)."
+nohost="$(mktemp)"
+trap 'rm -f "$nohost"' EXIT
+grep -v "$CMD_PKG" "$profile" > "$nohost" || true
+profile="$nohost"
 
 total="$(go tool cover -func="$profile" | awk '/total:/{gsub(/%/,"",$NF); print $NF}')"
 

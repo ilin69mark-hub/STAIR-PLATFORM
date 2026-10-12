@@ -132,6 +132,12 @@ func solidPoints(solid *Solid) []Point3 {
 // пластины), а ширина — расстояние от неё до нижнего ребра, то есть ровно
 // та глубина пластины, что заявлена в чертеже.
 func SolidPlateBlank(solid *Solid) (length, width float64) {
+	// nil-тело — не размер «0×0», а отсутствие детали. Без проверки здесь
+	// паника: solidPoints дёргает solid.Shells(). По коду это те же нули,
+	// что и у вырожденного тела ниже, но без паники на пустом входе.
+	if solid == nil {
+		return 0, 0
+	}
 	pts := solidPoints(solid)
 	if len(pts) < 3 {
 		return 0, 0
@@ -199,6 +205,9 @@ func SolidPlateBlank(solid *Solid) (length, width float64) {
 // Для детали без отверстий это периметр её сечения. Для плиты с отверстиями —
 // периметр плюс отверстия, поэтому лазерный рез такой детали дороже.
 func CutLengthMM(solid *Solid) float64 {
+	if solid == nil {
+		return 0
+	}
 	bb := SolidBoundingBox(solid)
 	ext := [3]float64{bb.Max.X - bb.Min.X, bb.Max.Y - bb.Min.Y, bb.Max.Z - bb.Min.Z}
 	thin := 0
