@@ -90,10 +90,16 @@ func TestNarrowingRollbackLosesNoRows(t *testing.T) {
 		t.Fatalf("version before: %v", err)
 	}
 
-	// Откат на 2 шага: 000042.down (пересоздаёт пустой резерв),
-	// затем 000041.down (резерв+удаление сужаемых строк).
-	if err := MigrateWithTableSteps(ctx, pool, migrationsDir(t), "down", "schema_migrations", 2); err != nil {
-		t.Fatalf("steps down 2: %v", err)
+	// Откат ДО версии 40: так уходит 000046…000041, и последней откатывается
+	// именно 000041.down — та миграция, ради которой тест написан.
+	//
+	// Раньше здесь стоял MigrateWithTableSteps(..., 2), то есть «на два шага
+	// назад от последней». Пока последней была 000042, это означало 000042 и
+	// 000041. После появления 000043…000046 «два шага назад» стали
+	// 000046 и 000045 — 000041.down не запускался ВООБЩЕ, строки оставались в
+	// журнале, и тест падал. Проверяемый код не выполнялся ни разу.
+	if err := MigrateToVersion(ctx, pool, migrationsDir(t), 40); err != nil {
+		t.Fatalf("migrate to 40: %v", err)
 	}
 	if got := count("audit_events"); got != journalBefore-len(seedActions) {
 		t.Fatalf("после отката в журнале %d, хотели %d", got, journalBefore-len(seedActions))

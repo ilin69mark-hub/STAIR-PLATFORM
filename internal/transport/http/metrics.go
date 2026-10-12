@@ -49,12 +49,29 @@ type metricsConfig struct {
 	instance string
 }
 
-var metricsCfg = &metricsConfig{}
+// metricsCfg защищён мьютексом: SetMetricsConfig пишет сюда из NewRouter, а
+// metricLabels читает на КАЖДЫЙ запрос. В продакшене порядок обычно задаёт
+// старт горутины, но гонку это не устраняет — она воспроизводилась в тестах,
+// где роутеры строятся параллельно, и означала реальную несинхронизированную
+// запись в общее состояние.
+var (
+	metricsCfgMu sync.RWMutex
+	metricsCfg   = &metricsConfig{}
+)
 
 // SetMetricsConfig устанавливает конфигурацию метрик (вызывается в NewRouter).
 func SetMetricsConfig(region, instance string) {
+	metricsCfgMu.Lock()
+	defer metricsCfgMu.Unlock()
 	metricsCfg.region = region
 	metricsCfg.instance = instance
+}
+
+// metricsLabelsSnapshot читает конфигурацию под мьютексом.
+func metricsLabelsSnapshot() (region, instance string) {
+	metricsCfgMu.RLock()
+	defer metricsCfgMu.RUnlock()
+	return metricsCfg.region, metricsCfg.instance
 }
 
 // uuidSegment — сегмент пути, являющийся UUID (канонизация label path,
@@ -98,7 +115,8 @@ func joinPath(segs []string) string {
 // metricLabels собирает label-значения для векторов (method,path,status +
 // region,node).
 func metricLabels(method, path, status string) []string {
-	return []string{method, path, status, metricsCfg.region, metricsCfg.instance}
+	region, instance := metricsLabelsSnapshot()
+	return []string{method, path, status, region, instance}
 }
 
 // recordHTTPMetrics регистрирует метрику завершённого HTTP-запроса
