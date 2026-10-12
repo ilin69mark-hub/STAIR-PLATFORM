@@ -62,7 +62,6 @@ func ParseCNCFormat(s string) (CNCFormat, error) {
 	return "", fmt.Errorf("cad: unsupported CNC format %q", s)
 }
 
-// WriteCNC сериализует сетку в расширенный формат (MFG-0011).
 // WriteCNC сериализует сетку в формат для станка (EDR-0022 §3.2).
 //
 // Сетка сваривается перед записью (S-175): эти форматы перечисляют вершины
