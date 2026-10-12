@@ -409,3 +409,167 @@ func tetraVolume(a, b, c Point3) float64 {
 	vc := Vector3(c)
 	return va.Dot(vb.Cross(vc)) / 6
 }
+
+// Point2D — точка плоского контура детали в её СОБСТВЕННОЙ системе осей:
+// вдоль X — длина, вдоль Y — ширина. Это те же оси, что и у SolidPlateBlank,
+// поэтому длина контура[0].X совпадает с её возвратом.
+type Point2D struct {
+	X float64
+	Y float64
+}
+
+// SolidProfile2D — ТОЧНЫЙ плоский контур детали, то есть многоугольник,
+// который вырезается из листа (S-163).
+//
+// SolidPlateBlank отдаёт описывающий ПРЯМОУГОЛЬНИК: у боковой пластины
+// косоура это 5024×300, хотя по чертежу деталь пилообразная и её описывающий
+// прямоугольник заметно больше самой детали. Для раскроя металла по габариту
+// этого достаточно (так и сделано), но документ раскроя должен совпадать с
+// чертежом — иначе оператор режет не по тому документу, по которому считалось.
+//
+// Возвращается наружный контур КРЫШКИ (грани, перпендикулярной тонкой оси),
+// без отверстий: отверстия — это дополнительные внутренние контуры, и для
+// описания вырезаемого пятна нужен именно внешний. Начало координат — в
+// минимальной точке контура, поэтому координаты неотрицательны и контур
+// готов к отрисовке как есть.
+//
+// Второе значение — «контур найден». Для тел, у которых крышки не
+// распознались (вырожденные, составные), возвращается false, и вызывающий
+// обязан остаться на прямоугольнике: лучше описывающий прямоугольник, чем
+// выдуманный многоугольник.
+func SolidProfile2D(solid *Solid) ([]Point2D, bool) {
+	if solid == nil {
+		return nil, false
+	}
+	bb := SolidBoundingBox(solid)
+	ext := [3]float64{bb.Max.X - bb.Min.X, bb.Max.Y - bb.Min.Y, bb.Max.Z - bb.Min.Z}
+	thin := 0
+	for i := 1; i < 3; i++ {
+		if ext[i] < ext[thin] {
+			thin = i
+		}
+	}
+	lo, hi := [3]float64{bb.Min.X, bb.Min.Y, bb.Min.Z}[thin],
+		[3]float64{bb.Max.X, bb.Max.Y, bb.Max.Z}[thin]
+	if hi-lo <= Precision {
+		return nil, false
+	}
+
+	// Наружный контур первой найденной крышки: крышек две, и контуры у них
+	// одинаковые, поэтому достаточно одной.
+	var outer []Point3
+	for _, shell := range solid.Shells() {
+		for _, face := range shell.Faces() {
+			pts, ok := contourPoints(face.Outer())
+			if !ok || len(pts) < 3 {
+				continue
+			}
+			if onPlane(pts, thin, lo) || onPlane(pts, thin, hi) {
+				outer = pts
+				break
+			}
+		}
+		if len(outer) > 0 {
+			break
+		}
+	}
+	if len(outer) < 3 {
+		return nil, false
+	}
+
+	// Оси плоскости детали — две оставшиеся, и базис вдоль самого длинного
+	// ребра контура: так длина совпадает с SolidPlateBlank.
+	var axes [2]int
+	k := 0
+	for i := 0; i < 3; i++ {
+		if i != thin {
+			axes[k] = i
+			k++
+		}
+	}
+	bx, by, best := 1.0, 0.0, 0.0
+	for i := range outer {
+		a, c := outer[i], outer[(i+1)%len(outer)]
+		dx := coord(c, axes[0]) - coord(a, axes[0])
+		dy := coord(c, axes[1]) - coord(a, axes[1])
+		if d := math.Hypot(dx, dy); d > best {
+			best, bx, by = d, dx, dy
+		}
+	}
+	if best <= 0 {
+		return nil, false
+	}
+	ux, uy := bx/best, by/best
+
+	uniq := dedupePoints(outer, 1e-6)
+	out := make([]Point2D, 0, len(uniq))
+	minX, minY := math.Inf(1), math.Inf(1)
+	for _, p := range uniq {
+		p0, p1 := coord(p, axes[0]), coord(p, axes[1])
+		s := p0*ux + p1*uy
+		q := -p0*uy + p1*ux
+		out = append(out, Point2D{X: s, Y: q})
+		minX, minY = math.Min(minX, s), math.Min(minY, q)
+	}
+	for i := range out {
+		out[i].X -= minX
+		out[i].Y -= minY
+	}
+	return normalizeContour(out), len(out) >= 3
+}
+
+// normalizeContour приводит контур к каноническому виду: начало в лексикографически
+// минимальной вершине, обход против часовой стрелки.
+//
+// Без этого две ОДИНАКОВЫЕ детали дают разные последовательности точек —
+// просто потому, что контур начинается с разной вершины. При сравнении контуров
+// (например, при группировке позиций раскроя) это выглядит как разные детали,
+// и раскрой дробится на лишние позиции. Площадь и габарит от поворота не
+// меняются — меняется только запись, то есть результат становится
+// воспроизводимым.
+func normalizeContour(p []Point2D) []Point2D {
+	if len(p) < 3 {
+		return p
+	}
+	// Ориентация: делаем обход против часовой стрелки (положительная площадь).
+	var area float64
+	for i := range p {
+		j := (i + 1) % len(p)
+		area += p[i].X*p[j].Y - p[j].X*p[i].Y
+	}
+	if area < 0 {
+		for i, j := 0, len(p)-1; i < j; i, j = i+1, j-1 {
+			p[i], p[j] = p[j], p[i]
+		}
+	}
+	// Начало — минимальная вершина.
+	start := 0
+	for i := 1; i < len(p); i++ {
+		if p[i].X < p[start].X || (p[i].X == p[start].X && p[i].Y < p[start].Y) {
+			start = i
+		}
+	}
+	if start == 0 {
+		return p
+	}
+	rot := make([]Point2D, 0, len(p))
+	rot = append(rot, p[start:]...)
+	rot = append(rot, p[:start]...)
+	return rot
+}
+
+// ProfileAreaMM — площадь многоугольника по правилу шнуровки. Нужна, чтобы
+// отличать настоящий контур от описывающего прямоугольника: площадь контура
+// заведомо меньше площади прямоугольника на габарит, и это лучший признак
+// того, что контур извлечён, а не подставлен.
+func ProfileAreaMM(p []Point2D) float64 {
+	if len(p) < 3 {
+		return 0
+	}
+	var a float64
+	for i := range p {
+		j := (i + 1) % len(p)
+		a += p[i].X*p[j].Y - p[j].X*p[i].Y
+	}
+	return math.Abs(a) / 2
+}

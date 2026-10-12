@@ -87,6 +87,10 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 		// телом (Solid.Holes) и по одному отверстию даёт один комплект
 		// крепежа в смете (MNT-0001).
 		holes int
+		// profile — точный плоский контур детали (S-163). Пустой, если
+		// крышки тела не распознались: тогда деталь описывается
+		// прямоугольником, и это осознанный отказ от лучшего, а не недосмотр.
+		profile []dommfg.Point2D
 		// pieces — сколько деталей выходит из одного тела: длинная
 		// пластина косоура режется на части со сварным стыком.
 		pieces int
@@ -111,6 +115,11 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 				bb.Max.Z - bb.Min.Z,
 			}
 			s := spec{cutPerimeter: kerngeo.CutLengthMM(solid), holes: solid.Holes()}
+			// Точный плоский контур детали (S-163). Берётся из крышек тела,
+			// как и CutLengthMM, и в тех же осях, что и габарит заготовки.
+			// Не нашлось — остаётся прямоугольник: выдуманный многоугольник
+			// хуже описывающего прямоугольника.
+
 			switch {
 			case solid.Role() == "stringer":
 				// Косоур — боковая пластина (металл) или пила (дерево):
@@ -131,6 +140,17 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 			// Раньше 40-миллиметровая стальная ступень считалась как
 			// 40-миллиметровая стальная ступень, то есть 1,3 тонны только на
 			// проступи.
+			// Точный плоский контур детали (S-163), из крышек тела — в тех же
+			// осях, что и габарит заготовки.
+			//
+			// Проверка соответствия габаритов здесь НЕ нужна: у косоура тело
+			// охватывает весь марш (контур 4845 мм), а заготовка — одну
+			// пластину (2428 мм). Такие контуры отсекаются в buildBOM, в самой
+			// точке выхода в документ, где габариты позиции уже окончательные.
+			if prof, ok := kerngeo.SolidProfile2D(solid); ok {
+				s.profile = convertProfile(prof)
+			}
+
 			metal := isMetal(solid.Role(), s.thickness)
 			if metal {
 				s.thickness = laserPlateMM(s.thickness)
@@ -217,6 +237,7 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 				Width:          wid,
 				SolidIndex:     i,
 				CutPerimeterMM: cut,
+				Profile:        s.profile,
 				HoleCount:      holes,
 				JointIndex:     k,
 				JointCount:     s.pieces,
@@ -289,6 +310,16 @@ func laserPlateMM(design float64) float64 {
 	default:
 		return design
 	}
+}
+
+// convertProfile переводит контур ядра в доменный тип: слой домена не зависит
+// от internal/geometry (ADR-0006), поэтому типы не общие.
+func convertProfile(p []kerngeo.Point2D) []dommfg.Point2D {
+	out := make([]dommfg.Point2D, 0, len(p))
+	for _, v := range p {
+		out = append(out, dommfg.Point2D{X: v.X, Y: v.Y})
+	}
+	return out
 }
 
 // stringerBlank возвращает габариты ЗАГОТОВКИ косоура.

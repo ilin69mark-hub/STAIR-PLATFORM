@@ -274,6 +274,11 @@ type cutRect struct {
 	mortise bool
 	onWidth bool
 	joint   int
+	// profile — точный плоский контур детали (S-163). Не участвует в
+	// укладке: та идёт по прямоугольнику (для раскроя металла по габариту
+	// этого достаточно), а контур доезжает до PlacedPart, чтобы документ
+	// раскроя показывал деталь такой, какой её режет лазер.
+	profile []dommfg.Point2D
 }
 
 // Nest раскладывает карту раскроя в два шага (MFG-0012, MFG-0006).
@@ -315,6 +320,7 @@ func Nest(cut dommfg.CutList, registry *dommfg.StockSheetRegistry) (*dommfg.Nest
 				partNumber: item.PartNumber,
 				length:     item.Length.Millimeters(),
 				width:      item.Width.Millimeters(),
+				profile:    item.Profile,
 				tongue:     item.HasTongue,
 				mortise:    item.HasMortise,
 				onWidth:    item.JointOnWidth,
@@ -492,6 +498,7 @@ func nestBlanks(rects []cutRect, thickness float64) []blankLayout {
 					Width:        engineering.Length(r.width),
 					X:            off + sh.usedX,
 					Y:            sh.y,
+					Profile:      r.profile,
 					HasTongue:    r.tongue,
 					HasMortise:   r.mortise,
 					JointOnWidth: r.onWidth,

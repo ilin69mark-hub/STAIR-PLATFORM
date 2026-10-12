@@ -86,3 +86,19 @@ func TestGrantedLevelMapping(t *testing.T) {
 		}
 	}
 }
+
+// IsPrivileged разделяет роли с финансовыми правами и без них: от него
+// зависит, показывается ли раздел с ценой себестоимости.
+func TestRoleIsPrivileged(t *testing.T) {
+	for _, r := range []Role{RoleOwner, RoleAdmin} {
+		if !r.IsPrivileged() {
+			t.Errorf("роль %q должна быть привилегированной", r)
+		}
+	}
+	// Роль продаж видит заказы, но не должна видеть себестоимость.
+	for _, r := range []Role{RoleSales, RoleUser} {
+		if r.IsPrivileged() {
+			t.Errorf("роль %q не должна считаться привилегированной", r)
+		}
+	}
+}
