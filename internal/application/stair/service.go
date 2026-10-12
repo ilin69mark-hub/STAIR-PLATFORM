@@ -46,11 +46,15 @@ type Config struct {
 	LandingDepth engineering.Length // мм — глубина площадки (вдоль нижнего марша, X)
 	RoomWidth    engineering.Length // мм — габарит помещения по X (для fit-check)
 	RoomLength   engineering.Length // мм — габарит помещения по Y (для fit-check)
-	// ApproachSpace — свободное пространство перед первой ступенью прямого
-	// марша (EDR-0023, норма 1000–1200 мм): зона, в которой человек должен
-	// встать перед началом подъёма. Учитывается в fit-check (марш сдвигается
-	// от стены на ApproachSpace) и в подборе вариантов. Только прямой марш
-	// (FlightStraight); для прочих типов не используется (0).
+	// CeilingHeight — мм, абсолютная отметка низа перекрытия (Z). По ней
+	// геометрия считает настоящий просвет под перекрытием; 0 = не задано.
+	CeilingHeight engineering.Length
+	// ApproachSpace — свободное пространство перед первой ступенью марша
+	// (норма 1000–1200 мм): зона, в которой человек должен встать перед
+	// началом подъёма. Учитывается в fit-check (модель сдвигается от стены
+	// на ApproachSpace) и в подборе вариантов. Применяется ко ВСЕМ типам
+	// марша (S-167); раньше здесь было ограничение «только прямой», которое
+	// расходилось с Geometry Engine.
 	ApproachSpace  engineering.Length
 	LowerStepCount int // n1 — число ступеней нижнего марша
 	// TurnKind — тип поворота для маршей с площадкой (L/U): площадка
@@ -899,10 +903,11 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 	c.LandingDepth = cfg.LandingDepth
 	c.RoomWidth = cfg.RoomWidth
 	c.RoomLength = cfg.RoomLength
+	c.CeilingHeight = cfg.CeilingHeight
 	c.ApproachSpace = cfg.ApproachSpace
-	// Прямой марш: свободное пространство перед первой ступенью обязательно
-	// (норма 1000–1200 мм); пустое значение трактуется как 1000 мм.
-	if cfg.Flight == engineering.FlightStraight && c.ApproachSpace.Millimeters() == 0 {
+	// Свободное пространство перед первой ступенью обязательно (норма 1000–1200 мм)
+	// для всех типов марша; пустое значение трактуется как 1000 мм.
+	if c.ApproachSpace.Millimeters() == 0 {
 		c.ApproachSpace = engineering.Length(1000)
 	}
 	c.LowerStepCount = cfg.LowerStepCount
@@ -1081,6 +1086,32 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 		}
 	}
 
+	// Границы ИЗДЕЛИЯ (S-169, решение владельца): за ними ничего не считаем
+	// и ничего не строим — понятная ошибка вместо меша и цены. Проверка стоит
+	// ДО Validate и до Generate, поэтому конвейер не запускается вовсе.
+	//
+	// Отдельно от конверта производства ниже: тот ловит предел конкретного
+	// материала («для дуба максимум 4550»), здесь — границы самого изделия.
+	// Ноль и отрицательные значения НЕ ловятся здесь: их отсекает
+	// StairConfiguration.Validate («должно быть положительным») — иначе мы
+	// перехватили бы чужую, более точную формулировку (DOM-005).
+	if h := c.Height.Millimeters(); h > 0 && h < engineering.MinFloorHeightMM {
+		return nil, configInputError(fmt.Errorf(
+			"stair: height %v mm is below minimum %v mm", h, engineering.MinFloorHeightMM))
+	}
+	if w := c.Width.Millimeters(); w > 0 && w < engineering.MinFlightWidthMM {
+		return nil, configInputError(fmt.Errorf(
+			"stair: width %v mm is below minimum %v mm", w, engineering.MinFlightWidthMM))
+	}
+	if w := c.Width.Millimeters(); w > engineering.MaxFlightWidthMM {
+		return nil, configInputError(fmt.Errorf(
+			"stair: width %v mm exceeds maximum %v mm", w, engineering.MaxFlightWidthMM))
+	}
+	if h := c.Height.Millimeters(); h > engineering.MaxFloorHeightMM {
+		return nil, configInputError(fmt.Errorf(
+			"stair: height %v mm exceeds maximum %v mm", h, engineering.MaxFloorHeightMM))
+	}
+
 	// Энвелоп платформы (MFG-0012): гарантия изготовления только до этих
 	// пределов (совпадают с лимитами конструкторов). Вход сверх них
 	// отклоняется понятной ошибкой вместо прогона конвейера.
@@ -1099,7 +1130,10 @@ func buildConfiguration(cfg Config) (*engineering.StairConfiguration, error) {
 }
 
 const (
-	// maxSupportedHeightMM — максимальная высота подъёма, гарантируемая
-	// каталогом листов (лимит конструкторов 6000 мм).
-	maxSupportedHeightMM = 6000.0
+	// maxSupportedHeightMM — максимальная высота подъёма. Источник истины —
+	// engineering.MaxFloorHeightMM (S-169): раньше здесь стояло собственное
+	// 6000 мм, из-за чего верхняя граница жила в двух местах. Дубликат убран.
+	// Лист 6000×1500 режется на две заготовки по 3000 мм, поэтому деталь
+	// длиннее 6000 мм не изготовить — это производственный предел.
+	maxSupportedHeightMM = engineering.MaxFloorHeightMM
 )

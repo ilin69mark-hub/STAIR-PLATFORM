@@ -30,6 +30,7 @@ type calculateRequest struct {
 	LandingDepthMM      float64 `json:"landing_depth_mm,omitempty"`
 	RoomWidthMM         float64 `json:"room_width_mm,omitempty"`
 	RoomLengthMM        float64 `json:"room_length_mm,omitempty"`
+	CeilingHeightMM     float64 `json:"ceiling_height_mm,omitempty"`
 	ApproachSpaceMM     float64 `json:"approach_space_mm,omitempty"`
 	LowerStepCount      int     `json:"lower_step_count,omitempty"`
 	Material            string  `json:"material,omitempty"`
@@ -673,6 +674,7 @@ func toConfig(req calculateRequest) stair.Config {
 		LandingDepth:           engineering.Length(req.LandingDepthMM),
 		RoomWidth:              engineering.Length(req.RoomWidthMM),
 		RoomLength:             engineering.Length(req.RoomLengthMM),
+		CeilingHeight:          engineering.Length(req.CeilingHeightMM),
 		ApproachSpace:          engineering.Length(req.ApproachSpaceMM),
 		LowerStepCount:         req.LowerStepCount,
 		Material:               dommfg.MaterialCode(req.Material),

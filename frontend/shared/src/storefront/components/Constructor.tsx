@@ -86,6 +86,7 @@ const labels: Record<keyof ConfigForm, string> = {
   stepThicknessMM: 'Толщина ступени (мм)',
   riser: 'Подступень',
   clearanceMM: 'Просвет (мм)',
+  ceilingHeightMM: 'Высота перекрытия (мм)',
   railingHeightMM: 'Высота перил (мм)',
   comfortStepMM: 'Шаг комфорта (мм)',
   landingWidthMM: 'Ширина площадки (мм)',
@@ -129,6 +130,8 @@ const tooltips: Partial<Record<keyof ConfigForm, string>> = {
   approachSpaceMM: 'Свободная зона перед первой ступенью (норма 1000–1200 мм).',
   clearanceMM:
     'Просвет — вертикальное расстояние от ступени до перекрытия. Рекомендуемый проход — от 2000 мм.',
+  ceilingHeightMM:
+    'Отметка низа перекрытия над лестницей: пол первого этажа — 0. По этой высоте считается настоящий просвет. 0 — перекрытие не задано, проверка не выполняется.',
   railing:
     'Сторона перил: встаньте у первой ступени и посмотрите вперёд по ходу подъёма. Слева от вас — левые перила, справа — правые.',
   railingLower:
@@ -1357,6 +1360,7 @@ export function Constructor() {
           {renderField('roomWidthMM')}
           {renderField('roomLengthMM')}
           {renderField('approachSpaceMM')}
+          {renderField('ceilingHeightMM')}
           {renderField('clearanceMM')}
         </>
       ),

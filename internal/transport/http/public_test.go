@@ -332,14 +332,13 @@ func TestPublicQuoteLShapeLandingNarrowAdvisory(t *testing.T) {
 	}
 }
 
-// TestPublicQuoteTallFlightSucceeds — прямая лестница на пределе энвелопа
-// H=6000: косоур помещается на лист 10400×6200, поэтому публичный quote
-// должен вернуть 200 с валидным расчётом и ценой (регресс: раньше такой
-// ввод падал сырой 422 из-за невместимости на лист).
+// TestPublicQuoteTallFlightSucceeds — прямая лестница на пределе границы
+// изделия H=5000 (S-169): публичный quote должен вернуть 200 с валидным
+// расчётом и ценой. Значение снижено с 6000 решением владельца 2026-10-12.
 func TestPublicQuoteTallFlightSucceeds(t *testing.T) {
 	b := `{
 		"width_mm": 900,
-		"height_mm": 6000,
+		"height_mm": 5000,
 		"flight": "straight",
 		"step_height_mm": 180,
 		"stringer_thickness_mm": 8,
@@ -373,7 +372,7 @@ func TestPublicQuoteTallFlightSucceeds(t *testing.T) {
 func TestPublicQuoteSpiralIsUnknownType(t *testing.T) {
 	b := `{
 		"width_mm": 3000,
-		"height_mm": 6000,
+		"height_mm": 2700,
 		"flight": "spiral",
 		"step_height_mm": 190,
 		"stringer_thickness_mm": 8,

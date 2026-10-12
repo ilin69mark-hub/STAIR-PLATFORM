@@ -47,6 +47,7 @@ type StairConfiguration struct {
 	RoomWidthMM         float64
 	RoomLengthMM        float64
 	ApproachSpaceMM     float64
+	CeilingHeightMM     float64
 	LowerStepCount      int
 	// DOM-003 (2026-09-26): девять параметров, которых здесь НЕ БЫЛО, хотя
 	// они были в stair.Config. Из-за этого они молча терялись при сохранении

@@ -74,6 +74,7 @@ var configFieldToColumn = map[string]string{
 	"RoomWidth":         "RoomWidthMM",
 	"RoomLength":        "RoomLengthMM",
 	"ApproachSpace":     "ApproachSpaceMM",
+	"CeilingHeight":     "CeilingHeightMM",
 	"LowerStepCount":    "LowerStepCount",
 	"TurnKind":          "TurnKind",
 	"WinderCount":       "WinderCount",

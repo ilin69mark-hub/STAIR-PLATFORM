@@ -102,6 +102,7 @@ func toConfigEntity(projectID string, cfg stair.Config, opts stair.Options) *Sta
 		RoomWidthMM:         cfg.RoomWidth.Millimeters(),
 		RoomLengthMM:        cfg.RoomLength.Millimeters(),
 		ApproachSpaceMM:     cfg.ApproachSpace.Millimeters(),
+		CeilingHeightMM:     cfg.CeilingHeight.Millimeters(),
 		LowerStepCount:      cfg.LowerStepCount,
 		// DOM-003: девять параметров, которые раньше терялись при сохранении.
 		TurnKind:          string(cfg.TurnKind),
@@ -179,6 +180,10 @@ func fromConfigEntity(e *StairConfiguration) (stair.Config, stair.Options, error
 	if err != nil {
 		return stair.Config{}, stair.Options{}, err
 	}
+	ceiling, err := mk(e.CeilingHeightMM)
+	if err != nil {
+		return stair.Config{}, stair.Options{}, err
+	}
 	cfg := stair.Config{
 		Width:             width,
 		Height:            height,
@@ -194,6 +199,7 @@ func fromConfigEntity(e *StairConfiguration) (stair.Config, stair.Options, error
 		RoomWidth:         roomWidth,
 		RoomLength:        roomLength,
 		ApproachSpace:     approach,
+		CeilingHeight:     ceiling,
 		LowerStepCount:    e.LowerStepCount,
 		// DOM-003: восстановление девяти параметров. Раньше они не
 		// восстанавливались, из-за чего CAD-экспорт отдавал другую

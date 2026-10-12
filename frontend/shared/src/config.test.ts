@@ -49,11 +49,13 @@ describe('validateForm', () => {
   })
 
   it('значение меньше минимума', () => {
-    expect(validateForm({ ...defaultConfig, widthMM: '250' }).widthMM).toBe('Не менее 300')
+    // Нижняя граница ширины 600 мм — граница изделия (S-169).
+    expect(validateForm({ ...defaultConfig, widthMM: '250' }).widthMM).toBe('Не менее 600')
   })
 
   it('значение больше максимума', () => {
-    expect(validateForm({ ...defaultConfig, heightMM: '7000' }).heightMM).toBe('Не более 6000')
+    // Верхняя граница высоты 5000 мм — граница изделия (S-169).
+    expect(validateForm({ ...defaultConfig, heightMM: '7000' }).heightMM).toBe('Не более 5000')
   })
 
   it('нечисловое значение', () => {
@@ -215,8 +217,9 @@ describe('validateForm', () => {
   })
 
   it('максимальная высота подъёма зависит от материала', () => {
-    expect(validateForm({ ...defaultConfig, heightMM: '6100' }).heightMM).toBe('Не более 6000')
-    // Предел ниже глобальных 6000 мм остался только у древесины:
+    // У стали предел совпадает с границей изделия (5000 мм, S-169).
+    expect(validateForm({ ...defaultConfig, heightMM: '5100' }).heightMM).toBe('Не более 5000')
+    // Предел ниже общей границы остался только у древесины:
     // крупнейшая плита покрывает подъём до 4550 мм.
     const wood = { ...defaultConfig, material: 'WOOD-OAK' as const }
     expect(validateForm({ ...wood, heightMM: '5000' }).heightMM).toBe('Не более 4550')
@@ -264,7 +267,7 @@ describe('rulesFor', () => {
     // Косоур из дуба остаётся от 30 мм (базовый норматив пиломатериала):
     // правило 40 мм подняло ТОЛЬКО ступень.
     expect(rulesFor('stringerThicknessMM', 'WOOD-OAK').min).toBe(30)
-    expect(rulesFor('heightMM', 'STEEL-S235').max).toBe(6000)
+    expect(rulesFor('heightMM', 'STEEL-S235').max).toBe(5000)
     expect(rulesFor('heightMM', 'WOOD-OAK').max).toBe(4550)
     // Удалённые из каталога коды не должны попадать в пределы: правила
     // приходят из materialLimits, и код вне каталога обязан давать пусто.

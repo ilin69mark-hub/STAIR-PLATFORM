@@ -79,10 +79,11 @@ func buildModel(ctx context.Context, cfg *engineering.StairConfiguration) (*kern
 	return model, nil
 }
 
-// approachShift — сдвиг модели от стены на ApproachSpace (EDR-0023).
+// approachShift — сдвиг модели от стены на ApproachSpace (норма 1000–1200 мм).
 // Применяется ко ВСЕМ типам марша (прямой, L, П), оставляя перед
 // входом (первой ступенью) свободную зону; зона входит в габаритный бокс
 // модели, поэтому требуемая ширина помещения учитывается в fit-check.
+// Решение владельца 2026-10-12 (S-167).
 func approachShift(cfg *engineering.StairConfiguration) float64 {
 	approach := cfg.ApproachSpace.Millimeters()
 	if approach == 0 {
@@ -303,7 +304,55 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 		}
 	}
 
+	// Просвет под перекрытием (S-168). Считается ПО ГОТОВОЙ МОДЕЛИ, а не по
+	// числу, введённому пользователем: для каждой проступи берётся вертикаль
+	// от её верха до низа перекрытия, и проверяется худшая ступень — самая
+	// высокая из тех, что ещё находятся ПОД перекрытием. Чем выше ступень,
+	// тем меньше просвет, поэтому худшая — последняя под перекрытием, а не
+	// первая. Без CeilingHeight (0) проверка не выполняется.
+	if cfg.CeilingHeight.Millimeters() > 0 {
+		if clear := minTreadClearance(model, cfg.CeilingHeight.Millimeters()); clear > 0 && clear < MinHeadroomMM {
+			result.Issues = append(result.Issues, kerngeo.ValidationIssue{
+				Code:     "clearance_fit",
+				Severity: kerngeo.SeverityWarning,
+				Element:  "ceiling",
+				Message: fmt.Sprintf(
+					"Просвет под перекрытием %.0f мм — меньше нормы %.0f мм. Поднимите перекрытие или уменьшите высоту этажа",
+					clear, MinHeadroomMM,
+				),
+			})
+		}
+	}
+
 	return result, nil
+}
+
+// MinHeadroomMM — минимальный проход под перекрытием над маршем (EDR-0002,
+// GEO-CLEARANCE). Используется геометрической проверкой просвета.
+const MinHeadroomMM = 2000.0
+
+// minTreadClearance возвращает худший просвет между верхом проступи и низом
+// перекрытия, мм. Рассматриваются только ступени, расположенные ПОД
+// перекрытием: ступень на уровне самого перекрытия — это точка выхода на
+// этаж, проходить под ней не нужно, и её просвет всегда был бы нулём.
+// Возвращает 0, если под перекрытием нет ни одной ступени.
+func minTreadClearance(model *kerngeo.Compound, ceiling float64) float64 {
+	worst := 0.0
+	for _, s := range model.Solids() {
+		if s.Role() != "tread" {
+			continue
+		}
+		bb := kerngeo.SolidBoundingBox(s)
+		top := bb.Max.Z
+		clear := ceiling - top
+		if clear <= kerngeo.Precision {
+			continue // ступень на уровне перекрытия или выше — не проходим
+		}
+		if worst == 0 || clear < worst {
+			worst = clear
+		}
+	}
+	return worst
 }
 
 // millingFeaturesOf собирает список деталей под фрезеровку по ГОТОВОЙ модели.

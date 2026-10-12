@@ -197,13 +197,16 @@ func TestCalculateBlockingValidation(t *testing.T) {
 }
 
 // TestCalculateTallFlightSucceeds — прямая лестница на пределе энвелопа
-// H=6000 (максимально поддерживаемая высота) должна проходить весь конвейер:
-// косоур (≈10200×6050) помещается на добавленный лист стали 10400×6200,
-// поэтому выдаётся валидный результат с ценой, а не блокировка MFG-0012.
+// H=5000 (граница изделия, S-169) должна проходить весь конвейер и выдавать
+// валидный результат с ценой, а не блокировку.
+//
+// Предел снижен с 6000 до 5000 решением владельца 2026-10-12: 6000 был
+// верхней границей конверта производства, но в изделии мы столько не делаем.
+// Тест проверяет, что ровно на границе всё ещё считается.
 func TestCalculateTallFlightSucceeds(t *testing.T) {
 	s := NewService()
 	cfg := referenceConfig()
-	cfg.Height = mustLengthHelper(6000)
+	cfg.Height = mustLengthHelper(engineering.MaxFloorHeightMM)
 	res, err := s.Calculate(context.Background(), cfg, Options{})
 	if err != nil {
 		t.Fatalf("tall flight within envelope must calculate: %v", err)
@@ -374,7 +377,7 @@ func TestCalculateInvalidRailingConfig(t *testing.T) {
 func TestCalculateWithinMaterialLimits(t *testing.T) {
 	s := NewService()
 	limits := map[dommfg.MaterialCode]struct{ height, width int }{
-		"STEEL-S235": {6000, 3000},
+		"STEEL-S235": {5000, 3000}, // граница изделия S-169 (было 6000)
 		"WOOD-OAK":   {4550, 3000},
 		"WOOD-SOFT":  {4550, 3000},
 	}

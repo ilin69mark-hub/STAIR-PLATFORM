@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
 	"stairplatform/internal/engine/constraint"
 	engmfg "stairplatform/internal/engine/manufacturing"
@@ -87,6 +88,93 @@ func materialThicknessFromError(msg string) float64 {
 	return v
 }
 
+// limitCase — разобранное сообщение о границе изделия вида
+// «stair: width 100 mm is below minimum 600 mm» либо
+// «stair: height 9000 mm exceeds maximum 5000 mm».
+//
+// Формат сообщения задаёт engineering.StairConfiguration.Validate (S-169).
+// При изменении формата разбор перестанет срабатывать и отдаст
+// genericConfigInputError — хуже, но не опасно.
+type limitCase struct {
+	field string
+	value float64
+	limit float64
+	lo    bool // true = перешли нижнюю границу
+}
+
+func parseLimitCase(msg string) (limitCase, bool) {
+	fields := []struct{ key, human string }{
+		{"width", "Ширина марша"},
+		{"height", "Высота этажа"},
+	}
+	for _, f := range fields {
+		prefix := "stair: " + f.key + " "
+		i := strings.Index(msg, prefix)
+		if i < 0 {
+			continue
+		}
+		rest := msg[i+len(prefix):]
+		c := limitCase{field: f.human}
+		switch {
+		case strings.Contains(rest, "is below minimum"):
+			c.lo = true
+		case strings.Contains(rest, "exceeds maximum"):
+			c.lo = false
+		default:
+			continue
+		}
+		words := strings.Fields(rest)
+		if len(words) < 4 {
+			continue
+		}
+		// Сообщение: «6000 mm exceeds maximum 5000 mm» — число стоит
+		// ПЕРЕД «mm», поэтому последний токен «mm» отбрасываем, а не читаем.
+		v, err1 := strconv.ParseFloat(words[0], 64)
+		l, err2 := strconv.ParseFloat(words[len(words)-2], 64)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		c.value, c.limit = v, l
+		return c, true
+	}
+	return limitCase{}, false
+}
+
+// limitGuide — подсказка для сообщения о границе изделия: называет поле,
+// введённое значение, саму границу и весь допустимый диапазон.
+func limitGuide(c limitCase) string {
+	var rng string
+	if c.field == "Ширина марша" {
+		rng = fmt.Sprintf("от %.0f до %.0f мм", engineering.MinFlightWidthMM, engineering.MaxFlightWidthMM)
+	} else {
+		rng = fmt.Sprintf("от %.0f до %.0f мм", engineering.MinFloorHeightMM, engineering.MaxFloorHeightMM)
+	}
+	word := "ниже минимума"
+	if !c.lo {
+		word = "выше максимума"
+	}
+	return fmt.Sprintf("%s: задано %.0f мм — это %s (граница %.0f мм). Допустимо %s.",
+		c.field, c.value, word, c.limit, rng)
+}
+
+// isProductLimitError — сообщение о границе ИЗДЕЛИЯ (S-169) в точном формате,
+// который задаёт application/stair (buildConfiguration).
+//
+// Отдельная проверка обязательна, потому что граница материала выглядит
+// ПОЧТИ так же: «stair: width 4000 mm exceeds maximum 3000 mm for material
+// "STEEL-S235"» — тот же префикс и те же слова. Различает суффикс
+// «for material»: предел материала зависит от выбранного материала и
+// должен вернуть код MFG_MATERIAL, а не GEO_WIDTH.
+func isProductLimitError(msg string) bool {
+	if strings.Contains(msg, "for material") {
+		return false
+	}
+	if !strings.HasPrefix(msg, "stair: width ") && !strings.HasPrefix(msg, "stair: height ") {
+		return false
+	}
+	return strings.Contains(msg, "below minimum") || strings.Contains(msg, "exceeds maximum")
+}
+
 // configInputError переводит ошибки конфигурации (энелоп каталога и
 // StairConfiguration.Validate) в понятную пользователю входную ошибку.
 func configInputError(err error) *solver.InputError {
@@ -114,6 +202,29 @@ func configInputError(err error) *solver.InputError {
 			Guide:   "Укажите высоту подъёма больше 0 мм.",
 			Fix:     "Задайте высоту подъёма",
 		}
+	// Границы изделия (S-169): за ними ничего не строится, поэтому сообщение
+	// обязано называть и введённое значение, и границу, и что делать.
+	case isProductLimitError(msg):
+		if c, ok := parseLimitCase(msg); ok {
+			code := constraint.GEO_HEIGHT
+			if c.field == "Ширина марша" {
+				code = constraint.GEO_WIDTH
+			}
+			fix := "Увеличьте значение до минимального"
+			headline := "Значение ниже минимального — расчёт не выполняется"
+			if !c.lo {
+				fix = "Уменьшите значение до максимального"
+				headline = "Значение выше максимального — расчёт не выполняется"
+			}
+			return &solver.InputError{
+				Code:    code,
+				Field:   c.field,
+				Message: headline,
+				Guide:   limitGuide(c),
+				Fix:     fix,
+			}
+		}
+		return genericConfigInputError(msg)
 	case strings.Contains(msg, "flight type is required"):
 		return &solver.InputError{
 			Code: constraint.GEO_HEIGHT, Field: "Тип лестницы",
@@ -193,7 +304,7 @@ func configInputError(err error) *solver.InputError {
 		return &solver.InputError{
 			Code: constraint.GEO_CLEARANCE, Field: "Свободное пространство",
 			Message: "Свободное пространство вне нормы 1000–1200 мм",
-			Guide:   "Перед первой ступенью должно быть 1000–1200 мм свободного места (EDR-0023).",
+			Guide:   "Перед первой ступенью должно быть 1000–1200 мм свободного места.",
 			Fix:     "Задайте свободное пространство 1000–1200 мм",
 		}
 	case strings.Contains(msg, "invalid turn kind"):

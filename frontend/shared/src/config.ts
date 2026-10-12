@@ -176,6 +176,7 @@ export interface ConfigForm {
   landingWidthMM: string
   landingDepthMM: string
   roomWidthMM: string
+  ceilingHeightMM: string
   roomLengthMM: string
   approachSpaceMM: string
   lowerStepCountMM: string
@@ -240,6 +241,7 @@ export const defaultConfig: ConfigForm = {
   landingDepthMM: '1000',
   roomWidthMM: '',
   roomLengthMM: '',
+  ceilingHeightMM: '0',
   approachSpaceMM: '1000',
   lowerStepCountMM: '6',
   railing: 'both',
@@ -359,8 +361,13 @@ export interface FieldRule {
 // пределы (ширина/высота/толщины) задаются в materialLimits и сливаются
 // через rulesFor.
 export const fieldRules: Record<keyof ConfigForm, FieldRule> = {
-  widthMM: { min: 300 },
-  heightMM: { min: 600 },
+  // Границы ИЗДЕЛИЯ (S-169). За ними сервер ничего не считает: возвращает
+  // блокирующую ошибку и не строит геометрию. Поэтому они жёсткие, а не
+  // «рекомендация». Нижняя граница высоты выведена из нормы угла наклона:
+  // при H≈820 мм получается 28,5°, при H≈1020 мм — уже 30,4°. Материальные
+  // пределы ниже по силе и сливаются через rulesFor.
+  widthMM: { min: 600, max: 6000, hint: '600–6000 мм' },
+  heightMM: { min: 1000, max: 5000, hint: '1000–5000 мм' },
   flight: {},
   material: {},
   stepHeightMM: { min: 150, max: 200 },
@@ -372,6 +379,7 @@ export const fieldRules: Record<keyof ConfigForm, FieldRule> = {
   stepThicknessMM: {},
   riser: {},
   clearanceMM: { min: 0, max: 5000, hint: '≥2000, иначе предупреждение' },
+  ceilingHeightMM: { min: 0, max: 12000, hint: 'отметка низа перекрытия; 0 = не задано' },
   railingHeightMM: { min: 900, max: 2000 },
   comfortStepMM: { min: 600, max: 640, hint: 'шаг комфорта 600–640' },
   landingWidthMM: { min: 600, max: 3000, hint: 'Wp ≥ ширины марша' },
@@ -416,7 +424,9 @@ export const materialLimits: Record<
 > = {
   'STEEL-S235': {
     widthMM: { max: 3000 },
-    heightMM: { max: 6000 },
+    // 5000, а не 6000: граница изделия S-169 уже ниже прежнего предела
+    // конструктора по длине листа.
+    heightMM: { max: 5000 },
     // Толщина ступени из стали НЕ ВЫБИРАЕТСЯ: она всегда 5 мм (решение
     // владельца 2026-10-05), и поле в калькуляторе скрыто. Диапазон ниже —
     // не предложение выбора, а границы ВЫПУСКА листа, по которым сервер
@@ -838,6 +848,7 @@ export function toRequest(f: ConfigForm): Record<string, unknown> {
   if (f.flight === 'l_shape' || f.flight === 'straight' || f.flight === 'u_shape') {
     req.room_width_mm = Number(f.roomWidthMM)
     req.room_length_mm = Number(f.roomLengthMM)
+    req.ceiling_height_mm = Number(f.ceilingHeightMM)
   }
   // Свободное пространство перед первой ступенью — для ВСЕХ типов марша
   // (EDR-0023): прямой, L, П. Пустое значение трактуется как
