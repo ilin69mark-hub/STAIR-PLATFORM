@@ -250,3 +250,60 @@ func (r *StoreRepository) DeleteSealantPrice(ctx context.Context, tenantID, code
 	}
 	return nil
 }
+
+// ListPurchasedPrices возвращает закупочные цены покупных деталей ограждения
+// (₽ за штуку по ВИДУ детали).
+//
+// Ключ — вид детали, а не код позиции: у каждого экземпляра спецификации свой
+// номер (PST-01, PST-02, …), и прайс по нему построить нельзя.
+func (r *StoreRepository) ListPurchasedPrices(ctx context.Context, tenantID string) ([]store.PurchasedPrice, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT part_kind, price_per_pc_rub FROM store_purchased_prices
+		 WHERE tenant_id = $1 ORDER BY part_kind`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list purchased prices: %w", err)
+	}
+	defer rows.Close()
+	var out []store.PurchasedPrice
+	for rows.Next() {
+		var p store.PurchasedPrice
+		if err := rows.Scan(&p.Kind, &p.PricePerPcRub); err != nil {
+			return nil, fmt.Errorf("store: scan purchased price: %w", err)
+		}
+		p.Overridden = true
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: list purchased prices rows: %w", err)
+	}
+	return out, nil
+}
+
+// SetPurchasedPrice сохраняет закупочную цену магазина (upsert).
+func (r *StoreRepository) SetPurchasedPrice(ctx context.Context, tenantID, kind string, price int64, updatedBy string) error {
+	var by any
+	if updatedBy != "" {
+		by = updatedBy
+	}
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO store_purchased_prices (tenant_id, part_kind, price_per_pc_rub, updated_by, updated_at)
+		 VALUES ($1, $2, $3, $4, now())
+		 ON CONFLICT (tenant_id, part_kind) DO UPDATE
+		   SET price_per_pc_rub = EXCLUDED.price_per_pc_rub,
+		       updated_by = EXCLUDED.updated_by,
+		       updated_at = now()`,
+		tenantID, kind, price, by); err != nil {
+		return fmt.Errorf("store: set purchased price: %w", err)
+	}
+	return nil
+}
+
+// DeletePurchasedPrice возвращает деталь ограждения к встроенной ставке.
+func (r *StoreRepository) DeletePurchasedPrice(ctx context.Context, tenantID, kind string) error {
+	if _, err := r.pool.Exec(ctx,
+		`DELETE FROM store_purchased_prices WHERE tenant_id = $1 AND part_kind = $2`,
+		tenantID, kind); err != nil {
+		return fmt.Errorf("store: delete purchased price: %w", err)
+	}
+	return nil
+}

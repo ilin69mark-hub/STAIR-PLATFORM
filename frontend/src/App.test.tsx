@@ -194,6 +194,10 @@ vi.mock('./api/store', () => ({
     sealants: vi.fn(async () => []),
     setSealantPrice: vi.fn(async () => ({})),
     resetSealantPrice: vi.fn(async () => undefined),
+    // Закупочный прайс ограждения (CONF-PURCHASED): пустой, как и у крепежа.
+    purchased: vi.fn(async () => []),
+    setPurchasedPrice: vi.fn(async () => ({})),
+    resetPurchasedPrice: vi.fn(async () => undefined),
     materials: storeMock.materials,
     tiers: storeMock.tiers,
     payments: storeMock.payments,

@@ -11,6 +11,7 @@ import (
 	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/application/store"
+	dommfg "stairplatform/internal/domain/manufacturing"
 	domprc "stairplatform/internal/domain/pricing"
 	engprc "stairplatform/internal/engine/pricing"
 )
@@ -76,6 +77,15 @@ func (s *c003Store) SetSealantPrice(context.Context, string, string, int64, stri
 	return s.err
 }
 func (s *c003Store) DeleteSealantPrice(context.Context, string, string) error { return s.err }
+func (s *c003Store) PurchasedPrices(context.Context, string) ([]store.PurchasedPrice, error) {
+	return nil, s.err
+}
+func (s *c003Store) SetPurchasedPrice(context.Context, string, dommfg.PartKind, int64, string) error {
+	return s.err
+}
+func (s *c003Store) DeletePurchasedPrice(context.Context, string, dommfg.PartKind) error {
+	return s.err
+}
 func (s *c003Store) ResolveRates(context.Context, string) (*engprc.Rates, error) {
 	s.calls++
 	if s.err != nil {

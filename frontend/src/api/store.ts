@@ -127,6 +127,18 @@ export interface AdminPayment {
 // name_ru/volume_ml/layer_mm приходят с бэкенда из встроенного каталога
 // движка: админка не держит свою копию описаний, поэтому новая позиция в
 // коде появляется здесь сама.
+// PurchasedPrice — закупочная цена покупной детали ограждения, ₽ за штуку.
+//
+// kind — ВИД детали, а не код позиции: у каждого экземпляра спецификации свой
+// номер (PST-01, PST-02, …), и прайс по нему построить нельзя.
+export interface PurchasedPrice {
+  kind: string
+  catalog_id: string
+  name_ru: string
+  price_per_pc_rub: number
+  overridden: boolean
+}
+
 export interface SealantPrice {
   code: string
   name_ru: string
@@ -170,6 +182,12 @@ export const storeApi = {
     }),
   resetSealantPrice: (code: string) =>
     del<void>(`/api/v1/admin/store/sealants/${encodeURIComponent(code)}`),
+  // Закупочный прайс ограждения — store.purchased.*, ₽ за штуку по виду детали.
+  purchased: () => get<PurchasedPrice[]>('/api/v1/admin/store/purchased'),
+  setPurchasedPrice: (kind: string, pricePerPcRub: number) =>
+    put<PurchasedPrice>('/api/v1/admin/store/purchased', { kind, price_per_pc_rub: pricePerPcRub }),
+  resetPurchasedPrice: (kind: string) =>
+    del<void>(`/api/v1/admin/store/purchased/${encodeURIComponent(kind)}`),
   // Каталоги — публичные эндпоинты, без проверки прав
   materials: () => get<MaterialCatalogItem[]>('/api/v1/public/materials'),
   tiers: () => get<PaymentTier[]>('/api/v1/public/payment-tiers'),

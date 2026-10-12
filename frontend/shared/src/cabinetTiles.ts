@@ -113,6 +113,10 @@ export const CABINET_TILES: CabinetTile[] = [
       { id: 'price-fasteners', title: 'Крепёж', needs: P.priceMaterials },
       // Герметик (CONF-SEALANT) — та же логика, но единица закупки ₽/картридж.
       { id: 'price-sealant', title: 'Герметик', needs: P.priceMaterials },
+      // Ограждение (CONF-PURCHASED): закупочный прайс покупных деталей,
+      // ₽/шт по ВИДУ детали. Своя плитка потому, что до этого прайса смета
+      // стоила без ограждения — 29 позиций с нулевой суммой.
+      { id: 'price-purchased', title: 'Ограждение', needs: P.priceMaterials },
       { id: 'price-rates', title: 'Ставки расчёта', needs: P.priceRates },
       { id: 'price-services', title: 'Услуги и тарифы', needs: P.priceServices },
     ],

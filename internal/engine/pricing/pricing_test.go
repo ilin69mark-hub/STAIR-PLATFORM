@@ -188,6 +188,9 @@ func TestPriceExactValues(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Суммы сдвинуты на 7250 ₽ = 29 покупных деталей × 250 ₽ (S-179).
+	// До этого ограждение стоило 0 ₽, и итог был занижен на всю сумму
+	// закупки: 29 позиций в пакете и ноль в смете.
 	checks := []struct {
 		name string
 		got  domprc.Money
@@ -216,20 +219,20 @@ func TestPriceExactValues(t *testing.T) {
 		// Крепёж добавлен 2026-10-08: 238 штук по 15 ₽ = 3 570 ₽. Это немного,
 		// но попадает в базу накладных и маржи, поэтому итог растёт сильнее
 		// самой суммы: overhead +71 400, margin +128 520.
-		{"material", b.Material, 24280701},
+		{"material", b.Material, 25005701},
 		{"machine", b.Machine, 3686386},
 		{"labor", b.Labor, 1470000},
 		{"fastener", b.Fastener, 357000},
 		// Герметик: площадь швов 0,6922 м² × 1 мм = 0,6922 л, делим на
 		// 0,31 л картриджа и округляем ВВЕРХ → 3 картриджа × 500 ₽.
 		{"sealant", b.Sealant, 150000},
-		{"overhead", b.Overhead, 5988817},
-		{"production", b.ProductionCost, 35932904},
-		{"margin", b.Margin, 10779871},
-		{"discount", b.Discount, 2335639},
-		{"pre-tax", b.PreTax, 44377136},
-		{"tax", b.Tax, 8875427},
-		{"final", b.FinalPrice, 53252563},
+		{"overhead", b.Overhead, 6133817},
+		{"production", b.ProductionCost, 36802904},
+		{"margin", b.Margin, 11040871},
+		{"discount", b.Discount, 2392189},
+		{"pre-tax", b.PreTax, 45451586},
+		{"tax", b.Tax, 9090317},
+		{"final", b.FinalPrice, 54541903},
 	}
 	for _, c := range checks {
 		if c.got.Minor() != c.want {

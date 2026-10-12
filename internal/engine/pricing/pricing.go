@@ -25,10 +25,14 @@ type Rates struct {
 	// Отдельная карта: у крепежа своя единица (шт), и смешать его с ценой за
 	// кг нельзя — иначе 210 глухарей уехали бы в килограммы.
 	Fastener map[string]domprc.Money
-	// Purchased — закупочная цена покупной детали за ШТУКУ по коду позиции
-	// (S-162). Пустая — не ошибка: строка попадёт в смету с нулём, и
-	// расхождение «в пакете 29 позиций, в смете 0 ₽» будет видно.
-	Purchased map[string]domprc.Money
+	// Purchased — закупочная цена покупной детали ограждения за ШТУКУ по
+	// ВИДУ детали (S-179). Ключ — PartKind, а не номер экземпляра: у каждой
+	// стойки свой номер (PST-01, PST-02, …), и справочник по нему построить
+	// нельзя.
+	//
+	// Пустая ставка — не ошибка: строка попадёт в смету с нулём, и расхождение
+	// «в пакете 29 позиций, в смете 0 ₽» будет видно.
+	Purchased map[dommfg.PartKind]domprc.Money
 	// Sealant — цена герметика за КАРТРИДЖ по коду позиции (CONF-SEALANT).
 	// Отдельная карта: единица картриджа, и смешивать её с ценой за кг или за
 	// штуку нельзя.
@@ -70,6 +74,11 @@ func (r Rates) Validate() error {
 			return fmt.Errorf("pricing: sealant %q has negative price", code)
 		}
 	}
+	for kind, price := range r.Purchased {
+		if price < 0 {
+			return fmt.Errorf("pricing: purchased part %q has negative price", kind)
+		}
+	}
 	for _, rate := range []domprc.Rate{
 		r.OverheadPercent, r.MarginPercent, r.DiscountPercent, r.TaxPercent,
 	} {
@@ -99,8 +108,11 @@ func DefaultRates() Rates {
 		// Крепёж: 15 ₽ за штуку (решение владельца 2026-10-08). Это
 		// ЗАПАСНАЯ цена на случай пустого прайса магазина — сама цифра
 		// меняется в админке, здесь она только чтобы расчёт не обнулялся.
-		Fastener:        DefaultFastenerPrices(),
-		Sealant:         DefaultSealantPrices(),
+		Fastener: DefaultFastenerPrices(),
+		Sealant:  DefaultSealantPrices(),
+		// Ограждение: запасная цена 250 ₽ за штуку на случай пустого прайса
+		// магазина, как и у крепежа с герметиком.
+		Purchased:       DefaultPurchasedPrices(),
 		MachinePerHour:  domprc.NewMoney(800000), // 8 000 ₽/час
 		LaborPerHour:    domprc.NewMoney(300000), // 3 000 ₽/час
 		OverheadPercent: domprc.MustRate(20),
@@ -175,21 +187,25 @@ func Price(ds *dommfg.ManufacturingCostDataset, rates Rates) (*domprc.PriceBreak
 		})
 	}
 
-	// Покупные детали ограждения (S-162). Цена за штуку по коду позиции.
+	// Покупные детали ограждения (S-162, S-179). Цена за штуку по ВИДУ детали.
 	//
 	// Позиция без ставки не выбрасывается: сумма не увеличивается, но строка
 	// остаётся. Так же устроен крепёж выше — и по той же причине: раньше
 	// покупные детали не доходили до сметы ВООБЩЕ, и менеджер выдавал цену
 	// без ограждения, не подозревая об этом.
+	//
+	// Строки группируются по виду, а не по номеру экземпляра: десять стоек —
+	// это одна строка «стойка, 10 шт», а не десять строк. Номер экземпляра
+	// в Source оставлен для трассировки к спецификации.
 	for _, p := range ds.PurchasedConsumption {
-		price, ok := rates.Purchased[string(p.Code)]
+		price, ok := rates.Purchased[p.Kind]
 		if !ok {
 			// Ставки нет: строка остаётся нулевой, чтобы разрыв был виден.
 			b.Lines = append(b.Lines, domprc.CostComponent{
 				Name:     fmt.Sprintf("Закупка: %s — %s, %d шт", p.Name, p.Material, p.Quantity),
 				Category: domprc.CategoryMaterial,
 				Amount:   0,
-				Source:   fmt.Sprintf("purchased:%s,qty:%d", p.Code, p.Quantity),
+				Source:   fmt.Sprintf("purchased:%s,qty:%d", p.Kind, p.Quantity),
 			})
 			continue
 		}
@@ -199,7 +215,7 @@ func Price(ds *dommfg.ManufacturingCostDataset, rates Rates) (*domprc.PriceBreak
 			Name:     fmt.Sprintf("Закупка: %s — %s, %d шт", p.Name, p.Material, p.Quantity),
 			Category: domprc.CategoryMaterial,
 			Amount:   amount,
-			Source:   fmt.Sprintf("purchased:%s,qty:%d", p.Code, p.Quantity),
+			Source:   fmt.Sprintf("purchased:%s,qty:%d", p.Kind, p.Quantity),
 		})
 	}
 

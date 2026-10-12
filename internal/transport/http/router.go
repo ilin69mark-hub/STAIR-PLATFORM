@@ -212,6 +212,11 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		mux.Handle("GET /api/v1/admin/store/sealants", authProtected(handleListSealantPrices(storeSvc)))
 		mux.Handle("PUT /api/v1/admin/store/sealants", authMutating(handleSetSealantPrice(storeSvc, storeCacheInvalidator)))
 		mux.Handle("DELETE /api/v1/admin/store/sealants/{code}", authMutating(handleDeleteSealantPrice(storeSvc, storeCacheInvalidator)))
+		// Закупочный прайс ограждения (S-179). Без него смета стоила
+		// без ограждения: 29 позиций уходили в итог с нулём.
+		mux.Handle("GET /api/v1/admin/store/purchased", authProtected(handleListPurchasedPrices(storeSvc)))
+		mux.Handle("PUT /api/v1/admin/store/purchased", authMutating(handleSetPurchasedPrice(storeSvc, storeCacheInvalidator)))
+		mux.Handle("DELETE /api/v1/admin/store/purchased/{kind}", authMutating(handleDeletePurchasedPrice(storeSvc, storeCacheInvalidator)))
 	}
 
 	if auditsvc != nil {

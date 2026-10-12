@@ -16,30 +16,61 @@
 package manufacturing
 
 import (
+	"fmt"
 	"math"
 
 	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
 )
 
-// Каталожные размеры покупных деталей ограждения, мм. Дублируют
-// engineering.PurchasedParts() осознанно: здесь нужен числовой доступ,
-// а каталог — декларация для спецификации и чертежей.
+// Каталожные размеры покупных деталей ограждения, мм.
+//
+// Раньше это были константы со словами «дублируют каталог осознанно», но
+// дублирование осознанным быть не может: расхождение копий проявилось бы в
+// готовом ограждении, а не в тесте. Теперь единственный источник —
+// engineering.PurchasedParts(), а эти переменные читают его (S-180).
+//
+// Пропавшая позиция каталога — паника на старте, а не нулевая труба в
+// готовом изделии: такое место заметили бы на приёмке, когда деньги уже
+// потрачены.
+var (
+	postOD      = purchasedTubeOD("POST-001") // стойка и поручень: полая труба
+	postWall    = purchasedTubeWall("POST-001")
+	rigelOD     = purchasedTubeOD("RIGL-001") // ригель: полая трубка
+	rigelWall   = purchasedTubeWall("RIGL-001")
+	balusterLen = purchasedTubeLen("POST-001") // высота стойки под поручень
+	tipSizeL    = purchasedDimL("TIP-001")     // наконечник: овал вдоль поручня
+	tipSizeW    = purchasedDimW("TIP-001")
+	tipSizeH    = purchasedDimH("TIP-001")
+	flangeOD    = purchasedDimL("FLNG-001") // фланец опоры
+	flangeH     = purchasedDimH("FLNG-001")
+	slipOD      = purchasedDimL("SLIP-001") // накидная часть (муфта)
+	decoOD      = purchasedDimL("DECO-001") // декоративная накладка
+	decoH       = purchasedDimH("DECO-001")
+	endCapOD    = purchasedDimL("ENDP-001") // торцевая заглушка
+)
+
+// purchasedSpec — позиция каталога по ID. То, что производство строит, но
+// каталог не описывает, — ошибка сборки, а не нулевой размер.
+func purchasedSpec(id string) engineering.PartSpec {
+	for _, p := range engineering.PurchasedParts() {
+		if p.ID == id {
+			return p
+		}
+	}
+	panic(fmt.Sprintf("покупная деталь %q отсутствует в каталоге engineering.PurchasedParts()", id))
+}
+
+func purchasedTubeOD(id string) float64   { return purchasedSpec(id).TubeOD }
+func purchasedTubeWall(id string) float64 { return purchasedSpec(id).TubeWall }
+func purchasedTubeLen(id string) float64  { return purchasedSpec(id).Len }
+func purchasedDimL(id string) float64     { return purchasedSpec(id).DimL }
+func purchasedDimW(id string) float64     { return purchasedSpec(id).DimW }
+func purchasedDimH(id string) float64     { return purchasedSpec(id).DimH }
+
+// Параметры раскладки ограждения. Это НЕ размеры деталей, а правила
+// размещения, поэтому они остались константами: в каталоге им не место.
 const (
-	postOD      = 42.4 // стойка и поручень: полая труба
-	postWall    = 1.5
-	rigelOD     = 12.0 // ригель: полая трубка
-	rigelWall   = 1.0
-	balusterLen = 805.7 // высота стойки под поручень
-	tipSizeL    = 70.0  // наконечник: овал вдоль поручня
-	tipSizeW    = 50.8
-	tipSizeH    = 95.4
-	flangeOD    = 86.0 // фланец опоры
-	flangeH     = 8.0
-	slipOD      = 43.0 // накидная часть (муфта)
-	decoOD      = 88.0 // декоративная накладка
-	decoH       = 17.0
-	endCapOD    = 39.2 // торцевая заглушка
 	// maxPostSpan — максимальный пролёт между стойками, мм (как в эталоне).
 	maxPostSpan = 1500.0
 	// rigelRows — число рядов ригелей (33% и 66% высоты ограждения).

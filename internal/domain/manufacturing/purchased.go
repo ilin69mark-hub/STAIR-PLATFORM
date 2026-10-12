@@ -3,6 +3,8 @@ package manufacturing
 import (
 	"fmt"
 	"sort"
+
+	"stairplatform/internal/domain/engineering"
 )
 
 // PurchasedDemand — потребность в одной покупной позиции (S-162).
@@ -80,4 +82,71 @@ func TotalPurchasedQuantity(ds []PurchasedDemand) Quantity {
 // String — для диагностики и логов.
 func (d PurchasedDemand) String() string {
 	return fmt.Sprintf("%s (%s) × %d", d.Name, d.Material, d.Quantity)
+}
+
+// PartKind — вид детали из PartKind.
+//
+// Сопоставление каталога и видов детали нужно потому, что у КАЖДОГО
+// экземпляра свой номер (PST-01, PST-02, …), и цена искалась бы по номеру
+// экземпляра, которого в справочнике нет. Цена у ПОЗИЦИИ: стойка стоит
+// столько-то независимо от того, сколько её на лестнице.
+type PurchasedPart struct {
+	// CatalogID — устойчивый идентификатор из каталога (RAIL-P, POST-001).
+	CatalogID string
+	// Name — человекочитаемое имя для сметы.
+	Name string
+	// Kind — вид детали в производстве.
+	Kind PartKind
+}
+
+// purchasedKindByCatalogID — вид детали для каждой позиции каталога.
+//
+// Ключ — ID из engineering.PurchasedParts(). Таблица намеренно полная: тест
+// сверяет её с каталогом, и позиция каталога без вида детали роняет сборку.
+// Иначе новая покупная деталь появилась бы в каталоге и молча ушла бы в
+// смету без вида и без цены.
+var purchasedKindByCatalogID = map[string]PartKind{
+	"RAIL-P":   PartRailTop,
+	"POST-001": PartPost,
+	"RIGL-001": PartRigel,
+	"TIP-001":  PartTip,
+	"FLNG-001": PartFlange,
+	"SLIP-001": PartSlip,
+	"DECO-001": PartDeco,
+	"ENDP-001": PartEndCap,
+}
+
+// PurchasedParts — позиции каталога покупных деталей с видом детали.
+//
+// Собирается ИЗ engineering.PurchasedParts(): каталог объявлен источником
+// правды о деталях, и до S-180 у него не было ни одного вызывающего. Здесь он
+// наконец задействован — иначе список покупных деталей жил бы в двух местах.
+func PurchasedParts() []PurchasedPart {
+	byID := map[PartKind]PurchasedPart{}
+	for _, spec := range engineering.PurchasedParts() {
+		kind, ok := purchasedKindByCatalogID[spec.ID]
+		if !ok {
+			// Позиция каталога без вида детали: пропускаем и сообщаем через
+			// тест сверки. Молча пропустить нельзя — деталь выпала бы из сметы.
+			continue
+		}
+		byID[kind] = PurchasedPart{CatalogID: spec.ID, Name: spec.Name, Kind: kind}
+	}
+	out := make([]PurchasedPart, 0, len(byID))
+	for _, p := range byID {
+		out = append(out, p)
+	}
+	// Стабильный порядок: строки сметы не должны прыгать между расчётами.
+	sort.Slice(out, func(i, j int) bool { return out[i].CatalogID < out[j].CatalogID })
+	return out
+}
+
+// PurchasedPartCatalogID — ID каталога для вида детали, "" если вида нет.
+func PurchasedPartCatalogID(kind PartKind) string {
+	for _, p := range PurchasedParts() {
+		if p.Kind == kind {
+			return p.CatalogID
+		}
+	}
+	return ""
 }

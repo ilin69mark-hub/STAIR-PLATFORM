@@ -36,6 +36,7 @@ import { MaterialsSection, ServicesSection } from './store/Catalogs'
 import { PaymentsSection } from './store/Payments'
 import { FastenersSection } from './store/FastenersSection'
 import { PricesSection } from './store/PricesSettings'
+import { PurchasedSection } from './store/PurchasedSection'
 import { SealantsSection } from './store/SealantsSection'
 import { RatesSection } from './store/RatesSection'
 import { SiteSettingsSection, type SettingsGroupId } from './store/SiteSettingsSection'
@@ -432,6 +433,7 @@ export const SECTION_RENDERERS: Record<string, SectionRenderer> = {
   'price-materials': () => <PricesSection />,
   'price-fasteners': () => <FastenersSection />,
   'price-sealant': () => <SealantsSection />,
+  'price-purchased': () => <PurchasedSection />,
   'price-rates': () => <RatesSection />,
   'price-services': () => <ServicesSection />,
   // Продажи и деньги

@@ -3,6 +3,8 @@ package manufacturing
 import (
 	"math"
 	"testing"
+
+	"stairplatform/internal/domain/engineering"
 )
 
 // Функции контура живут в домене, а не в ядре: это данные документа раскроя,
@@ -68,5 +70,41 @@ func TestProfilesMatchBounds(t *testing.T) {
 	}
 	if ProfilesMatchBounds([]Point2D{{0, 0}, {10, 0}}, 10, 0, 0.5) {
 		t.Error("двухточечный контур признан совпадающим")
+	}
+}
+
+// PurchasedParts собирается из каталога engineering.PurchasedParts(). Сверка
+// обязательна: пока она не было, каталог деталей жил без единого
+// вызывающего (S-180), и новая покупная позиция появилась бы в каталоге
+// молча — без вида детали и без цены.
+func TestPurchasedPartsCoverCatalog(t *testing.T) {
+	specs := engineering.PurchasedParts()
+	got := PurchasedParts()
+
+	if len(got) != len(specs) {
+		t.Fatalf("позиций каталога %d, а в реестре %d — часть выпала без вида детали",
+			len(specs), len(got))
+	}
+	for _, s := range specs {
+		if _, ok := purchasedKindByCatalogID[s.ID]; !ok {
+			t.Errorf("позиция каталога %q (%s) не сопоставлена с видом детали", s.ID, s.Name)
+		}
+	}
+	// Порядок стабильный: иначе строки сметы прыгали бы между расчётами.
+	for i := 1; i < len(got); i++ {
+		if got[i-1].CatalogID > got[i].CatalogID {
+			t.Fatalf("порядок нарушен: %q перед %q", got[i-1].CatalogID, got[i].CatalogID)
+		}
+	}
+}
+
+func TestPurchasedPartCatalogID(t *testing.T) {
+	// Вид детали, которого в каталоге нет, даёт пустую строку, а не ошибку:
+	// отсутствие позиции — это отсутствие цены, а не падение расчёта.
+	if id := PurchasedPartCatalogID(PartRailTop); id != "RAIL-P" {
+		t.Errorf("PartRailTop -> %q, ждали RAIL-P", id)
+	}
+	if id := PurchasedPartCatalogID(PartTread); id != "" {
+		t.Errorf("PartTread -> %q, хотя его в каталоге покупных нет", id)
 	}
 }

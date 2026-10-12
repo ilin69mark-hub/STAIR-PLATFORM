@@ -11,6 +11,7 @@ import (
 
 	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/store"
+	dommfg "stairplatform/internal/domain/manufacturing"
 	engprc "stairplatform/internal/engine/pricing"
 )
 
@@ -33,6 +34,13 @@ type StoreService interface {
 	// Герметик (CONF-SEALANT): прайс в рублях за картридж.
 	SealantPrices(ctx context.Context, tenantID string) ([]store.SealantPrice, error)
 	SetSealantPrice(ctx context.Context, tenantID, code string, pricePerCartridgeRub int64, updatedBy string) error
+	// PurchasedPrices — закупочные цены ограждения: все позиции каталога,
+	// включая те, где действует встроенная запасная ставка.
+	PurchasedPrices(ctx context.Context, tenantID string) ([]store.PurchasedPrice, error)
+	// SetPurchasedPrice сохраняет цену по ВИДУ детали (part_kind).
+	SetPurchasedPrice(ctx context.Context, tenantID string, kind dommfg.PartKind, pricePerPcRub int64, updatedBy string) error
+	// DeletePurchasedPrice возвращает вид детали к встроенной ставке.
+	DeletePurchasedPrice(ctx context.Context, tenantID string, kind dommfg.PartKind) error
 	DeleteSealantPrice(ctx context.Context, tenantID, code string) error
 	// ResolveRates — ставки расчёта магазина: встроенные значения плюс
 	// настройки и цены tenant.
@@ -532,6 +540,100 @@ func handleDeleteSealantPrice(svc StoreService, invalidate CacheInvalidator) htt
 			return
 		}
 		if err := svc.DeleteSealantPrice(r.Context(), tenantID(r.Context()), r.PathValue("code")); err != nil {
+			mapStoreError(w, r, err)
+			return
+		}
+		purgePublicStoreCache(invalidate)
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// purchasedPriceDTO — позиция закупочного прайса ограждения для админки.
+type purchasedPriceDTO struct {
+	Kind          string `json:"kind"`
+	CatalogID     string `json:"catalog_id"`
+	NameRu        string `json:"name_ru"`
+	PricePerPcRub int64  `json:"price_per_pc_rub"`
+	Overridden    bool   `json:"overridden"`
+}
+
+func toPurchasedPriceDTO(p store.PurchasedPrice) purchasedPriceDTO {
+	return purchasedPriceDTO{
+		Kind: string(p.Kind), CatalogID: p.CatalogID, NameRu: p.NameRu,
+		PricePerPcRub: p.PricePerPcRub, Overridden: p.Overridden,
+	}
+}
+
+// handleListPurchasedPrices — GET /api/v1/admin/store/purchased.
+func handleListPurchasedPrices(svc StoreService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireStorePermission(w, r, auth.CapPriceMaterials, auth.LevelRead) {
+			return
+		}
+		prices, err := svc.PurchasedPrices(r.Context(), tenantID(r.Context()))
+		if err != nil {
+			mapStoreError(w, r, err)
+			return
+		}
+		out := make([]purchasedPriceDTO, 0, len(prices))
+		for _, p := range prices {
+			out = append(out, toPurchasedPriceDTO(p))
+		}
+		writeJSON(w, http.StatusOK, out)
+	}
+}
+
+// setPurchasedPriceRequest — тело сохранения закупочной цены.
+type setPurchasedPriceRequest struct {
+	Kind          string `json:"kind"`
+	PricePerPcRub int64  `json:"price_per_pc_rub"`
+}
+
+// handleSetPurchasedPrice — PUT /api/v1/admin/store/purchased.
+func handleSetPurchasedPrice(svc StoreService, invalidate CacheInvalidator) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireStorePermission(w, r, auth.CapPriceMaterials, auth.LevelWrite) {
+			return
+		}
+		// DOM-007: строгий разбор, иначе опечатка в имени поля дала бы
+		// price_per_pc_rub = 0 и ответ 200 «успешно сохранено».
+		var req setPurchasedPriceRequest
+		if err := decodeJSONStrict(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", jsonErrorMessage(err))
+			return
+		}
+		tenant := tenantID(r.Context())
+		kind := dommfg.PartKind(req.Kind)
+		if err := svc.SetPurchasedPrice(r.Context(), tenant, kind, req.PricePerPcRub, userID(r.Context())); err != nil {
+			mapStoreError(w, r, err)
+			return
+		}
+		purgePublicStoreCache(invalidate)
+		prices, err := svc.PurchasedPrices(r.Context(), tenant)
+		if err != nil {
+			mapStoreError(w, r, err)
+			return
+		}
+		for _, p := range prices {
+			if p.Kind == kind {
+				writeJSON(w, http.StatusOK, toPurchasedPriceDTO(p))
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, toPurchasedPriceDTO(store.PurchasedPrice{
+			Kind: kind, PricePerPcRub: req.PricePerPcRub, Overridden: true,
+		}))
+	}
+}
+
+// handleDeletePurchasedPrice — DELETE /api/v1/admin/store/purchased/{kind}.
+func handleDeletePurchasedPrice(svc StoreService, invalidate CacheInvalidator) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireStorePermission(w, r, auth.CapPriceMaterials, auth.LevelWrite) {
+			return
+		}
+		kind := dommfg.PartKind(r.PathValue("kind"))
+		if err := svc.DeletePurchasedPrice(r.Context(), tenantID(r.Context()), kind); err != nil {
 			mapStoreError(w, r, err)
 			return
 		}

@@ -166,6 +166,17 @@ func (s *Service) ResolveRates(ctx context.Context, tenantID string) (*engprc.Ra
 	for _, p := range sealPrices {
 		rates.Sealant[p.Code] = moneyFromRub(p.PricePerCartridgeRub)
 	}
+
+	// Покупные детали ограждения (S-179). Без этого блока смета стоила бы
+	// без ограждения: ставки по нему не заполнял никто, и все 29 позиций
+	// уходили в итог с нулём.
+	buyPrices, err := s.PurchasedPrices(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range buyPrices {
+		rates.Purchased[p.Kind] = moneyFromRub(p.PricePerPcRub)
+	}
 	return &rates, nil
 }
 

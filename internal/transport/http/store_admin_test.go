@@ -10,6 +10,7 @@ import (
 
 	"stairplatform/internal/application/stair"
 	storeapp "stairplatform/internal/application/store"
+	dommfg "stairplatform/internal/domain/manufacturing"
 )
 
 // newHTTPFakeStoreRepo — репозиторий настроек магазина в памяти (tenant "t-1",
@@ -28,6 +29,9 @@ type httpFakeStoreRepo struct {
 	prices    map[string]map[string]int64
 	fasteners map[string]map[string]int64
 	sealants  map[string]map[string]int64
+	// purchased хранит цены по ВИДУ детали (part_kind), а не по номеру
+	// экземпляра: прайс по PST-01 и PST-02 построить нельзя.
+	purchased map[string]map[dommfg.PartKind]int64
 }
 
 func (f *httpFakeStoreRepo) GetSettings(_ context.Context, tenantID string) (storeapp.Settings, error) {
@@ -106,6 +110,28 @@ func (f *httpFakeStoreRepo) SetSealantPrice(_ context.Context, tenantID, code st
 
 func (f *httpFakeStoreRepo) DeleteSealantPrice(_ context.Context, tenantID, code string) error {
 	delete(f.sealants[tenantID], code)
+	return nil
+}
+
+func (f *httpFakeStoreRepo) ListPurchasedPrices(_ context.Context, tenantID string) ([]storeapp.PurchasedPrice, error) {
+	byKind := f.purchased[tenantID]
+	out := make([]storeapp.PurchasedPrice, 0, len(byKind))
+	for kind, price := range byKind {
+		out = append(out, storeapp.PurchasedPrice{Kind: kind, PricePerPcRub: price, Overridden: true})
+	}
+	return out, nil
+}
+
+func (f *httpFakeStoreRepo) SetPurchasedPrice(_ context.Context, tenantID, kind string, price int64, _ string) error {
+	if f.purchased[tenantID] == nil {
+		f.purchased[tenantID] = map[dommfg.PartKind]int64{}
+	}
+	f.purchased[tenantID][dommfg.PartKind(kind)] = price
+	return nil
+}
+
+func (f *httpFakeStoreRepo) DeletePurchasedPrice(_ context.Context, tenantID, kind string) error {
+	delete(f.purchased[tenantID], dommfg.PartKind(kind))
 	return nil
 }
 

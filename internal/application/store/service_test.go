@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	dommfg "stairplatform/internal/domain/manufacturing"
 	domprc "stairplatform/internal/domain/pricing"
 )
 
@@ -15,6 +16,8 @@ type fakeRepo struct {
 	prices    map[string]map[string]int64
 	fasteners map[string]map[string]int64
 	sealants  map[string]map[string]int64
+	// purchased — закупочные цены по ВИДУ детали, не по номеру экземпляра.
+	purchased map[string]map[dommfg.PartKind]int64
 }
 
 func newFakeRepo() *fakeRepo {
@@ -23,6 +26,7 @@ func newFakeRepo() *fakeRepo {
 		prices:    map[string]map[string]int64{},
 		fasteners: map[string]map[string]int64{},
 		sealants:  map[string]map[string]int64{},
+		purchased: map[string]map[dommfg.PartKind]int64{},
 	}
 }
 
@@ -103,6 +107,30 @@ func (f *fakeRepo) SetSealantPrice(_ context.Context, tenantID, code string, pri
 
 func (f *fakeRepo) DeleteSealantPrice(_ context.Context, tenantID, code string) error {
 	delete(f.sealants[tenantID], code)
+	return nil
+}
+
+// Цены покупных деталей хранятся по ВИДУ детали (part_kind), а не по номеру
+// экземпляра: прайс по PST-01 и PST-02 построить нельзя.
+func (f *fakeRepo) ListPurchasedPrices(_ context.Context, tenantID string) ([]PurchasedPrice, error) {
+	byKind := f.purchased[tenantID]
+	out := make([]PurchasedPrice, 0, len(byKind))
+	for kind, price := range byKind {
+		out = append(out, PurchasedPrice{Kind: kind, PricePerPcRub: price, Overridden: true})
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) SetPurchasedPrice(_ context.Context, tenantID, kind string, price int64, _ string) error {
+	if f.purchased[tenantID] == nil {
+		f.purchased[tenantID] = map[dommfg.PartKind]int64{}
+	}
+	f.purchased[tenantID][dommfg.PartKind(kind)] = price
+	return nil
+}
+
+func (f *fakeRepo) DeletePurchasedPrice(_ context.Context, tenantID, kind string) error {
+	delete(f.purchased[tenantID], dommfg.PartKind(kind))
 	return nil
 }
 

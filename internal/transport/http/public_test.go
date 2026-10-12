@@ -54,8 +54,10 @@ func TestPublicQuoteSuccess(t *testing.T) {
 	// перекрытие = 238 шт × 15 ₽, и накрутка на них в базе цены.
 	// Плюс крепёж (238 шт × 15 ₽) и герметик (3 картриджа × 500 ₽) с
 	// накруткой: 341 030,20 + 2 667,60 = 343 697,80 ₽.
-	if resp.Pricing.FinalPriceRub != 343697.8 {
-		t.Fatalf("final price = %v, want 343697.8", resp.Pricing.FinalPriceRub)
+	// +12893.4 ₽: ограждение перестало стоить ноль (S-179) — 29 покупных
+	// позиций × 250 ₽ с наценкой, накладными, скидкой и НДС.
+	if resp.Pricing.FinalPriceRub != 356591.2 {
+		t.Fatalf("final price = %v, want 356591.2", resp.Pricing.FinalPriceRub)
 	}
 
 	// Габаритная ширина марша приходит из конфигурации.

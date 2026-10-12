@@ -92,6 +92,17 @@ type PartSpec struct {
 	// (FormSheet). Объём листа для раскроя считается по этим размерам.
 	SheetL, SheetW, SheetT float64
 
+	// DimL, DimW, DimH — габарит покупной детали-фитинга, мм (FormPart):
+	// наконечник, фланец, муфта, накладка, заглушка. Для труб не заполняется
+	// (там своя геометрия), для листа тоже (там Sheet*).
+	//
+	// Зачем это поле (S-180). Раньше эти размеры жили только в константах
+	// manufacturing/railing_parts.go, а каталог знал лишь названия и
+	// материалы. Итог: две копии одного и того же, и расхождение между ними
+	// проявилось бы в готовом изделии, а не в тесте. Теперь фитинги описаны
+	// здесь, а производство читает размеры отсюда.
+	DimL, DimW, DimH float64
+
 	// MassPerUnit — масса детали, кг (заполняется по материалу и объёму).
 	MassPerUnit float64
 }
@@ -177,26 +188,31 @@ func PurchasedParts() []PartSpec {
 		},
 		{
 			ID: "TIP-001", Name: "Наконечник регулируемый", Group: GroupPurchased, Form: FormPart,
+			DimL: 70.0, DimW: 50.8, DimH: 95.4,
 			Material: MatStainless,
 			Note:     "Покупной регулируемый фитинг под поручень. Несёт поручень, крепится на стойку",
 		},
 		{
 			ID: "FLNG-001", Name: "Фланец опоры", Group: GroupPurchased, Form: FormPart,
+			DimL: 86.0, DimW: 86.0, DimH: 8.0,
 			Material: MatStainless,
 			Note:     "Крепёжный фланец стойки, 3 отв. Ø9",
 		},
 		{
 			ID: "SLIP-001", Name: "Накидная часть", Group: GroupPurchased, Form: FormPart,
+			DimL: 43.0, DimW: 43.0, DimH: 805.7,
 			Material: MatStainless,
 			Note:     "Муфта-обойма, накрывает стойку",
 		},
 		{
 			ID: "DECO-001", Name: "Декоративная накладка", Group: GroupPurchased, Form: FormPart,
+			DimL: 88.0, DimW: 88.0, DimH: 17.0,
 			Material: MatStainless,
 			Note:     "Штампованный колпачок, скрывает посадку стойки",
 		},
 		{
 			ID: "ENDP-001", Name: "Торцевая заглушка", Group: GroupPurchased, Form: FormPart,
+			DimL: 39.2, DimW: 39.2, DimH: 39.2,
 			Material: MatPlastic,
 			Note:     "Заглушка торца трубы Ø39,2",
 		},

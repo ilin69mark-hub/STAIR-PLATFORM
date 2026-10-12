@@ -134,11 +134,11 @@ func TestCalculateValidPipeline(t *testing.T) {
 	// Плюс герметик (CONF-SEALANT): площадь швов обоймы выреза и торца
 	// косоура 0,6922 м² × 1 мм = 0,6922 л → 3 картриджа по 500 ₽ = 1 500 ₽,
 	// и на них накручиваются накладные, маржа, скидка и НДС: +2 667,60 ₽.
-	if res.Price.FinalPrice.Minor() != 37308901 {
-		t.Fatalf("final price = %d, want 37308901", res.Price.FinalPrice.Minor())
+	if res.Price.FinalPrice.Minor() != 38598241 {
+		t.Fatalf("final price = %d, want 38598241", res.Price.FinalPrice.Minor())
 	}
-	if res.Price.FinalPrice.Major(domprc.CurrencyRUB) != 373089.01 {
-		t.Fatalf("final price = %.2f rub, want 373089.01", res.Price.FinalPrice.Major(domprc.CurrencyRUB))
+	if res.Price.FinalPrice.Major(domprc.CurrencyRUB) != 385982.41 {
+		t.Fatalf("final price = %.2f rub, want 385982.41", res.Price.FinalPrice.Major(domprc.CurrencyRUB))
 	}
 	if res.Price.Sealant.Minor() != 150000 {
 		t.Fatalf("sealant cost = %d minor, want 150000 (3 картриджа × 500 ₽)", res.Price.Sealant.Minor())

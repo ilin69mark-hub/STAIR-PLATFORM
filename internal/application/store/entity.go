@@ -219,6 +219,13 @@ type Repository interface {
 	// ListSealantPrices возвращает цены герметика, заданные магазином
 	// (₽ за картридж).
 	ListSealantPrices(ctx context.Context, tenantID string) ([]SealantPrice, error)
+	// ListPurchasedPrices возвращает закупочные цены покупных деталей
+	// ограждения, заданные магазином (₽ за штуку по ВИДУ детали).
+	ListPurchasedPrices(ctx context.Context, tenantID string) ([]PurchasedPrice, error)
+	// SetPurchasedPrice сохраняет закупочную цену покупной детали.
+	SetPurchasedPrice(ctx context.Context, tenantID, kind string, pricePerPcRub int64, updatedBy string) error
+	// DeletePurchasedPrice возвращает деталь к встроенной ставке.
+	DeletePurchasedPrice(ctx context.Context, tenantID, kind string) error
 	// SetSealantPrice сохраняет цену одной позиции герметика (upsert).
 	SetSealantPrice(ctx context.Context, tenantID, code string, pricePerCartridgeRub int64, updatedBy string) error
 	// DeleteSealantPrice возвращает герметик к встроенной ставке.

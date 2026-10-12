@@ -66,6 +66,38 @@ func TestPurchasedDemandCoversAllPurchasedParts(t *testing.T) {
 	}
 }
 
+// S-179: ограждение перестало стоить ноль. До этого 29 позиций были в
+// пакете и в смете с нулевой суммой — менеджер выдавал цену без ограждения.
+func TestPurchasedRailingHasNonZeroCost(t *testing.T) {
+	s := NewService()
+	res, err := s.Calculate(context.Background(), metalStairConfig(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var total int64
+	names := 0
+	for _, l := range res.Price.Lines {
+		if !strings.HasPrefix(l.Source, "purchased:") {
+			continue
+		}
+		names++
+		total += l.Amount.Minor()
+	}
+	if names == 0 {
+		t.Fatal("в смете нет ни одной строки закупки")
+	}
+	if total <= 0 {
+		t.Fatalf("сумма закупки = %d копеек — ограждение снова стоит ноль", total)
+	}
+
+	// Доля ограждения в себестоимости должна быть заметной, а не копеечной:
+	// 29 позиций по 250 ₽ против стали и крепежа.
+	if res.Price.Material.Minor() <= 0 {
+		t.Fatal("материал в цене обнулился")
+	}
+}
+
 func TestPurchasedWithoutRateStaysVisible(t *testing.T) {
 	// Пока закупочных ставок нет, строки должны остаться с нулём — по образцу
 	// крепежа. Иначе разрыв снова станет невидимым.
