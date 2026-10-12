@@ -15,11 +15,14 @@ import (
 // КООРДИНАТЫ (ADR-0008): X — направление подъёма, Y — ширина, Z — высота.
 // Косоур A стоит на Y ∈ [0, t], косоур B на Y ∈ [w−t, w] — по краям марша.
 
-// combArcSegments — число интервалов на полуокружность овала (концы дуг
-// включены, то есть на дугу приходится combArcSegments+1 точка). Значение
-// подобрано так, чтобы овал 30×12 повторял эталонный чертеж: 12 интервалов
-// дают площадь 329,0 мм² против точных 329,1.
-const combArcSegments = 12
+// combArcToleranceMM — допуск дуги овального паза регулировки, мм (S-172).
+//
+// Здесь допуск жёстче, чем у остальных кривых: площадь паза входит в расчёт
+// раскроя и цены, и «на глаз» её не проверить. 0,055 мм при типовом овале
+// 30×12 (радиус дуги 6 мм) даёт 12 интервалов — ровно столько же, сколько
+// давала прежняя константа combArcSegments, и ту же площадь 329,0 мм² против
+// точных 329,1. Поменяется размер овала — сегменты пересчитаются сами.
+const combArcToleranceMM = 0.055
 
 // combStringerProfile — профиль косоура-гребёнки: сверху идёт посадочная
 // линия ступеней, между посадками поднимаются зубья, спина уходит вниз на
@@ -166,8 +169,9 @@ func stadiumRing(center kerngeo.Point3, u, v kerngeo.Vector3, length, width floa
 	}
 	var out []kerngeo.Point3
 	arc := func(offU float64, from, to float64) {
-		for i := 0; i <= combArcSegments; i++ {
-			a := from + (to-from)*float64(i)/float64(combArcSegments)
+		segs := kerngeo.ArcSegments(r, math.Abs(to-from), combArcToleranceMM)
+		for i := 0; i <= segs; i++ {
+			a := from + (to-from)*float64(i)/float64(segs)
 			out = append(out, center.
 				Add(u.Scale(offU+r*math.Cos(a))).
 				Add(v.Scale(r*math.Sin(a))))

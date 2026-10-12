@@ -623,23 +623,38 @@ func buildUShapePlatform(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 	return kerngeo.NewCompound(solids...), nil
 }
 
-// arcSegments — число сегментов дуги в примитиве sectorRing. 8 сегментов на
-// сектор поворотной ступени дают отклонение от идеальной дуги порядка
-// R·(1−cos(π/16)) ≈ 1 % радиуса — на заготовке веерной ступени это доли
-// миллиметра, неразличимо и в геометрии, и на раскрое.
-const arcSegments = 8
+// winderArcRelTol — допуск сектора поворотной ступени в ДОЛЯХ радиуса (S-172).
+//
+// Абсолютный допуск здесь бессмыслен: заготовка веерной ступени вырезается,
+// отклонение на радиусе 1250 мм неразличимо глазом, а на радиусе 5 мм то же
+// отклонение было бы грубой ошибкой формы. Поэтому допуск ОТНОСИТЕЛЬНЫЙ.
+//
+// Угол сектора — не полуоборот, а π/nw (180°, делённые на число
+// поворотных ступеней), см. buildWinders: dth = π/nw. Значение подобрано так,
+// чтобы при типовых nw = 3 сегментов осталось 8 — столько же, сколько давала
+// прежняя константа arcSegments. Проверено: при радиусе 1250 мм отклонение
+// многоугольника от дуги 3,4 мм (было 5,35 мм при тех же 8 сегментах на
+// радиусе 1250 — то есть точность выросла).
+//
+// Сделать сектор глаже — теперь одна правка этого числа.
+const winderArcRelTol = 0.0027
 
 // sectorRing — контур сектора кольца [r, R] на угле от a0 до a1 в плоскости
 // z = z0: внешняя дуга вперёд, внутренняя назад. Основа веерной ступени
 // П-образного марша с поворотом на 180° (BuildUShapeWinderFlight).
 func sectorRing(r, R, a0, a1, z0 float64) []kerngeo.Point3 {
-	pts := make([]kerngeo.Point3, 0, 2*arcSegments+2)
-	for i := 0; i <= arcSegments; i++ {
-		a := a0 + (a1-a0)*float64(i)/float64(arcSegments)
+	segs := kerngeo.ArcSegmentsRelative(R, a1-a0, winderArcRelTol)
+	pts := make([]kerngeo.Point3, 0, 2*segs+2)
+	for i := 0; i <= segs; i++ {
+		a := a0 + (a1-a0)*float64(i)/float64(segs)
 		pts = append(pts, kerngeo.NewPoint3(R*math.Cos(a), R*math.Sin(a), z0))
 	}
-	for i := 0; i <= arcSegments; i++ {
-		a := a1 - (a1-a0)*float64(i)/float64(arcSegments)
+	// Внутренняя дуга считается от своего радиуса r: при относительном
+	// допуске сегментов на ней столько же, сколько на внешней, и контур
+	// остаётся замкнутым по числу точек с обеих сторон.
+	innerSegs := kerngeo.ArcSegmentsRelative(r, a1-a0, winderArcRelTol)
+	for i := 0; i <= innerSegs; i++ {
+		a := a1 - (a1-a0)*float64(i)/float64(innerSegs)
 		pts = append(pts, kerngeo.NewPoint3(r*math.Cos(a), r*math.Sin(a), z0))
 	}
 	return pts
@@ -755,12 +770,15 @@ func buildWinders(w, h, st float64, n1, nw int, pLower, pUpper kerngeo.Point3) (
 	return sols, nil
 }
 
-// noseArcSegments — число сегментов дуги скругления носа. 10 сегментов на
-// четверть окружности дают отклонение от идеала R(1−cos(π/40)) ≈ 0,3 мм при
-// R = 10 — глазом не видно, но блик на кромке ступени уже не «ломается».
-// Больше сегментов незачем: деталь всё равно режется, и на раскрой это не
-// влияет (заготовка остаётся прямоугольной).
-const noseArcSegments = 10
+// noseArcToleranceMM — допуск скругления носа проступи, мм (S-172).
+//
+// Нос — единственная кривая на проступи, которую видно вблизи и по которой
+// идёт блик, поэтому допуск здесь жёстче остальных: 0,035 мм. При типовом
+// радиусе R = 10 это даёт 10 сегментов на четверть окружности — столько же,
+// сколько было константой, и отклонение 0,031 мм (блик на кромке не
+// «ломается»). Но стоит поменять радиус скругления — число сегментов
+// пересчитается само, а останется константой, заданная для другого радиуса.
+const noseArcToleranceMM = 0.035
 
 // pushDistinct добавляет точку в контур, если она не совпадает с последней
 // добавленной. Профили скруглённой проступи в предельных случаях (радиус равен
@@ -817,7 +835,8 @@ func plateSection(x0, x1, zBottom, thickness, r float64, side roundSide) ([]kern
 	case roundFront:
 		// Идём вверх по правой грани, дуга в левый верхний угол, затем по верху
 		// назад к x0. Дуга идёт ОТ грани К верху — так соответствует обходу.
-		arc, err := kerngeo.RoundCorner(pt(x1, zBottom), pt(x1, zTop), pt(x0, zTop), r, noseArcSegments)
+		arc, err := kerngeo.RoundCorner(pt(x1, zBottom), pt(x1, zTop), pt(x0, zTop), r,
+			kerngeo.ArcSegments(r, math.Pi/2, noseArcToleranceMM))
 		if err != nil {
 			return nil, fmt.Errorf("geometry: plate corner rounding: %w", err)
 		}
@@ -839,7 +858,8 @@ func plateSection(x0, x1, zBottom, thickness, r float64, side roundSide) ([]kern
 		// угол и делало полигон «не простым» — вертикальный отрезок x0 шёл
 		// вверх до zTop и тут же обратно вниз. Из-за этого roundFront был
 		// единственной рабочей стороной, а roundBack не вызывался нигде.
-		arc, err := kerngeo.RoundCorner(pt(x1, zTop), pt(x0, zTop), pt(x0, zBottom), r, noseArcSegments)
+		arc, err := kerngeo.RoundCorner(pt(x1, zTop), pt(x0, zTop), pt(x0, zBottom), r,
+			kerngeo.ArcSegments(r, math.Pi/2, noseArcToleranceMM))
 		if err != nil {
 			return nil, fmt.Errorf("geometry: plate corner rounding: %w", err)
 		}

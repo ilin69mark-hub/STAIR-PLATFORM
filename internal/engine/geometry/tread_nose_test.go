@@ -57,12 +57,15 @@ func TestTreadNoseRadiusRemovesQuarterRound(t *testing.T) {
 	got := treadVolume(0) - treadVolume(radius)
 
 	// Срезано на каждой ступени: вписанный многоугольник четверти круга.
-	polygon := 0.5 * float64(noseArcSegments) * radius * radius *
-		math.Sin(math.Pi/(2*float64(noseArcSegments)))
+	// Число сегментов берём тем же расчётом, что и геометрия (S-172),
+	// иначе тест проверял бы не то, что построено.
+	segs := kerngeo.ArcSegments(radius, math.Pi/2, noseArcToleranceMM)
+	polygon := 0.5 * float64(segs) * radius * radius *
+		math.Sin(math.Pi/(2*float64(segs)))
 	want := steps * width * (radius*radius - polygon)
 	if math.Abs(got-want) > 1 {
 		t.Fatalf("R%v срезает %.1f мм³ на всех ступенях, хотим %.1f (вписанная дуга, %d сегментов)",
-			radius, got, want, noseArcSegments)
+			radius, got, want, segs)
 	}
 
 	// Число с чертежа: 19 314 мм³ на ступень при R10 и ширине 900. Дуга из
@@ -78,7 +81,7 @@ func TestTreadNoseRadiusRemovesQuarterRound(t *testing.T) {
 	}
 	if perTreadMm3 := got / steps; math.Abs(perTreadMm3-19314) > 300 {
 		t.Fatalf("%.0f мм³ на ступень, чертеж freecad-out даёт 19 314 (±300 на %d сегментов дуги)",
-			perTreadMm3, noseArcSegments)
+			perTreadMm3, segs)
 	}
 }
 

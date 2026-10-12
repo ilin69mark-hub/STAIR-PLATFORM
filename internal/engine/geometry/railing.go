@@ -38,35 +38,38 @@ const (
 	// balusterD — диаметр стойки стального ограждения, мм. Круглая труба
 	// Ø42,4 × 1,5, а не квадрат 20×20: это балясина самосборной системы.
 	balusterD = 42.4
-	// balusterProfileSegments — число граней в сечении стойки.
-	balusterProfileSegments = 24
 	// balusterWall — толщина стенки стойки, мм.
 	balusterWall = 1.5
-	// tubeProfileSegments — число граней в сечении любой трубки ограждения.
-	tubeProfileSegments = 24
+	// railTubeToleranceMM — допуск окружности сечения трубки ограждения, мм
+	// (S-172). Ограждение — декор, не BOM, поэтому допуск мягче, чем у
+	//Manufacturing-деталей. При типовой стойке Ø42,4 (R = 21,2) даёт 24 грани,
+	// столько же, сколько давала прежняя константа tubeProfileSegments.
+	// Для трубок большего диаметра граней станет больше — и правильно:
+	// на R = 43 прежние 24 грани давали отклонение 0,58 мм, а теперь 0,19.
+	railTubeToleranceMM = 0.19
 	// roleHolder — держатель поручня на стойке (шарнирный наконечник).
 	roleHolder = "holder"
 	// Роли опорного узла и торцевых заглушек.
-	roleClamp = "clamp"
+	roleClamp  = "clamp"
 	roleEndCap = "end_cap"
 	// Габариты держателя (чертёж k372, мм).
-	holderSockH  = 24.0  // втулка, входит в полость стойки
-	holderCapH   = 3.0   // крышка основания
-	holderRodD   = 12.0  // шпилька
-	holderRodH   = 27.7  // ФИКСИРОВАНА по эталону Rail_Tip_01
-	holderJointD = 14.0  // корпус шарнира
+	holderSockH  = 24.0 // втулка, входит в полость стойки
+	holderCapH   = 3.0  // крышка основания
+	holderRodD   = 12.0 // шпилька
+	holderRodH   = 27.7 // ФИКСИРОВАНА по эталону Rail_Tip_01
+	holderJointD = 14.0 // корпус шарнира
 	holderJointH = 19.4
 	// площадка-наконечник: габарит эталона 32.7 x 50.8
-	holderPlateLen   = 70.0   // длина овала вдоль поручня (эталон)
-	holderPlateSeg   = 10     // сегментов на каждую полуокружность
-	holderPlateHalfX = 16.35  // эталон: Z-размах 24.2 = 2*0.75*halfX + t
+	holderPlateLen   = 70.0  // длина овала вдоль поручня (эталон)
+	holderPlateSeg   = 10    // сегментов на каждую полуокружность
+	holderPlateHalfX = 16.35 // эталон: Z-размах 24.2 = 2*0.75*halfX + t
 	holderPlateHalfW = 25.4
-	holderPlateW = 50.8
-	holderPlateT = 1.0   // эталон: прокатанный металл 1 мм, НЕ 3 мм
-	holderHoleD  = 5.0   // 2 отверстия в площадке
-	holderHoleOfs = 15.0
+	holderPlateW     = 50.8
+	holderPlateT     = 1.0 // эталон: прокатанный металл 1 мм, НЕ 3 мм
+	holderHoleD      = 5.0 // 2 отверстия в площадке
+	holderHoleOfs    = 15.0
 	// holderGrooveD — ложемент под поручень: паз Ø44,2 (Ø42,4 + зазор 0,9).
-	holderGrooveD = 44.2   // больше не используется: площадка убрана
+	holderGrooveD = 44.2 // больше не используется: площадка убрана
 	// Декоративный наконечник на верхушке шпильки Ø12.
 	holderTipOD = 20.0
 	holderTipH  = 12.0
@@ -75,23 +78,23 @@ const (
 	holderRodJointOverlap = 1.3
 	holderTipJointOverlap = 1.6
 	// Габариты цанги (k334) — основание опоры на ступени.
-	clampDiscD = 86.0   // диск цанги
-	clampDiscT = 8.0    // толщина диска
-	clampMufD  = 43.0   // муфта под стойку Ø42,4
-	clampMufH  = 34.0   // высота муфты
-	clampBoreD = 42.6   // посадка стойки в муфте
-	anchorD    = 9.0    // анкеры в ступень
+	clampDiscD = 86.0 // диск цанги
+	clampDiscT = 8.0  // толщина диска
+	clampMufD  = 43.0 // муфта под стойку Ø42,4
+	clampMufH  = 34.0 // высота муфты
+	clampBoreD = 42.6 // посадка стойки в муфте
+	anchorD    = 9.0  // анкеры в ступень
 	anchorN    = 3
-	anchorR    = 32.0   // радиус крепёжных отверстий
+	anchorR    = 32.0 // радиус крепёжных отверстий
 	// Габариты колпачка — декоративная крышка, накрывает цангу сверху.
-	capOD  = 88.0       // наружный диаметр
-	capH   = 17.0       // высота
-	capCav = 86.2       // полость под цангу Ø86
-	capTopID = 51.3     // верхнее отверстие вокруг стойки Ø42,4
-	capTopT  = 1.0     // толщина верхней крышки колпачка
+	capOD    = 88.0 // наружный диаметр
+	capH     = 17.0 // высота
+	capCav   = 86.2 // полость под цангу Ø86
+	capTopID = 51.3 // верхнее отверстие вокруг стойки Ø42,4
+	capTopT  = 1.0  // толщина верхней крышки колпачка
 	// Габариты заглушек поручня (k348).
-	endCapD     = 39.2   // Ø39,2 входит в полость трубы Ø39,4
-	endCapDepth = 18.0   // заход внутрь
+	endCapD     = 39.2 // Ø39,2 входит в полость трубы Ø39,4
+	endCapDepth = 18.0 // заход внутрь
 	endCapWall  = 1.5
 	// roleRigel — ригель: заполняющий профиль ограждения из круглой трубы,
 	// отдельный от стойки и поручня, потому что материал и диаметр другие.
@@ -123,9 +126,11 @@ const (
 	// непрерывным бликом по всей длине, как у настоящего поручня.
 	// 14 мм < min(50, 40)/2 — дуги соседних углов не пересекаются.
 	railProfileRadius = 14.0
-	// railProfileSegments — фасетов на углу профиля. 4 на 90° даёт шаг
-	// ~11°: силуэт читается гладким, а меш остаётся дешёвым (декор, не BOM).
-	railProfileSegments = 4
+	// railCornerToleranceMM — допуск скругления угла профиля поручня, мм.
+	// Поручень — декор, он не входит в BOM, поэтому допуск грубый: 1,2 мм
+	// при радиусе 14 мм даёт те же 4 фасета на 90°, что и прежняя константа.
+	// Силуэт читается гладким, а меш остаётся дешёвым.
+	railCornerToleranceMM = 1.2
 
 	// glassThickness — толщина стеклянного заполнения (10 мм — нормативное
 	// закалённое стекло для ограждений высотой до 1,2 м).
@@ -336,7 +341,7 @@ func railAlongD(a, b kerngeo.Point3, dia float64) *kerngeo.Solid {
 		c.Add(wd.Scale(rw)).Add(td.Scale(-rt)),
 		c.Add(wd.Scale(-rw)).Add(td.Scale(-rt)),
 		c.Add(wd.Scale(-rw)).Add(td.Scale(rt)),
-	}, radius, railProfileSegments)
+	}, radius, kerngeo.ArcSegments(radius, math.Pi/2, railCornerToleranceMM))
 	shift := u.Scale(-L / 2)
 	profile := make([]kerngeo.Point3, len(base))
 	for i := range base {
@@ -568,13 +573,13 @@ func tubeAlong(a, b kerngeo.Point3, od, wall float64, role string) *kerngeo.Soli
 		return nil
 	}
 	c := a.Add(axis.Scale(0.5))
-	seg := tubeProfileSegments
+	seg := kerngeo.ArcSegments(od/2, 2*math.Pi, railTubeToleranceMM)
 	outer := make([]kerngeo.Point3, seg)
 	inner := make([]kerngeo.Point3, seg)
 	for i := 0; i < seg; i++ {
 		a2 := 2 * math.Pi * float64(i) / float64(seg)
 		off := wd.Scale(od / 2 * math.Cos(a2)).Add(td.Scale(od / 2 * math.Sin(a2)))
-		offIn := wd.Scale((od-2*wall) / 2 * math.Cos(a2)).Add(td.Scale((od-2*wall) / 2 * math.Sin(a2)))
+		offIn := wd.Scale((od - 2*wall) / 2 * math.Cos(a2)).Add(td.Scale((od - 2*wall) / 2 * math.Sin(a2)))
 		outer[i] = c.Add(off)
 		inner[i] = c.Add(offIn)
 	}
@@ -845,7 +850,7 @@ func straightRailingSolids(n int, b, h, rh, w, st, nosing float64, side engineer
 		xoff := -nosing
 		for _, k := range steps {
 			x := (float64(k)-0.5)*b + xoff
-			zTop := float64(k) * h + rh
+			zTop := float64(k)*h + rh
 			if s := balusterAtSloped(x, balY, float64(k)*h, rh, slope); s != nil {
 				sols = append(sols, s)
 			}
@@ -1186,7 +1191,7 @@ func buildLURNailing(cfg *engineering.StairConfiguration, rh float64) ([]*kernge
 			lowerT = kerngeo.Translate(w+l1, flightW, 0).Mul(kerngeo.RotateZ(math.Pi))
 		}
 		for _, s := range straightRailingSolids(n1, b, h, rh, flightW, cfg.StepThickness.Millimeters(),
-				cfgProfileNosing(cfg), side) {
+			cfgProfileNosing(cfg), side) {
 			sols = append(sols, kerngeo.TransformSolid(s, lowerT))
 		}
 	}
@@ -1273,18 +1278,18 @@ func buildLURNailing(cfg *engineering.StairConfiguration, rh float64) ([]*kernge
 	return sols, nil
 }
 
-
 // railHolderAt строит держатель поручня на верхнем торце стойки по замерам
 // ЭТАЛОНА (FreeCAD, объект Rail_Tip_01). Все вертикальные размеры —
 // ФИКСИРОВАННЫЕ КОНСТАНТЫ, детали стыкуются впритык, поручень кладётся
 // сверху на наклонную площадку. Ничего не вычисляется от поручня.
 //
 // Замеры эталона (мм), при zTop = 980.7:
-//   втулка внутри стойки  Z 956.7..980.7   h 24.0  OD 39.4 (ровно полость)
-//   крышка               Z 980.7..983.7   h  3.0  OD 42.4 (ровно стойка)
-//   шпилька Ø12          Z 983.7..1011.4  h 27.7  (ФИКСИРОВАНА)
-//   корпус шарнира Ø14   Z 1010.1..1029.5 h 19.4  (наезд на шпильку 1.3)
-//   наклонная площадка   Z 1027.9..1052.1       (наезд на шарнир 1.6)
+//
+//	втулка внутри стойки  Z 956.7..980.7   h 24.0  OD 39.4 (ровно полость)
+//	крышка               Z 980.7..983.7   h  3.0  OD 42.4 (ровно стойка)
+//	шпилька Ø12          Z 983.7..1011.4  h 27.7  (ФИКСИРОВАНА)
+//	корпус шарнира Ø14   Z 1010.1..1029.5 h 19.4  (наезд на шпильку 1.3)
+//	наклонная площадка   Z 1027.9..1052.1       (наезд на шарнир 1.6)
 //
 // zTop — верхний торец стойки; zRailLow — низ поручня (только для проверки).
 func railHolderAt(x, y, zTop, zRailLow, slope float64) []*kerngeo.Solid {
@@ -1400,12 +1405,12 @@ func plateGrooved(p0, p1 kerngeo.Point3, w, t, off, d, grooveDia float64, role s
 	if grooveDia > 0 {
 		// ЛОЖЕМЕНТ: паз под поручень на всю длину площадки. Вырезается
 		// в тот же профиль, поэтому лежит в его плоскости.
-		seg := tubeProfileSegments
+		seg := kerngeo.ArcSegments(clampDiscD/2, 2*math.Pi, railTubeToleranceMM)
 		gp := make([]kerngeo.Point3, seg)
 		for i := 0; i < seg; i++ {
 			a2 := 2 * math.Pi * float64(i) / float64(seg)
 			gp[i] = p0.Add(wd.Scale(grooveDia / 2 * math.Cos(a2))).
-				Add(u.Scale((L - grooveDia / 2) * 0)). // вдоль профиля: по u
+				Add(u.Scale((L - grooveDia/2) * 0)). // вдоль профиля: по u
 				Add(u.Scale(0))
 			gp[i] = p0.Add(u.Scale(L / 2)).
 				Add(wd.Scale(grooveDia / 2 * math.Cos(a2))).
@@ -1467,7 +1472,7 @@ func railClampAt(x, y, z0 float64) []*kerngeo.Solid {
 
 // discWithAnchorHoles — диск цанги Ø86 × 8 с тремя отверстиями Ø9.
 func discWithAnchorHoles(x, y, z0 float64) *kerngeo.Solid {
-	seg := tubeProfileSegments
+	seg := kerngeo.ArcSegments(clampDiscD/2, 2*math.Pi, railTubeToleranceMM)
 	prof := make([]kerngeo.Point3, seg)
 	for i := 0; i < seg; i++ {
 		a := 2 * math.Pi * float64(i) / float64(seg)
@@ -1477,8 +1482,8 @@ func discWithAnchorHoles(x, y, z0 float64) *kerngeo.Solid {
 	holes := make([][]kerngeo.Point3, 0, anchorN)
 	for k := 0; k < anchorN; k++ {
 		a := 2 * math.Pi * float64(k) / float64(anchorN)
-		cx := x + anchorR * math.Cos(a)
-		cy := y + anchorR * math.Sin(a)
+		cx := x + anchorR*math.Cos(a)
+		cy := y + anchorR*math.Sin(a)
 		hseg := 10
 		hp := make([]kerngeo.Point3, hseg)
 		for i := 0; i < hseg; i++ {
@@ -1509,7 +1514,7 @@ func railCapAt(x, y, z0 float64) []*kerngeo.Solid {
 		return nil
 	}
 	out = append(out, body)
-	seg := tubeProfileSegments
+	seg := kerngeo.ArcSegments(clampDiscD/2, 2*math.Pi, railTubeToleranceMM)
 	prof := make([]kerngeo.Point3, seg)
 	for i := 0; i < seg; i++ {
 		a := 2 * math.Pi * float64(i) / float64(seg)
@@ -1578,7 +1583,7 @@ func glassRailingSolids(n int, b, h, rh, w, st, nosingGlass float64, side engine
 		for _, k := range steps {
 			// середина проступи = (k−0.5)·b + xoff
 			x := (float64(k)-0.5)*b + xoff
-			zTop := float64(k) * h + rh
+			zTop := float64(k)*h + rh
 			if s := balusterAtSloped(x, balY, float64(k)*h, rh, slope); s != nil {
 				sols = append(sols, s)
 			}
@@ -1597,7 +1602,7 @@ func glassRailingSolids(n int, b, h, rh, w, st, nosingGlass float64, side engine
 		}
 		for i := 0; i+1 < len(steps); i++ {
 			k, kNext := steps[i], steps[i+1]
-		nosingGlass := 20.0 // стеклянное ограждение: свес не влияет на опоры
+			nosingGlass := 20.0 // стеклянное ограждение: свес не влияет на опоры
 			xoffG := -nosingGlass
 			x0 := (float64(k)-0.5)*b + xoffG
 			x1 := (float64(kNext)-0.5)*b + xoffG
