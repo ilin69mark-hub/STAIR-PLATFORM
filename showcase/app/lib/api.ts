@@ -71,7 +71,10 @@ async function getJSON<T>(
     const res = await fetch(`${API}${path}`, {
       ...init,
       headers: { 'Content-Type': 'application/json', ...init?.headers },
-      next: { revalidate: init?.revalidate ?? 300 },
+      // revalidate 0 = без кэша. Прежние 300 секунд делали витрину
+      // «залипшей»: правки геометрии не были видны до истечения TTL, что
+      // неоднократно выглядело как «правки не применяются».
+      next: { revalidate: init?.revalidate ?? 0 },
     })
     if (!res.ok) return null
     return (await res.json()) as T

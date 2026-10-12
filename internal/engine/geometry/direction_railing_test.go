@@ -255,7 +255,10 @@ func TestBuildRailingDecorStraight(t *testing.T) {
 		t.Fatalf("balusters = %d, want %d", len(balXs), len(steps))
 	}
 	for k, cx := range balXs {
-		want := (float64(steps[k]) - 0.5) * b
+		// Центр ПРОСТУПИ: ступень длиннее шага на nosing и отодвинута назад.
+	// Середина СТУПЕНИ при свесе НАЗАД: ступень [ (k−1)·b − nosing,
+	// (k−1)·b + b + nosing ], центр = (k−1)·b + b/2. Первая = 115 мм.
+	want := float64(steps[k]-1)*b + b/2 - cfgProfileNosing(cfg)
 		if !nearlyEqual(cx, want) {
 			t.Fatalf("baluster %d centre X = %v, want %v (step %d centre)", k+1, cx, want, steps[k])
 		}
@@ -281,7 +284,9 @@ func TestBuildRailingDecorStraight(t *testing.T) {
 	h := cfg.StepHeight.Millimeters()
 	rh := cfg.RailingHeight.Millimeters()
 	wantCX := float64(cfg.StepCount) * b / 2
-	wantCZ := rh + (float64(cfg.StepCount)+1)*h/2
+	// Поручень идёт от первой ступени (x=0, z=rh) до последней
+	// (x=n·b, z=H+rh): его середина по Z = rh + H/2.
+	wantCZ := rh + float64(cfg.StepCount)*h/2
 	if !nearlyEqual((rails[0].Min.X+rails[0].Max.X)/2, wantCX) {
 		t.Fatalf("handrail centre X = %v, want %v (over nosings)",
 			(rails[0].Min.X+rails[0].Max.X)/2, wantCX)

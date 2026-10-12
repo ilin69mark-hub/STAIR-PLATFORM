@@ -53,14 +53,27 @@ const (
 	holderSockH  = 24.0  // втулка, входит в полость стойки
 	holderCapH   = 3.0   // крышка основания
 	holderRodD   = 12.0  // шпилька
-	holderRodH   = 27.0  // шпилька до центра шарнира
+	holderRodH   = 27.7  // ФИКСИРОВАНА по эталону Rail_Tip_01
 	holderJointD = 14.0  // корпус шарнира
-	holderJointH = 18.0
-	holderPlateL = 70.0  // площадка под поручень
+	holderJointH = 19.4
+	// площадка-наконечник: габарит эталона 32.7 x 50.8
+	holderPlateLen   = 70.0   // длина овала вдоль поручня (эталон)
+	holderPlateSeg   = 10     // сегментов на каждую полуокружность
+	holderPlateHalfX = 16.35  // эталон: Z-размах 24.2 = 2*0.75*halfX + t
+	holderPlateHalfW = 25.4
 	holderPlateW = 50.8
-	holderPlateT = 3.0
+	holderPlateT = 1.0   // эталон: прокатанный металл 1 мм, НЕ 3 мм
 	holderHoleD  = 5.0   // 2 отверстия в площадке
 	holderHoleOfs = 15.0
+	// holderGrooveD — ложемент под поручень: паз Ø44,2 (Ø42,4 + зазор 0,9).
+	holderGrooveD = 44.2   // больше не используется: площадка убрана
+	// Декоративный наконечник на верхушке шпильки Ø12.
+	holderTipOD = 20.0
+	holderTipH  = 12.0
+	// holderRodMin — минимальная длина шпильки.
+	// наезды из эталона: шарнир на шпильку 1.3 мм, площадка на шарнир 1.6 мм
+	holderRodJointOverlap = 1.3
+	holderTipJointOverlap = 1.6
 	// Габариты цанги (k334) — основание опоры на ступени.
 	clampDiscD = 86.0   // диск цанги
 	clampDiscT = 8.0    // толщина диска
@@ -89,6 +102,12 @@ const (
 	rigelWall = 1.0
 	// rigelD — наружный диаметр ригеля, мм.
 	rigelD = 12.0
+	// balusterEdgeInset — зазор от бокового края ступени до КРАЙНЕЙ детали
+	// опорного узла, мм. Требование владельца: край опоры в 15 мм от края,
+	// опорный столб — в центре опоры (цанги). Ширина узла задана колпачком
+	// Ø88 — он шире цанги Ø86 и стойки Ø42,4, поэтому ось узла считается от
+	// него: axis = w - inset - capOD/2.
+	balusterEdgeInset = 15.0
 	// railOverhangFrac — вылет поручня ЗА край первой/последней ступени,
 	// как доля проступи. Значение 0.5 = половина проступи: поручень
 	// выходит за габарит марша примерно на 135 мм при проступи 270.
@@ -400,6 +419,112 @@ func prismAtSloped(xc, y, halfX, halfY, zBase, height, slope float64, role strin
 	return kerngeo.NewSolidRole(role, kerngeo.NewShell(faces...))
 }
 
+// slopeEff2 — tan угла наклона, переведённый в sin (см. slabOutlineAtSloped).
+func slopeEff2(slope float64) float64 {
+	if d := math.Sqrt(1 + slope*slope); d > 0 {
+		return slope / d
+	}
+	return slope
+}
+
+// faceFromRing собирает грань-«кольцо» по замкнутому списку точек.
+func faceFromRing(pts []kerngeo.Point3) *kerngeo.Face {
+	n := len(pts)
+	edges := make([]*kerngeo.Edge, 0, n)
+	for i := 0; i < n; i++ {
+		edges = append(edges, kerngeo.NewEdge(
+			kerngeo.NewVertex(pts[i]), kerngeo.NewVertex(pts[(i+1)%n])))
+	}
+	return kerngeo.NewFace(kerngeo.NewWire(edges...))
+}
+
+// stadiumOutline строит контур «стадиона» (овала) длиной lenX и шириной w в
+// локальных координатах XY: две полуокружности радиуса w/2 по краям и
+// прямые участки между ними. Ровно так строит эталон наконечника в
+// fix_railings.py: makeBox(lenX-w, w) + два makeCylinder(w/2) на концах.
+func stadiumOutline(lenX, w float64, seg int) [][2]float64 {
+	r := w / 2.0
+	cx := (lenX - w) / 2.0 //Half distance between cap centres
+	pts := make([][2]float64, 0, 2*seg+2)
+	for i := 0; i <= seg; i++ { // right cap, -90° -> +90°
+		a := -math.Pi/2 + math.Pi*float64(i)/float64(seg)
+		pts = append(pts, [2]float64{cx + r*math.Cos(a), r * math.Sin(a)})
+	}
+	for i := 0; i <= seg; i++ { // left cap, +90° -> +270°
+		a := math.Pi/2 + math.Pi*float64(i)/float64(seg)
+		pts = append(pts, [2]float64{-cx + r*math.Cos(a), r * math.Sin(a)})
+	}
+	return pts
+}
+
+// slabOutlineAtSloped строит пластину постоянной толщины t по произвольному
+// контуру (-local XY), наклонённую под углом slope: обе грани наклонены
+// одинаково, поэтому деталь параллельна маршу целиком и не «переламывается».
+func slabOutlineAtSloped(xc, y float64, pts [][2]float64, zBase, t, slope float64,
+	role string) *kerngeo.Solid {
+	if t <= kerngeo.Precision || len(pts) < 3 {
+		return nil
+	}
+	n := len(pts)
+	// Деталь наклонена ПОВОРОТОМ на угол марша, поэтому подъём по Z на всю
+	// длину равен L*sin(ang), а не L*slope: slopeEff = slope/sqrt(1+slope^2).
+	// Для slope=0,75 это 0,6 вместо 0,75 — иначе овал вышел бы на 10 мм
+	// длиннее, чем в эталоне.
+	slopeEff := slope
+	if d := math.Sqrt(1 + slope*slope); d > 0 {
+		slopeEff = slope / d
+	}
+	low := make([]kerngeo.Point3, n)
+	up := make([]kerngeo.Point3, n)
+	for i, p := range pts {
+		z := zBase + slopeEff*p[0]
+		low[i] = kerngeo.NewPoint3(xc+p[0], y+p[1], z)
+		up[i] = kerngeo.NewPoint3(xc+p[0], y+p[1], z+t)
+	}
+	faces := make([]*kerngeo.Face, 0, n+2)
+	for i := 0; i < n; i++ {
+		j := (i + 1) % n
+		faces = append(faces, hexFace(low[i], low[j], up[j], up[i]))
+	}
+	faces = append(faces, faceFromRing(up), faceFromRing(low))
+	return kerngeo.NewSolidRole(role, kerngeo.NewShell(faces...))
+}
+
+// slabAtSloped строит ПЛАСТИНУ постоянной толщины t, наклонённую под углом
+// slope = rise/run. В отличие от prismAtSloped (у него низ ГОРИЗОНТАЛЬНЫЙ,
+// а только верх наклонен — это клин и он «переламывается»), здесь наклонены
+// ОБЕ грани: низ на zBase + slope*(x-xc), верх — на t выше. Именно так
+// построена площадка-наконечник в эталоне FreeCAD (fix_railings.py:
+// stadium 70 x 50,8 x 1 мм, поворот на угол марша).
+func slabAtSloped(xc, y, halfX, halfY, zBase, t, slope float64, role string) *kerngeo.Solid {
+	if t <= kerngeo.Precision {
+		return nil
+	}
+	lo := func(sx float64) float64 { return zBase + slope*(sx*halfX) }
+	hi := func(sx float64) float64 { return zBase + t + slope*(sx*halfX) }
+	b := [4]kerngeo.Point3{
+		kerngeo.NewPoint3(xc-halfX, y-halfY, lo(-1)),
+		kerngeo.NewPoint3(xc+halfX, y-halfY, lo(+1)),
+		kerngeo.NewPoint3(xc+halfX, y+halfY, lo(+1)),
+		kerngeo.NewPoint3(xc-halfX, y+halfY, lo(-1)),
+	}
+	tp := [4]kerngeo.Point3{
+		kerngeo.NewPoint3(xc-halfX, y-halfY, hi(-1)),
+		kerngeo.NewPoint3(xc+halfX, y-halfY, hi(+1)),
+		kerngeo.NewPoint3(xc+halfX, y+halfY, hi(+1)),
+		kerngeo.NewPoint3(xc-halfX, y+halfY, hi(-1)),
+	}
+	faces := []*kerngeo.Face{
+		hexFace(b[0], b[3], b[2], b[1]),
+		hexFace(tp[0], tp[1], tp[2], tp[3]),
+		hexFace(b[0], b[1], tp[1], tp[0]),
+		hexFace(b[1], b[2], tp[2], tp[1]),
+		hexFace(b[2], b[3], tp[3], tp[2]),
+		hexFace(b[3], b[0], tp[0], tp[3]),
+	}
+	return kerngeo.NewSolidRole(role, kerngeo.NewShell(faces...))
+}
+
 // balusterAtSloped строит стойку с наклонной верхней гранью под углом
 // slope = rise/run (тангенс угла поручня). Нижняя грань горизонтальна
 // на z0; верхняя наклонена: z = z0 + height + slope*(x_local − x).
@@ -613,38 +738,65 @@ const balusterMaxGap = 1500.0
 // Идеальные позиции не попадают в центр ступени (шаг ступени b), поэтому
 // каждая привязывается к БЛИЖАЙШЕЙ ступени — отклонение максимум b/2.
 func balusterSteps(n int, b float64) []int {
+	var per []int
 	if n <= 0 || b <= 0 {
 		return nil
 	}
 	if n == 1 {
 		return []int{1}
 	}
-	L := float64(n-1) * b
-	count := int(math.Ceil(L/balusterMaxGap)) + 1
+	// Делим НЕ длину в мм, а ИНДЕКСЫ ступеней. Тогда промежутки между
+	// опорами равны по построению: каждый шаг = round((n−1)/(count−1))
+	// ступеней, и если (n−1) делится на (count−1) — они одинаковы.
+	//
+	// При 16 ступенях и 4 опорах: (16−1)/3 = 5 ступеней на промежуток ->
+	// опоры на ступенях 1, 6, 11, 16, промежутки по 5·b = равные.
+	//
+	// Почему не делить в мм: идеальные точки в мм (135, 1485, 2835, 4185)
+	// после округления к ступеням разъезжались на 270 мм — ряд выходил
+	// неравномерным (1080 / 1350 / 1350).
+	count := int(math.Ceil(float64(n-1)*b/balusterMaxGap)) + 1
 	if count > n {
 		count = n
 	}
 	if count < 2 {
 		count = 2
 	}
-	step := L / float64(count-1)
-	first := 1
-	seen := make(map[int]bool, count)
+	// Равномерное распределение по всему маршу: k_i = 1 + round(i·(n−1)/(count−1)).
+	// Остаток ступеней не сваливается в последний промежуток, как при делении
+	// нацело: промежутки отличаются не более чем на одну ступень и разбросаны
+	// равномерно. Ограничение — ни один промежуток не длиннее balusterMaxGap.
+	for {
+		idx := make([]int, count)
+		for i := 0; i < count; i++ {
+			idx[i] = 1 + int(math.Round(float64(i)*float64(n-1)/float64(count-1)))
+			if idx[i] < 1 {
+				idx[i] = 1
+			}
+			if idx[i] > n {
+				idx[i] = n
+			}
+		}
+		ok := true
+		for i := 1; i < len(idx); i++ {
+			if float64(idx[i]-idx[i-1])*b > balusterMaxGap {
+				ok = false
+				break
+			}
+		}
+		if ok || count >= n {
+			per = idx
+			break
+		}
+		count++
+	}
 	out := make([]int, 0, count)
-	for i := 0; i < count; i++ {
-		want := float64(first) + float64(i)*step
-		k := int(math.Round(want/b - 0.5)) + 1
-		if k < 1 {
-			k = 1
+	seen := make(map[int]bool, count)
+	for _, k := range per {
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, k)
 		}
-		if k > n {
-			k = n
-		}
-		if seen[k] {
-			continue
-		}
-		seen[k] = true
-		out = append(out, k)
 	}
 	return out
 }
@@ -662,7 +814,7 @@ func balusterSteps(n int, b float64) []int {
 //
 // st — толщина проступи: ею задаётся линия носка, на которой нижняя кромка
 // панели переходит с нижней ступени на верхнюю.
-func straightRailingSolids(n int, b, h, rh, w, st float64, side engineering.RailingSide) []*kerngeo.Solid {
+func straightRailingSolids(n int, b, h, rh, w, st, nosing float64, side engineering.RailingSide) []*kerngeo.Solid {
 	sides := railingSides(side, w)
 	if len(sides) == 0 || rh <= 0 || n <= 0 {
 		return nil
@@ -670,14 +822,15 @@ func straightRailingSolids(n int, b, h, rh, w, st float64, side engineering.Rail
 	H := float64(n) * h
 	var sols []*kerngeo.Solid
 	slope := h / b
-	railOverhang := railOverhangFrac * b
 	for _, edge := range sides {
 		railY := edgeInset(edge, w, railWidth/2)
-		balY := edgeInset(edge, w, balusterD/2)
+		balY := edgeInset(edge, w, balusterEdgeInset+capOD/2)
 		// Вылет отсчитывается от ЦЕНТРОВ крайних ступеней: концы поручня
 		// выходят на половину проступи за марш.
-		A := kerngeo.NewPoint3(b/2-railOverhang, railY, h+rh-slope*railOverhang)
-		B := kerngeo.NewPoint3((float64(n)-0.5)*b+railOverhang, railY, H+rh+slope*railOverhang)
+		// Поручень начинается на ПЕРВОЙ ступени и кончается на последней:
+		// от x = 0 до x = n·b, без вылета за габарит марша.
+		A := kerngeo.NewPoint3(0, railY, rh)
+		B := kerngeo.NewPoint3(float64(n)*b, railY, H+rh)
 		if s := railAlong(A, B); s != nil {
 			sols = append(sols, s)
 		}
@@ -685,8 +838,13 @@ func straightRailingSolids(n int, b, h, rh, w, st float64, side engineering.Rail
 		// заподлицо, перекрывая срез.
 		sols = append(sols, railEndCaps(A, B)...)
 		steps := balusterSteps(n, b)
+		// Середина СТУПЕНИ по требованию владельца: 115 мм для первой ступени
+		// (135 − 20). Свес уходит НАЗАД, ступень занимает
+		// [ (k−1)·b − nosing, (k−1)·b + b + nosing ], середина = (k−1)·b + b/2,
+		// то есть сдвиг от середины шага на −nosing.
+		xoff := -nosing
 		for _, k := range steps {
-			x := (float64(k) - 0.5) * b
+			x := (float64(k)-0.5)*b + xoff
 			zTop := float64(k) * h + rh
 			if s := balusterAtSloped(x, balY, float64(k)*h, rh, slope); s != nil {
 				sols = append(sols, s)
@@ -694,8 +852,13 @@ func straightRailingSolids(n int, b, h, rh, w, st float64, side engineering.Rail
 			// Держатель на верхнем торце стойки: площадка ложится под
 			// поручень, поэтому её низ = низ поручня над этой опорой.
 			zRailLow := float64(k)*h + rh - railD/2
-			sols = append(sols, railHolderAt(x, balY, zTop, zRailLow-holderJointH-holderRodH-holderCapH, slope)...)
+			sols = append(sols, railHolderAt(x, balY, zTop, zRailLow, slope)...)
 			// Основание опоры на ступени: цанга с анкерами и колпачок.
+			// Их диаметры (86 и 88) больше стойки (42,4), поэтому они стоят
+			// на СВОЕЙ оси: край диска в balusterEdgeInset от кромки ступени,
+			// иначе Ø88 свисал за край на 7,8 мм.
+			// Ось цанги и колпачка = ось стойки: стойка стоит в центре опоры,
+			// поэтому все детали узла совпадают по Y.
 			sols = append(sols, railClampAt(x, balY, float64(k)*h)...)
 			sols = append(sols, railCapAt(x, balY, float64(k)*h)...)
 		}
@@ -711,8 +874,8 @@ func straightRailingSolids(n int, b, h, rh, w, st float64, side engineering.Rail
 			for i := 0; i+1 < len(steps); i++ {
 				k := steps[i]
 				kNext := steps[i+1]
-				x0 := (float64(k) - 0.5) * b
-				x1 := (float64(kNext) - 0.5) * b
+				x0 := (float64(k)-0.5)*b + xoff
+				x1 := (float64(kNext)-0.5)*b + xoff
 				z0 := float64(k)*h + rh*frac
 				z1 := float64(kNext)*h + rh*frac
 				// Ригель — полая трубка Ø12 / Ø10 (стенка 1 мм),
@@ -967,13 +1130,15 @@ func BuildRailingDecor(cfg *engineering.StairConfiguration) ([]*kerngeo.Solid, e
 	switch cfg.RailingType.Effective() {
 	case engineering.RailingTypeGlass:
 		if cfg.Flight == engineering.FlightStraight {
-			return glassRailingSolids(n, b, h, rh, w, cfg.StepThickness.Millimeters(), cfg.Railing), nil
+			return glassRailingSolids(n, b, h, rh, w, cfg.StepThickness.Millimeters(),
+				cfgProfileNosing(cfg), cfg.Railing), nil
 		}
 		return buildLURNailing(cfg, rh)
 	}
 	switch cfg.Flight {
 	case engineering.FlightStraight:
-		return straightRailingSolids(n, b, h, rh, w, cfg.StepThickness.Millimeters(), cfg.Railing), nil
+		return straightRailingSolids(n, b, h, rh, w, cfg.StepThickness.Millimeters(),
+			cfgProfileNosing(cfg), cfg.Railing), nil
 	case engineering.FlightLShape, engineering.FlightUShape:
 		return buildLURNailing(cfg, rh)
 	default:
@@ -1020,7 +1185,8 @@ func buildLURNailing(cfg *engineering.StairConfiguration, rh float64) ([]*kernge
 		if left {
 			lowerT = kerngeo.Translate(w+l1, flightW, 0).Mul(kerngeo.RotateZ(math.Pi))
 		}
-		for _, s := range straightRailingSolids(n1, b, h, rh, flightW, cfg.StepThickness.Millimeters(), side) {
+		for _, s := range straightRailingSolids(n1, b, h, rh, flightW, cfg.StepThickness.Millimeters(),
+				cfgProfileNosing(cfg), side) {
 			sols = append(sols, kerngeo.TransformSolid(s, lowerT))
 		}
 	}
@@ -1098,7 +1264,8 @@ func buildLURNailing(cfg *engineering.StairConfiguration, rh float64) ([]*kernge
 				rot = math.Pi
 			}
 		}
-		for _, s := range straightRailingSolids(n2, b, h, rh, flightW, cfg.StepThickness.Millimeters(), swapSidesForTurn(side, rot)) {
+		for _, s := range straightRailingSolids(n2, b, h, rh, flightW, cfg.StepThickness.Millimeters(),
+			cfgProfileNosing(cfg), swapSidesForTurn(side, rot)) {
 			sols = append(sols, kerngeo.TransformSolid(s, upperT))
 		}
 	}
@@ -1107,43 +1274,67 @@ func buildLURNailing(cfg *engineering.StairConfiguration, rh float64) ([]*kernge
 }
 
 
-// railHolderAt строит держатель поручня на верхнем торце стойки:
-// втулка уходит ВНУТРЬ полой стойки (Ø39,2 в полость Ø39,4), крышка
-// закрывает торец, дальше шпилька Ø12 и корпус шарнира Ø14, а сверху
-// площадка под поручень с двумя отверстиями Ø5.
+// railHolderAt строит держатель поручня на верхнем торце стойки по замерам
+// ЭТАЛОНА (FreeCAD, объект Rail_Tip_01). Все вертикальные размеры —
+// ФИКСИРОВАННЫЕ КОНСТАНТЫ, детали стыкуются впритык, поручень кладётся
+// сверху на наклонную площадку. Ничего не вычисляется от поручня.
 //
-// zTop — высота верхнего торца стойки; zPlate — высота низа площадки
-// (её верх должен доходить до низа поручня). Наклон площадки = slope.
-func railHolderAt(x, y, zTop, zPlate, slope float64) []*kerngeo.Solid {
+// Замеры эталона (мм), при zTop = 980.7:
+//   втулка внутри стойки  Z 956.7..980.7   h 24.0  OD 39.4 (ровно полость)
+//   крышка               Z 980.7..983.7   h  3.0  OD 42.4 (ровно стойка)
+//   шпилька Ø12          Z 983.7..1011.4  h 27.7  (ФИКСИРОВАНА)
+//   корпус шарнира Ø14   Z 1010.1..1029.5 h 19.4  (наезд на шпильку 1.3)
+//   наклонная площадка   Z 1027.9..1052.1       (наезд на шарнир 1.6)
+//
+// zTop — верхний торец стойки; zRailLow — низ поручня (только для проверки).
+func railHolderAt(x, y, zTop, zRailLow, slope float64) []*kerngeo.Solid {
 	var out []*kerngeo.Solid
-	// втулка внутри стойки
+	// ВТУЛКА — входит в полость стойки на 24 мм. Наружный Ø ровно 39.4,
+	// как полость стойки (Ø42.4 / 1.5). Раньше ставил 39.2 и 42.4 —
+	// при 42.4 стакан упирался в стенку трубы и изнутри его не было видно.
 	if s := tubeAlong(kerngeo.NewPoint3(x, y, zTop-holderSockH),
-		kerngeo.NewPoint3(x, y, zTop), holderOD, holderWall, roleHolder); s != nil {
+		kerngeo.NewPoint3(x, y, zTop), balusterD-2*balusterWall, balusterWall,
+		roleHolder); s != nil {
 		out = append(out, s)
 	}
-	// крышка основания
-	if s := tubeAlong(kerngeo.NewPoint3(x, y, zTop),
-		kerngeo.NewPoint3(x, y, zTop+holderCapH), holderOD, holderWall, roleHolder); s != nil {
+	// ВЕРХНЯЯ ЧАСТЬ ЗАГЛУШКИ — сплошной диск Ø42,4 x 3 мм на торце стойки,
+	// на которую садится шарнирный узел. В эталоне это
+	// makeCylinder(PD/2, TIP_CAP_H) — СПЛОШНОЙ цилиндр. Раньше строил
+	// полую трубу Ø42,4/Ø39,4: полость съедала весь объём, и деталь была
+	// не видна — «пропала верхняя часть заглушки».
+	if s := prismAtSloped(x, y, balusterD/2, balusterD/2,
+		zTop, holderCapH, 0, roleHolder); s != nil {
 		out = append(out, s)
 	}
-	// шпилька
+	// ШПИЛЬКА Ø12 — фиксированной длины 27.7 мм, как в эталоне.
 	rodZ := zTop + holderCapH
 	if s := tubeAlong(kerngeo.NewPoint3(x, y, rodZ),
-		kerngeo.NewPoint3(x, y, rodZ+holderRodH), holderRodD, 1.0, roleHolder); s != nil {
+		kerngeo.NewPoint3(x, y, rodZ+holderRodH), holderRodD, 1.0,
+		roleHolder); s != nil {
 		out = append(out, s)
 	}
-	// корпус шарнира
-	jz := rodZ + holderRodH
+	// КОРПУС ШАРНИРА Ø14 — наезжает на конец шпильки на 1.3 мм.
+	jz := rodZ + holderRodH - holderRodJointOverlap
 	if s := tubeAlong(kerngeo.NewPoint3(x, y, jz),
-		kerngeo.NewPoint3(x, y, jz+holderJointH), holderJointD, 1.5, roleHolder); s != nil {
+		kerngeo.NewPoint3(x, y, jz+holderJointH), holderJointD, 1.5,
+		roleHolder); s != nil {
 		out = append(out, s)
 	}
-	// площадка под поручень, наклонена как поручень
-	pz := zPlate
-	p0 := kerngeo.NewPoint3(x-holderPlateL/2, y, pz)
-	p1 := kerngeo.NewPoint3(x+holderPlateL/2, y, pz+slope*holderPlateL)
-	if s := plateWithHoles(p0, p1, holderPlateW, holderPlateT,
-		holderHoleOfs, holderHoleD, roleHolder); s != nil {
+	// НАКОНЕЧНИК — наклонная площадка, жёстко прикреплённая к корпусу
+	// шарнира, параллельная маршу. Строим через prismAtSloped, а не
+	// plateGrooved: у ExtrudeWithHoles основания ГОРИЗОНТАЛЬНЫЕ, из-за
+	// чего площадка «переламывалась» — низ горизонтально, верх под углом.
+	// Нижняя точка площадки на 1.6 мм ниже верха шарнира (наезд).
+	// Низ площадки (её нижняя дальняя кромка) — на 1.6 мм ниже верха шарнира.
+	// zBase — высота середины нижней грани, поэтому поднимаем на slope*halfX:
+	// иначе площадка уедет вниз на половину своего наклона (12.3 мм).
+	tipBottom := jz + holderJointH - holderTipJointOverlap
+	zBase := tipBottom + slopeEff2(slope)*(holderPlateLen-holderPlateW)/2
+	// Контур — ОВАЛ (стадион 70 x 50,8), как в эталоне. Прямоугольная
+	// пластина выглядела «прямоугольником, висящим в воздухе».
+	outline := stadiumOutline(holderPlateLen, holderPlateW, holderPlateSeg)
+	if s := slabOutlineAtSloped(x, y, outline, zBase, holderPlateT, slope,
+		roleHolder); s != nil {
 		out = append(out, s)
 	}
 	return out
@@ -1153,12 +1344,22 @@ func railHolderAt(x, y, zTop, zPlate, slope float64) []*kerngeo.Solid {
 const (
 	holderOD   = 42.4
 	holderWall = 1.5
+	// holderSockOD — наружный Ø втулки: полость стойки Ø39,4 минус зазор 0,2.
+	// Именно эта деталь вставляется в опорную трубу.
+	holderSockOD = 39.2
 )
 
 // plateWithHoles строит плоскую площадку-полосу от p0 к p1 шириной w и
 // толщиной t, с двумя отверстиями диаметром d, отстоящими от концов на off.
 // Отверстия сквозные.
 func plateWithHoles(p0, p1 kerngeo.Point3, w, t, off, d float64, role string) *kerngeo.Solid {
+	return plateGrooved(p0, p1, w, t, off, d, 0, role)
+}
+
+// plateGrooved строит площадку с выемкой (ложементом) снизу: grooveDia —
+// диаметр паза под поручень, 0 — без выемки. Без выемки поручень проходит
+// сквозь материал площадки.
+func plateGrooved(p0, p1 kerngeo.Point3, w, t, off, d, grooveDia float64, role string) *kerngeo.Solid {
 	axis := p1.Sub(p0)
 	L := axis.Norm()
 	if L <= kerngeo.Precision || t <= 0 {
@@ -1195,9 +1396,27 @@ func plateWithHoles(p0, p1 kerngeo.Point3, w, t, off, d float64, role string) *k
 		}
 		return pts
 	}
+	holesList := make([][]kerngeo.Point3, 0, 3)
+	if grooveDia > 0 {
+		// ЛОЖЕМЕНТ: паз под поручень на всю длину площадки. Вырезается
+		// в тот же профиль, поэтому лежит в его плоскости.
+		seg := tubeProfileSegments
+		gp := make([]kerngeo.Point3, seg)
+		for i := 0; i < seg; i++ {
+			a2 := 2 * math.Pi * float64(i) / float64(seg)
+			gp[i] = p0.Add(wd.Scale(grooveDia / 2 * math.Cos(a2))).
+				Add(u.Scale((L - grooveDia / 2) * 0)). // вдоль профиля: по u
+				Add(u.Scale(0))
+			gp[i] = p0.Add(u.Scale(L / 2)).
+				Add(wd.Scale(grooveDia / 2 * math.Cos(a2))).
+				Add(u.Scale(grooveDia / 2 * math.Sin(a2)))
+		}
+		holesList = append(holesList, gp)
+	}
 	h1 := hole(p0.Add(u.Scale(off)))
 	h2 := hole(p1.Add(u.Scale(-off)))
-	s, err := kerngeo.ExtrudeWithHoles(prof, [][]kerngeo.Point3{h1, h2}, td, t)
+	holesList = append(holesList, h1, h2)
+	s, err := kerngeo.ExtrudeWithHoles(prof, holesList, td, t)
 	if err != nil {
 		return nil
 	}
@@ -1313,26 +1532,36 @@ func railCapAt(x, y, z0 float64) []*kerngeo.Solid {
 	return out
 }
 
+// cfgProfileNosing возвращает свес (нос) профиля ступени из конфигурации.
+// Ступень длиннее шага ровно на эту величину, и её середина смещена назад.
+func cfgProfileNosing(cfg *engineering.StairConfiguration) float64 {
+	if cfg.Comb != nil && cfg.Comb.NosingLength > 0 {
+		return cfg.Comb.NosingLength
+	}
+	return 20.0
+}
+
 // glassRailingSolids строит стеклянное ограждение прямого сегмента:
 // опоры + стеклянные панели между ними. Это ОТДЕЛЬНЫЙ тип конструкции
 // (engineering.RailingTypeGlass), в нержавеющей стали стекла нет.
-func glassRailingSolids(n int, b, h, rh, w, st float64, side engineering.RailingSide) []*kerngeo.Solid {
+func glassRailingSolids(n int, b, h, rh, w, st, nosingGlass float64, side engineering.RailingSide) []*kerngeo.Solid {
 	sides := railingSides(side, w)
 	if len(sides) == 0 || rh <= 0 || n <= 0 {
 		return nil
 	}
 	slope := h / b
-	railOverhang := railOverhangFrac * b
 	H := float64(n) * h
 	var sols []*kerngeo.Solid
 	for _, edge := range sides {
 		railY := edgeInset(edge, w, railWidth/2)
-		balY := edgeInset(edge, w, balusterD/2)
+		balY := edgeInset(edge, w, balusterEdgeInset+capOD/2)
 		// Портфель есть и в стеклянном ограждении: стекло идёт под поручнем.
 		// Вылет отсчитывается от ЦЕНТРОВ крайних ступеней: концы поручня
 		// выходят на половину проступи за марш.
-		A := kerngeo.NewPoint3(b/2-railOverhang, railY, h+rh-slope*railOverhang)
-		B := kerngeo.NewPoint3((float64(n)-0.5)*b+railOverhang, railY, H+rh+slope*railOverhang)
+		// Поручень начинается на ПЕРВОЙ ступени и кончается на последней:
+		// от x = 0 до x = n·b, без вылета за габарит марша.
+		A := kerngeo.NewPoint3(0, railY, rh)
+		B := kerngeo.NewPoint3(float64(n)*b, railY, H+rh)
 		if s := railAlong(A, B); s != nil {
 			sols = append(sols, s)
 		}
@@ -1340,8 +1569,15 @@ func glassRailingSolids(n int, b, h, rh, w, st float64, side engineering.Railing
 		// заподлицо, перекрывая срез.
 		sols = append(sols, railEndCaps(A, B)...)
 		steps := balusterSteps(n, b)
+		// Центр ПРОСТУПИ, а не середина шага: ступень длиннее шага на
+		// величину свеса (носа) и отодвинута назад ровно настолько же
+		// (builder.go: treadRear = treadDepth − b). Середина проступи
+		// смещена от (k−0.5)·b на (nosing + b)/2.
+		nosingGlass := 20.0 // стеклянное ограждение: свес не влияет на опоры
+		xoff := (nosingGlass + b) / 2.0
 		for _, k := range steps {
-			x := (float64(k) - 0.5) * b
+			// середина проступи = (k−0.5)·b + xoff
+			x := (float64(k)-0.5)*b + xoff
 			zTop := float64(k) * h + rh
 			if s := balusterAtSloped(x, balY, float64(k)*h, rh, slope); s != nil {
 				sols = append(sols, s)
@@ -1349,15 +1585,22 @@ func glassRailingSolids(n int, b, h, rh, w, st float64, side engineering.Railing
 			// Держатель на верхнем торце стойки: площадка ложится под
 			// поручень, поэтому её низ = низ поручня над этой опорой.
 			zRailLow := float64(k)*h + rh - railD/2
-			sols = append(sols, railHolderAt(x, balY, zTop, zRailLow-holderJointH-holderRodH-holderCapH, slope)...)
+			sols = append(sols, railHolderAt(x, balY, zTop, zRailLow, slope)...)
 			// Основание опоры на ступени: цанга с анкерами и колпачок.
+			// Их диаметры (86 и 88) больше стойки (42,4), поэтому они стоят
+			// на СВОЕЙ оси: край диска в balusterEdgeInset от кромки ступени,
+			// иначе Ø88 свисал за край на 7,8 мм.
+			// Ось цанги и колпачка = ось стойки: стойка стоит в центре опоры,
+			// поэтому все детали узла совпадают по Y.
 			sols = append(sols, railClampAt(x, balY, float64(k)*h)...)
 			sols = append(sols, railCapAt(x, balY, float64(k)*h)...)
 		}
 		for i := 0; i+1 < len(steps); i++ {
 			k, kNext := steps[i], steps[i+1]
-			x0 := (float64(k) - 0.5) * b
-			x1 := (float64(kNext) - 0.5) * b
+		nosingGlass := 20.0 // стеклянное ограждение: свес не влияет на опоры
+			xoffG := -nosingGlass
+			x0 := (float64(k)-0.5)*b + xoffG
+			x1 := (float64(kNext)-0.5)*b + xoffG
 			p0 := kerngeo.NewPoint3(x0, balY, float64(k)*h)
 			p1 := kerngeo.NewPoint3(x1, balY, float64(kNext)*h)
 			if s := glassPanelFlat(p0, p1, float64(k)*h, rh, glassThickness); s != nil {

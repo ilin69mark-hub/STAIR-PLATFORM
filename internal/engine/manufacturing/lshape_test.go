@@ -37,6 +37,30 @@ func lshapeConfig(t *testing.T) *engineering.StairConfiguration {
 // TestManufactureLShapeParts проверяет, что L-образная модель декомпозируется
 // по семантическим ролям (BC-007): косоуры повёрнутого верхнего марша не
 // классифицируются как подступенки, площадка — как проступь.
+// cuttableParts — детали, которые реально режутся (без покупных). Ограждение
+// покупается готовым и в раскрой не идёт, поэтому тесты L/U-лестниц считают
+// каркас, ступени и подступенки.
+func cuttableParts(pkg *dommfg.ManufacturingPackage) []dommfg.Part {
+	var out []dommfg.Part
+	for _, p := range pkg.Parts {
+		if !p.Purchased {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// purchasedParts — покупные детали ограждения.
+func purchasedParts(pkg *dommfg.ManufacturingPackage) []dommfg.Part {
+	var out []dommfg.Part
+	for _, p := range pkg.Parts {
+		if p.Purchased {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func TestManufactureLShapeParts(t *testing.T) {
 	cfg := lshapeConfig(t)
 	res, err := enggeo.Generate(context.Background(), cfg)
@@ -49,8 +73,8 @@ func TestManufactureLShapeParts(t *testing.T) {
 	}
 	// 4 косоура (2 нижних + 2 верхних), 16 проступей (15 ступеней + площадка),
 	// 15 подступенков (полотно на ступень). Итого 35 деталей.
-	if len(pkg.Parts) != 103 {
-		t.Fatalf("parts = %d, want 103", len(pkg.Parts))
+	if got := len(cuttableParts(pkg)); got != 103 {
+		t.Fatalf("cuttable parts = %d, want 103", got)
 	}
 	byKind := make(map[dommfg.PartKind]int)
 	for _, p := range pkg.Parts {
@@ -59,10 +83,17 @@ func TestManufactureLShapeParts(t *testing.T) {
 	if byKind[dommfg.PartStringer] != 4 || byKind[dommfg.PartTread] != 16 || byKind[dommfg.PartRiser] != 15 {
 		t.Fatalf("part kinds = %+v, want stringer 4 / tread 16 / riser 15", byKind)
 	}
-	// трассировка к геометрии: индексы покрывают все 35 тел.
-	for i, p := range pkg.Parts {
+	// Трассировка к геометрии: индексы покрывают все тела модели. Покупные
+	// детали ограждения к телу модели не относятся (их геометрия — декорация),
+	// поэтому SolidIndex у них не проверяем.
+	for i, p := range cuttableParts(pkg) {
 		if p.SolidIndex != i {
 			t.Fatalf("part %q solid index = %d, want %d", p.Number, p.SolidIndex, i)
+		}
+	}
+	for _, p := range purchasedParts(pkg) {
+		if p.Kind.IsValid() == false {
+			t.Fatalf("покупная деталь %q с некорректным видом %q", p.Number, p.Kind)
 		}
 	}
 }
@@ -107,7 +138,7 @@ func TestManufactureLShapeDimensions(t *testing.T) {
 		}
 	}
 	// толщины: косоуры 50, проступи/подступенки/площадка 40.
-	for _, p := range pkg.Parts {
+	for _, p := range cuttableParts(pkg) {
 		// Косоур, ступень и подступенок — лист 12 мм: модельные 50/40 мм — это
 		// габариты секций, а не толщина металла, и они сжимаются к ВЕРХУ
 		// выпуска листа (PlateMaxThicknessMM = 12, строки 8 / 10 / 12 мм
@@ -123,10 +154,17 @@ func TestManufactureLShapeDimensions(t *testing.T) {
 				p.Number, p.Kind, p.Thickness.Millimeters(), want)
 		}
 	}
-	// материал назначен каждому косоуру/проступи/подступенку из каталога.
-	for _, p := range pkg.Parts {
+	// Материал назначен каждому косоуру/проступи/подступенку из каталога.
+	// Покупное ограждение проверяем отдельно: его материал (нержавейка,
+	// пластик для заглушек) не из листового реестра.
+	for _, p := range cuttableParts(pkg) {
 		if _, ok := mustMaterials(t).Find(p.Material); !ok {
 			t.Fatalf("part %q material %q not in registry", p.Number, p.Material)
+		}
+	}
+	for _, p := range purchasedParts(pkg) {
+		if p.Material != "STAINLESS-304" && p.Material != "PLASTIC" {
+			t.Fatalf("покупная деталь %q: неожиданный материал %q", p.Number, p.Material)
 		}
 	}
 }
@@ -163,8 +201,11 @@ func TestManufactureLShapeBOM(t *testing.T) {
 		{"Tread", 1, 1000, 900},
 		{"Stringer", 2, 2898.309, 300},
 	}
-	if len(pkg.BOM.Lines) != len(want) {
-		t.Fatalf("BOM lines = %d, want %d", len(pkg.BOM.Lines), len(want))
+	// BOM включает и покупные позиции ограждения, а want описывает только
+	// каркас и ступени, поэтому сверяем ПЕРВЫЕ len(want) строк: строки
+	// ограждения добавляются после, по порядку появления частей.
+	if len(pkg.BOM.Lines) < len(want) {
+		t.Fatalf("BOM lines = %d, want at least %d", len(pkg.BOM.Lines), len(want))
 	}
 	for i, w := range want {
 		line := pkg.BOM.Lines[i]
@@ -179,9 +220,17 @@ func TestManufactureLShapeBOM(t *testing.T) {
 				line.Length.Millimeters(), line.Width.Millimeters(), w.length, w.width)
 		}
 	}
-	// карта раскроя повторяет строки BOM.
-	if len(pkg.CutList.Items) != len(pkg.BOM.Lines) {
-		t.Fatal("cut list must mirror BOM lines")
+	// Карта раскроя повторяет РЕЖУЩИЕСЯ строки BOM. Покупные детали
+	// ограждения в спецификацию входят, а в раскрой не идут: листа под них
+	// не режем. Поэтому CutList короче BOM ровно на число покупных строк.
+	if len(pkg.CutList.Items) != len(want) {
+		t.Fatalf("cut list items = %d, want %d (BOM включает покупное ограждение)",
+			len(pkg.CutList.Items), len(want))
+	}
+	// Ограждение обязано быть в спецификации: без него менеджер не видит,
+	// что покупать, и прайс не считается.
+	if got := len(purchasedParts(pkg)); got == 0 {
+		t.Fatal("в пакете нет покупных деталей ограждения")
 	}
 }
 
@@ -200,8 +249,9 @@ func TestManufactureLShapeNesting(t *testing.T) {
 	if pkg.Nesting == nil {
 		t.Fatal("package must contain a nesting result")
 	}
-	if int(pkg.Nesting.PartCount) != len(pkg.Parts) {
-		t.Fatalf("nesting parts = %d, want %d", pkg.Nesting.PartCount, len(pkg.Parts))
+	if int(pkg.Nesting.PartCount) != len(cuttableParts(pkg)) {
+		t.Fatalf("nesting parts = %d, want %d",
+			pkg.Nesting.PartCount, len(cuttableParts(pkg)))
 	}
 	if pkg.Nesting.Utilization <= 0 || pkg.Nesting.Utilization > 1 {
 		t.Fatalf("utilization out of range: %v", pkg.Nesting.Utilization)

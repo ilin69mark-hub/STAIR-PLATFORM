@@ -93,6 +93,18 @@ func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResu
 		parts[i].Material = code
 	}
 
+	// Ограждение: покупные детали. Они приходят готовыми, поэтому в карту
+	// раскроя не идут, но в спецификацию и прайс обязаны попасть. Раньше их
+	// не было в пакете вообще — геометрия ограждения строится как декорация,
+	// а decompose() разбирает только тело модели.
+	parts = append(parts, purchasedRailingParts(
+		cfg.StepCount,
+		cfg.TreadDepth.Millimeters(),
+		railLengthMM(cfg),
+		cfg.RailingHeight.Millimeters(),
+		len(parts)+1,
+	)...)
+
 	bom, cut := buildBOM(parts)
 	sheets, err := DefaultStockSheetRegistry()
 	if err != nil {

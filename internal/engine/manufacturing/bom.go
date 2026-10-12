@@ -40,6 +40,23 @@ func kindDescription(kind dommfg.PartKind) string {
 		return "Anchor (floor/landing bracket)"
 	case dommfg.PartFirstWeb:
 		return "First-step plate"
+	// ---- Ограждение (покупные позиции) ----
+	case dommfg.PartRailTop:
+		return "Перила (поручень)"
+	case dommfg.PartPost:
+		return "Стойка опоры"
+	case dommfg.PartRigel:
+		return "Ригель"
+	case dommfg.PartTip:
+		return "Наконечник регулируемый"
+	case dommfg.PartFlange:
+		return "Фланец опоры"
+	case dommfg.PartSlip:
+		return "Накидная часть"
+	case dommfg.PartDeco:
+		return "Декоративная накладка"
+	case dommfg.PartEndCap:
+		return "Торцевая заглушка"
 	}
 	return string(kind)
 }
@@ -51,6 +68,11 @@ func kindDescription(kind dommfg.PartKind) string {
 func buildBOM(parts []dommfg.Part) (dommfg.BOM, dommfg.CutList) {
 	var order []groupKey
 	groups := make(map[groupKey][]dommfg.PartNumber)
+	// Покупные детали (ограждение, крепёж) идут в спецификацию, но не в
+	// карту раскроя: листа под них не режем. Раньше buildBOM клал каждую
+	// деталь и туда, и сюда, и Nest падал с «no stock sheet for material
+	// STAINLESS-304» — покупные приходят готовыми, а не из листа.
+	purchased := make(map[groupKey]bool)
 	// Признаки стыков накапливаем по группе: в строке спецификации косоуров
 	// стоят все 4 куска, и шип есть не у каждого — но карта раскроя должна
 	// показать, что стык в этой позиции есть.
@@ -61,6 +83,9 @@ func buildBOM(parts []dommfg.Part) (dommfg.BOM, dommfg.CutList) {
 			order = append(order, k)
 		}
 		groups[k] = append(groups[k], p.Number)
+		if p.Purchased {
+			purchased[k] = true
+		}
 		j := joints[k]
 		j.count = p.JointCount
 		j.onWidth = p.JointOnWidth
@@ -85,6 +110,9 @@ func buildBOM(parts []dommfg.Part) (dommfg.BOM, dommfg.CutList) {
 			Width:        k.width,
 		})
 		j := joints[k]
+		if purchased[k] {
+			continue // покупная деталь в раскрой не идёт
+		}
 		cut.Items = append(cut.Items, dommfg.CutItem{
 			PartNumber:   nums[0],
 			MaterialCode: k.material,

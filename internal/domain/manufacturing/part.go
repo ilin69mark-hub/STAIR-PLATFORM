@@ -24,13 +24,37 @@ const (
 	PartWeb      PartKind = "web"
 	PartAnchor   PartKind = "anchor"
 	PartFirstWeb PartKind = "first_web"
+
+	// ---- Ограждение: ПОКУПНЫЕ позиции (решение владельца) ----
+	// Ограждение не раскраивается из листа: детали приходят готовыми с
+	// завода и попадают в спецификацию и прайс, но НЕ в карту раскроя.
+	// Поэтому у них стоит Purchased = true (см. Part.Purchased).
+	//
+	// PartRailTop — перила (поручень), непрерывная труба вдоль марша.
+	PartRailTop PartKind = "rail_top"
+	// PartPost — стойка опоры, труба Ø42,4.
+	PartPost PartKind = "post"
+	// PartRigel — ригель, горизонтальная связь Ø12 между стойками.
+	PartRigel PartKind = "rigel"
+	// PartTip — наконечник регулируемый: покупной фитинг, несёт поручень.
+	PartTip PartKind = "tip"
+	// PartFlange — фланец опоры, крепит стойку к ступени.
+	PartFlange PartKind = "flange"
+	// PartSlip — накидная часть (муфта), накрывает стойку.
+	PartSlip PartKind = "slip"
+	// PartDeco — декоративная накладка (колпачок), скрывает посадку.
+	PartDeco PartKind = "deco"
+	// PartEndCap — торцевая заглушка трубы.
+	PartEndCap PartKind = "end_cap"
 )
 
 // IsValid проверяет корректность типа детали.
 func (k PartKind) IsValid() bool {
 	switch k {
 	case PartStringer, PartTread, PartRiser,
-		PartHeel, PartWeb, PartAnchor, PartFirstWeb:
+		PartHeel, PartWeb, PartAnchor, PartFirstWeb,
+		PartRailTop, PartPost, PartRigel, PartTip,
+		PartFlange, PartSlip, PartDeco, PartEndCap:
 		return true
 	}
 	return false
@@ -51,6 +75,15 @@ type Part struct {
 	Length     engineering.Length // мм — наибольший габарит в плоскости
 	Width      engineering.Length // мм — наименьший габарит в плоскости
 	SolidIndex int                // трассировка к твёрдому телу модели
+	// Purchased — деталь покупается готовой, а не раскраивается из листа.
+	// Такие детали попадают в спецификацию (BOM) и в прайс, но НЕ в карту
+	// раскроя: листа под них не режем, поэтому Nest их видеть не должен.
+	//
+	// Раньше buildBOM клал каждую деталь и в BOM, и в CutList, и ограждение
+	// (8 покупных позиций) либо попало бы в раскрой листа, либо вообще
+	// терялось, потому что геометрия ограждения строится как декорация, а не
+	// как тело модели.
+	Purchased bool
 	// CutPerimeterMM — длина лазерного реза детали: периметр КОНТУРА плюс
 	// периметры всех отверстий и регулировочных овалов внутри (MMF-0006).
 	// Считается из геометрии тела, а не из габарита: деталь 270×50 с шестью

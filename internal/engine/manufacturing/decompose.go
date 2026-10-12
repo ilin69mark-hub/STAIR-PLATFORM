@@ -475,6 +475,23 @@ func partNumber(kind dommfg.PartKind, seq int) dommfg.PartNumber {
 		prefix = "ANC"
 	case dommfg.PartFirstWeb:
 		prefix = "FPW"
+	// ---- Ограждение (покупные позиции) ----
+	case dommfg.PartRailTop:
+		prefix = "RAL"
+	case dommfg.PartPost:
+		prefix = "PST"
+	case dommfg.PartRigel:
+		prefix = "RGL"
+	case dommfg.PartTip:
+		prefix = "TIP"
+	case dommfg.PartFlange:
+		prefix = "FLG"
+	case dommfg.PartSlip:
+		prefix = "SLP"
+	case dommfg.PartDeco:
+		prefix = "DEC"
+	case dommfg.PartEndCap:
+		prefix = "ENC"
 	}
 	return dommfg.PartNumber(fmt.Sprintf("%s-%02d", prefix, seq))
 }

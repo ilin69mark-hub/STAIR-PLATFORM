@@ -22,11 +22,16 @@ func TestEveryCatalogMaterialIsManufacturable(t *testing.T) {
 
 	for _, m := range materials.Materials() {
 		code := m.Code
-		if len(sheets.SheetsFor(code)) == 0 {
-			t.Errorf("материал %s: нет листов в каталоге MFG-0012", code)
-		}
-		if _, ok := rates.CutSpeed[code]; !ok {
-			t.Errorf("материал %s: нет скорости реза в MFG-0009", code)
+		// Материал, который идёт только на ПОКУПНЫЕ детали (ограждение),
+		// не раскраивается и не режется: у него законно нет ни листа в
+		// MFG-0012, ни скорости реза в MFG-0009.
+		if !m.PurchasedOnly {
+			if len(sheets.SheetsFor(code)) == 0 {
+				t.Errorf("материал %s: нет листов в каталоге MFG-0012", code)
+			}
+			if _, ok := rates.CutSpeed[code]; !ok {
+				t.Errorf("материал %s: нет скорости реза в MFG-0009", code)
+			}
 		}
 		// Витрина показывает русское имя из каталога: без него пришлось бы
 		// держать второй список подписей во фронте.
@@ -52,6 +57,10 @@ func TestLargestStockSheetReturnsRealSheet(t *testing.T) {
 	}
 	for _, m := range reg.Materials() {
 		code := m.Code
+		if m.PurchasedOnly {
+			// Покупный материал не раскраивается — листа у него нет.
+			continue
+		}
 		l, w, ok := LargestStockSheet(sheets, code)
 		if !ok {
 			t.Fatalf("материал %s: LargestStockSheet не нашёл лист", code)

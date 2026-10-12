@@ -49,18 +49,19 @@ func TestManufactureUShapeParts(t *testing.T) {
 	}
 	// 4 косоура (2 нижних + 2 верхних), 16 проступей (15 ступеней + площадка),
 	// 15 подступенков (полотно на ступень). Итого 35 деталей.
-	if len(pkg.Parts) != 103 {
-		t.Fatalf("parts = %d, want 103", len(pkg.Parts))
+	if got := len(cuttableParts(pkg)); got != 103 {
+		t.Fatalf("cuttable parts = %d, want 103", got)
 	}
 	byKind := make(map[dommfg.PartKind]int)
-	for _, p := range pkg.Parts {
+	for _, p := range cuttableParts(pkg) {
 		byKind[p.Kind]++
 	}
 	if byKind[dommfg.PartStringer] != 4 || byKind[dommfg.PartTread] != 16 || byKind[dommfg.PartRiser] != 15 {
 		t.Fatalf("part kinds = %+v, want stringer 4 / tread 16 / riser 15", byKind)
 	}
-	// трассировка к геометрии: индексы покрывают все 35 тел.
-	for i, p := range pkg.Parts {
+	// Трассировка к геометрии по режущимся деталям: покупное ограждение к
+	// телу модели не относится (его геометрия — декорация).
+	for i, p := range cuttableParts(pkg) {
 		if p.SolidIndex != i {
 			t.Fatalf("part %q solid index = %d, want %d", p.Number, p.SolidIndex, i)
 		}
@@ -106,8 +107,9 @@ func TestManufactureUShapeDimensions(t *testing.T) {
 				c.number, p.Length.Millimeters(), p.Width.Millimeters(), c.l, c.wd)
 		}
 	}
-	// толщины: косоуры 50, проступи/подступенки/площадка 40.
-	for _, p := range pkg.Parts {
+	// толщины: косоуры 50, проступи/подступенки/площадка 40. Покупное
+	// ограждение имеет свои толщины (стенки труб 1–1,5 мм) и проверяется отдельно.
+	for _, p := range cuttableParts(pkg) {
 		// Косоур, ступень и подступенок — лист 12 мм: модельные 50/40 мм — это
 		// габариты секций, а не толщина металла, и они сжимаются к ВЕРХУ
 		// выпуска листа (PlateMaxThicknessMM = 12, строки 8 / 10 / 12 мм
@@ -124,9 +126,14 @@ func TestManufactureUShapeDimensions(t *testing.T) {
 		}
 	}
 	// материал назначен каждому косоуру/проступи/подступенку из каталога.
-	for _, p := range pkg.Parts {
+	for _, p := range cuttableParts(pkg) {
 		if _, ok := mustMaterials(t).Find(p.Material); !ok {
 			t.Fatalf("part %q material %q not in registry", p.Number, p.Material)
+		}
+	}
+	for _, p := range purchasedParts(pkg) {
+		if p.Material != "STAINLESS-304" && p.Material != "PLASTIC" {
+			t.Fatalf("покупная деталь %q: неожиданный материал %q", p.Number, p.Material)
 		}
 	}
 }
@@ -163,8 +170,10 @@ func TestManufactureUShapeBOM(t *testing.T) {
 		{"Tread", 1, 1800, 900},
 		{"Stringer", 2, 2898.309, 300},
 	}
-	if len(pkg.BOM.Lines) != len(want) {
-		t.Fatalf("BOM lines = %d, want %d", len(pkg.BOM.Lines), len(want))
+	// BOM включает покупные позиции ограждения сверх каркаса; want описывает
+	// только режущиеся строки, которые идут первыми.
+	if len(pkg.BOM.Lines) < len(want) {
+		t.Fatalf("BOM lines = %d, want at least %d", len(pkg.BOM.Lines), len(want))
 	}
 	for i, w := range want {
 		line := pkg.BOM.Lines[i]
@@ -179,9 +188,13 @@ func TestManufactureUShapeBOM(t *testing.T) {
 				line.Length.Millimeters(), line.Width.Millimeters(), w.length, w.width)
 		}
 	}
-	// карта раскроя повторяет строки BOM.
-	if len(pkg.CutList.Items) != len(pkg.BOM.Lines) {
-		t.Fatal("cut list must mirror BOM lines")
+	// Карта раскроя повторяет только режущиеся строки: покупное ограждение
+	// в спецификацию входит, а листа под него не режем.
+	if len(pkg.CutList.Items) != len(want) {
+		t.Fatalf("cut list items = %d, want %d", len(pkg.CutList.Items), len(want))
+	}
+	if got := len(purchasedParts(pkg)); got == 0 {
+		t.Fatal("в пакете нет покупных деталей ограждения")
 	}
 }
 
@@ -200,8 +213,9 @@ func TestManufactureUShapeNesting(t *testing.T) {
 	if pkg.Nesting == nil {
 		t.Fatal("package must contain a nesting result")
 	}
-	if int(pkg.Nesting.PartCount) != len(pkg.Parts) {
-		t.Fatalf("nesting parts = %d, want %d", pkg.Nesting.PartCount, len(pkg.Parts))
+	if int(pkg.Nesting.PartCount) != len(cuttableParts(pkg)) {
+		t.Fatalf("nesting parts = %d, want %d",
+			pkg.Nesting.PartCount, len(cuttableParts(pkg)))
 	}
 	if pkg.Nesting.Utilization <= 0 || pkg.Nesting.Utilization > 1 {
 		t.Fatalf("utilization out of range: %v", pkg.Nesting.Utilization)

@@ -72,8 +72,8 @@ func TestManufactureParts(t *testing.T) {
 	// Металлокаркас: 4 куска косоур��в-гребёнки (2 косоура × 2 сварных куска,
 	// длиннее поля лазерного стола 3000 мм), 15 ступеней, 15 подступенков и
 	// 64 пятки выреза (30 + 28 + 2 + 2 + 2).
-	if len(pkg.Parts) != 98 {
-		t.Fatalf("parts = %d, want 98", len(pkg.Parts))
+	if got := len(cuttableParts(pkg)); got != 98 {
+		t.Fatalf("cuttable parts = %d, want 98", got)
 	}
 	// уникальные номера: 2 косоура, 15 проступей, 15 подступенков.
 	seen := make(map[dommfg.PartNumber]bool)
@@ -94,7 +94,7 @@ func TestManufactureParts(t *testing.T) {
 	// Строгого равенства индексу детали больше нет: из одного тела косоура
 	// выходит несколько деталей, и у них индекс тела общий.
 	prev := -1
-	for _, p := range pkg.Parts {
+	for _, p := range cuttableParts(pkg) {
 		if p.SolidIndex < prev {
 			t.Fatalf("part %q solid index = %d меньше предыдущего %d: трассировка нарушена",
 				p.Number, p.SolidIndex, prev)
@@ -175,6 +175,9 @@ func TestManufacturePartDimensions(t *testing.T) {
 	// материал назначен каждому косоуру/проступи/подступенку из каталога.
 	for _, p := range pkg.Parts {
 		if _, ok := mustMaterials(t).Find(p.Material); !ok {
+			if p.Purchased {
+				continue // покупное ограждение: свой материал, не из листа
+			}
 			t.Fatalf("part %q material %q not in registry", p.Number, p.Material)
 		}
 	}
@@ -185,8 +188,15 @@ func TestManufactureBOM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pkg.BOM.Lines) != 10 {
-		t.Fatalf("BOM lines = %d, want 10", len(pkg.BOM.Lines))
+	// BOM включает 10 строк каркаса/ступеней плюс 8 покупных позиций
+	// ограждения. Режется только каркас — строки ограждения в раскрой не идут.
+	if len(pkg.BOM.Lines) != 18 {
+		t.Fatalf("BOM lines = %d, want 18 (10 каркаса + 8 ограждения)",
+			len(pkg.BOM.Lines))
+	}
+	if len(pkg.CutList.Items) != 10 {
+		t.Fatalf("cut list items = %d, want 10 (покупное ограждение не раскраивается)",
+			len(pkg.CutList.Items))
 	}
 	// порядок строк детерминирован: косоуры, проступи, подступенки
 	// (единое полотно 900×140).
@@ -223,8 +233,10 @@ func TestManufactureBOM(t *testing.T) {
 		}
 	}
 	// карта раскроя повторяет строки BOM.
-	if len(pkg.CutList.Items) != len(pkg.BOM.Lines) {
-		t.Fatal("cut list must mirror BOM lines")
+	if len(pkg.CutList.Items) != 10 {
+		t.Fatalf("cut list items = %d, want 10 — карта раскроя повторяет только "+
+			"режущиеся строки BOM; покупное ограждение в неё не входит",
+			len(pkg.CutList.Items))
 	}
 	for i := range pkg.CutList.Items {
 		it := pkg.CutList.Items[i]
@@ -242,11 +254,23 @@ func TestManufactureNoSteps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pkg.Parts) != 2 {
-		t.Fatalf("parts = %d, want 2 (stringers only)", len(pkg.Parts))
+	// Без ступеней остаются косоуры и покупное ограждение. Ограждение не
+	// зависит от числа ступеней (только от длины марша), поэтому при нулевом
+	// StepCount оно тоже пустое.
+	if got := len(cuttableParts(pkg)); got != 2 {
+		t.Fatalf("cuttable parts = %d, want 2 (stringers only)", got)
 	}
-	if len(pkg.BOM.Lines) != 1 || int(pkg.BOM.Lines[0].Quantity) != 2 {
-		t.Fatalf("BOM = %+v, want single stringer line with quantity 2", pkg.BOM.Lines)
+	// Первая строка BOM — косоур,数量 2. Дальше идут покупные позиции
+	// ограждения: они в спецификацию входят, но в раскрой не идут.
+	if len(pkg.BOM.Lines) < 1 || pkg.BOM.Lines[0].Description != "Stringer" ||
+		int(pkg.BOM.Lines[0].Quantity) != 2 {
+		t.Fatalf("BOM[0] = %+v, want Stringer x2", pkg.BOM.Lines[0])
+	}
+	for _, line := range pkg.BOM.Lines[1:] {
+		if line.MaterialCode != "STAINLESS-304" && line.MaterialCode != "PLASTIC" {
+			t.Fatalf("строка BOM %q с неожиданным материалом %q — каркаса быть не должно",
+				line.Description, line.MaterialCode)
+		}
 	}
 }
 
@@ -274,7 +298,7 @@ func TestManufactureNesting(t *testing.T) {
 	if pkg.Nesting == nil {
 		t.Fatal("package must contain a nesting result")
 	}
-	if int(pkg.Nesting.PartCount) != len(pkg.Parts) {
+	if int(pkg.Nesting.PartCount) != len(cuttableParts(pkg)) {
 		t.Fatalf("nesting parts = %d, want %d", pkg.Nesting.PartCount, len(pkg.Parts))
 	}
 	// n=15, всё из стали: заготовки — куски косоура 2428,65×300, проступи

@@ -106,6 +106,26 @@ func DefaultMaterialRegistry() (*dommfg.MaterialRegistry, error) {
 				MaxWidthMm:          3000, MaxHeightMm: 4550,
 				TreadNoseRadiusMm: 10,
 			},
+			// Нержавейка AISI 304 — материал ОГРАЖДЕНИЯ (решение владельца):
+			// стойки и поручень Ø42,4×1,5, ригели Ø12×1,0, фитинги.
+			//
+			// Материал добавлен вместе с покупными деталями ограждения: без
+			// него расчёт падал 500-м на авторизованном маршруте — детали
+			// приходили с кодом STAINLESS-304, которого в реестре не было.
+			//
+			// Толщины: 1,0–3,0 мм — стенки труб и накладок. Диапазон НЕ
+			// применяется к раскрою: ограждение покупается готовым и в
+			// карту раскроя не идёт, поэтому значения Min/MaxThickness здесь
+			// только для справки и проверки толщины стенки.
+			&dommfg.Material{
+				Code: "STAINLESS-304", Name: "Stainless Steel AISI 304",
+				NameRu: "Нержавейка AISI 304", Category: "Steel",
+				Density: 7900, MinThickness: 1, MaxThickness: 3,
+				PurchasedOnly:       true,
+				MinTreadThicknessMm: 0,
+				MaxWidthMm:          3000, MaxHeightMm: 4550,
+				TreadNoseRadiusMm: 0,
+			},
 		)
 		if err != nil {
 			defaultMaterialRegistry.err = err
@@ -121,6 +141,14 @@ func DefaultMaterialRegistry() (*dommfg.MaterialRegistry, error) {
 // обязательным атрибутом детали (MFG-0005).
 func assignMaterial(registry *dommfg.MaterialRegistry, thickness float64) (dommfg.MaterialCode, error) {
 	for _, m := range registry.Materials() {
+		// Материал, который идёт только на покупные детали (ограждение),
+		// НИКОГДА не назначается автоматически по толщине: он выбирается
+		// явно. Иначе тонкий диапазон нержавейки (1–3 мм) перехватывал бы
+		// автоназначение для незнакомых кодов — советник при неверном
+		// материале и толщине 1 мм получал STAINLESS-304 вместо ошибки.
+		if m.PurchasedOnly {
+			continue
+		}
 		if m.SupportsThickness(thickness) {
 			return m.Code, nil
 		}

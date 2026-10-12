@@ -84,7 +84,17 @@ func PrepareCost(pkg *dommfg.ManufacturingPackage, materials *dommfg.MaterialReg
 		dataset.SurfaceArea += a.surfaceArea
 		dataset.Mass += a.volume * 1e-9 * m.Density
 	}
-	dataset.PartCount = dommfg.Quantity(len(pkg.Parts))
+	// PartCount — число деталей, по которым считается РАБОТА. Покупные
+	// детали (ограждение) в техмаршрут не входят: они приходят готовыми, у них
+	// нет операций реза. Поэтому считаем только режущиеся детали, иначе
+	// OperationPlan (без покупных) не сойдётся с PartCount.
+	cuttable := 0
+	for _, part := range pkg.Parts {
+		if !part.Purchased {
+			cuttable++
+		}
+	}
+	dataset.PartCount = dommfg.Quantity(cuttable)
 	// Крепёж (MNT-0001). Счётчик FastenerCount был заведён в наборе заранее и
 	// оставался нулём: пятки обоймы выреза просверливались лазером вместе с
 	// контуром, но в цену крепёж не попадал. Теперь он считается — по

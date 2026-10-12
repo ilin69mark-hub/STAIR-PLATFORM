@@ -82,8 +82,18 @@ func (p *ManufacturingPackage) Validate() error {
 	if err := p.Nesting.Validate(); err != nil {
 		return err
 	}
-	if int(p.Nesting.PartCount) != len(p.Parts) {
-		return fmt.Errorf("manufacturing: nesting parts (%d) must match package parts (%d)", p.Nesting.PartCount, len(p.Parts))
+	// Раскрой содержит только НЕпокупные детали: покупные приходят готовыми,
+	// листа под них не режем. Поэтому сверяем число раскроенных деталей с
+	// числом деталей пакета за вычетом покупных (ограждение, крепёж).
+	cuttable := 0
+	for _, part := range p.Parts {
+		if !part.Purchased {
+			cuttable++
+		}
+	}
+	if int(p.Nesting.PartCount) != cuttable {
+		return fmt.Errorf("manufacturing: nesting parts (%d) must match cuttable parts (%d of %d)",
+			p.Nesting.PartCount, cuttable, len(p.Parts))
 	}
 	for _, sheet := range p.Nesting.Sheets {
 		for _, pl := range sheet.Placed {

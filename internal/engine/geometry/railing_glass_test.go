@@ -45,7 +45,9 @@ func TestGlassPanelsSitOnSteps(t *testing.T) {
 	if len(panels) != want {
 		t.Fatalf("glass panels = %d, want %d (between %d balusters)", len(panels), want, want+1)
 	}
-	balY := 900 - balusterD/2 // edgeInset по правой кромке, стойка круглая Ø42,4
+	// Ось опорного узла: край колпачка Ø88 в 15 мм от кромки ступени,
+	// ось = 900 − 15 − 44 = 841. Стойка стоит в центре опоры.
+	balY := 900 - balusterEdgeInset - capOD/2
 	// Нижняя кромка панели — на уровне ступени, где стоит её нижняя опора.
 	for i, p := range panels {
 		steps := balusterSteps(n, cfg.TreadDepth.Millimeters())

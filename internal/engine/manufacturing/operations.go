@@ -105,6 +105,16 @@ func PlanOperations(pkg *dommfg.ManufacturingPackage, rates MachineRates) (*domm
 	plan := &dommfg.OperationPlan{}
 	opID := 0
 	for _, part := range pkg.Parts {
+		// ПОКУПНАЯ деталь не режется и не фрезеруется на нашем станке: она
+		// приходит готовой с завода, поэтому операции реза для неё нет, а
+		// скорость материала не запрашивается. Раньше ограждение в пакет не
+		// попадало, и этот случай не был виден; с добавлением покупных позиций
+		// расчёт падал «no cut speed for material STAINLESS-304».
+		//
+		// Их стоимость — закупка, а не работа: см. закупочную часть прайса.
+		if part.Purchased {
+			continue
+		}
 		speed, ok := rates.CutSpeed[part.Material]
 		if !ok {
 			return nil, fmt.Errorf("manufacturing: no cut speed for material %q", part.Material)

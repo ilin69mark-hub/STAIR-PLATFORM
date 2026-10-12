@@ -456,6 +456,30 @@ func referenceLShapeConfig() Config {
 	return cfg
 }
 
+// cuttablePartCount — число деталей, которые реально режутся: без покупных.
+// Ограждение (стойки, поручень, ригели, фитинги) покупается готовым и в
+// раскрой не идёт, поэтому тесты конвейера считают каркас и ступени.
+func cuttablePartCount(pkg *dommfg.ManufacturingPackage) int {
+	n := 0
+	for _, p := range pkg.Parts {
+		if !p.Purchased {
+			n++
+		}
+	}
+	return n
+}
+
+// purchasedPartCount — число покупных деталей (ограждение, крепёж).
+func purchasedPartCount(pkg *dommfg.ManufacturingPackage) int {
+	n := 0
+	for _, p := range pkg.Parts {
+		if p.Purchased {
+			n++
+		}
+	}
+	return n
+}
+
 func TestCalculateLShapePipeline(t *testing.T) {
 	s := NewService()
 	res, err := s.Calculate(context.Background(), referenceLShapeConfig(), Options{})
@@ -482,8 +506,8 @@ func TestCalculateLShapePipeline(t *testing.T) {
 	}
 	// полный конвейер: 4 косоура, ступени и подступенки обоих маршей и
 	// пятки выреза каждой ступени.
-	if res.Package == nil || len(res.Package.Parts) != 103 {
-		t.Fatalf("parts = %d, want 103", len(res.Package.Parts))
+	if res.Package == nil || cuttablePartCount(res.Package) != 103 {
+		t.Fatalf("cuttable parts = %d, want 103", cuttablePartCount(res.Package))
 	}
 	if res.Mesh == nil || len(res.Mesh.Vertices) == 0 {
 		t.Fatal("l_shape pipeline must produce preview mesh")
@@ -553,8 +577,8 @@ func TestCalculateUShapeWinderPipeline(t *testing.T) {
 	}
 	// деталей: 4 косоура-гребёнки, ступени/подступенки, поворотные площадки
 	// и пятки выреза каждой ступени.
-	if res.Package == nil || len(res.Package.Parts) != 87 {
-		t.Fatalf("parts = %d, want 87", len(res.Package.Parts))
+	if res.Package == nil || cuttablePartCount(res.Package) != 87 {
+		t.Fatalf("cuttable parts = %d, want 87", cuttablePartCount(res.Package))
 	}
 	// эхо поворота в результате.
 	if res.TurnKind != engineering.TurnWinder || res.WinderCount != 3 {
@@ -593,8 +617,8 @@ func TestCalculateUShapePipeline(t *testing.T) {
 	}
 	// полный конвейер: 4 косоура, ступени и подступенки обоих маршей и
 	// пятки выреза каждой ступени.
-	if res.Package == nil || len(res.Package.Parts) != 103 {
-		t.Fatalf("parts = %d, want 103", len(res.Package.Parts))
+	if res.Package == nil || cuttablePartCount(res.Package) != 103 {
+		t.Fatalf("cuttable parts = %d, want 103", cuttablePartCount(res.Package))
 	}
 	if res.Mesh == nil || len(res.Mesh.Vertices) == 0 {
 		t.Fatal("u_shape pipeline must produce preview mesh")
@@ -671,6 +695,18 @@ func TestCalculateMaterialSelection(t *testing.T) {
 			t.Fatalf("%s: no parts in package", m)
 		}
 		for _, p := range res.Package.Parts {
+			// Ограждение покупается готовым и всегда из нержавейки AISI 304,
+			// независимо от материала каркаса и ступеней — это решение
+			// владельца. Материал cfg.Material распространяется на каркас и
+			// ступени, но не на покупные детали ограждения.
+			if p.Purchased {
+				// Заглушка торца — пластик, остальное ограждение — нерж.
+				if p.Material != "STAINLESS-304" && p.Material != "PLASTIC" {
+					t.Fatalf("%s: purchased part %s material = %s, want STAINLESS-304 or PLASTIC",
+						m, p.Number, p.Material)
+				}
+				continue
+			}
 			if p.Material != m {
 				t.Fatalf("%s: part %s material = %s, want %s", m, p.Number, p.Material, m)
 			}
