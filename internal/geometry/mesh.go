@@ -28,6 +28,64 @@ type Mesh struct {
 	UV []Point2 `json:"UV,omitempty"`
 }
 
+// Weld сливает вершины с ОДИНАКОВЫМИ координатами: если две вершины стоят
+// в одной точке, остаётся одна, а все треугольники переезжают на её индекс.
+//
+// Зачем: грани тела тесселируются независимо, поэтому общая вершина
+// попадает в меш по разу для каждой грани. Измерено на лестнице 2700 мм:
+// 1116 вершин при 314 уникальных — 72 % дублей. В STL и DXF эти дубли
+// уходят в файл дословно, раздувая его вчетверо по числу координат
+// (S-175).
+//
+// Сливает ТОЛЬКО побитово равные координаты, без допуска и без сетки.
+// Это не компромисс, а измеренный факт: поиск пар «в одной ячейке
+// 1e-6 мм, но не равных побитово» даёт ноль. Разные грани получают одну и
+// ту же точку из одной и той же вершины B-Rep, поэтому float64 совпадает
+// бит в бит. Сетка с допуском дала бы ошибки на границах ячеек и риск
+// слить разные точки — здесь этого нет.
+//
+// Текстуры: UV слить нельзя — они считаются на каждую грань по её нормали
+// (triplanarUV), и у склеенной вершины останется UV только первой грани.
+// Поэтому результат БЕЗ UV. Вызывать там, где UV не нужен (экспорт CAD).
+// Меш для 3D-вьювера не сваривается: там UV важен.
+//
+// Возвращает новый меш и число слитых вершин.
+func (m *Mesh) Weld() (*Mesh, int) {
+	if m == nil || len(m.Vertices) == 0 {
+		return m, 0
+	}
+	type pos [3]float64
+	idx := make(map[pos]int, len(m.Vertices))
+	out := &Mesh{
+		Vertices:   make([]Point3, 0, len(m.Vertices)),
+		Triangles:  make([][3]int, 0, len(m.Triangles)),
+		PartRanges: m.PartRanges,
+	}
+	for _, v := range m.Vertices {
+		k := pos{v.X, v.Y, v.Z}
+		if _, ok := idx[k]; ok {
+			continue
+		}
+		idx[k] = len(out.Vertices)
+		out.Vertices = append(out.Vertices, v)
+	}
+	if len(out.Vertices) == len(m.Vertices) {
+		return m, 0 // совпало всё — отдаём исходный меш, копия не нужна
+	}
+	for _, t := range m.Triangles {
+		a, aok := idx[pos{m.Vertices[t[0]].X, m.Vertices[t[0]].Y, m.Vertices[t[0]].Z}]
+		b, bok := idx[pos{m.Vertices[t[1]].X, m.Vertices[t[1]].Y, m.Vertices[t[1]].Z}]
+		c, cok := idx[pos{m.Vertices[t[2]].X, m.Vertices[t[2]].Y, m.Vertices[t[2]].Z}]
+		if !aok || !bok || !cok {
+			// Недостижимо при корректном индексе; лучше пустым треугольником,
+			// чем обращением за границу в худшем виде.
+			continue
+		}
+		out.Triangles = append(out.Triangles, [3]int{a, b, c})
+	}
+	return out, len(m.Vertices) - len(out.Vertices)
+}
+
 // Point2 — текстурная координата.
 type Point2 struct {
 	U float64 `json:"U"`

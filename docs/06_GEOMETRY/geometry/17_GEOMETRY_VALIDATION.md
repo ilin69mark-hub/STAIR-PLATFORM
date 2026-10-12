@@ -27,24 +27,31 @@ Validation гарантирует, что геометрия соответст�
 
 # Validation Scope
 
+**Состояние проверено по коду `internal/geometry/validate.go` 2026-10-12.**
+Ниже отмечено, что действительно проверяется, а что заявлено, но не
+реализовано. Проверка самопересечений требует карты пересечений — это
+отдельная работа (бэклог S-171).
+
 ## Topology
 
-- Non-manifold edges
-- Open shells
-- Invalid faces
-- Self-intersections
-- Duplicate vertices
-- Duplicate edges
-
----
+| Проверка | Состояние | Код |
+|---|---|---|
+| Non-manifold edges | РЕАЛИЗОВАНА | `GEO-SOLID-NON-MANIFOLD` — ребро принадлежит ровно двум граням |
+| Open shells | РЕАЛИЗОВА (частично) | `GEO-FACE-OPEN-WIRE` — незамкнутость контура грани |
+| Invalid faces | РЕАЛИЗОВАНА | `GEO-FACE-FEW-EDGES` — менее трёх рёбер |
+| **Self-intersections** | **НЕ РЕАЛИЗОВАНА** | нет ни проверки пересечения граней, ни карты пересечений тел |
+| Duplicate vertices | Не проверяется | чинится на этапе построения, а не проверкой |
+| Duplicate edges | Не проверяется | — |
 
 ## Solid
 
-- Closed volume
-- Positive volume
-- Valid orientation
-- Consistent normals
-- Connected body
+| Проверка | Состояние | Код |
+|---|---|---|
+| Closed volume | РЕАЛИЗОВАНА | `GEO-SOLID-NON-POSITIVE-VOLUME` |
+| Positive volume | РЕАЛИЗОВАНА | там же |
+| Valid orientation | Косвенно | ловится только фактом объёма ≤ 0; локализовать грань нельзя |
+| Consistent normals | Не проверяется | — |
+| Connected body | Не проверяется | — |
 
 ---
 

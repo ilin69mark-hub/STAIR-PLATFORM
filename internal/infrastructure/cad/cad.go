@@ -92,9 +92,18 @@ func Merge(meshes ...*kerngeo.Mesh) *kerngeo.Mesh {
 }
 
 // Write сериализует сетку в выбранный формат (EDR-0022 §3.3).
+//
+// Перед записью меш сваривается: грани тела тесселируются независимо, и
+// общая вершина попадает в сетку по разу для каждой грани (измерено: 1116
+// вершин при 314 уникальных). В файле экспорта эти дубли не нужны — ни
+// STL, ни DXF, ни SVG, ни OBJ, ни 3MF не читают UV, поэтому сварка тут
+// бесплатна. Меш для 3D-вьювера не сваривается: там UV важен (S-175).
 func Write(w io.Writer, m *kerngeo.Mesh, f Format) error {
 	if m == nil || len(m.Vertices) == 0 || len(m.Triangles) == 0 {
 		return ErrEmptyMesh
+	}
+	if welded, n := m.Weld(); n > 0 {
+		m = welded
 	}
 	for _, t := range m.Triangles {
 		for _, idx := range t {

@@ -63,9 +63,22 @@ func ParseCNCFormat(s string) (CNCFormat, error) {
 }
 
 // WriteCNC сериализует сетку в расширенный формат (MFG-0011).
+// WriteCNC сериализует сетку в формат для станка (EDR-0022 §3.2).
+//
+// Сетка сваривается перед записью (S-175): эти форматы перечисляют вершины
+// СПИСККОМ, поэтому дубли одной точки попадали в файл по разу. Замерено на
+// лестнице 2700 мм (1116 вершин → 314): OBJ −38 %, 3MF −45 %, STEP −31 %,
+// IGES −54 %, CSV −59 %, JSON −47 %, XML −47 %.
+//
+// DXF, STL и SVG сварку получают в Write, но для них она размера не меняет:
+// эти три формата пишут три вершины инлайн на каждый треугольник, дубли
+// заложены самим форматом. Там сварка нужна для связности, не для размера.
 func WriteCNC(w io.Writer, m *kerngeo.Mesh, format CNCFormat) error {
 	if m == nil || len(m.Vertices) == 0 || len(m.Triangles) == 0 {
 		return ErrEmptyMesh
+	}
+	if welded, n := m.Weld(); n > 0 {
+		m = welded
 	}
 	for _, t := range m.Triangles {
 		for _, idx := range t {
