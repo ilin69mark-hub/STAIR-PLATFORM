@@ -163,11 +163,12 @@ func SheetFeasibleFor(material dommfg.MaterialCode, thickness float64, rects ...
 // проверяют против каталога листов целиком.
 func SplittableFeasibleFor(material dommfg.MaterialCode, thickness, lengthMM, widthMM float64) bool {
 	if isLaserGroup(material) {
-		l, w := lengthMM, widthMM
-		if l < w {
-			l, w = w, l
-		}
-		_ = l
+		// Раньше здесь нормализовали пару (l, w) так, чтобы длина была не
+		// меньше ширины, но результат не использовался: w отбрасывался, а
+		// проверялся исходный widthMM. Нормализация была мёртвой, убрана.
+		// Проверяется именно ширина, переданная вызывающим, — как сказано в
+		// описании функции выше. Тестов на эту функцию нет, поэтому менять
+		// здесь поведение на min(l, w) без решения владельца нельзя.
 		return widthMM <= dommfg.MaxPartWidthMM(thickness)
 	}
 	return fitsStockSheet(material, []cutRect{{length: lengthMM, width: widthMM}})

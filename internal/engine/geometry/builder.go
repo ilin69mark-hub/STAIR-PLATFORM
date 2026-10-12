@@ -852,6 +852,8 @@ func plateSection(q Quality, x0, x1, zBottom, thickness, r float64, side roundSi
 
 	section := []kerngeo.Point3{pt(x0, zBottom), pt(x1, zBottom)}
 	switch side {
+	case roundNone:
+		// Без скругления: сечение уже собрано, обработка не требуется.
 	case roundFront:
 		// Идём вверх по правой грани, дуга в левый верхний угол, затем по верху
 		// назад к x0. Дуга идёт ОТ грани К верху — так соответствует обходу.

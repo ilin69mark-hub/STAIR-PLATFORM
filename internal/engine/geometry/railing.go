@@ -1028,6 +1028,9 @@ func buildRailingDecor(cfg *engineering.StairConfiguration, q Quality) ([]*kerng
 				cfgProfileNosing(cfg), cfg.Railing), nil
 		}
 		return buildLURNailing(q, cfg, rh)
+	case engineering.RailingTypeSteel:
+		// Сталь идёт по общей ветке ниже: те же стойки, что и для остальных
+		// нестеклянных типов. Перечислено явно ради exhaustive.
 	}
 	switch cfg.Flight {
 	case engineering.FlightStraight:

@@ -358,7 +358,13 @@ func TestVisitorHash_StableBehindProxy(t *testing.T) {
 // в хеше один человек давал двух «уникальных посетителей» — их становилось
 // больше, чем визитов. UA подделывается одним заголовком, как признак
 // личности он не значит ничего; семейство браузера живёт отдельно.
-func TestVisitorHash_IgnoresUserAgent(t *testing.T) {
+//
+// Прежнее имя — IgnoresUserAgent — обещало проверку, которой не было:
+// visitorHasher.hash принимает ТОЛЬКО IP, user agent в сигнатуру не входит, так
+// что утверждение hash(x) != hash(x) было тождественно ложным и тест проходил
+// всегда. Игнорирование user agent теперь структурное (его некуда передать),
+// и проверяется то, что действительно должно выполняться.
+func TestVisitorHash_IsStableAndSeparatesIPs(t *testing.T) {
 	h := newVisitorHasherX("salt")
 	if h.hash("1.1.1.1") != h.hash("1.1.1.1") {
 		t.Fatal("один IP обязан давать один visitor")

@@ -163,6 +163,8 @@ func ValidateGrantSet(s *GrantSet) error {
 			return fmt.Errorf("auth: unknown capability %q", g.Capability)
 		}
 		switch g.Level {
+		case GrantedNone:
+			return fmt.Errorf("auth: пустой уровень у %q", g.Capability)
 		case GrantedRead:
 			if !AllowsLevel(g.Capability, LevelRead) {
 				return fmt.Errorf("auth: %q нельзя только читать (%s)", g.Capability, spec.Title)
@@ -544,6 +546,14 @@ func (s *Service) SetUserGrants(ctx context.Context, tenantID string, actor *Use
 func MaxGranted(spec CapabilitySpec) Granted {
 	last := spec.Levels[len(spec.Levels)-1]
 	switch last {
+	case LevelNone:
+		// spec.Levels всегда непустой (capability.go собирает его из
+		// LevelRead/LevelWrite/LevelAction), так что случай недостижим. Но
+		// раньше он падал в default и возвращал GrantedRead — на метрике,
+		// не дающей ничего, это выдало бы чтение. GrantedNone безопаснее.
+		return GrantedNone
+	case LevelRead:
+		return GrantedRead
 	case LevelWrite:
 		return GrantedWrite
 	case LevelAction:

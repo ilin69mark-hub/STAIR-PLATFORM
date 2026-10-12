@@ -288,6 +288,8 @@ func ParseLevel(s string) (Level, error) {
 // «write» хранится как 'write' (он подразумевает read), действие — 'action'.
 func GrantedLevel(l Level) Granted {
 	switch l {
+	case LevelNone:
+		return GrantedNone
 	case LevelRead:
 		return GrantedRead
 	case LevelWrite:
@@ -312,6 +314,8 @@ func Satisfies(granted Granted, want Level) bool {
 		return false
 	}
 	switch granted {
+	case GrantedNone:
+		return false
 	case GrantedAction:
 		return want == LevelAction
 	case GrantedRead:

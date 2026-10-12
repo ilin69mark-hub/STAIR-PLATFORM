@@ -121,6 +121,10 @@ func (r Role) Permissions() []Permission {
 		}
 	case RoleUser:
 		return nil
+	case RoleOwner, RoleSales:
+		// Явно перечислены, чтобы exhaustive-линтер видел все роли. Набор
+		// прав выдаётся поуровнево (grant.go), а не по роли, поэтому здесь nil.
+		return nil
 	default:
 		return nil
 	}

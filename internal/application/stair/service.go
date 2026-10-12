@@ -832,6 +832,7 @@ func attachVariations(ctx context.Context, vr *validation.Result, c *engineering
 			constraint.GEO_LOWER_STEP,
 			constraint.GEO_TREAD_POSITIVE,
 			constraint.GEO_STRINGER_NARROW,
+			constraint.GEO_STRINGER_THICKNESS_SHEET,
 			constraint.MFG_MATERIAL:
 			if len(it.Variations) == 0 && len(it.Suggestions) > 0 {
 				it.Variations = variation.FromSuggestions(it, c)
