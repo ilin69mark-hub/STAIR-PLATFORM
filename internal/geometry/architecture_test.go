@@ -22,6 +22,12 @@ func TestLayerIsolation(t *testing.T) {
 		"os/exec",
 		"grpc",
 		"stairplatform/internal/domain",
+		// ADR-0013: Geometry ничего не знает, кроме геометрии. Раньше
+		// internal/geometry импортировал internal/engine/graph ради
+		// ParametricModel — это был нарушенный запрет, который этот тест
+		// НЕ ловил, потому что internal/engine в списке не значился.
+		// Мёртвый код удалён (S-176), запрет записан.
+		"stairplatform/internal/engine",
 	}
 
 	fset := token.NewFileSet()
