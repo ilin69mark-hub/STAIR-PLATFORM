@@ -9,7 +9,7 @@ import (
 func TestTubeAlongIsHollow(t *testing.T) {
 	a := kerngeo.NewPoint3(0, 0, 0)
 	b := kerngeo.NewPoint3(0, 0, 100)
-	s := tubeAlong(a, b, 42.4, 1.5, "probe")
+	s := tubeAlong(ProductionQuality, a, b, 42.4, 1.5, "probe")
 	if s == nil {
 		t.Fatal("tubeAlong returned nil")
 	}
@@ -31,7 +31,7 @@ func TestTubeAlongIsHollow(t *testing.T) {
 func TestRigelIsHollow(t *testing.T) {
 	a := kerngeo.NewPoint3(0, 0, 0)
 	b := kerngeo.NewPoint3(1200, 0, 0)
-	s := tubeAlong(a, b, rigelD, rigelWall, roleRigel)
+	s := tubeAlong(ProductionQuality, a, b, rigelD, rigelWall, roleRigel)
 	if s == nil {
 		t.Fatal("rigel nil")
 	}

@@ -24,7 +24,7 @@ var refStack = []struct {
 
 func TestStackVsReference(t *testing.T) {
 	const zTop = 980.7
-	parts := railHolderAt(0, 0, zTop, 1055, 0.75)
+	parts := railHolderAt(ProductionQuality, 0, 0, zTop, 1055, 0.75)
 	if len(parts) != len(refStack) {
 		t.Fatalf("деталей %d, в эталоне %d", len(parts), len(refStack))
 	}

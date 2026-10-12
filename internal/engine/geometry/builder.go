@@ -77,7 +77,15 @@ func PlateStringerFrame(cfg *engineering.StairConfiguration) bool {
 // StepThickness > 0 и Riser: 2+4n тела.
 // Координаты: X — направление подъёма, Y — ширина, Z — высота (ADR-0008).
 // Геометрия всегда вычисляется заново из параметров (BC-002).
+// BuildStraightFlight строит прямой марш с производственной точностью
+// тесселяции. Облегчённый меш для отображения строится отдельным проходом
+// (GeneratePreviewMesh), а не этим вызовом: числа из облегчённой сборки в
+// расчёт не идут.
 func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, error) {
+	return buildStraightFlight(cfg, ProductionQuality)
+}
+
+func buildStraightFlight(cfg *engineering.StairConfiguration, q Quality) (*kerngeo.Compound, error) {
 	if err := validateFlight(cfg); err != nil {
 		return nil, err
 	}
@@ -233,7 +241,7 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 				x1 = float64(n) * b
 			}
 			z := float64(k+1)*h - st
-			section, err := plateSection(x0, x1, z, st, noseR, treadRoundSide)
+			section, err := plateSection(q, x0, x1, z, st, noseR, treadRoundSide)
 			if err != nil {
 				return nil, fmt.Errorf("geometry: tread %d: %w", k, err)
 			}
@@ -324,7 +332,7 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 		for k := 0; k < n; k++ {
 			k := k
 			builds = append(builds, func() (*kerngeo.Solid, error) {
-				return combHeelSolid(cfg, sp, k, side.hy0)
+				return combHeelSolid(q, cfg, sp, k, side.hy0)
 			})
 		}
 		// Пятка 2 — только вместе с подступенком.
@@ -332,13 +340,13 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 			for k := 0; k < n-1; k++ {
 				k := k
 				builds = append(builds, func() (*kerngeo.Solid, error) {
-					return combWebSolid(cfg, sp, k, side.hy0)
+					return combWebSolid(q, cfg, sp, k, side.hy0)
 				})
 			}
 		}
 		builds = append(builds,
-			func() (*kerngeo.Solid, error) { return combAnchorSolid(cfg, sp, side.hy0) },
-			func() (*kerngeo.Solid, error) { return combTopAnchorSolid(cfg, sp, side.hy0) },
+			func() (*kerngeo.Solid, error) { return combAnchorSolid(q, cfg, sp, side.hy0) },
+			func() (*kerngeo.Solid, error) { return combTopAnchorSolid(q, cfg, sp, side.hy0) },
 		)
 		// Пластина 1-й ступени — подкладка ПЕРВОГО ПОДСТУПЕНКА (решение
 		// владельца 2026-10-08): вертикальная пластина в плоскости x = 0, с
@@ -350,7 +358,7 @@ func BuildStraightFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 		// воздухе перед косоуром. Ставим её только вместе с подступенком.
 		if cfg.Riser {
 			builds = append(builds,
-				func() (*kerngeo.Solid, error) { return combFirstWebSolid(cfg, sp, side.hy0) },
+				func() (*kerngeo.Solid, error) { return combFirstWebSolid(q, cfg, sp, side.hy0) },
 			)
 		}
 	}
@@ -397,6 +405,10 @@ func buildCompound(builds []func() (*kerngeo.Solid, error)) (*kerngeo.Compound, 
 // марш идёт вдоль +Y. Геометрия всегда вычисляется заново из параметров
 // (BC-002). Роли тел проставляются для корректной декомпозиции.
 func BuildLShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, error) {
+	return buildLShapeFlight(cfg, ProductionQuality)
+}
+
+func buildLShapeFlight(cfg *engineering.StairConfiguration, q Quality) (*kerngeo.Compound, error) {
 	if err := validateFlight(cfg); err != nil {
 		return nil, err
 	}
@@ -420,7 +432,7 @@ func BuildLShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, 
 	h1 := float64(n1) * h
 
 	// нижний марш в локальных координатах (без поворота).
-	lowerModel, err := BuildStraightFlight(subFlight(cfg, h1, n1))
+	lowerModel, err := buildStraightFlight(subFlight(cfg, h1, n1), q)
 	if err != nil {
 		return nil, fmt.Errorf("geometry: lower flight: %w", err)
 	}
@@ -428,7 +440,7 @@ func BuildLShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, 
 	// верхний марш: строится как прямой в локальных координатах, затем
 	// поворот на 90° вокруг Z (направление подъёма → вдоль +Y) и перенос
 	// так, чтобы марш начинался с края площадки на высоте H1.
-	upperModel, err := BuildStraightFlight(subFlight(cfg, float64(n2)*h, n2))
+	upperModel, err := buildStraightFlight(subFlight(cfg, float64(n2)*h, n2), q)
 	if err != nil {
 		return nil, fmt.Errorf("geometry: upper flight: %w", err)
 	}
@@ -454,7 +466,7 @@ func BuildLShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, 
 	// площадка: горизонтальная плита толщиной st на высоте H1, план
 	// [landingX0, landingX0+Ld]×[0, Wp] (EDR-0005 §4.8), роль "landing".
 	noseR := noseRadiusFor(cfg)
-	landing, err := buildLanding(ld, wp, landingX0, h1, st, landingRoundSide(left), noseR)
+	landing, err := buildLanding(q, ld, wp, landingX0, h1, st, landingRoundSide(left), noseR)
 	if err != nil {
 		return nil, err
 	}
@@ -525,6 +537,10 @@ func subFlightWidth(cfg *engineering.StairConfiguration, height float64, steps i
 // ступени (TurnWinder). Диспетчеризация по TurnKind сохраняет обратную
 // совместимость: пустой/неизвестный TurnKind трактуется как площадка.
 func BuildUShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, error) {
+	return buildUShapeFlight(cfg, ProductionQuality)
+}
+
+func buildUShapeFlight(cfg *engineering.StairConfiguration, q Quality) (*kerngeo.Compound, error) {
 	if err := validateFlight(cfg); err != nil {
 		return nil, err
 	}
@@ -532,9 +548,9 @@ func BuildUShapeFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, 
 		return nil, fmt.Errorf("geometry: configuration flight must be u_shape")
 	}
 	if cfg.TurnKind == engineering.TurnWinder {
-		return BuildUShapeWinderFlight(cfg)
+		return buildUShapeWinderFlight(cfg, q)
 	}
-	return buildUShapePlatform(cfg)
+	return buildUShapePlatform(q, cfg)
 }
 
 // uShapePlatformTransforms возвращает трансформы нижнего и верхнего маршей и
@@ -578,7 +594,7 @@ func uShapePlatformTransforms(cfg *engineering.StairConfiguration) (lowerT, uppe
 // прямой марш (n2), параллельный нижнему и развёрнутый на 180°. Площадка
 // соединяет оба марша на одном Z-уровне H1 и охватывает полную ширину
 // 2·W (внешние кромки обоих маршей), будучи по ширине равной двум пролётам.
-func buildUShapePlatform(cfg *engineering.StairConfiguration) (*kerngeo.Compound, error) {
+func buildUShapePlatform(q Quality, cfg *engineering.StairConfiguration) (*kerngeo.Compound, error) {
 	w := cfg.Width.Millimeters()
 	h := cfg.StepHeight.Millimeters()
 	st := cfg.StepThickness.Millimeters()
@@ -594,11 +610,11 @@ func buildUShapePlatform(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 	// остаётся 2·W (см. uShapePlatformTransforms).
 	wEff := w - flightSideInsetMM
 
-	lowerModel, err := BuildStraightFlight(subFlightWidth(cfg, h1, n1, engineering.Length(wEff)))
+	lowerModel, err := buildStraightFlight(subFlightWidth(cfg, h1, n1, engineering.Length(wEff)), q)
 	if err != nil {
 		return nil, fmt.Errorf("geometry: lower flight: %w", err)
 	}
-	upperModel, err := BuildStraightFlight(subFlightWidth(cfg, float64(n2)*h, n2, engineering.Length(wEff)))
+	upperModel, err := buildStraightFlight(subFlightWidth(cfg, float64(n2)*h, n2, engineering.Length(wEff)), q)
 	if err != nil {
 		return nil, fmt.Errorf("geometry: upper flight: %w", err)
 	}
@@ -606,7 +622,7 @@ func buildUShapePlatform(cfg *engineering.StairConfiguration) (*kerngeo.Compound
 	// площадка: плита толщиной st на высоте H1, план
 	// [landingX0, landingX0+W]×[0, 2W], роль "landing".
 	noseR := noseRadiusFor(cfg)
-	landing, err := buildLanding(w, landingY, landingX0, h1, st,
+	landing, err := buildLanding(q, w, landingY, landingX0, h1, st,
 		landingRoundSide(cfg.Direction == engineering.TurnLeft), noseR)
 	if err != nil {
 		return nil, err
@@ -642,8 +658,8 @@ const winderArcRelTol = 0.0027
 // sectorRing — контур сектора кольца [r, R] на угле от a0 до a1 в плоскости
 // z = z0: внешняя дуга вперёд, внутренняя назад. Основа веерной ступени
 // П-образного марша с поворотом на 180° (BuildUShapeWinderFlight).
-func sectorRing(r, R, a0, a1, z0 float64) []kerngeo.Point3 {
-	segs := kerngeo.ArcSegmentsRelative(R, a1-a0, winderArcRelTol)
+func sectorRing(q Quality, r, R, a0, a1, z0 float64) []kerngeo.Point3 {
+	segs := kerngeo.ArcSegmentsRelative(R, a1-a0, q.relTol(winderArcRelTol))
 	pts := make([]kerngeo.Point3, 0, 2*segs+2)
 	for i := 0; i <= segs; i++ {
 		a := a0 + (a1-a0)*float64(i)/float64(segs)
@@ -652,7 +668,7 @@ func sectorRing(r, R, a0, a1, z0 float64) []kerngeo.Point3 {
 	// Внутренняя дуга считается от своего радиуса r: при относительном
 	// допуске сегментов на ней столько же, сколько на внешней, и контур
 	// остаётся замкнутым по числу точек с обеих сторон.
-	innerSegs := kerngeo.ArcSegmentsRelative(r, a1-a0, winderArcRelTol)
+	innerSegs := kerngeo.ArcSegmentsRelative(r, a1-a0, q.relTol(winderArcRelTol))
 	for i := 0; i <= innerSegs; i++ {
 		a := a1 - (a1-a0)*float64(i)/float64(innerSegs)
 		pts = append(pts, kerngeo.NewPoint3(r*math.Cos(a), r*math.Sin(a), z0))
@@ -667,6 +683,10 @@ func sectorRing(r, R, a0, a1, z0 float64) []kerngeo.Point3 {
 // ступени наследуют высоту h и проступь b прямых маршей; каждая поднимает
 // на h, общий подъём марша H = n·h. Роль тел: "winder" для поворотных ступеней.
 func BuildUShapeWinderFlight(cfg *engineering.StairConfiguration) (*kerngeo.Compound, error) {
+	return buildUShapeWinderFlight(cfg, ProductionQuality)
+}
+
+func buildUShapeWinderFlight(cfg *engineering.StairConfiguration, q Quality) (*kerngeo.Compound, error) {
 	if err := validateFlight(cfg); err != nil {
 		return nil, err
 	}
@@ -691,11 +711,11 @@ func BuildUShapeWinderFlight(cfg *engineering.StairConfiguration) (*kerngeo.Comp
 	l1 := float64(n1) * b
 	left := cfg.Direction == engineering.TurnLeft
 
-	lowerModel, err := BuildStraightFlight(subFlight(cfg, h1, n1))
+	lowerModel, err := buildStraightFlight(subFlight(cfg, h1, n1), q)
 	if err != nil {
 		return nil, fmt.Errorf("geometry: lower flight: %w", err)
 	}
-	upperModel, err := BuildStraightFlight(subFlight(cfg, float64(n2)*h, n2))
+	upperModel, err := buildStraightFlight(subFlight(cfg, float64(n2)*h, n2), q)
 	if err != nil {
 		return nil, fmt.Errorf("geometry: upper flight: %w", err)
 	}
@@ -715,7 +735,7 @@ func BuildUShapeWinderFlight(cfg *engineering.StairConfiguration) (*kerngeo.Comp
 		pUpper = kerngeo.NewPoint3(l1, w+wp, h1+float64(nw)*h)
 	}
 
-	winders, err := buildWinders(w, h, st, n1, nw, pLower, pUpper)
+	winders, err := buildWinders(q, w, h, st, n1, nw, pLower, pUpper)
 	if err != nil {
 		return nil, err
 	}
@@ -737,7 +757,7 @@ func BuildUShapeWinderFlight(cfg *engineering.StairConfiguration) (*kerngeo.Comp
 // достигает внутренних рёбер обоих маршей, внешний ro = ri + W — их внешних
 // кромок (EDR-0006 §4.8). Каждая ступень — сектор кольца, выдавленный по Z
 // на толщину st, верх на высоте H1 + (k+1)·h (общий подъём h). Роль "winder".
-func buildWinders(w, h, st float64, n1, nw int, pLower, pUpper kerngeo.Point3) ([]*kerngeo.Solid, error) {
+func buildWinders(q Quality, w, h, st float64, n1, nw int, pLower, pUpper kerngeo.Point3) ([]*kerngeo.Solid, error) {
 	if nw < 3 {
 		return nil, fmt.Errorf("geometry: winder count must be at least 3")
 	}
@@ -759,7 +779,7 @@ func buildWinders(w, h, st float64, n1, nw int, pLower, pUpper kerngeo.Point3) (
 		aa := a0 + float64(k)*dth
 		ab := aa + dth
 		zTop := h1 + float64(k+1)*h
-		profile := sectorRing(ri, ro, aa, ab, zTop-st)
+		profile := sectorRing(q, ri, ro, aa, ab, zTop-st)
 		solid, err := kerngeo.Extrude(profile, kerngeo.NewVector3(0, 0, 1), st)
 		if err != nil {
 			return nil, fmt.Errorf("geometry: winder %d: %w", k, err)
@@ -815,7 +835,7 @@ const (
 // При r ≤ 0 или side == roundNone возвращается обычный прямоугольник — то же
 // тело, что и до появления фасок, поэтому металлическая лестница не меняется
 // ни на миллиметр.
-func plateSection(x0, x1, zBottom, thickness, r float64, side roundSide) ([]kerngeo.Point3, error) {
+func plateSection(q Quality, x0, x1, zBottom, thickness, r float64, side roundSide) ([]kerngeo.Point3, error) {
 	zTop := zBottom + thickness
 	pt := func(x, z float64) kerngeo.Point3 { return kerngeo.NewPoint3(x, 0, z) }
 
@@ -836,7 +856,7 @@ func plateSection(x0, x1, zBottom, thickness, r float64, side roundSide) ([]kern
 		// Идём вверх по правой грани, дуга в левый верхний угол, затем по верху
 		// назад к x0. Дуга идёт ОТ грани К верху — так соответствует обходу.
 		arc, err := kerngeo.RoundCorner(pt(x1, zBottom), pt(x1, zTop), pt(x0, zTop), r,
-			kerngeo.ArcSegments(r, math.Pi/2, noseArcToleranceMM))
+			kerngeo.ArcSegments(r, math.Pi/2, q.arcTol(noseArcToleranceMM)))
 		if err != nil {
 			return nil, fmt.Errorf("geometry: plate corner rounding: %w", err)
 		}
@@ -859,7 +879,7 @@ func plateSection(x0, x1, zBottom, thickness, r float64, side roundSide) ([]kern
 		// вверх до zTop и тут же обратно вниз. Из-за этого roundFront был
 		// единственной рабочей стороной, а roundBack не вызывался нигде.
 		arc, err := kerngeo.RoundCorner(pt(x1, zTop), pt(x0, zTop), pt(x0, zBottom), r,
-			kerngeo.ArcSegments(r, math.Pi/2, noseArcToleranceMM))
+			kerngeo.ArcSegments(r, math.Pi/2, q.arcTol(noseArcToleranceMM)))
 		if err != nil {
 			return nil, fmt.Errorf("geometry: plate corner rounding: %w", err)
 		}
@@ -898,11 +918,11 @@ func plateSection(x0, x1, zBottom, thickness, r float64, side roundSide) ([]kern
 // перпендикулярные скруглённые кромки полиэдральная модель (Solid из плоских
 // граней) не выражает: для этого нужны две независимые операции над рёбрами.
 // Поэтому скругляется одна — та, что видна из комнаты.
-func buildLanding(w, wp, x0, h1, st float64, side roundSide, r float64) (*kerngeo.Solid, error) {
+func buildLanding(q Quality, w, wp, x0, h1, st float64, side roundSide, r float64) (*kerngeo.Solid, error) {
 	if r > st {
 		r = st
 	}
-	section, err := plateSection(x0, x0+w, h1-st, st, r, side)
+	section, err := plateSection(q, x0, x0+w, h1-st, st, r, side)
 	if err != nil {
 		return nil, fmt.Errorf("geometry: landing: %w", err)
 	}

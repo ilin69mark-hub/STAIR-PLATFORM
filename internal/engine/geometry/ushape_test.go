@@ -328,7 +328,7 @@ func TestBuildUShapeRailingAlignsWithFlight(t *testing.T) {
 		// выступают на 25 мм за габарит ступеней.
 		const tol = 30.0
 		bd := cfg.TreadDepth.Millimeters()
-		pad := railOverhangFrac*bd + (cfgProfileNosing(cfg)+bd) / 2.0
+		pad := railOverhangFrac*bd + (cfgProfileNosing(cfg)+bd)/2.0
 		if rb.Min.X < fb.Min.X-tol-pad || rb.Max.X > fb.Max.X+tol+pad {
 			t.Fatalf("%s: railing X bbox [%v,%v] must lie within flight X bbox [%v,%v]±%v",
 				dir, rb.Min.X, rb.Max.X, fb.Min.X, fb.Max.X, tol)

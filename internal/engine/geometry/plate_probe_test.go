@@ -9,7 +9,7 @@ import (
 func TestPlateWithHolesErr(t *testing.T) {
 	p0 := kerngeo.NewPoint3(0, 0, 0)
 	p1 := kerngeo.NewPoint3(70, 0, 10)
-	s := plateWithHoles(p0, p1, 50.8, 3, 15, 5, "probe")
+	s := plateWithHoles(ProductionQuality, p0, p1, 50.8, 3, 15, 5, "probe")
 	if s == nil {
 		// повторить вручную, чтобы увидеть ошибку
 		axis := p1.Sub(p0)

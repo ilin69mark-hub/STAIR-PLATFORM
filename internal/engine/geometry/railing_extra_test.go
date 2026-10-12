@@ -29,7 +29,7 @@ func TestExtraFlipSideUnknown(t *testing.T) {
 
 func TestExtraRailAlongDegenerate(t *testing.T) {
 	a := kerngeo.NewPoint3(100, 200, 300)
-	if s := railAlong(a, a); s != nil {
+	if s := railAlong(ProductionQuality, a, a); s != nil {
 		t.Fatal("degenerate segment must yield nil")
 	}
 }
@@ -37,7 +37,7 @@ func TestExtraRailAlongDegenerate(t *testing.T) {
 func TestExtraRailAlongVertical(t *testing.T) {
 	// Вертикальный сегмент: направление ширины wd=(−u.Y,u.X,0) вырождено
 	// → фолбэк wd=(1,0,0).
-	s := railAlong(kerngeo.NewPoint3(0, 0, 0), kerngeo.NewPoint3(0, 0, 1000))
+	s := railAlong(ProductionQuality, kerngeo.NewPoint3(0, 0, 0), kerngeo.NewPoint3(0, 0, 1000))
 	if s == nil {
 		t.Fatal("vertical rail must be built")
 	}
@@ -47,7 +47,7 @@ func TestExtraRailAlongVertical(t *testing.T) {
 }
 
 func TestExtraRailAlongMainPath(t *testing.T) {
-	s := railAlong(kerngeo.NewPoint3(0, 0, 0), kerngeo.NewPoint3(2700, 0, 1800))
+	s := railAlong(ProductionQuality, kerngeo.NewPoint3(0, 0, 0), kerngeo.NewPoint3(2700, 0, 1800))
 	if s == nil {
 		t.Fatal("inclined rail must be built")
 	}
@@ -60,23 +60,23 @@ func TestExtraBalusterAtZeroHeight(t *testing.T) {
 }
 
 func TestExtraBalusterAtSlopedZeroHeight(t *testing.T) {
-	if s := balusterAtSloped(10, 10, 0, 0, 0.2); s != nil {
+	if s := balusterAtSloped(ProductionQuality, 10, 10, 0, 0, 0.2); s != nil {
 		t.Fatal("zero height must yield nil")
 	}
 }
 
 func TestExtraLandingRailingNoHeight(t *testing.T) {
-	if sols := landingRailingSolids(900, 1000, 900, 0, 1080, 270, 0, false, false, engineering.RailingBoth); sols != nil {
+	if sols := landingRailingSolids(ProductionQuality, 900, 1000, 900, 0, 1080, 270, 0, false, false, engineering.RailingBoth); sols != nil {
 		t.Fatalf("zero rail height must yield nil, got %d", len(sols))
 	}
 }
 
 func TestExtraWinderRailing(t *testing.T) {
-	if sols := winderRailingSolids(900, 180, 0, 6, 3, 1620, 1000, false); sols != nil {
+	if sols := winderRailingSolids(ProductionQuality, 900, 180, 0, 6, 3, 1620, 1000, false); sols != nil {
 		t.Fatalf("zero rail height must yield nil, got %d", len(sols))
 	}
 	for _, left := range []bool{false, true} {
-		sols := winderRailingSolids(900, 180, 900, 6, 3, 1620, 1000, left)
+		sols := winderRailingSolids(ProductionQuality, 900, 180, 900, 6, 3, 1620, 1000, left)
 		if len(sols) == 0 {
 			t.Fatalf("left=%v: expected winder rail solids, got 0", left)
 		}

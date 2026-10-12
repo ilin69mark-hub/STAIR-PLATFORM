@@ -133,6 +133,20 @@ type Options struct {
 	// пропускает их, а лучший кандидат пересчитывается полностью
 	// (optimize.go, финальный Calculate) — и вариации в ответе остаются.
 	skipVariations bool
+
+	// PreviewMesh — отдать в Mesh облегчённую сетку для показа (S-165).
+	//
+	// Объём, площадь, раскрой и цена в этом случае БЕРУТСЯ из
+	// производственной модели, как всегда: облегчённая сборка идёт вторым
+	// проходом и используется только для картинки. Поэтому цена на витрине
+	// и в админке совпадает по построению, а не «мы стараемся не
+	// допустить».
+	//
+	// Плотности в Б-Rep неразделимы (дуга — уже многоугольник), поэтому
+	// вариант «просто огрубить тот же меш» дал бы разные объёмы и разные
+	// цены — измерено: одна проступь R=10 теряет 0,62 % объёма при
+	// уменьшении точности.
+	PreviewMesh bool
 }
 
 // Result — сквозной результат расчёта проекта (все этапы конвейера).
@@ -417,6 +431,16 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	}
 	res.Mesh = gen.Mesh
 	res.RailingMesh = gen.RailingMesh
+	if opts.PreviewMesh {
+		// Второй проход: та же модель, огрублённая тесселяция, только меш.
+		// Числа отсюда НЕ берутся — они уже посчитаны по производственной
+		// модели выше.
+		if prev, perr := geometry.GeneratePreviewMesh(ctx, c); perr == nil {
+			res.Mesh = prev.Mesh
+			res.RailingMesh = prev.RailingMesh
+			res.RoomMesh = prev.RoomMesh
+		}
+	}
 	res.RoomMesh = gen.RoomMesh
 	res.Package = pkg
 	res.Cost = ds

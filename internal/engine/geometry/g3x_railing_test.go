@@ -45,13 +45,13 @@ func TestGEOM03_LandingRailingMatchesLanding(t *testing.T) {
 	for _, left := range []bool{false, true} {
 		c := g3xUShapeConfig(900, left)
 		_, _, lx0, ly := uShapePlatformTransforms(c)
-		landing, err := buildLanding(900, ly, lx0, 7*180, 40, roundNone, 0)
+		landing, err := buildLanding(ProductionQuality, 900, ly, lx0, 7*180, 40, roundNone, 0)
 		if err != nil {
 			t.Fatalf("buildLanding: %v", err)
 		}
 		lb := kerngeo.SolidBoundingBox(landing)
 
-		sols, err := buildLURNailing(c, 900)
+		sols, err := buildLURNailing(ProductionQuality, c, 900)
 		if err != nil {
 			t.Fatalf("buildLURNailing: %v", err)
 		}
@@ -93,7 +93,7 @@ func TestGEOM02_LandingPassWidthFollowsFlight(t *testing.T) {
 	)
 	// ld меньше wp — ограждение внешнего участка обязано существовать.
 	for _, ld := range []float64{flightW, 950} {
-		sols := landingRailingSolids(ld, wp, flightW, 900, 7*180, 270, 0, false, false, engineering.RailingBoth)
+		sols := landingRailingSolids(ProductionQuality, ld, wp, flightW, 900, 7*180, 270, 0, false, false, engineering.RailingBoth)
 		if len(sols) == 0 {
 			t.Errorf("ld=%.0f: перила площадки не построены — проход ошибочно съел контур", ld)
 			continue
@@ -108,7 +108,7 @@ func TestGEOM02_LandingPassWidthFollowsFlight(t *testing.T) {
 	// ld >= wp: площадка не шире прохода, ограждать нечего вдоль этой кромки,
 	// но контур в целом строиться обязан.
 	for _, ld := range []float64{wp, 1400} {
-		sols := landingRailingSolids(ld, wp, flightW, 900, 7*180, 270, 0, false, false, engineering.RailingBoth)
+		sols := landingRailingSolids(ProductionQuality, ld, wp, flightW, 900, 7*180, 270, 0, false, false, engineering.RailingBoth)
 		if len(sols) == 0 {
 			t.Errorf("ld=%.0f: перила площадки не построены вовсе", ld)
 		}

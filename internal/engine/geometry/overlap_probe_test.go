@@ -36,8 +36,8 @@ func TestRailingNoUnexpectedOverlap(t *testing.T) {
 	// площадка должна быть заметно легче сплошной полосы того же габарита.
 	p0 := kerngeo.NewPoint3(0, 0, 0)
 	p1 := kerngeo.NewPoint3(holderPlateHalfX*2, 0, 10)
-	plain := plateGrooved(p0, p1, holderPlateW, holderPlateT, holderHoleOfs, holderHoleD, 0, "probe")
-	grooved := plateGrooved(p0, p1, holderPlateW, holderPlateT, holderHoleOfs, holderHoleD, holderGrooveD, "probe")
+	plain := plateGrooved(ProductionQuality, p0, p1, holderPlateW, holderPlateT, holderHoleOfs, holderHoleD, 0, "probe")
+	grooved := plateGrooved(ProductionQuality, p0, p1, holderPlateW, holderPlateT, holderHoleOfs, holderHoleD, holderGrooveD, "probe")
 	if plain == nil || grooved == nil {
 		t.Fatal("plate nil")
 	}

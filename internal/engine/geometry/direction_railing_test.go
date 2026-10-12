@@ -256,9 +256,9 @@ func TestBuildRailingDecorStraight(t *testing.T) {
 	}
 	for k, cx := range balXs {
 		// Центр ПРОСТУПИ: ступень длиннее шага на nosing и отодвинута назад.
-	// Середина СТУПЕНИ при свесе НАЗАД: ступень [ (k−1)·b − nosing,
-	// (k−1)·b + b + nosing ], центр = (k−1)·b + b/2. Первая = 115 мм.
-	want := float64(steps[k]-1)*b + b/2 - cfgProfileNosing(cfg)
+		// Середина СТУПЕНИ при свесе НАЗАД: ступень [ (k−1)·b − nosing,
+		// (k−1)·b + b + nosing ], центр = (k−1)·b + b/2. Первая = 115 мм.
+		want := float64(steps[k]-1)*b + b/2 - cfgProfileNosing(cfg)
 		if !nearlyEqual(cx, want) {
 			t.Fatalf("baluster %d centre X = %v, want %v (step %d centre)", k+1, cx, want, steps[k])
 		}
@@ -356,7 +356,7 @@ func TestBuildLShapeLandingRailingOpensPassage(t *testing.T) {
 			x0 = 0
 		}
 		// closeFar=false — L-образный марш: дальняя кромка Y=wp открыта.
-		sols := landingRailingSolids(w, wp, w, rh, h1, b, x0, left, false, engineering.RailingBoth)
+		sols := landingRailingSolids(ProductionQuality, w, wp, w, rh, h1, b, x0, left, false, engineering.RailingBoth)
 
 		rails := 0
 		for _, s := range sols {
@@ -439,7 +439,7 @@ func TestBuildLShapeLandingRailingFullPerimeter(t *testing.T) {
 		if left {
 			x0 = 0
 		}
-		sols := landingRailingSolids(w, wp, w, rh, h1, b, x0, left, false, engineering.RailingBoth)
+		sols := landingRailingSolids(ProductionQuality, w, wp, w, rh, h1, b, x0, left, false, engineering.RailingBoth)
 
 		flightX := x0
 		if left {
@@ -497,7 +497,7 @@ func TestBuildLShapeLandingRailingSides(t *testing.T) {
 		const tol = railThickness / 2
 
 		checkOneSide := func(side engineering.RailingSide, expectX float64) {
-			sols := landingRailingSolids(w, wp, w, rh, h1, b, l1, left, false, side)
+			sols := landingRailingSolids(ProductionQuality, w, wp, w, rh, h1, b, l1, left, false, side)
 			rails := 0
 			for _, s := range sols {
 				if s.Role() == roleRailing {
@@ -529,7 +529,7 @@ func TestBuildLShapeLandingRailingSides(t *testing.T) {
 
 		// RailingBoth — полный периметр (низ + 2 вертикали; для Wp>W
 		// левая/правая вертикали могут быть короче из-за проходов).
-		both := landingRailingSolids(w, wp, w, rh, h1, b, l1, left, false, engineering.RailingBoth)
+		both := landingRailingSolids(ProductionQuality, w, wp, w, rh, h1, b, l1, left, false, engineering.RailingBoth)
 		bothRails := 0
 		for _, s := range both {
 			if s.Role() == roleRailing {

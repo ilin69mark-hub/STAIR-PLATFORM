@@ -7,7 +7,7 @@ import (
 )
 
 func TestRailHolderHasAllParts(t *testing.T) {
-	parts := railHolderAt(100, 878.8, 900, 1000, 0.75)
+	parts := railHolderAt(ProductionQuality, 100, 878.8, 900, 1000, 0.75)
 	seen := map[string]int{}
 	for _, p := range parts {
 		if p == nil {
@@ -29,7 +29,7 @@ func TestRailHolderHasAllParts(t *testing.T) {
 func TestRailEndCapsAreInsideRail(t *testing.T) {
 	a := kerngeo.NewPoint3(0, 900, 900)
 	b := kerngeo.NewPoint3(4000, 900, 900)
-	caps := railEndCaps(a, b)
+	caps := railEndCaps(ProductionQuality, a, b)
 	if len(caps) != 2 {
 		t.Fatalf("end caps = %d, want 2", len(caps))
 	}

@@ -8,11 +8,11 @@ import (
 )
 
 func TestHolderTipProbe(t *testing.T) {
-	parts := railHolderAt(115, 841, 900, 1000, 0.75)
+	parts := railHolderAt(ProductionQuality, 115, 841, 900, 1000, 0.75)
 	for i, p := range parts {
 		b := kerngeo.SolidBoundingBox(p)
 		v, _ := kerngeo.Volume(p)
-		t.Logf("part %d: Z %.1f..%.1f (h %.1f) XY %.1fx%.1f vol %.1f", i, b.Min.Z, b.Max.Z, (b.Max.Z-b.Min.Z), (b.Max.X-b.Min.X), (b.Max.Y-b.Min.Y), v)
+		t.Logf("part %d: Z %.1f..%.1f (h %.1f) XY %.1fx%.1f vol %.1f", i, b.Min.Z, b.Max.Z, (b.Max.Z - b.Min.Z), (b.Max.X - b.Min.X), (b.Max.Y - b.Min.Y), v)
 	}
 	cfg := *testConfig(t)
 	cfg.Railing = engineering.RailingRight

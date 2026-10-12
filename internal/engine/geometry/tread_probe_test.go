@@ -26,7 +26,7 @@ func TestTreadGeometryProbe(t *testing.T) {
 		}
 		bb := kerngeo.SolidBoundingBox(s)
 		t.Logf("tread %d: X %.1f..%.1f (длина %.1f), Y %.1f..%.1f, Z %.1f..%.1f",
-			n, bb.Min.X, bb.Max.X, (bb.Max.X-bb.Min.X), bb.Min.Y, bb.Max.Y, bb.Min.Z, bb.Max.Z)
+			n, bb.Min.X, bb.Max.X, (bb.Max.X - bb.Min.X), bb.Min.Y, bb.Max.Y, bb.Min.Z, bb.Max.Z)
 	}
 	t.Logf("всего ступеней: %d", n)
 }

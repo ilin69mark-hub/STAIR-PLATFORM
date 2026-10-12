@@ -8,7 +8,7 @@ import (
 
 func TestClampAndCapPositiveVolume(t *testing.T) {
 	x, y := 405.0, 878.8
-	for _, c := range railClampAt(x, y, 180) {
+	for _, c := range railClampAt(ProductionQuality, x, y, 180) {
 		v, err := kerngeo.Volume(c)
 		if err != nil {
 			t.Fatalf("clamp volume err: %v", err)
@@ -18,7 +18,7 @@ func TestClampAndCapPositiveVolume(t *testing.T) {
 			t.Fatalf("clamp part has non-positive volume %.1f", v)
 		}
 	}
-	caps := railCapAt(x, y, 180)
+	caps := railCapAt(ProductionQuality, x, y, 180)
 	if len(caps) != 2 {
 		t.Fatalf("cap parts = %d, want 2 (body + lid)", len(caps))
 	}

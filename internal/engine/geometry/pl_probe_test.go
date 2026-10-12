@@ -11,7 +11,7 @@ func TestPlateTiltProbe(t *testing.T) {
 	slope := 0.75
 	p0 := kerngeo.NewPoint3(-L/2, 0, 0)
 	p1 := kerngeo.NewPoint3(L/2, 0, slope*L)
-	s := plateGrooved(p0, p1, W, T, off, d, gr, "probe")
+	s := plateGrooved(ProductionQuality, p0, p1, W, T, off, d, gr, "probe")
 	if s == nil {
 		t.Fatal("nil")
 	}

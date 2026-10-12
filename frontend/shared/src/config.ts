@@ -785,6 +785,12 @@ export function toRequest(f: ConfigForm): Record<string, unknown> {
     req.room_width_mm = Number(f.roomWidthMM)
     req.room_length_mm = Number(f.roomLengthMM)
     req.ceiling_height_mm = Number(f.ceilingHeightMM)
+
+  // Попросить облегчённую сетку для показа (S-165). Цена и объём считаются
+  // по производственной модели вторым проходом и от плотности не зависят —
+  // расходиться не могут. Витрина картинку делает чаще и в 3D, поэтому меш
+  // можно облегчить; точная сетка остаётся у админки (замеры, раскрой).
+  req.preview_mesh = true
   }
   // Свободное пространство перед первой ступенью — для ВСЕХ типов марша
   // (EDR-0023): прямой, L, П. Пустое значение трактуется как

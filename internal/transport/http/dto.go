@@ -31,6 +31,12 @@ type calculateRequest struct {
 	RoomWidthMM         float64 `json:"room_width_mm,omitempty"`
 	RoomLengthMM        float64 `json:"room_length_mm,omitempty"`
 	CeilingHeightMM     float64 `json:"ceiling_height_mm,omitempty"`
+	// PreviewMesh — попросить облегчённую сетку для показа (S-165).
+	//
+	// Витрина ставит true: картинка легче, а цена та же — она считается по
+	// производственной модели вторым, отдельным проходом. Админка оставляет
+	// false и получает точную сетку для замеров и раскроя.
+	PreviewMesh bool `json:"preview_mesh,omitempty"`
 	ApproachSpaceMM     float64 `json:"approach_space_mm,omitempty"`
 	LowerStepCount      int     `json:"lower_step_count,omitempty"`
 	Material            string  `json:"material,omitempty"`
@@ -716,6 +722,7 @@ func toOptions(req calculateRequest) (stair.Options, bool) {
 	if req.ComfortStepMM > 0 {
 		opts.ComfortStep = req.ComfortStepMM
 	}
+	opts.PreviewMesh = req.PreviewMesh
 	return opts, !clientRatesPresent(req.Rates)
 }
 

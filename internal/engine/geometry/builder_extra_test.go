@@ -59,10 +59,10 @@ func TestExtraBuildUShapeWinderTurnLeft(t *testing.T) {
 func TestExtraBuildWindersErrors(t *testing.T) {
 	p1 := kerngeo.NewPoint3(0, 900, 1080)
 	p2 := kerngeo.NewPoint3(0, 1900, 1620)
-	if _, err := buildWinders(900, 180, 40, 6, 2, p1, p2); err == nil {
+	if _, err := buildWinders(ProductionQuality, 900, 180, 40, 6, 2, p1, p2); err == nil {
 		t.Fatal("winder count < 3 must be rejected")
 	}
-	if _, err := buildWinders(900, 180, 40, 6, 3, p2, p2); err == nil {
+	if _, err := buildWinders(ProductionQuality, 900, 180, 40, 6, 3, p2, p2); err == nil {
 		t.Fatal("degenerate pivot must be rejected")
 	}
 }

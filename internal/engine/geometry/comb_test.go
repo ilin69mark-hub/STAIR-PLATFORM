@@ -160,7 +160,7 @@ func TestHoleRowFormula(t *testing.T) {
 func TestAnchorHolesFirstLastAreSlots(t *testing.T) {
 	sp := engineering.CombFrameDefaults()
 	xs := []float64{24, 120, 216}
-	holes := anchorHoles(sp, xs, kerngeo.NewPoint3(0, 25, 2),
+	holes := anchorHoles(ProductionQuality, sp, xs, kerngeo.NewPoint3(0, 25, 2),
 		kerngeo.NewVector3(1, 0, 0), kerngeo.NewVector3(0, 0, 1))
 	if len(holes) != len(xs) {
 		t.Fatalf("отверстий %d, ожидалось %d", len(holes), len(xs))

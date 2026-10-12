@@ -59,7 +59,12 @@ type MillingFeature struct {
 // обязаны давать ОДИН И ТОТ ЖЕ габарит, иначе проверка вписываемости в
 // вариациях считала бы не то.
 func buildModel(ctx context.Context, cfg *engineering.StairConfiguration) (*kerngeo.Compound, error) {
-	model, err := buildGeometry(ctx, cfg)
+	return buildModelQ(ctx, cfg, ProductionQuality)
+}
+
+// buildModelQ собирает модель с заданным качеством тесселяции (S-165).
+func buildModelQ(ctx context.Context, cfg *engineering.StairConfiguration, q Quality) (*kerngeo.Compound, error) {
+	model, err := buildGeometry(ctx, cfg, q)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +98,7 @@ func approachShift(cfg *engineering.StairConfiguration) float64 {
 }
 
 // buildGeometry строит B-Rep модель марша БЕЗ сдвига от стены.
-func buildGeometry(ctx context.Context, cfg *engineering.StairConfiguration) (*kerngeo.Compound, error) {
+func buildGeometry(ctx context.Context, cfg *engineering.StairConfiguration, q Quality) (*kerngeo.Compound, error) {
 	if dbgHook != nil {
 		dbgHook()
 	}
@@ -110,13 +115,13 @@ func buildGeometry(ctx context.Context, cfg *engineering.StairConfiguration) (*k
 	var err error
 	switch cfg.Flight {
 	case engineering.FlightStraight:
-		model, err = BuildStraightFlight(cfg)
+		model, err = buildStraightFlight(cfg, q)
 	case engineering.FlightLShape:
-		model, err = BuildLShapeFlight(cfg)
+		model, err = buildLShapeFlight(cfg, q)
 	case engineering.FlightUShape:
-		model, err = BuildUShapeFlight(cfg)
+		model, err = buildUShapeFlight(cfg, q)
 	default:
-		model, err = BuildStraightFlight(cfg)
+		model, err = buildStraightFlight(cfg, q)
 	}
 	if err != nil {
 		return nil, err
@@ -138,7 +143,9 @@ func buildGeometry(ctx context.Context, cfg *engineering.StairConfiguration) (*k
 // к X габарита — трансляция не меняет размеры бокса, поэтому копировать
 // вершины ради сдвига не нужно.
 func ModelBoundingBox(ctx context.Context, cfg *engineering.StairConfiguration) (kerngeo.BBox, error) {
-	model, err := buildGeometry(ctx, cfg)
+	// Производственная точность: по габариту принимаются решения о вписывании
+	// в помещение, и он обязан совпадать с габаритом Generate.
+	model, err := buildGeometry(ctx, cfg, ProductionQuality)
 	if err != nil {
 		return kerngeo.BBox{}, err
 	}
@@ -265,7 +272,7 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 	// Декоративные перила (CONF-RAILING): добавляются только в preview mesh.
 	// Они не являются частью несущей модели и не участвуют в измерениях
 	// (SolidCount, объём, площадь, габарит) и в производственной декомпозиции.
-	if err := appendRailingMesh(result, cfg); err != nil {
+	if err := appendRailingMesh(result, cfg, ProductionQuality); err != nil {
 		return nil, err
 	}
 
@@ -425,8 +432,8 @@ func buildRoomSolid(rw, rl float64) *kerngeo.Solid {
 // appendRailingMesh строит декоративные тела перил (BuildRailingDecor) и
 // добавляет их в preview mesh. Валидация перил выполняется, но их тела не
 // влияют на Measurement и Model (ENG-GEO-0008: mesh — производная величина).
-func appendRailingMesh(result *GenerationResult, cfg *engineering.StairConfiguration) error {
-	decor, err := BuildRailingDecor(cfg)
+func appendRailingMesh(result *GenerationResult, cfg *engineering.StairConfiguration, q Quality) error {
+	decor, err := buildRailingDecor(cfg, q)
 	if err != nil {
 		return fmt.Errorf("geometry: railing decor: %w", err)
 	}
@@ -492,3 +499,78 @@ func appendRailingMesh(result *GenerationResult, cfg *engineering.StairConfigura
 func SetDbgCounter(f func()) { dbgHook = f }
 
 var dbgHook func()
+
+// GeneratePreviewMesh строит ТОЛЬКО меш для отображения, облегчённой
+// тесселяцией (S-165).
+//
+// Зачем второй проход. Владелец решил: геометрия у витрины и админки должна
+// быть одна, расходиться может только плотность треугольников. Измерено,
+// что просто так это не сделать: одна и та же проступь R = 10 при 4 сегментах
+// даёт объём 4 461 783 мм³, при 10 — 4 489 322 (+0,62 %), при 64 — 4 494 505
+// (+0,73 %). Плотность меняет объём, а объём идёт в стоимость. Причина в том,
+// что в B-Rep нет аналитических кривых: дуга уже многоугольник, поэтому
+// плотность и есть геометрия.
+//
+// Поэтому расчёт идёт ДВАЖДЫ. Первый — производственный (Generate): из него
+// берутся объём, площадь, раскрой и цена. Второй — этот: из него берётся
+// ТОЛЬКО картинка. Цена из облегчённой сборки не берётся никогда, поэтому
+// расхождения цен не возникает по построению, а не «мы стараемся не
+// допустить».
+//
+// Из этого прохода НЕ берутся: Measurement, Issues, Package, Cost, Price.
+// Если они понадобятся — это баг вызывающего кода, и он должен падать.
+func GeneratePreviewMesh(ctx context.Context, cfg *engineering.StairConfiguration) (*GenerationResult, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("geometry: configuration is required")
+	}
+	model, err := buildModelQ(ctx, cfg, DisplayQuality)
+	if err != nil {
+		return nil, err
+	}
+
+	solids := model.Solids()
+	result := &GenerationResult{Model: model}
+	if len(solids) == 0 {
+		return result, nil
+	}
+
+	verts := make([]kerngeo.Point3, 0, len(solids)*24)
+	uvs := make([]kerngeo.Point2, 0, len(solids)*24)
+	tris := make([][3]int, 0, len(solids)*16)
+	caches := make([]*kerngeo.TessellationCache, len(solids))
+	for i := range caches {
+		caches[i] = kerngeo.NewTessellationCache()
+	}
+	result.Mesh = kerngeo.NewMesh(len(verts), len(uvs), len(tris))
+
+	base := 0
+	for _, solid := range solids {
+		v, uv, tr, merr := meshSolid(solid, kerngeo.NewTessellationCache(), kerngeo.Point3{})
+		if merr != nil {
+			return nil, merr
+		}
+		start := len(result.Mesh.Triangles)
+		// Вершины добавляются ДО треугольников: AddTriangle проверяет
+		// индексы по длине Vertices, иначе получим «index out of range».
+		result.Mesh.Vertices = append(result.Mesh.Vertices, v...)
+		result.Mesh.UV = append(result.Mesh.UV, uv...)
+		verts = append(verts, v...)
+		uvs = append(uvs, uv...)
+		for _, t := range tr {
+			if aerr := result.Mesh.AddTriangle(base+t[0], base+t[1], base+t[2]); aerr != nil {
+				return nil, aerr
+			}
+		}
+		result.Mesh.PartRanges = append(result.Mesh.PartRanges, kerngeo.PartRange{
+			Solid: len(result.Mesh.PartRanges),
+			Role:  solid.Role(),
+			Start: start,
+			End:   len(result.Mesh.Triangles),
+		})
+		base += len(v)
+	}
+	if err := appendRailingMesh(result, cfg, DisplayQuality); err != nil {
+		return nil, err
+	}
+	return result, nil
+}

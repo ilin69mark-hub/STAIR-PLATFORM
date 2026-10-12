@@ -74,7 +74,7 @@ func webHeight(cfg *engineering.StairConfiguration, sp *engineering.CombFrame) f
 // combHeelSolid — пятка 1: плашмя под посадкой ступени, широкая грань
 // 270×50 вверх к ступени, торец по X упирается в стенку зуба (заднюю стенку
 // выреза). Отступ inset с каждой стороны от зуба и от подступенка.
-func combHeelSolid(cfg *engineering.StairConfiguration, sp *engineering.CombFrame,
+func combHeelSolid(q Quality, cfg *engineering.StairConfiguration, sp *engineering.CombFrame,
 	k int, hy0 float64) (*kerngeo.Solid, error) {
 	s := combHeelSpecOf(cfg)
 	heelL := s.b - 2*s.inset
@@ -101,7 +101,7 @@ func combHeelSolid(cfg *engineering.StairConfiguration, sp *engineering.CombFram
 
 // combWebSolid — пятка 2: вдоль вертикального реза зуба, тонким ребром в
 // проём к зубу, стоит в Г-обойме рядом с подступенком. Грань в плоскости зуба.
-func combWebSolid(cfg *engineering.StairConfiguration, sp *engineering.CombFrame,
+func combWebSolid(q Quality, cfg *engineering.StairConfiguration, sp *engineering.CombFrame,
 	k int, hy0 float64) (*kerngeo.Solid, error) {
 	s := combHeelSpecOf(cfg)
 	webH := webHeight(cfg, sp)
@@ -127,12 +127,12 @@ func combWebSolid(cfg *engineering.StairConfiguration, sp *engineering.CombFrame
 // combAnchorSolid — пятка пола: плашмя на полу в нулевой точке касания
 // лестницы с полом, длина во всю посадку (торцам упираться не на что).
 // Отверстия регулировочные: первое — продольный овал, последнее — поперечный.
-func combAnchorSolid(cfg *engineering.StairConfiguration, sp *engineering.CombFrame,
+func combAnchorSolid(q Quality, cfg *engineering.StairConfiguration, sp *engineering.CombFrame,
 	hy0 float64) (*kerngeo.Solid, error) {
 	s := combHeelSpecOf(cfg)
 	plate := profileXY(0, s.anchorL, hy0, hy0+s.heelW, 0)
 	_, _, xs := HoleRow(s.anchorL, sp.AnchorHoleDiameter, sp.HoleEdgeK, sp.HolePitchK, sp.HoleStride, false)
-	holes := anchorHoles(sp, xs,
+	holes := anchorHoles(q, sp, xs,
 		kerngeo.NewPoint3(0, hy0+s.heelW/2, 0),
 		kerngeo.NewVector3(1, 0, 0), kerngeo.NewVector3(0, 1, 0))
 	solid, err := kerngeo.ExtrudeWithHoles(plate, holes, kerngeo.NewVector3(0, 0, 1), s.heelT)
@@ -148,7 +148,7 @@ func combAnchorSolid(cfg *engineering.StairConfiguration, sp *engineering.CombFr
 // конца марша, грань вровень с крайней вертикальной гранью косоура, ничего за
 // неё не выходит. Опущена на (толщина пятки 1 + зазор), поэтому до пятки 1
 // сверху остаётся тот же зазор, что в обойме выреза.
-func combTopAnchorSolid(cfg *engineering.StairConfiguration, sp *engineering.CombFrame,
+func combTopAnchorSolid(q Quality, cfg *engineering.StairConfiguration, sp *engineering.CombFrame,
 	hy0 float64) (*kerngeo.Solid, error) {
 	s := combHeelSpecOf(cfg)
 	webH := webHeight(cfg, sp)
@@ -161,7 +161,7 @@ func combTopAnchorSolid(cfg *engineering.StairConfiguration, sp *engineering.Com
 	// посередине, овал (чертёж 2026-10-05).
 	_, _, zs := HoleRow(webH, sp.AnchorHoleDiameter, sp.HoleEdgeK, sp.HolePitchK, sp.HoleStride, true)
 	origin := kerngeo.NewPoint3(x0, hy0+s.heelW/2, zTop-webH)
-	holes := anchorHoles(sp, zs, origin,
+	holes := anchorHoles(q, sp, zs, origin,
 		kerngeo.NewVector3(0, 0, 1), kerngeo.NewVector3(0, 1, 0))
 	solid, err := kerngeo.ExtrudeWithHoles(plate, holes, kerngeo.NewVector3(1, 0, 0), s.heelT)
 	if err != nil {
@@ -176,7 +176,7 @@ func combTopAnchorSolid(cfg *engineering.StairConfiguration, sp *engineering.Com
 // под первой ступенью, вплотную к подступенку №1 и с зазором до соседних
 // пяток. По решению владельца 2026-10-05 на 5 мм меньше с каждой стороны по
 // ширине, чем остальные пятки.
-func combFirstWebSolid(cfg *engineering.StairConfiguration, sp *engineering.CombFrame,
+func combFirstWebSolid(q Quality, cfg *engineering.StairConfiguration, sp *engineering.CombFrame,
 	hy0 float64) (*kerngeo.Solid, error) {
 	s := combHeelSpecOf(cfg)
 	plate := profileYZAt(0, s.firstWebZ, s.firstWebZ+s.firstWebH, hy0, hy0+s.firstWebW)

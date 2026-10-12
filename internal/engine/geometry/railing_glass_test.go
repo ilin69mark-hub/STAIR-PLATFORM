@@ -223,7 +223,7 @@ func TestGlassPanelsOnLanding(t *testing.T) {
 		// площадки когда-то станет выше/ниже, тест это заметит.
 		wantH = rh - railThickness/2 - glassRailGap - glassBaseGap
 	)
-	sols := landingRailingSolids(w, wp, w, rh, h1, b, 0, false, false, engineering.RailingBoth)
+	sols := landingRailingSolids(ProductionQuality, w, wp, w, rh, h1, b, 0, false, false, engineering.RailingBoth)
 	panels := solidsByRole(sols, roleRailingGlass)
 	if len(panels) == 0 {
 		t.Fatal("landing must be closed with glass")

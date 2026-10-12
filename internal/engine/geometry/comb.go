@@ -161,7 +161,7 @@ func circleRing(center kerngeo.Point3, u, v kerngeo.Vector3, radius float64, seg
 
 // stadiumRing — овал длиной length вдоль оси u и шириной width вдоль оси v:
 // две дуги радиуса width/2 плюс прямые участки между ними.
-func stadiumRing(center kerngeo.Point3, u, v kerngeo.Vector3, length, width float64) []kerngeo.Point3 {
+func stadiumRing(q Quality, center kerngeo.Point3, u, v kerngeo.Vector3, length, width float64) []kerngeo.Point3 {
 	r := width / 2
 	half := length/2 - r
 	if half < 0 {
@@ -169,7 +169,7 @@ func stadiumRing(center kerngeo.Point3, u, v kerngeo.Vector3, length, width floa
 	}
 	var out []kerngeo.Point3
 	arc := func(offU float64, from, to float64) {
-		segs := kerngeo.ArcSegments(r, math.Abs(to-from), combArcToleranceMM)
+		segs := kerngeo.ArcSegments(r, math.Abs(to-from), q.arcTol(combArcToleranceMM))
 		for i := 0; i <= segs; i++ {
 			a := from + (to-from)*float64(i)/float64(segs)
 			out = append(out, center.
@@ -186,16 +186,16 @@ func stadiumRing(center kerngeo.Point3, u, v kerngeo.Vector3, length, width floa
 // продольный овал (регулировка вдоль детали), ПОСЛЕДНЕЕ — поперечный
 // (регулировка по ширине пятки), всё между ними — круглые. Форма задаётся
 // НОМЕРОМ, а не позицией: отверстий может быть сколько угодно.
-func anchorHoles(spec *engineering.CombFrame, xs []float64,
+func anchorHoles(q Quality, spec *engineering.CombFrame, xs []float64,
 	origin kerngeo.Point3, along, across kerngeo.Vector3) [][]kerngeo.Point3 {
 	holes := make([][]kerngeo.Point3, 0, len(xs))
 	for i, x := range xs {
 		p := origin.Add(along.Scale(x))
 		switch {
 		case i == 0:
-			holes = append(holes, stadiumRing(p, along, across, spec.SlotLength, spec.AnchorHoleDiameter))
+			holes = append(holes, stadiumRing(q, p, along, across, spec.SlotLength, spec.AnchorHoleDiameter))
 		case i == len(xs)-1:
-			holes = append(holes, stadiumRing(p, across, along, spec.SlotLength, spec.AnchorHoleDiameter))
+			holes = append(holes, stadiumRing(q, p, across, along, spec.SlotLength, spec.AnchorHoleDiameter))
 		default:
 			holes = append(holes, circleRing(p, along, across, spec.AnchorHoleDiameter/2, spec.HoleSegments))
 		}
