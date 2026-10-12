@@ -119,6 +119,13 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
   }, [projectId])
 
   const configChangeTimer = useRef<number | null>(null)
+  // S-151.5: сквозной номер последнего запущенного расчёта. Ответ, который
+  // придёт от более раннего запроса, игнорируется: иначе быстрые правки
+  // формы (протяжка ступени шлёт запрос на каждый жест) приводят к тому, что
+  // старый ответ перерисовывает сцену данными, которые пользователь уже
+  // изменил. Тот же приём, что `alive` в useLoad, но против гонки ЗАПРОСОВ, а не
+  // размонтирования.
+  const calcSeq = useRef(0)
 
   // Очистка debounce таймера при unmount.
   useEffect(() => {
@@ -181,6 +188,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
   // handleCalculate — отправляет расчёт и сохраняет результат в проекте.
   // Возвращает true при успешном сохранении.
   const handleCalculate = async (source?: ConfigForm): Promise<boolean> => {
+    const seq = ++calcSeq.current
     setBusy(true)
     setError(null)
     setOptimizeMsg(null)
@@ -190,6 +198,8 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
       const ratesReq = toRatesRequest(rates)
       if (ratesReq) body.rates = ratesReq
       const calc = await projectsApi.calculate(projectId, body)
+      // Ответ устаревшего запроса: молча уходим, не трогая сцену.
+      if (seq !== calcSeq.current) return false
       setCalculation(calc)
       setSavedAt(new Date())
       liveValidator.current.invalidate(configKey(src))
@@ -197,10 +207,13 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
       onChanged()
       return true
     } catch (e) {
+      if (seq !== calcSeq.current) return false
       setError(e instanceof ApiError ? e.message : 'Не удалось выполнить расчёт')
       return false
     } finally {
-      setBusy(false)
+      // busy снимает только актуальный запрос: иначе первый пришедший ответ
+      // гасит индикатор, пока второй ещё считается.
+      if (seq === calcSeq.current) setBusy(false)
     }
   }
 

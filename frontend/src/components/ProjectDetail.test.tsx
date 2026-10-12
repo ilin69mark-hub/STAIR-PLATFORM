@@ -285,3 +285,94 @@ describe('ProjectDetail · высота марша до 3D (стены)', () => 
     expect(calculate.mock.calls[1][1] as Record<string, unknown>).toMatchObject({ height_mm: 2750 })
   })
 })
+
+// S-151.5: защита от «приехавший старый ответ перерисовал новую сцену».
+//
+// Протяжка ступени шлёт запрос на каждый жест, поэтому два расчёта легко
+// уходят одновременно. Ответ сервера приходит в произвольном порядке, и без
+// номера последовательности старый результат перезаписывал бы новый: человек
+// видел бы на экране конфигурацию, которую он уже изменил.
+
+// S-151.5: защита от «приехавший старый ответ перерисовал новую сцену».
+//
+// Гонка возникает НЕ через кнопку «Рассчитать» — она блокируется на время
+// запроса. Путь другой: «Применить» в баннере живой валидации вызывает
+// handleCalculate через void и кнопкой busy не прикрыт, поэтому два
+// применения уходят одновременно, а ответы сервера приходят в произвольном
+// порядке.
+describe('гонка расчётов', () => {
+  function deferred<T>() {
+    let resolve!: (v: T) => void
+    let reject!: (e: unknown) => void
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res
+      reject = rej
+    })
+    return { promise, resolve, reject }
+  }
+
+  async function primeLiveBanner() {
+    vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
+    vi.spyOn(projectsApi, 'validateStair').mockResolvedValue(liveBlockedTread)
+    const { onChanged } = renderDetail()
+    await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
+    fireEvent.change(screen.getByLabelText(/Шаг комфорта/), { target: { value: '600' } })
+    await waitFor(() => expect(screen.getByText(/Применить: 18 ступ/)).toBeInTheDocument(), {
+      timeout: 2500,
+    })
+    return { onChanged }
+  }
+
+  it('устаревший ответ не применяется', async () => {
+    const first = deferred<ReturnType<typeof makeCalculation>>()
+    const second = deferred<ReturnType<typeof makeCalculation>>()
+    const { onChanged } = await primeLiveBanner()
+
+    const calculate = vi.spyOn(projectsApi, 'calculate')
+    calculate.mockReturnValueOnce(first.promise as never)
+    calculate.mockReturnValueOnce(second.promise as never)
+
+    // Два применения подряд: баннер не прячется, пока расчёт в полёте.
+    fireEvent.click(screen.getByText(/Применить: 18 ступ/))
+    fireEvent.click(screen.getByText(/Применить: 18 ступ/))
+    expect(calculate).toHaveBeenCalledTimes(2)
+
+    // Актуальный (второй) ответ приходит и применяется.
+    second.resolve(makeCalculation({ calculation_id: 'fresh' }))
+    await screen.findByText(/Расчёт сохранён/)
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1))
+
+    // Устаревший ответ приходит следом. Применён он быть не должен: сцена уже
+    // показывает расчёт по актуальной конфигурации, иначе человек увидел бы
+    // откат к тому, что он только что исправил.
+    first.resolve(makeCalculation({ calculation_id: 'stale' }))
+    await new Promise((r) => setTimeout(r, 20))
+
+    // onChanged зовётся на каждый ПРИМЕНЁННЫЙ расчёт. Лишний вызов означал
+    // бы, что устаревший ответ таки применился.
+    expect(onChanged).toHaveBeenCalledTimes(1)
+  })
+
+  it('ошибка устаревшего запроса не показывается', async () => {
+    const first = deferred<ReturnType<typeof makeCalculation>>()
+    const second = deferred<ReturnType<typeof makeCalculation>>()
+    await primeLiveBanner()
+
+    const calculate = vi.spyOn(projectsApi, 'calculate')
+    calculate.mockReturnValueOnce(first.promise as never)
+    calculate.mockReturnValueOnce(second.promise as never)
+
+    fireEvent.click(screen.getByText(/Применить: 18 ступ/))
+    fireEvent.click(screen.getByText(/Применить: 18 ступ/))
+
+    second.resolve(makeCalculation())
+    await screen.findByText(/Расчёт сохранён/)
+
+    // Старый запрос падает. Пользователь уже видел успешный расчёт по
+    // актуальной конфигурации, и показанная ошибка сбила бы с толку.
+    first.reject(new ApiError(500, 'boom', 'Старый запрос упал'))
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(screen.queryByText('Старый запрос упал')).not.toBeInTheDocument()
+  })
+})
