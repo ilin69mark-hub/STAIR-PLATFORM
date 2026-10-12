@@ -332,7 +332,7 @@ func buildStraightFlight(cfg *engineering.StairConfiguration, q Quality) (*kerng
 		for k := 0; k < n; k++ {
 			k := k
 			builds = append(builds, func() (*kerngeo.Solid, error) {
-				return combHeelSolid(q, cfg, sp, k, side.hy0)
+				return combHeelSolid(cfg, sp, k, side.hy0)
 			})
 		}
 		// Пятка 2 — только вместе с подступенком.
@@ -340,7 +340,7 @@ func buildStraightFlight(cfg *engineering.StairConfiguration, q Quality) (*kerng
 			for k := 0; k < n-1; k++ {
 				k := k
 				builds = append(builds, func() (*kerngeo.Solid, error) {
-					return combWebSolid(q, cfg, sp, k, side.hy0)
+					return combWebSolid(cfg, sp, k, side.hy0)
 				})
 			}
 		}
@@ -358,7 +358,7 @@ func buildStraightFlight(cfg *engineering.StairConfiguration, q Quality) (*kerng
 		// воздухе перед косоуром. Ставим её только вместе с подступенком.
 		if cfg.Riser {
 			builds = append(builds,
-				func() (*kerngeo.Solid, error) { return combFirstWebSolid(q, cfg, sp, side.hy0) },
+				func() (*kerngeo.Solid, error) { return combFirstWebSolid(cfg, sp, side.hy0) },
 			)
 		}
 	}

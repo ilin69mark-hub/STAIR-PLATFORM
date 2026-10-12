@@ -7,7 +7,7 @@ import (
 )
 
 func TestRailHolderHasAllParts(t *testing.T) {
-	parts := railHolderAt(ProductionQuality, 100, 878.8, 900, 1000, 0.75)
+	parts := railHolderAt(ProductionQuality, 100, 878.8, 900, 0.75)
 	seen := map[string]int{}
 	for _, p := range parts {
 		if p == nil {

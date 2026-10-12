@@ -116,9 +116,14 @@ func TestManufactureUShapeDimensions(t *testing.T) {
 		// норматива на листовой косоур). Пятки выреза — лист 4 мм
 		// (CombFrame.HeelThickness), это отдельная деталь.
 		want := 12.0
+		// Перечисление целиком, а не default: exhaustive-линтер иначе не
+		// заметит новый PartKind, и проверка толщины молча перестанет его
+		// проверять.
 		switch p.Kind {
 		case dommfg.PartHeel, dommfg.PartWeb, dommfg.PartAnchor, dommfg.PartFirstWeb:
 			want = 4
+		case dommfg.PartStringer, dommfg.PartTread, dommfg.PartRiser, dommfg.PartRailTop, dommfg.PartPost, dommfg.PartRigel, dommfg.PartTip, dommfg.PartFlange, dommfg.PartSlip, dommfg.PartDeco, dommfg.PartEndCap:
+			// остальные детали косоура — по нормативу выпуска листа
 		}
 		if !nearlyEqual(p.Thickness.Millimeters(), want) {
 			t.Fatalf("part %q (%s) thickness = %v, want %v",

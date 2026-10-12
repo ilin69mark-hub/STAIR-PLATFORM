@@ -469,17 +469,6 @@ func cuttablePartCount(pkg *dommfg.ManufacturingPackage) int {
 	return n
 }
 
-// purchasedPartCount — число покупных деталей (ограждение, крепёж).
-func purchasedPartCount(pkg *dommfg.ManufacturingPackage) int {
-	n := 0
-	for _, p := range pkg.Parts {
-		if p.Purchased {
-			n++
-		}
-	}
-	return n
-}
-
 func TestCalculateLShapePipeline(t *testing.T) {
 	s := NewService()
 	res, err := s.Calculate(context.Background(), referenceLShapeConfig(), Options{})

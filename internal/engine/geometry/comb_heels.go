@@ -74,7 +74,7 @@ func webHeight(cfg *engineering.StairConfiguration, sp *engineering.CombFrame) f
 // combHeelSolid — пятка 1: плашмя под посадкой ступени, широкая грань
 // 270×50 вверх к ступени, торец по X упирается в стенку зуба (заднюю стенку
 // выреза). Отступ inset с каждой стороны от зуба и от подступенка.
-func combHeelSolid(q Quality, cfg *engineering.StairConfiguration, sp *engineering.CombFrame,
+func combHeelSolid(cfg *engineering.StairConfiguration, sp *engineering.CombFrame,
 	k int, hy0 float64) (*kerngeo.Solid, error) {
 	s := combHeelSpecOf(cfg)
 	heelL := s.b - 2*s.inset
@@ -101,7 +101,12 @@ func combHeelSolid(q Quality, cfg *engineering.StairConfiguration, sp *engineeri
 
 // combWebSolid — пятка 2: вдоль вертикального реза зуба, тонким ребром в
 // проём к зубу, стоит в Г-обойме рядом с подступенком. Грань в плоскости зуба.
-func combWebSolid(q Quality, cfg *engineering.StairConfiguration, sp *engineering.CombFrame,
+//
+// Параметра Quality здесь нет намеренно: число сегментов отверстий приходит
+// из спецификации (sp.HoleSegments), а не из режима качества. Пять соседних
+// функций его принимают, эти три — нет, и это расхождение выглядит как
+// ошибка только потому, что сигнатуры соседние.
+func combWebSolid(cfg *engineering.StairConfiguration, sp *engineering.CombFrame,
 	k int, hy0 float64) (*kerngeo.Solid, error) {
 	s := combHeelSpecOf(cfg)
 	webH := webHeight(cfg, sp)
@@ -176,7 +181,7 @@ func combTopAnchorSolid(q Quality, cfg *engineering.StairConfiguration, sp *engi
 // под первой ступенью, вплотную к подступенку №1 и с зазором до соседних
 // пяток. По решению владельца 2026-10-05 на 5 мм меньше с каждой стороны по
 // ширине, чем остальные пятки.
-func combFirstWebSolid(q Quality, cfg *engineering.StairConfiguration, sp *engineering.CombFrame,
+func combFirstWebSolid(cfg *engineering.StairConfiguration, sp *engineering.CombFrame,
 	hy0 float64) (*kerngeo.Solid, error) {
 	s := combHeelSpecOf(cfg)
 	plate := profileYZAt(0, s.firstWebZ, s.firstWebZ+s.firstWebH, hy0, hy0+s.firstWebW)

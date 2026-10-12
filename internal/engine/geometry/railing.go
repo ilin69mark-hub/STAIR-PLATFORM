@@ -70,9 +70,6 @@ const (
 	holderHoleOfs    = 15.0
 	// holderGrooveD — ложемент под поручень: паз Ø44,2 (Ø42,4 + зазор 0,9).
 	holderGrooveD = 44.2 // больше не используется: площадка убрана
-	// Декоративный наконечник на верхушке шпильки Ø12.
-	holderTipOD = 20.0
-	holderTipH  = 12.0
 	// holderRodMin — минимальная длина шпильки.
 	// наезды из эталона: шарнир на шпильку 1.3 мм, площадка на шарнир 1.6 мм
 	holderRodJointOverlap = 1.3
@@ -99,8 +96,6 @@ const (
 	// roleRigel — ригель: заполняющий профиль ограждения из круглой трубы,
 	// отдельный от стойки и поручня, потому что материал и диаметр другие.
 	roleRigel = "rigel"
-	// railD — наружный диаметр трубы поручня, мм.
-	railD = 42.4
 	// rigelD — наружный диаметр ригеля, мм; ригель полый, стенка 1 мм.
 	rigelWall = 1.0
 	// rigelD — наружный диаметр ригеля, мм.
@@ -495,41 +490,6 @@ func slabOutlineAtSloped(xc, y float64, pts [][2]float64, zBase, t, slope float6
 	return kerngeo.NewSolidRole(role, kerngeo.NewShell(faces...))
 }
 
-// slabAtSloped строит ПЛАСТИНУ постоянной толщины t, наклонённую под углом
-// slope = rise/run. В отличие от prismAtSloped (у него низ ГОРИЗОНТАЛЬНЫЙ,
-// а только верх наклонен — это клин и он «переламывается»), здесь наклонены
-// ОБЕ грани: низ на zBase + slope*(x-xc), верх — на t выше. Именно так
-// построена площадка-наконечник в эталоне FreeCAD (fix_railings.py:
-// stadium 70 x 50,8 x 1 мм, поворот на угол марша).
-func slabAtSloped(xc, y, halfX, halfY, zBase, t, slope float64, role string) *kerngeo.Solid {
-	if t <= kerngeo.Precision {
-		return nil
-	}
-	lo := func(sx float64) float64 { return zBase + slope*(sx*halfX) }
-	hi := func(sx float64) float64 { return zBase + t + slope*(sx*halfX) }
-	b := [4]kerngeo.Point3{
-		kerngeo.NewPoint3(xc-halfX, y-halfY, lo(-1)),
-		kerngeo.NewPoint3(xc+halfX, y-halfY, lo(+1)),
-		kerngeo.NewPoint3(xc+halfX, y+halfY, lo(+1)),
-		kerngeo.NewPoint3(xc-halfX, y+halfY, lo(-1)),
-	}
-	tp := [4]kerngeo.Point3{
-		kerngeo.NewPoint3(xc-halfX, y-halfY, hi(-1)),
-		kerngeo.NewPoint3(xc+halfX, y-halfY, hi(+1)),
-		kerngeo.NewPoint3(xc+halfX, y+halfY, hi(+1)),
-		kerngeo.NewPoint3(xc-halfX, y+halfY, hi(-1)),
-	}
-	faces := []*kerngeo.Face{
-		hexFace(b[0], b[3], b[2], b[1]),
-		hexFace(tp[0], tp[1], tp[2], tp[3]),
-		hexFace(b[0], b[1], tp[1], tp[0]),
-		hexFace(b[1], b[2], tp[2], tp[1]),
-		hexFace(b[2], b[3], tp[3], tp[2]),
-		hexFace(b[3], b[0], tp[0], tp[3]),
-	}
-	return kerngeo.NewSolidRole(role, kerngeo.NewShell(faces...))
-}
-
 // balusterAtSloped строит стойку с наклонной верхней гранью под углом
 // slope = rise/run (тангенс угла поручня). Нижняя грань горизонтальна
 // на z0; верхняя наклонена: z = z0 + height + slope*(x_local − x).
@@ -856,8 +816,7 @@ func straightRailingSolids(q Quality, n int, b, h, rh, w, st, nosing float64, si
 			}
 			// Держатель на верхнем торце стойки: площадка ложится под
 			// поручень, поэтому её низ = низ поручня над этой опорой.
-			zRailLow := float64(k)*h + rh - railD/2
-			sols = append(sols, railHolderAt(q, x, balY, zTop, zRailLow, slope)...)
+			sols = append(sols, railHolderAt(q, x, balY, zTop, slope)...)
 			// Основание опоры на ступени: цанга с анкерами и колпачок.
 			// Их диаметры (86 и 88) больше стойки (42,4), поэтому они стоят
 			// на СВОЕЙ оси: край диска в balusterEdgeInset от кромки ступени,
@@ -1295,8 +1254,10 @@ func buildLURNailing(q Quality, cfg *engineering.StairConfiguration, rh float64)
 //	корпус шарнира Ø14   Z 1010.1..1029.5 h 19.4  (наезд на шпильку 1.3)
 //	наклонная площадка   Z 1027.9..1052.1       (наезд на шарнир 1.6)
 //
-// zTop — верхний торец стойки; zRailLow — низ поручня (только для проверки).
-func railHolderAt(q Quality, x, y, zTop, zRailLow, slope float64) []*kerngeo.Solid {
+// zTop — верхний торец стойки. zRailLow (низ поручня) когда-то передавался
+// «только для проверки», но проверки в функции не осталось: держатель
+// позиционируется от zTop, и параметр был мёртвым.
+func railHolderAt(q Quality, x, y, zTop, slope float64) []*kerngeo.Solid {
 	var out []*kerngeo.Solid
 	// ВТУЛКА — входит в полость стойки на 24 мм. Наружный Ø ровно 39.4,
 	// как полость стойки (Ø42.4 / 1.5). Раньше ставил 39.2 и 42.4 —
@@ -1348,15 +1309,6 @@ func railHolderAt(q Quality, x, y, zTop, zRailLow, slope float64) []*kerngeo.Sol
 	}
 	return out
 }
-
-// holderOD/holderWall — диаметр и стенка трубы стойки держателя.
-const (
-	holderOD   = 42.4
-	holderWall = 1.5
-	// holderSockOD — наружный Ø втулки: полость стойки Ø39,4 минус зазор 0,2.
-	// Именно эта деталь вставляется в опорную трубу.
-	holderSockOD = 39.2
-)
 
 // plateWithHoles строит плоскую площадку-полосу от p0 к p1 шириной w и
 // толщиной t, с двумя отверстиями диаметром d, отстоящими от концов на off.
@@ -1593,8 +1545,7 @@ func glassRailingSolids(q Quality, n int, b, h, rh, w, st, nosingGlass float64, 
 			}
 			// Держатель на верхнем торце стойки: площадка ложится под
 			// поручень, поэтому её низ = низ поручня над этой опорой.
-			zRailLow := float64(k)*h + rh - railD/2
-			sols = append(sols, railHolderAt(q, x, balY, zTop, zRailLow, slope)...)
+			sols = append(sols, railHolderAt(q, x, balY, zTop, slope)...)
 			// Основание опоры на ступени: цанга с анкерами и колпачок.
 			// Их диаметры (86 и 88) больше стойки (42,4), поэтому они стоят
 			// на СВОЕЙ оси: край диска в balusterEdgeInset от кромки ступени,

@@ -76,9 +76,14 @@ func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResu
 		// подступенками и не совпадало с тем, что человек выбирает в
 		// конструкторе.
 		preferred := dommfg.MaterialCode(cfg.Material)
+		// Случай перечислен целиком, а не через default: линтер exhaustive
+		// требует видеть все PartKind, иначе добавление нового вида детали
+		// молча оставит её на материале каркаса.
 		switch parts[i].Kind {
 		case dommfg.PartTread, dommfg.PartRiser:
 			preferred = dommfg.MaterialCode(cfg.TreadMaterial)
+		case dommfg.PartStringer, dommfg.PartHeel, dommfg.PartWeb, dommfg.PartAnchor, dommfg.PartFirstWeb, dommfg.PartRailTop, dommfg.PartPost, dommfg.PartRigel, dommfg.PartTip, dommfg.PartFlange, dommfg.PartSlip, dommfg.PartDeco, dommfg.PartEndCap:
+			// остальные детали — материал каркаса
 		}
 		if preferred != "" {
 			if m, ok := registry.Find(preferred); ok && m.SupportsThickness(parts[i].Thickness.Millimeters()) {

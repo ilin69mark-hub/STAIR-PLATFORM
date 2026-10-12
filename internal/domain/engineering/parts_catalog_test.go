@@ -64,6 +64,8 @@ func loadReference(t *testing.T) referenceFile {
 	var buf []byte
 	var err error
 	if p := os.Getenv("STAIR_REFERENCE_PARTS"); p != "" {
+		//nolint:gosec // G304: путь задаёт разработчик через переменную окружения —
+		// это указание на эталонный JSON рядом с репозиторием, а не ввод от пользователя.
 		buf, err = os.ReadFile(p)
 	} else {
 		for up := 0; up < 6; up++ {

@@ -57,7 +57,7 @@ func TestRailingNoUnexpectedOverlap(t *testing.T) {
 			clampX = append(clampX, (cb.Min.X+cb.Max.X)/2)
 		}
 	}
-	var postX []float64
+	postX := make([]float64, 0, len(posts))
 	for _, pst := range posts {
 		pbb := kerngeo.SolidBoundingBox(pst)
 		postX = append(postX, (pbb.Min.X+pbb.Max.X)/2)

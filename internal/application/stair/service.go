@@ -559,7 +559,7 @@ func (s *Service) checkedSolve(ctx context.Context, cfg Config, c *engineering.S
 	// Поэтому проверки живут здесь, а не в normalize.
 	res.Validation.Issues = append(res.Validation.Issues, timberStringerIssues(cfg, c, res)...)
 	res.Validation.Issues = append(res.Validation.Issues, plateStringerIssues(c, res)...)
-	res.Hints = stringerNormHints(cfg, c, res)
+	res.Hints = stringerNormHints(c, res)
 	return res, nil
 }
 
@@ -575,7 +575,7 @@ func (s *Service) checkedSolve(ctx context.Context, cfg Config, c *engineering.S
 // блокирует расчёт. Перевод в блокирующий — одна строка Severity.
 func plateStringerIssues(c *engineering.StairConfiguration, res *Result) []validation.Issue {
 	// Правило про ЛИСТОВОЙ каркас: у дерева своя таблица (timberStringerIssues).
-	if !strings.HasPrefix(string(c.Material), "STEEL") && !strings.HasPrefix(string(c.Material), "METAL") {
+	if !strings.HasPrefix(c.Material, "STEEL") && !strings.HasPrefix(c.Material, "METAL") {
 		return nil
 	}
 	run := flightRuns(res)
@@ -703,7 +703,7 @@ func minPlateBlankFor(thicknessMM float64) float64 {
 // Косоур проверяется по МАТЕРИАЛУ КАРКАСА: правило про балку, а ступень из
 // дуба при стальном каркасе косоур не делает.
 func timberStringerIssues(cfg Config, c *engineering.StairConfiguration, res *Result) []validation.Issue {
-	if !strings.HasPrefix(string(c.Material), "WOOD") {
+	if !strings.HasPrefix(c.Material, "WOOD") {
 		return nil // листовой металлокаркас: балки нет
 	}
 	width := c.Width.Millimeters()
@@ -1184,14 +1184,14 @@ const (
 //
 // Ключ — имя поля формы фронтенда. Формат ключа зафиксирован здесь и в
 // adaptValidation (frontend/shared/src/liveValidate.ts).
-func stringerNormHints(cfg Config, c *engineering.StairConfiguration, res *Result) map[string]string {
+func stringerNormHints(c *engineering.StairConfiguration, res *Result) map[string]string {
 	runs := flightRuns(res)
 	if len(runs) == 0 {
 		return nil
 	}
 	width := c.Width.Millimeters()
 	thickness := c.StringerThickness.Millimeters()
-	isTimber := strings.HasPrefix(string(c.Material), "WOOD")
+	isTimber := strings.HasPrefix(c.Material, "WOOD")
 
 	// Деревянная балка: полоса берётся по ДЛИНЕ марша, листовой каркас — по
 	// толщине листа. Для двух маршей берём самую требовательную строку: одна

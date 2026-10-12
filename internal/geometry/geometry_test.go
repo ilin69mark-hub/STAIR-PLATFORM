@@ -1,12 +1,10 @@
 package geometry
 
 import (
-	"errors"
 	"math"
 	"testing"
 )
 
-var errBadFormula = errors.New("bad formula")
 
 func nearlyEqual(a, b float64) bool {
 	return math.Abs(a-b) <= 1e-6

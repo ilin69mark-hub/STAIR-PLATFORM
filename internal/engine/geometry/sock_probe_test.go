@@ -7,7 +7,7 @@ import (
 )
 
 func TestSocketProbe(t *testing.T) {
-	parts := railHolderAt(ProductionQuality, 115, 841, 900, 1000, 0.75)
+	parts := railHolderAt(ProductionQuality, 115, 841, 900, 0.75)
 	post := tubeAlong(ProductionQuality,
 		kerngeo.NewPoint3(115, 841, 0), kerngeo.NewPoint3(115, 841, 900),
 		balusterD, balusterWall, roleBaluster)

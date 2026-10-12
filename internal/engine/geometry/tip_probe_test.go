@@ -8,7 +8,7 @@ import (
 )
 
 func TestHolderTipProbe(t *testing.T) {
-	parts := railHolderAt(ProductionQuality, 115, 841, 900, 1000, 0.75)
+	parts := railHolderAt(ProductionQuality, 115, 841, 900, 0.75)
 	for i, p := range parts {
 		b := kerngeo.SolidBoundingBox(p)
 		v, _ := kerngeo.Volume(p)

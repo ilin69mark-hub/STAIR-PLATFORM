@@ -11,9 +11,13 @@ import (
 	kerngeo "stairplatform/internal/geometry"
 )
 
-func previewCfg(t *testing.T, flight engineering.FlightType, w, h float64) *engineering.StairConfiguration {
+// previewTestWidthMM — ширина, которая была у всех вызовов: менялась только
+// высота, а ширина в задачах про превью роли не играет.
+const previewTestWidthMM = 900.0
+
+func previewCfg(t *testing.T, flight engineering.FlightType, h float64) *engineering.StairConfiguration {
 	t.Helper()
-	cfg, err := engineering.NewStairConfiguration(engineering.Length(w), engineering.Length(h), flight)
+	cfg, err := engineering.NewStairConfiguration(engineering.Length(previewTestWidthMM), engineering.Length(h), flight)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +44,7 @@ func TestPreviewMeshIsLighter(t *testing.T) {
 	for _, flight := range []engineering.FlightType{
 		engineering.FlightStraight, engineering.FlightLShape, engineering.FlightUShape,
 	} {
-		cfg := previewCfg(t, flight, 900, 2700)
+		cfg := previewCfg(t, flight, 2700)
 		prod, err := geometry.Generate(context.Background(), cfg)
 		if err != nil {
 			t.Fatal(err)
@@ -68,7 +72,7 @@ func TestPreviewMeshIsLighter(t *testing.T) {
 // витрина и админка разойдутся по цене — тот самый класс ошибок, который
 // в проекте случался дважды. Проверяем явно.
 func TestPreviewMeshCarriesNoMeasurements(t *testing.T) {
-	cfg := previewCfg(t, engineering.FlightStraight, 900, 2700)
+	cfg := previewCfg(t, engineering.FlightStraight, 2700)
 	disp, err := geometry.GeneratePreviewMesh(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -92,7 +96,7 @@ func TestPreviewMeshMatchesProductionBoundingBox(t *testing.T) {
 	for _, flight := range []engineering.FlightType{
 		engineering.FlightStraight, engineering.FlightLShape, engineering.FlightUShape,
 	} {
-		cfg := previewCfg(t, flight, 900, 2700)
+		cfg := previewCfg(t, flight, 2700)
 		prod, err := geometry.Generate(context.Background(), cfg)
 		if err != nil {
 			t.Fatal(err)
@@ -113,7 +117,7 @@ func TestPreviewMeshMatchesProductionBoundingBox(t *testing.T) {
 
 // TestPreviewMeshIsDeterministic — ADR-0007: два прогона дают один результат.
 func TestPreviewMeshIsDeterministic(t *testing.T) {
-	cfg := previewCfg(t, engineering.FlightLShape, 900, 3000)
+	cfg := previewCfg(t, engineering.FlightLShape, 3000)
 	first, err := geometry.GeneratePreviewMesh(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
