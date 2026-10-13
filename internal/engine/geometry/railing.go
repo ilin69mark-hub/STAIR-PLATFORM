@@ -647,6 +647,49 @@ func glassPanelFlat(p0, p1 kerngeo.Point3, zBase, height, thickness float64) *ke
 // balusterMaxGap — максимально допустимый шаг опор ограждения, мм.
 const balusterMaxGap = 1500.0
 
+// steelPostHeight — высота стойки стального ограждения, мм: труба ровно
+// по каталогу (POST-001 Len=805,7), а не rh. Замерено в эталоне
+// (Rail_Post: 805,7 от ступени). rh — номинал высоты ограждения, а не
+// длина трубы: строить трубу длиной rh — значит резать не по каталогу.
+// Совпадение сверяет TestSteelPostMatchesCatalog.
+//
+// railLiftAbovePostTop — центр поручня над верхом стойки: верх площадки
+// наконечника (стек втулки/крышки/шпильки/шарнира/площадки) + радиус трубы.
+// Поручень ЛЕЖИТ на площадке (контакт!), а не висит над ней (S-208:
+// раньше линия поручня шла от x=0 и мимо верхов стоек на 103 мм,
+// наконечник болтался в 160 мм над трубой).
+const steelPostHeight = 805.7
+
+// railLiftAbovePostTop собирается из тех же констант, что держатель
+// (railHolderAt): крышка + шпилька − наезд + шарнир − наезд + площадка
+// + радиус трубы поручня.
+const railLiftAbovePostTop = holderCapH + holderRodH - holderRodJointOverlap +
+	holderJointH - holderTipJointOverlap + holderPlateT + balusterD/2
+
+// steelRailEnds — концы поручня-трубы прямого сегмента.
+//
+// Линия проходит через верхи стоек + railLiftAbovePostTop: поручень лежит
+// на наконечниках. X — от 0 до n·b (вылеты за крайние стойки — как было).
+// Y — над стойками (balY), а не сбоку от них: раньше поручень шёл на
+// railY=25 при стойках на 59, то есть в 34 мм в стороне (замерено
+// в эталоне: центры поручня и стоек совпадают, Y=57,4).
+//
+// Общая для straightRailingSolids и RailingPurchasedLayout: линия одна,
+// иначе сборочный чертёж ставит номер мимо трубы. xShift — сдвиг кадра
+// (0 в геометрии, approachShift в раскладке).
+func steelRailEnds(n int, b, h, nosing, balY, xShift float64) (kerngeo.Point3, kerngeo.Point3) {
+	steps := balusterSteps(n, b)
+	k := steps[0]
+	x1 := xShift + (float64(k)-0.5)*b - nosing
+	top1 := float64(k)*h + steelPostHeight
+	slope := h / b
+	zAt := func(x float64) float64 {
+		return top1 + railLiftAbovePostTop + slope*(x-x1)
+	}
+	return kerngeo.NewPoint3(xShift, balY, zAt(xShift)),
+		kerngeo.NewPoint3(xShift+float64(n)*b, balY, zAt(xShift+float64(n)*b))
+}
+
 // balusterSteps возвращает номера ступеней, на которых ставятся опоры.
 //
 // Задача: опоры не реже balusterMaxGap, но без «густых» и «редких» зон —
@@ -744,19 +787,16 @@ func straightRailingSolids(q Quality, n int, b, h, rh, w, nosing float64, side e
 	if len(sides) == 0 || rh <= 0 || n <= 0 {
 		return nil
 	}
-	H := float64(n) * h
 	var sols []*kerngeo.Solid
 	slope := h / b
 	for _, edge := range sides {
-		railY := edgeInset(edge, w, railWidth/2)
 		balY := edgeInset(edge, w, balusterEdgeInset+capOD/2)
-		// Вылет отсчитывается от ЦЕНТРОВ крайних ступеней: концы поручня
-		// выходят на половину проступи за марш.
-		// Поручень начинается на ПЕРВОЙ ступени и кончается на последней:
-		// от x = 0 до x = n·b, без вылета за габарит марша.
-		A := kerngeo.NewPoint3(0, railY, rh)
-		B := kerngeo.NewPoint3(float64(n)*b, railY, H+rh)
-		if s := railAlong(q, A, B); s != nil {
+		// Поручень — труба Ø42,4×1,5 по каталогу (RAIL-P), а не брус 50×40:
+		// заглушки садятся в полость трубы, в брус их ставить некуда,
+		// а смета считает именно трубу (S-208). Линия — через верхи стоек
+		// (steelRailEnds): поручень лежит на наконечниках.
+		A, B := steelRailEnds(n, b, h, nosing, balY, 0)
+		if s := tubeAlong(q, A, B, balusterD, balusterWall, roleRailing); s != nil {
 			sols = append(sols, s)
 		}
 		// Заглушки на торцах поручня: заходят внутрь трубы и сидят
@@ -770,8 +810,10 @@ func straightRailingSolids(q Quality, n int, b, h, rh, w, nosing float64, side e
 		xoff := -nosing
 		for _, k := range steps {
 			x := (float64(k)-0.5)*b + xoff
-			zTop := float64(k)*h + rh
-			if s := balusterAtSloped(q, x, balY, float64(k)*h, rh, slope); s != nil {
+			// Верх стойки: труба длиной steelPostHeight (каталог), а не rh.
+			// Держатель и цанга отсчитываются от него же — ниже.
+			zTop := float64(k)*h + steelPostHeight
+			if s := balusterAtSloped(q, x, balY, float64(k)*h, steelPostHeight, slope); s != nil {
 				sols = append(sols, s)
 			}
 			// Держатель на верхнем торце стойки: площадка ложится под
@@ -800,8 +842,10 @@ func straightRailingSolids(q Quality, n int, b, h, rh, w, nosing float64, side e
 				kNext := steps[i+1]
 				x0 := (float64(k)-0.5)*b + xoff
 				x1 := (float64(kNext)-0.5)*b + xoff
-				z0 := float64(k)*h + rh*frac
-				z1 := float64(kNext)*h + rh*frac
+				// Ряды — доли высоты СТОЙКИ (steelPostHeight), а не rh:
+				// ригели делят столб, на котором стоят.
+				z0 := float64(k)*h + steelPostHeight*frac
+				z1 := float64(kNext)*h + steelPostHeight*frac
 				// Ригель — полая трубка Ø12 / Ø10 (стенка 1 мм),
 				// а не сплошной стержень.
 				if s := tubeAlong(q, kerngeo.NewPoint3(x0, balY, z0),

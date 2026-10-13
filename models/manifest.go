@@ -52,19 +52,23 @@ type Tube struct {
 
 // Part — деталь манифеста: смысл из parts.yaml + замеры из модели.
 type Part struct {
-	ID           string  `json:"id"`
-	Name         string  `json:"name"`
-	Role         string  `json:"role"`
-	Group        string  `json:"group"`
-	Form         string  `json:"form"`
-	Material     string  `json:"material"`
-	SourceObject string  `json:"source_object"`
-	Count        int     `json:"count"`
-	BBox         Box     `json:"bbox"`
-	Volume       float64 `json:"volume"`
-	Tube         *Tube   `json:"tube,omitempty"`
-	Solids       []Solid `json:"solids"`
-	Note         string  `json:"note,omitempty"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Role         string `json:"role"`
+	Group        string `json:"group"`
+	Form         string `json:"form"`
+	Material     string `json:"material"`
+	SourceObject string `json:"source_object"`
+	Count        int    `json:"count"`
+	// Instances — заявленные изделия (из YAML). Равно Count, пока деталь
+	// однотельна; у составных фитингов тел больше, чем изделий
+	// (TIP сида: 10 тел на 2 изделия).
+	Instances int     `json:"instances"`
+	BBox      Box     `json:"bbox"`
+	Volume    float64 `json:"volume"`
+	Tube      *Tube   `json:"tube,omitempty"`
+	Solids    []Solid `json:"solids"`
+	Note      string  `json:"note,omitempty"`
 }
 
 // Manifest — корень parts-manifest.json.

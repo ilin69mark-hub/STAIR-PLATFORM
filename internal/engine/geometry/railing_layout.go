@@ -82,7 +82,6 @@ func RailingPurchasedLayout(cfg *engineering.StairConfiguration) []RailingPlaced
 	if len(sides) == 0 {
 		return nil
 	}
-	H := float64(n) * h
 	// xoff — та же поправка на свес, что в straightRailingSolids:
 	// середина ступени, а не середина шага.
 	xoff := -nosing
@@ -99,12 +98,11 @@ func RailingPurchasedLayout(cfg *engineering.StairConfiguration) []RailingPlaced
 	}
 
 	var out []RailingPlaced
-	// 1. Поручни — по одному на сторону, как в straightRailingSolids:
-	// A=(0,railY,rh), B=(n·b,railY,H+rh), без вылета за 0..n·b.
+	// 1. Поручни — по одному на сторону, та же линия, что в
+	// straightRailingSolids (steelRailEnds): лежит на наконечниках.
 	for _, edge := range sides {
-		railY := edgeInset(edge, w, railWidth/2)
-		a := kerngeo.NewPoint3(shift, railY, rh)
-		bp := kerngeo.NewPoint3(shift+float64(n)*b, railY, H+rh)
+		balY := edgeInset(edge, w, balusterEdgeInset+capOD/2)
+		a, bp := steelRailEnds(n, b, h, nosing, balY, shift)
 		u, ok := bp.Sub(a).Normalized()
 		if !ok {
 			return nil
@@ -127,7 +125,8 @@ func RailingPurchasedLayout(cfg *engineering.StairConfiguration) []RailingPlaced
 			})
 		}
 	}
-	// 3. Ригели — s/r/i, как цикл purchasedRailingParts (ряды 33 %/66 %).
+	// 3. Ригели — s/r/i, как цикл purchasedRailingParts (ряды — доли
+	// высоты стойки, как в straightRailingSolids).
 	if len(steps) >= 2 {
 		for _, edge := range sides {
 			balY := edgeInset(edge, w, balusterEdgeInset+capOD/2)
@@ -136,8 +135,8 @@ func RailingPurchasedLayout(cfg *engineering.StairConfiguration) []RailingPlaced
 					k, kNext := steps[i], steps[i+1]
 					x0 := shift + (float64(k)-0.5)*b + xoff
 					x1 := shift + (float64(kNext)-0.5)*b + xoff
-					a := kerngeo.NewPoint3(x0, balY, float64(k)*h+rh*frac)
-					bp := kerngeo.NewPoint3(x1, balY, float64(kNext)*h+rh*frac)
+					a := kerngeo.NewPoint3(x0, balY, float64(k)*h+steelPostHeight*frac)
+					bp := kerngeo.NewPoint3(x1, balY, float64(kNext)*h+steelPostHeight*frac)
 					u, ok := bp.Sub(a).Normalized()
 					if !ok {
 						return nil
@@ -151,13 +150,14 @@ func RailingPurchasedLayout(cfg *engineering.StairConfiguration) []RailingPlaced
 		}
 	}
 	// 4. Фитинги — по комплекту на стойку, порядок стоек как в п. 2:
-	// наконечник, фланец, муфта, накладка.
+	// наконечник, фланец, муфта, накладка. Верх стойки — ступень +
+	// steelPostHeight (та же высота, что в straightRailingSolids).
 	for _, edge := range sides {
 		balY := edgeInset(edge, w, balusterEdgeInset+capOD/2)
 		for j, k := range steps {
 			x := shift + (float64(k)-0.5)*b + xoff
 			base := kerngeo.NewPoint3(x, balY, float64(k)*h)
-			top := kerngeo.NewPoint3(x, balY, float64(k)*h+rh)
+			top := kerngeo.NewPoint3(x, balY, float64(k)*h+steelPostHeight)
 			side, post := sideName(edge), j+1
 			out = append(out,
 				RailingPlaced{Kind: "tip", Ref: top, U: zUp, V: xAx,
@@ -173,10 +173,10 @@ func RailingPurchasedLayout(cfg *engineering.StairConfiguration) []RailingPlaced
 	}
 	// 5. Заглушки — по две на нитку (вход и выход), U внутрь трубы:
 	// якорь встаёт в физический центр заглушки, а не на срез.
+	// Концы — те же steelRailEnds, что у поручня и геометрии.
 	for _, edge := range sides {
-		railY := edgeInset(edge, w, railWidth/2)
-		a := kerngeo.NewPoint3(shift, railY, rh)
-		bp := kerngeo.NewPoint3(shift+float64(n)*b, railY, H+rh)
+		balY := edgeInset(edge, w, balusterEdgeInset+capOD/2)
+		a, bp := steelRailEnds(n, b, h, nosing, balY, shift)
 		u, ok := bp.Sub(a).Normalized()
 		if !ok {
 			return nil

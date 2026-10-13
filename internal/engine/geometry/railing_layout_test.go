@@ -110,6 +110,71 @@ func TestRailingLayoutMatchesGeometry(t *testing.T) {
 	}
 }
 
+// TestSteelPostMatchesCatalog — геометрическая стойка длиной ровно
+// по каталогу (POST-001 Len), а не rh.
+//
+// Замерено в эталоне: стойка 805,7 от ступени. Строить трубу длиной rh
+// (900) — значит резать не по каталогу: в смете одна длина, в изделии
+// другая (S-206, третий пункт — закрыт этим изменением).
+func TestSteelPostMatchesCatalog(t *testing.T) {
+	spec, ok := engineering.PartByID("POST-001")
+	if !ok {
+		t.Fatal("в каталоге нет POST-001")
+	}
+	sols := straightRailingSolids(ProductionQuality,
+		seedStepCount, seedTreadDepth, seedStepHeight, seedRailingHeight,
+		seedWidth, cfgProfileNosing(seedConfig()), engineering.RailingLeft)
+	for _, s := range sols {
+		if s.Role() != "baluster" {
+			continue
+		}
+		bb := kerngeo.SolidBoundingBox(s)
+		if got := bb.Max.Z - bb.Min.Z; math.Abs(got-spec.Len) > 0.5 {
+			t.Errorf("стойка высотой %.1f, каталог %.1f", got, spec.Len)
+		}
+	}
+}
+
+// TestRailPassesOverPosts — поручень проходит над стойками: точка
+// (верх стойки + railLiftAbovePostTop) лежит ВНУТРИ трубы поручня.
+//
+// Это гейт контакта S-208: раньше поручень шёл мимо верхов стоек
+// (ниже на 103 мм и в 34 мм в стороне), наконечник висел в воздухе.
+// Точка — analytic-центр трубы (в 21 мм от стенок), поэтому строгое
+// containing, а не допуск: ошибка кадра даёт сотни миллиметров.
+func TestRailPassesOverPosts(t *testing.T) {
+	cfg := seedConfig()
+	sols := straightRailingSolids(ProductionQuality,
+		seedStepCount, seedTreadDepth, seedStepHeight, seedRailingHeight,
+		seedWidth, cfgProfileNosing(cfg), engineering.RailingLeft)
+	var rails []kerngeo.BBox
+	for _, s := range sols {
+		if s.Role() == "railing" {
+			rails = append(rails, kerngeo.SolidBoundingBox(s))
+		}
+	}
+	if len(rails) == 0 {
+		t.Fatal("в геометрии нет поручня-трубы")
+	}
+	steps := balusterSteps(seedStepCount, seedTreadDepth)
+	balY := edgeInset(0, seedWidth, balusterEdgeInset+capOD/2)
+	for _, k := range steps {
+		x := (float64(k)-0.5)*seedTreadDepth - cfgProfileNosing(cfg)
+		top := float64(k)*seedStepHeight + steelPostHeight
+		p := kerngeo.NewPoint3(x, balY, top+railLiftAbovePostTop)
+		best := math.Inf(1)
+		for _, bb := range rails {
+			if d := distToBox(p, bb); d < best {
+				best = d
+			}
+		}
+		if best > 0.5 {
+			t.Errorf("над стойкой ступени %d (%.1f) нет трубы поручня (%.1f мм)",
+				k, top, best)
+		}
+	}
+}
+
 // TestRailingLayoutCounts — число якорей сходится с числом тел геометрии
 // там, где соответствие один-к-одному: стойки, поручни, ригели, заглушки.
 // Держатели и цанги состоят из нескольких тел (наконечник — 7 тел),

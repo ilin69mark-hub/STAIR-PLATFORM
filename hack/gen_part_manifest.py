@@ -39,8 +39,14 @@ import re
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PARTS_YAML = os.path.join(REPO, "models", "parts.yaml")
-MANIFEST_JSON = os.path.join(REPO, "models", "parts-manifest.json")
+# Пути переопределяются окружением для второй модели (сид S-203):
+# STAIR_PARTS_YAML=models/seed/parts.yaml
+# STAIR_MANIFEST_JSON=models/seed/seed-manifest.json
+# Дефолты — эталонная модель. Env, а не аргументы: см. шапку про freecadcmd.
+PARTS_YAML = os.environ.get("STAIR_PARTS_YAML",
+                            os.path.join(REPO, "models", "parts.yaml"))
+MANIFEST_JSON = os.environ.get("STAIR_MANIFEST_JSON",
+                               os.path.join(REPO, "models", "parts-manifest.json"))
 CHECK = os.environ.get("STAIR_MANIFEST_CHECK") == "1"
 
 import yaml  # noqa: E402  (комплектный python FreeCAD его имеет — проверено)
@@ -64,7 +70,7 @@ def base_name(n):
     if n == "Rail_Portun":
         return "Rail"
     for pre in ("Tread", "Riser", "Stringer", "Rail_Post", "Rail_Tip",
-                "Rail_Lid"):
+                "Rail_Lid", "Rail_Clamp", "Rail_Deco", "Rail_Slip"):
         if n == pre or n.startswith(pre + "_") or \
                 re.match(re.escape(pre) + r"\d+$", n):
             return pre
@@ -127,7 +133,13 @@ def build_manifest():
                    "form": entry.get("form", ""),
                    "material": entry.get("material", ""),
                    "source_object": rep.Name,
+                   # count — ЗАМЕРЕННЫЕ объекты; instances — заявленные
+                   # изделия из YAML. Совпадают, пока деталь = одно тело
+                   # (весь эталон S-198). Расходятся у составных фитингов
+                   # сида (TIP: 10 тел на 2 изделия): заказывать и считать
+                   # надо по instances, а count — для контроля полноты.
                    "count": len(objs),
+                   "instances": entry.get("count", len(objs)),
                    "bbox": bbox_of(rep.Shape),
                    "volume": round(rep.Shape.Volume, 1),
                    "solids": solids}

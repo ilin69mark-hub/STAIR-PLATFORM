@@ -52,3 +52,9 @@ bench.out
 # Playwright (артефакты прогонов)
 /test-results
 /playwright-report
+
+# Python (побочка freecadcmd при прогоне hack/*.py)
+__pycache__/
+
+# FreeCAD (бэкапы saveAs рядом с моделью)
+*.FCBak

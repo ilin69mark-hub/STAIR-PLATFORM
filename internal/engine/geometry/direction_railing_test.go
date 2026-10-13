@@ -227,16 +227,13 @@ func TestBuildRailingDecorStraight(t *testing.T) {
 			roles[roleRigel], 2*(wantBal-1), wantBal)
 	}
 	// Правая сторона: стойки сдвинуты внутрь ступени (edgeInset) так, что
-	// их КРАЙ совпадает с кромкой y=W=900. Стойка круглая Ø42,4, поэтому её
-	// ось стоит на 900−42,4/2 = 878,8, и крайняя точка по Y = 900.
-	// Портфень шире (50) — его ось на 875, но он уже не задаёт центр общего
-	// габарита, т.к. стойка шире по Y и выходит к самой кромке.
-	// Крайний габарит по Y задаёт площадка держателя: она шире стойки
-	// (50,8 против Ø42,4) и лежит с тем же отступом от кромки, поэтому
-	// выступает наружу. Это ожидаемо: площадка держит поручень.
+	// край цанги/колпачка (Ø88) — в 15 мм от кромки y=W=900 (требование
+	// владельца, balusterEdgeInset). Крайний габарит по Y задаёт колпачок:
+	// W − 15. Раньше габарит задавал поручень-брус (до 900): брус убран
+	// в S-208a (поручень — труба над стойками), и тест обновлён.
 	bb := boundingBoxOf(decor)
-	if bb.Max.Y < 900 || bb.Max.Y > 900+holderPlateW/2 {
-		t.Fatalf("railing bbox Max.Y = %v, want within 900..%v", bb.Max.Y, 900+holderPlateW/2)
+	if want := 900 - 15.0; math.Abs(bb.Max.Y-want) > 1.0 {
+		t.Fatalf("railing bbox Max.Y = %v, want %v (кромка колпачка в 15 мм от края)", bb.Max.Y, want)
 	}
 	// стойки на центрах ступеней: центр X — x=(k-0.5)·b.
 	var balXs []float64
@@ -282,18 +279,39 @@ func TestBuildRailingDecorStraight(t *testing.T) {
 		t.Fatalf("handrail boxes = %d, want 1 (right side)", len(rails))
 	}
 	h := cfg.StepHeight.Millimeters()
-	rh := cfg.RailingHeight.Millimeters()
 	wantCX := float64(cfg.StepCount) * b / 2
-	// Поручень идёт от первой ступени (x=0, z=rh) до последней
-	// (x=n·b, z=H+rh): его середина по Z = rh + H/2.
-	wantCZ := rh + float64(cfg.StepCount)*h/2
+	// S-208a: поручень — труба Ø42,4 над стойками (а не брус сбоку).
+	// Центр Y обязан совпасть с центром стоек (измерено по построенным
+	// телам, а не по формуле: иначе тест сверял бы helper с собой).
+	// Поперечник трубы по Y — ровно OD: брус давал бы 50.
+	var balY float64
+	nBal := 0
+	for _, s := range decor {
+		if s.Role() == roleBaluster {
+			bs := boundingBoxOf([]*kerngeo.Solid{s})
+			balY += (bs.Min.Y + bs.Max.Y) / 2
+			nBal++
+		}
+	}
+	if nBal == 0 {
+		t.Fatal("нет стоек для сверки оси поручня")
+	}
+	balY /= float64(nBal)
+	if !nearlyEqual((rails[0].Min.Y+rails[0].Max.Y)/2, balY) {
+		t.Fatalf("handrail centre Y = %v, want %v (над стойками)",
+			(rails[0].Min.Y+rails[0].Max.Y)/2, balY)
+	}
+	if !nearlyEqual(rails[0].Max.Y-rails[0].Min.Y, 42.4) {
+		t.Fatalf("handrail width Y = %v, want 42.4 (труба, а не брус 50)",
+			rails[0].Max.Y-rails[0].Min.Y)
+	}
+	// Центр Z — середина концов steelRailEnds (поручень лежит
+	// на наконечниках). Поручень идёт от x=0 до x=n·b: середина X прежняя.
+	a, bp := steelRailEnds(cfg.StepCount, b, h, cfgProfileNosing(cfg), balY, 0)
+	wantCZ := (a.Z + bp.Z) / 2
 	if !nearlyEqual((rails[0].Min.X+rails[0].Max.X)/2, wantCX) {
 		t.Fatalf("handrail centre X = %v, want %v (over nosings)",
 			(rails[0].Min.X+rails[0].Max.X)/2, wantCX)
-	}
-	if !nearlyEqual((rails[0].Min.Y+rails[0].Max.Y)/2, 900-railWidth/2) {
-		t.Fatalf("handrail centre Y = %v, want %v (right edge inset)",
-			(rails[0].Min.Y+rails[0].Max.Y)/2, 900-railWidth/2)
 	}
 	if !nearlyEqual((rails[0].Min.Z+rails[0].Max.Z)/2, wantCZ) {
 		t.Fatalf("handrail centre Z = %v, want %v (rh+H/2)",
