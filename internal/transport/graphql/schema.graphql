@@ -223,7 +223,6 @@ enum FlightType {
   STRAIGHT
   L_SHAPED
   U_SHAPED
-  SPIRAL
 }
 
 enum ConfigStatus {
