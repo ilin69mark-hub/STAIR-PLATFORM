@@ -8,7 +8,15 @@
 // Каталог питает три потребителя:
 //   - геометрию (BuildRailingDecor строит детали из этих записей),
 //   - раскрой (GroupCutting — плоские детали, которые режутся из листа),
-//   - спецификацию и прайс (GroupPurchased / GroupFastener — покупные).
+//   - спецификацию и прайс (GroupPurchased — покупные детали ограждения).
+//
+// Крепёжа в каталоге НЕТ. Метизы — поштучные позиции другого справочника,
+// dommfg.DefaultFastenerRegistry() (internal/domain/manufacturing/fastener.go):
+// у него есть код, размер и вид, цены строятся перебором каталога, и он один
+// на движок, магазин и прайс. Здесь крепёж был продублирован двумя строками
+// (ANCH-010, SCR-005) без размеров и без единого потребителя, и эти строки
+// молча разошлись с настоящим каталогом: «Анкер Ø10» не совпадал ни с одним
+// кодом вида SCREW-*/PLUG-*. Две правды о крепеже, из которых работала одна.
 //
 // Размеры сняты из эталона freecad-out/stair-comb-railings.FCStd скриптом
 // parts_measure.py. Эталон — источник истины; этот файл — его перенос.
@@ -26,9 +34,6 @@ const (
 	// (если это труба) либо приходит в заводской упаковке. В раскрой листа
 	// не идёт, точные контуры не нужны — достаточно корректного 3D-вида.
 	GroupPurchased PartGroup = "purchased"
-
-	// GroupFastener — крепёж: метизы, анкеры, шайбы, саморезы.
-	GroupFastener PartGroup = "fastener"
 )
 
 // PartMaterial — материал детали.
@@ -39,7 +44,6 @@ const (
 	MatWood      PartMaterial = "wood"      // дерево (проступь, подступенок)
 	MatStainless PartMaterial = "stainless" // нержавейка AISI 304 (ограждение)
 	MatPlastic   PartMaterial = "plastic"   // заглушки
-	MatFastener  PartMaterial = "fastener"  // крепёж
 )
 
 // PartForm — тип заготовки. Определяет, как деталь попадает в производство.
@@ -219,28 +223,11 @@ func PurchasedParts() []PartSpec {
 	}
 }
 
-// FastenerParts — крепёж.
-func FastenerParts() []PartSpec {
-	return []PartSpec{
-		{
-			ID: "ANCH-010", Name: "Анкер Ø10", Group: GroupFastener, Form: FormPart,
-			Material: MatFastener,
-			Note:     "Через дно декоративной накладки, крепление опоры",
-		},
-		{
-			ID: "SCR-005", Name: "Крепёж наконечника Ø5", Group: GroupFastener, Form: FormPart,
-			Material: MatFastener,
-			Note:     "Крепление наконечника к шарнирному узлу",
-		},
-	}
-}
-
-// AllParts — полный каталог в порядке групп: раскрой → покупное → крепёж.
+// AllParts — полный каталог в порядке групп: раскрой → покупное.
 func AllParts() []PartSpec {
-	all := make([]PartSpec, 0, 18)
+	all := make([]PartSpec, 0, 16)
 	all = append(all, CuttingParts()...)
 	all = append(all, PurchasedParts()...)
-	all = append(all, FastenerParts()...)
 	return all
 }
 

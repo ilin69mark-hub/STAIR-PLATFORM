@@ -161,11 +161,8 @@ func TestCatalogCounts(t *testing.T) {
 	if got := len(PurchasedParts()); got != 8 {
 		t.Errorf("покупных %d позиций, ожидалось 8", got)
 	}
-	if got := len(FastenerParts()); got != 2 {
-		t.Errorf("крепежа %d позиций, ожидалось 2", got)
-	}
-	if got := len(AllParts()); got != 18 {
-		t.Errorf("всего %d позиций, ожидалось 18", got)
+	if got := len(AllParts()); got != 16 {
+		t.Errorf("всего %d позиций, ожидалось 16", got)
 	}
 	// Каждая позиция должна иметь уникальный ID.
 	seen := map[string]bool{}
@@ -180,16 +177,36 @@ func TestCatalogCounts(t *testing.T) {
 // TestCatalogGroupsDisjoint — группы не пересекаются: каждая деталь ровно
 // в одной группе. Раскрой не должен содержать покупное.
 func TestCatalogGroupsDisjoint(t *testing.T) {
-	cut, pur, fas := PartsByGroup(GroupCutting), PartsByGroup(GroupPurchased),
-		PartsByGroup(GroupFastener)
-	if len(cut)+len(pur)+len(fas) != len(AllParts()) {
-		t.Errorf("группы не покрывают каталог: %d+%d+%d != %d",
-			len(cut), len(pur), len(fas), len(AllParts()))
+	cut, pur := PartsByGroup(GroupCutting), PartsByGroup(GroupPurchased)
+	if len(cut)+len(pur) != len(AllParts()) {
+		t.Errorf("группы не покрывают каталог: %d+%d != %d",
+			len(cut), len(pur), len(AllParts()))
 	}
 	for _, p := range pur {
 		if p.Material != MatStainless && p.Material != MatPlastic {
 			t.Errorf("покупная %s (%s) имеет материал %q — сталь/дерево в раскрой не годится",
 				p.ID, p.Name, p.Material)
+		}
+	}
+}
+
+// TestCatalogHasNoFastenerGroup — в каталоге деталей НЕТ крепежа, и это
+// решение, а не случайность: у крепежа свой справочник с кодами, размерами
+// и ценами, dommfg.DefaultFastenerRegistry(). Пока каталог деталей держал
+// вторую копию («Анкер Ø10», «Крепёж наконечника Ø5»), о крепеже
+// существовало две правды, и работала только одна — та, что в домене.
+//
+// Тест ловит возвращение группы, а не наличие деталей в ней: появление
+// любой позиции с Group=="fastener" означает, что каталог снова стал
+// вторым источником правды о крепеже.
+func TestCatalogHasNoFastenerGroup(t *testing.T) {
+	for _, p := range AllParts() {
+		if string(p.Group) == "fastener" {
+			t.Errorf("в каталоге деталей снова есть крепёж: %s (%s). Источник правды о крепеже — dommfg.DefaultFastenerRegistry()",
+				p.ID, p.Name)
+		}
+		if string(p.Material) == "fastener" {
+			t.Errorf("в каталоге деталей снова есть материал крепежа: %s (%s)", p.ID, p.Name)
 		}
 	}
 }
