@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
 	enggeo "stairplatform/internal/engine/geometry"
 )
@@ -164,5 +165,37 @@ func TestPurchasedRailingAxisLengths(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestPurchasedRailingGlassEmpty — стеклянному маршу не кладётся ни
+// одной покупной детали ограждения (S-207). В стекле нет ни стальной
+// трубы-поручня, ни ригелей, ни стоек, ни фурнитуры стального узла
+// (решение владельца: стеклянное ограждение — своя конструкция).
+// Пустой список, а не «похожее»: чужое в заказе хуже отсутствия.
+// Стеклянные позиции (панели, пруток, своя фурнитура) заведём в S-215.
+func TestPurchasedRailingGlassEmpty(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.RailingType = engineering.RailingTypeGlass
+	cfg.RailingHeight = mustLength(t, 900)
+	pkg, err := Manufacture(cfg, genResult(t, cfg), nil)
+	if err != nil {
+		t.Fatalf("manufacture: %v", err)
+	}
+	for _, p := range pkg.Parts {
+		if p.Purchased {
+			t.Errorf("стеклу положена деталь %q (%s) — в стекле своих позиций пока нет (S-207, S-215)",
+				p.Kind, p.Number)
+		}
+	}
+	// В спецификации — только каркас: ни одной строки ограждения.
+	for _, l := range pkg.BOM.Lines {
+		switch l.Description {
+		case "Перила (поручень)", "Стойка опоры", "Ригель",
+			"Наконечник регулируемый", "Фланец опоры",
+			"Накидная часть", "Декоративная накладка",
+			"Торцевая заглушка":
+			t.Errorf("BOM стекла содержит %q — ограждения в пакете нет (S-207)", l.Description)
+		}
 	}
 }

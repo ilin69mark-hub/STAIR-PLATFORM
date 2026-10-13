@@ -127,6 +127,14 @@ func purchasedRailingParts(cfg *engineering.StairConfiguration, firstNumber int)
 	stepCount := cfg.StepCount
 	treadDepth := cfg.TreadDepth.Millimeters()
 	stepHeight := cfg.StepHeight.Millimeters()
+	// Стекло: покупных стальных деталей нет вообще — ни поручня, ни
+	// ригелей, ни стоек, ни фурнитуры стального узла (решение владельца:
+	// стеклянное ограждение — своя конструкция). Пустой список, а не
+	// «похожее»: чужое в заказе хуже отсутствия. Стеклянные позиции
+	// (панели, пруток, своя фурнитура) заведём в S-215.
+	if cfg.RailingType.Effective() == engineering.RailingTypeGlass {
+		return nil
+	}
 	// Длина поручня — по оси, из геометрии: та же линия, что строит модель.
 	// Горизонтальная проекция здесь запрещена (S-206: −20 % длины).
 	railLength := enggeo.RailingRailAxisLen(stepCount, treadDepth, stepHeight)
@@ -149,6 +157,8 @@ func purchasedRailingParts(cfg *engineering.StairConfiguration, firstNumber int)
 
 	// Порядок эмиссии (раньше — пять циклов, теперь один список, порядок
 	// тот же): поручни, стойки, ригели, фитинги, заглушки.
+	// Стекло сюда не доходит (ранний возврат выше): все позиции ниже —
+	// стальная конструкция.
 	var kinds []dommfg.PartKind
 	for s := 0; s < sides; s++ {
 		kinds = append(kinds, dommfg.PartRailTop)
