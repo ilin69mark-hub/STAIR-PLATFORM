@@ -38,7 +38,7 @@ func BenchmarkManufacture(b *testing.B) {
 	b.ResetTimer()
 	var last *dommfg.ManufacturingPackage
 	for i := 0; i < b.N; i++ {
-		pkg, err := Manufacture(cfg, gen)
+		pkg, err := Manufacture(cfg, gen, nil)
 		if err != nil {
 			b.Fatal(err)
 		}

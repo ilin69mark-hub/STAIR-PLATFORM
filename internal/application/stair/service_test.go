@@ -43,6 +43,10 @@ func referenceConfig() Config {
 		Riser:         true,
 		Clearance:     mustLengthHelper(2500),
 		RailingHeight: mustLengthHelper(1000),
+		// Сторона ограждения названа ЯВНО. Спецификация читает её наравне с
+		// геометрией, и неназванная сторона означает «перил нет»: эталон
+		// потерял бы все покупные позиции ограждения и крепёж к нему.
+		Railing: engineering.RailingLeft,
 	}
 }
 
@@ -134,17 +138,22 @@ func TestCalculateValidPipeline(t *testing.T) {
 	// Плюс герметик (CONF-SEALANT): площадь швов обоймы выреза и торца
 	// косоура 0,6922 м² × 1 мм = 0,6922 л → 3 картриджа по 500 ₽ = 1 500 ₽,
 	// и на них накручиваются накладные, маржа, скидка и НДС: +2 667,60 ₽.
-	if res.Price.FinalPrice.Minor() != 38598241 {
-		t.Fatalf("final price = %d, want 38598241", res.Price.FinalPrice.Minor())
+	// Плюс крепёж ограждения (решение владельца 2026-10-13): 4 стойки ×
+	// 3 анкерных отверстия фланца = 12 глухарей 6х35 и 4 стойки × 2 = 8
+	// саморезов 5х32. Итого 20 штук × 15 ₽ = 300 ₽, и на них та же накрутка:
+	// +533,52 ₽ (385 982,41 → 386 515,93).
+	if res.Price.FinalPrice.Minor() != 38651593 {
+		t.Fatalf("final price = %d, want 38651593", res.Price.FinalPrice.Minor())
 	}
-	if res.Price.FinalPrice.Major(domprc.CurrencyRUB) != 385982.41 {
-		t.Fatalf("final price = %.2f rub, want 385982.41", res.Price.FinalPrice.Major(domprc.CurrencyRUB))
+	if res.Price.FinalPrice.Major(domprc.CurrencyRUB) != 386515.93 {
+		t.Fatalf("final price = %.2f rub, want 386515.93", res.Price.FinalPrice.Major(domprc.CurrencyRUB))
 	}
 	if res.Price.Sealant.Minor() != 150000 {
 		t.Fatalf("sealant cost = %d minor, want 150000 (3 картриджа × 500 ₽)", res.Price.Sealant.Minor())
 	}
-	if res.Price.Fastener.Minor() != 357000 {
-		t.Fatalf("fastener cost = %d minor, want 357000 (238 шт × 15 ₽)", res.Price.Fastener.Minor())
+	// 238 штук по пяткам + 20 на ограждение = 258 × 15 ₽ = 3 870 ₽.
+	if res.Price.Fastener.Minor() != 387000 {
+		t.Fatalf("fastener cost = %d minor, want 387000 (258 шт × 15 ₽)", res.Price.Fastener.Minor())
 	}
 }
 

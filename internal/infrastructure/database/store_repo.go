@@ -191,6 +191,106 @@ func (r *StoreRepository) DeleteFastenerPrice(ctx context.Context, tenantID, cod
 	return nil
 }
 
+// ---- Свои позиции крепежа (000048) ----
+
+// ListFastenerPositions возвращает позиции крепежа, добавленные магазином.
+// Встроенный каталог сюда не входит: он один на всех и живёт в коде.
+func (r *StoreRepository) ListFastenerPositions(ctx context.Context, tenantID string) ([]store.FastenerPosition, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT fastener_code, name_ru, kind, diameter_mm, length_mm, base
+		   FROM store_fastener_positions
+		  WHERE tenant_id = $1 ORDER BY fastener_code`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list fastener positions: %w", err)
+	}
+	defer rows.Close()
+	var out []store.FastenerPosition
+	for rows.Next() {
+		var p store.FastenerPosition
+		if err := rows.Scan(&p.Code, &p.NameRu, &p.Kind, &p.DiameterMM, &p.LengthMM, &p.Base); err != nil {
+			return nil, fmt.Errorf("store: scan fastener position: %w", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: list fastener positions rows: %w", err)
+	}
+	return out, nil
+}
+
+// CreateFastenerPosition добавляет позицию крепежа и её цену.
+//
+// Цена пишется в store_fastener_prices — туда же, где цена встроенной
+// позиции. Отдельной таблицы цен для своих позиций нет намеренно: цена
+// позиции должна жить в одном месте независимо от того, встроенная она или
+// добавлена.
+//
+// Обе записи идут в одной транзакции. Позиция без цены попала бы в смету по
+// нулю — ровно тот дефект, который S-179 закрывал у ограждения.
+func (r *StoreRepository) CreateFastenerPosition(ctx context.Context, tenantID string,
+	p store.FastenerPosition, pricePerPcRub int64, updatedBy string) error {
+	var by any
+	if updatedBy != "" {
+		by = updatedBy
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("store: begin fastener position: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO store_fastener_positions
+		   (tenant_id, fastener_code, name_ru, kind, diameter_mm, length_mm, base,
+		    created_by, updated_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
+		tenantID, p.Code, p.NameRu, p.Kind, p.DiameterMM, p.LengthMM, p.Base, by); err != nil {
+		return fmt.Errorf("store: create fastener position: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO store_fastener_prices (tenant_id, fastener_code, price_per_pc_rub, updated_by, updated_at)
+		 VALUES ($1, $2, $3, $4, now())
+		 ON CONFLICT (tenant_id, fastener_code) DO UPDATE
+		   SET price_per_pc_rub = EXCLUDED.price_per_pc_rub,
+		       updated_by = EXCLUDED.updated_by,
+		       updated_at = now()`,
+		tenantID, p.Code, pricePerPcRub, by); err != nil {
+		return fmt.Errorf("store: set fastener position price: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("store: commit fastener position: %w", err)
+	}
+	return nil
+}
+
+// DeleteFastenerPosition удаляет свою позицию и её цену.
+//
+// Цена удаляется вместе с позицией, а не остаётся сиротой: иначе код мог бы
+// снова занять ту же строку прайса, и новая позиция молча получила бы цену
+// удалённой.
+func (r *StoreRepository) DeleteFastenerPosition(ctx context.Context, tenantID, code string) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("store: begin delete fastener position: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM store_fastener_positions WHERE tenant_id = $1 AND fastener_code = $2`,
+		tenantID, code); err != nil {
+		return fmt.Errorf("store: delete fastener position: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM store_fastener_prices WHERE tenant_id = $1 AND fastener_code = $2`,
+		tenantID, code); err != nil {
+		return fmt.Errorf("store: delete fastener position price: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("store: commit delete fastener position: %w", err)
+	}
+	return nil
+}
+
 // ---- Прайс герметика (CONF-SEALANT) ----
 //
 // Методы рядом с крепёжными, а не обобщение «прайс по коду»: единица одна

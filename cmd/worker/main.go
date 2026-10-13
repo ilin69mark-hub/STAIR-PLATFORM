@@ -192,7 +192,7 @@ func main() {
 func newJobsService(pool *pgxpool.Pool) *jobs.Service {
 	storeSvc := storeapp.NewService(database.NewStoreRepository(pool))
 	return jobs.NewService(database.NewCalcJobRepository(pool), nil,
-		stair.NewServiceWithRates(storeSvc).Calculate)
+		stair.NewServiceWithStore(storeSvc, storeSvc).Calculate)
 }
 
 // queueBackend оборачивает выбранный бэкенд очереди и его Redis-клиент для

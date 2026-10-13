@@ -21,7 +21,13 @@ import (
 // пересчитывается. Предусловия: валидная конфигурация и геометрия без
 // ошибок валидации (производство выполняется только по валидной ревизии).
 // Результат детерминирован.
-func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResult) (*dommfg.ManufacturingPackage, error) {
+//
+// fastenerReg — каталог позиций крепежа, по которому считается потребность.
+// nil → встроенный dommfg.DefaultFastenerRegistry(). Сюда передаётся каталог
+// tenant'а (встроенные позиции плюс добавленные магазином, 000048): позиция,
+// добавленная в админке, обязана доходить до сметы, а не оседать в справочнике.
+func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResult,
+	fastenerReg *dommfg.FastenerRegistry) (*dommfg.ManufacturingPackage, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("manufacturing: configuration is required")
 	}
@@ -107,6 +113,7 @@ func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResu
 		cfg.TreadDepth.Millimeters(),
 		railLengthMM(cfg),
 		cfg.RailingHeight.Millimeters(),
+		enggeo.RailingSideCount(cfg),
 		len(parts)+1,
 	)...)
 
@@ -124,7 +131,7 @@ func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResu
 	// (обе ANC-nn), и развести их по основанию крепления можно только по
 	// роли тела. Неизвестные коды доп. крепежа не роняют расчёт — они
 	// просто не попадут в смету, а заменяются встроенными.
-	fasteners, err := FastenerDemandFor(cfg, gen.Model.Solids(), dommfg.DefaultFastenerRegistry(), nil)
+	fasteners, err := FastenerDemandFor(cfg, gen.Model.Solids(), fastenerReg, nil)
 	if err != nil {
 		return nil, fmt.Errorf("manufacturing: fasteners: %w", err)
 	}

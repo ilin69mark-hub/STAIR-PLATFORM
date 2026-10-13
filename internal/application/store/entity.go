@@ -216,6 +216,14 @@ type Repository interface {
 	SetFastenerPrice(ctx context.Context, tenantID, code string, pricePerPcRub int64, updatedBy string) error
 	// DeleteFastenerPrice возвращает крепёж к встроенной ставке.
 	DeleteFastenerPrice(ctx context.Context, tenantID, code string) error
+	// ListFastenerPositions возвращает позиции крепежа, добавленные магазином.
+	// Встроенный каталог сюда не входит: он живёт в коде.
+	ListFastenerPositions(ctx context.Context, tenantID string) ([]FastenerPosition, error)
+	// CreateFastenerPosition добавляет свою позицию крепежа и её цену.
+	CreateFastenerPosition(ctx context.Context, tenantID string, p FastenerPosition,
+		pricePerPcRub int64, updatedBy string) error
+	// DeleteFastenerPosition удаляет свою позицию крепежа вместе с ценой.
+	DeleteFastenerPosition(ctx context.Context, tenantID, code string) error
 	// ListSealantPrices возвращает цены герметика, заданные магазином
 	// (₽ за картридж).
 	ListSealantPrices(ctx context.Context, tenantID string) ([]SealantPrice, error)

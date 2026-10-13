@@ -9,7 +9,7 @@ import (
 
 func TestPrepareCostMetrics(t *testing.T) {
 	cfg := testConfig(t)
-	pkg, err := Manufacture(cfg, genResult(t, cfg))
+	pkg, err := Manufacture(cfg, genResult(t, cfg), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,11 +35,19 @@ func TestPrepareCostMetrics(t *testing.T) {
 	//   пятка пола            2 шт × 4 отв. =    8   → глухарь + дюбель
 	//   пятка перекрытия       2 шт × 3 отв. =    6   → глухарь + дюбель
 	// Итого 238 штук.
-	if ds.FastenerCount != 238 {
-		t.Fatalf("fastener count = %d, want 238", ds.FastenerCount)
+	//
+	// Плюс крепёж ограждения (решение владельца 2026-10-13), на марше одна
+	// сторона и четыре стойки:
+	//   анкерные отверстия фланцев  4 стойки × 3 отв. = 12 (глухарь 6х35)
+	//   крепление поручня            4 стойки × 2      =  8 (саморез 5х32)
+	// Итого 238 + 20 = 258 штук.
+	if ds.FastenerCount != 258 {
+		t.Fatalf("fastener count = %d, want 258", ds.FastenerCount)
 	}
-	if len(ds.FastenerConsumption) != 5 {
-		t.Fatalf("fastener consumption = %d позиций, want 5", len(ds.FastenerConsumption))
+	// Позиций сметы на крепёж 7: пять старых (глухарь и дюбель 10х60 на пол
+	// и на перекрытие, глухарь 6х35 на пятки) и две новые — фланцы и стойки.
+	if len(ds.FastenerConsumption) != 7 {
+		t.Fatalf("fastener consumption = %d позиций, want 7", len(ds.FastenerConsumption))
 	}
 	// операции: 98 деталей × 2 (Cutting + Finishing).
 	if ds.OperationPlan == nil || len(ds.OperationPlan.Parts) != 98 {
@@ -105,7 +113,7 @@ func TestPrepareCostMetrics(t *testing.T) {
 
 func TestPrepareCostConsumption(t *testing.T) {
 	cfg := testConfig(t)
-	pkg, err := Manufacture(cfg, genResult(t, cfg))
+	pkg, err := Manufacture(cfg, genResult(t, cfg), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +142,7 @@ func TestPrepareCostConsumption(t *testing.T) {
 
 func TestPrepareCostDeterminism(t *testing.T) {
 	cfg := testConfig(t)
-	pkg, err := Manufacture(cfg, genResult(t, cfg))
+	pkg, err := Manufacture(cfg, genResult(t, cfg), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +161,7 @@ func TestPrepareCostDeterminism(t *testing.T) {
 
 func TestPrepareCostErrors(t *testing.T) {
 	cfg := testConfig(t)
-	pkg, err := Manufacture(cfg, genResult(t, cfg))
+	pkg, err := Manufacture(cfg, genResult(t, cfg), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

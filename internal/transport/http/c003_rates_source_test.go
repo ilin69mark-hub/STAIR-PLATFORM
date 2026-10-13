@@ -68,6 +68,16 @@ func (s *c003Store) SetFastenerPrice(context.Context, string, string, int64, str
 }
 func (s *c003Store) DeleteFastenerPrice(context.Context, string, string) error { return s.err }
 
+// Свои позиции крепежа (000048) в тестах C-003 не участвуют: тесты касаются
+// цен материалов и выбора источника ставок.
+func (s *c003Store) FastenerPositions(context.Context, string) ([]store.FastenerPosition, error) {
+	return nil, s.err
+}
+func (s *c003Store) CreateFastenerPosition(context.Context, string, store.FastenerPosition, string) error {
+	return s.err
+}
+func (s *c003Store) DeleteFastenerPosition(context.Context, string, string) error { return s.err }
+
 // Герметик в тестах C-003 не участвует: они касаются цен материалов и
 // выбора источника ставок. Отдаём те же err, что и остальные методы прайса.
 func (s *c003Store) SealantPrices(context.Context, string) ([]store.SealantPrice, error) {

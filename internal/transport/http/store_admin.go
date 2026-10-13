@@ -31,6 +31,11 @@ type StoreService interface {
 	FastenerPrices(ctx context.Context, tenantID string) ([]store.FastenerPrice, error)
 	SetFastenerPrice(ctx context.Context, tenantID, code string, pricePerPcRub int64, updatedBy string) error
 	DeleteFastenerPrice(ctx context.Context, tenantID, code string) error
+	// FastenerPositions — свои позиции крепежа tenant'а: добавлены в админке,
+	// доходят до сметы (000048).
+	FastenerPositions(ctx context.Context, tenantID string) ([]store.FastenerPosition, error)
+	CreateFastenerPosition(ctx context.Context, tenantID string, p store.FastenerPosition, updatedBy string) error
+	DeleteFastenerPosition(ctx context.Context, tenantID, code string) error
 	// Герметик (CONF-SEALANT): прайс в рублях за картридж.
 	SealantPrices(ctx context.Context, tenantID string) ([]store.SealantPrice, error)
 	SetSealantPrice(ctx context.Context, tenantID, code string, pricePerCartridgeRub int64, updatedBy string) error
@@ -442,6 +447,85 @@ func handleDeleteFastenerPrice(svc StoreService, invalidate CacheInvalidator) ht
 			return
 		}
 		if err := svc.DeleteFastenerPrice(r.Context(), tenantID(r.Context()), r.PathValue("code")); err != nil {
+			mapStoreError(w, r, err)
+			return
+		}
+		purgePublicStoreCache(invalidate)
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// ---- свои позиции крепежа (000048) ----
+
+// handleListFastenerPositions — GET /api/v1/admin/store/fastener-positions.
+//
+// Отдельный маршрут, а не поле в прайсе: у позиции есть размер и вид, а у
+// строки прайса — только код и цена. Смешивать их в одном ответе значило бы
+// отдавать нули там, где поля нет, и админка гадала бы, 0 — это «нет
+// размера» или «размер ноль».
+func handleListFastenerPositions(svc StoreService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireStorePermission(w, r, auth.CapPriceMaterials, auth.LevelRead) {
+			return
+		}
+		tenant := tenantID(r.Context())
+		positions, err := svc.FastenerPositions(r.Context(), tenant)
+		if err != nil {
+			mapStoreError(w, r, err)
+			return
+		}
+		// Цена позиции лежит в прайсе, а не в таблице позиций, поэтому
+		// список доклеивается из него: иначе админка показала бы позицию без
+		// цены и не смогла бы её отредактировать.
+		byCode := map[string]int64{}
+		prices, err := svc.FastenerPrices(r.Context(), tenant)
+		if err == nil {
+			for _, p := range prices {
+				byCode[p.Code] = p.PricePerPcRub
+			}
+		}
+		out := make([]store.FastenerPosition, 0, len(positions))
+		for _, p := range positions {
+			p.PricePerPcRub = byCode[p.Code]
+			out = append(out, p)
+		}
+		writeJSON(w, http.StatusOK, out)
+	}
+}
+
+// handleCreateFastenerPosition — POST /api/v1/admin/store/fastener-positions.
+func handleCreateFastenerPosition(svc StoreService, invalidate CacheInvalidator) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireStorePermission(w, r, auth.CapPriceMaterials, auth.LevelWrite) {
+			return
+		}
+		// DOM-007: строгий разбор. Без него опечатка в имени поля дала бы
+		// пустую позицию с ценой 0 и ответ 201.
+		var req store.FastenerPosition
+		if err := decodeJSONStrict(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", jsonErrorMessage(err))
+			return
+		}
+		tenant := tenantID(r.Context())
+		if err := svc.CreateFastenerPosition(r.Context(), tenant, req, userID(r.Context())); err != nil {
+			mapStoreError(w, r, err)
+			return
+		}
+		// Позиция меняет состав каталога, а не только цену: публичный кэш
+		// витрины сбрасывается по той же причине, что и при смене цены.
+		purgePublicStoreCache(invalidate)
+		writeJSON(w, http.StatusCreated, req)
+	}
+}
+
+// handleDeleteFastenerPosition — DELETE
+// /api/v1/admin/store/fastener-positions/{code}.
+func handleDeleteFastenerPosition(svc StoreService, invalidate CacheInvalidator) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireStorePermission(w, r, auth.CapPriceMaterials, auth.LevelWrite) {
+			return
+		}
+		if err := svc.DeleteFastenerPosition(r.Context(), tenantID(r.Context()), r.PathValue("code")); err != nil {
 			mapStoreError(w, r, err)
 			return
 		}

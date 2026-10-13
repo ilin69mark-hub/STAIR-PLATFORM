@@ -218,6 +218,21 @@ type RatesResolver interface {
 	ResolveRates(ctx context.Context, tenantID string) (*engprc.Rates, error)
 }
 
+// FastenerRegistryResolver — источник каталога крепежа tenant'а: встроенные
+// позиции плюс те, что магазин добавил в админке (000048).
+//
+// Отдельный интерфейс от RatesResolver намеренно. Ставки отвечают на вопрос
+// «сколько стоит», справочник — «что вообще бывает». Позиция, добавленная в
+// админке, без справочника не попала бы в смету: движок код вне каталога
+// пропускает молча, и менеджер получил бы заниженную смету (ровно тот класс
+// дефекта, что закрывал S-179 у ограждения).
+//
+// Контракт тот же, что у RatesResolver: ошибка не фатальна, вызывающий
+// откатывается на встроенный каталог.
+type FastenerRegistryResolver interface {
+	FastenerRegistry(ctx context.Context, tenantID string) (*dommfg.FastenerRegistry, error)
+}
+
 // Service — прикладной сервис расчёта лестницы. Является единственной
 // точкой входа сквозного конвейера для любых транспортов.
 type Service struct {
@@ -225,6 +240,10 @@ type Service struct {
 	// rates — источник ставок магазина; nil → встроенные ставки движка для
 	// всех tenant'ов (поведение до CRITICAL-03).
 	rates RatesResolver
+	// fastenerRegs — источник каталога крепежа tenant'а; nil → встроенный
+	// каталог движка. Отдельное поле от rates: ставка отвечает на вопрос
+	// «сколько стоит», справочник — «что бывает».
+	fastenerRegs FastenerRegistryResolver
 }
 
 // NewService создаёт сервис со стандартным профилем правил (EDR-0002).
@@ -241,6 +260,35 @@ func NewServiceWithRates(rs RatesResolver) *Service {
 		constraints: constraint.StandardProfile("STANDARD"),
 		rates:       rs,
 	}
+}
+
+// NewServiceWithStore создаёт сервис, разрешающий и ставки, и каталог крепежа
+// через один источник магазина.
+//
+// Один параметр вместо двух конструкторов: store.Service удовлетворяет обоим
+// интерфейсам структурно, а разводить их значило бы заставлять вызывающего
+// помнить, что ставки и справочник достаются из одного и того же места.
+func NewServiceWithStore(rs RatesResolver, frs FastenerRegistryResolver) *Service {
+	return &Service{
+		constraints:  constraint.StandardProfile("STANDARD"),
+		rates:        rs,
+		fastenerRegs: frs,
+	}
+}
+
+// resolveFastenerRegistry применяет ту же политику отката, что resolveRates:
+// ошибка справочника не должна ронять геометрию.
+func (s *Service) resolveFastenerRegistry(ctx context.Context, opts Options) *dommfg.FastenerRegistry {
+	if s.fastenerRegs == nil || opts.TenantID == "" {
+		return nil
+	}
+	reg, err := s.fastenerRegs.FastenerRegistry(ctx, opts.TenantID)
+	if err != nil {
+		slog.Error("stair: store fastener catalog unavailable, using engine catalog",
+			"tenant_id", opts.TenantID, "error", err)
+		return nil
+	}
+	return reg
 }
 
 // resolveRates применяет ПРИЕДИНУЮЮ политику выбора источника ставок.
@@ -353,7 +401,7 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("stair: %w", err)
 	}
-	pkg, err := engmfg.Manufacture(c, gen)
+	pkg, err := engmfg.Manufacture(c, gen, s.resolveFastenerRegistry(ctx, opts))
 	if err != nil {
 		var feas *engmfg.FeasibilityError
 		if errors.As(err, &feas) {

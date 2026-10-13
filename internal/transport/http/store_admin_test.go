@@ -17,10 +17,12 @@ import (
 // как у testAuth).
 func newHTTPFakeStoreRepo() storeapp.Repository {
 	return &httpFakeStoreRepo{
-		settings:  map[string]storeapp.Settings{},
-		prices:    map[string]map[string]int64{},
-		fasteners: map[string]map[string]int64{},
-		sealants:  map[string]map[string]int64{},
+		settings:          map[string]storeapp.Settings{},
+		prices:            map[string]map[string]int64{},
+		fasteners:         map[string]map[string]int64{},
+		fastenerPositions: map[string]map[string]storeapp.FastenerPosition{},
+		sealants:          map[string]map[string]int64{},
+		purchased:         map[string]map[dommfg.PartKind]int64{},
 	}
 }
 
@@ -28,7 +30,9 @@ type httpFakeStoreRepo struct {
 	settings  map[string]storeapp.Settings
 	prices    map[string]map[string]int64
 	fasteners map[string]map[string]int64
-	sealants  map[string]map[string]int64
+	// fastenerPositions — свои позиции крепежа tenant'а (000048).
+	fastenerPositions map[string]map[string]storeapp.FastenerPosition
+	sealants          map[string]map[string]int64
 	// purchased хранит цены по ВИДУ детали (part_kind), а не по номеру
 	// экземпляра: прайс по PST-01 и PST-02 построить нельзя.
 	purchased map[string]map[dommfg.PartKind]int64
@@ -87,6 +91,36 @@ func (f *httpFakeStoreRepo) SetFastenerPrice(_ context.Context, tenantID, code s
 }
 
 func (f *httpFakeStoreRepo) DeleteFastenerPrice(_ context.Context, tenantID, code string) error {
+	delete(f.fasteners[tenantID], code)
+	return nil
+}
+
+// ---- свои позиции крепежа (000048) ----
+
+func (f *httpFakeStoreRepo) ListFastenerPositions(_ context.Context, tenantID string) ([]storeapp.FastenerPosition, error) {
+	byCode := f.fastenerPositions[tenantID]
+	out := make([]storeapp.FastenerPosition, 0, len(byCode))
+	for _, p := range byCode {
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+func (f *httpFakeStoreRepo) CreateFastenerPosition(_ context.Context, tenantID string,
+	p storeapp.FastenerPosition, price int64, _ string) error {
+	if f.fastenerPositions[tenantID] == nil {
+		f.fastenerPositions[tenantID] = map[string]storeapp.FastenerPosition{}
+	}
+	f.fastenerPositions[tenantID][p.Code] = p
+	if f.fasteners[tenantID] == nil {
+		f.fasteners[tenantID] = map[string]int64{}
+	}
+	f.fasteners[tenantID][p.Code] = price
+	return nil
+}
+
+func (f *httpFakeStoreRepo) DeleteFastenerPosition(_ context.Context, tenantID, code string) error {
+	delete(f.fastenerPositions[tenantID], code)
 	delete(f.fasteners[tenantID], code)
 	return nil
 }

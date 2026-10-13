@@ -15,18 +15,24 @@ type fakeRepo struct {
 	settings  map[string]Settings
 	prices    map[string]map[string]int64
 	fasteners map[string]map[string]int64
-	sealants  map[string]map[string]int64
+	// fastenerPositions — свои позиции крепежа tenant'а по коду (000048).
+	fastenerPositions map[string]map[string]FastenerPosition
+	// errPositions — сбой чтения справочника: им проверяется откат на
+	// встроенный каталог вместо падения расчёта.
+	errPositions error
+	sealants     map[string]map[string]int64
 	// purchased — закупочные цены по ВИДУ детали, не по номеру экземпляра.
 	purchased map[string]map[dommfg.PartKind]int64
 }
 
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{
-		settings:  map[string]Settings{},
-		prices:    map[string]map[string]int64{},
-		fasteners: map[string]map[string]int64{},
-		sealants:  map[string]map[string]int64{},
-		purchased: map[string]map[dommfg.PartKind]int64{},
+		settings:          map[string]Settings{},
+		prices:            map[string]map[string]int64{},
+		fasteners:         map[string]map[string]int64{},
+		fastenerPositions: map[string]map[string]FastenerPosition{},
+		sealants:          map[string]map[string]int64{},
+		purchased:         map[string]map[dommfg.PartKind]int64{},
 	}
 }
 
@@ -84,6 +90,39 @@ func (f *fakeRepo) SetFastenerPrice(_ context.Context, tenantID, code string, pr
 }
 
 func (f *fakeRepo) DeleteFastenerPrice(_ context.Context, tenantID, code string) error {
+	delete(f.fasteners[tenantID], code)
+	return nil
+}
+
+// ---- свои позиции крепежа (000048) ----
+
+func (f *fakeRepo) ListFastenerPositions(_ context.Context, tenantID string) ([]FastenerPosition, error) {
+	if f.errPositions != nil {
+		return nil, f.errPositions
+	}
+	byCode := f.fastenerPositions[tenantID]
+	out := make([]FastenerPosition, 0, len(byCode))
+	for _, p := range byCode {
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) CreateFastenerPosition(_ context.Context, tenantID string,
+	p FastenerPosition, price int64, _ string) error {
+	if f.fastenerPositions[tenantID] == nil {
+		f.fastenerPositions[tenantID] = map[string]FastenerPosition{}
+	}
+	f.fastenerPositions[tenantID][p.Code] = p
+	if f.fasteners[tenantID] == nil {
+		f.fasteners[tenantID] = map[string]int64{}
+	}
+	f.fasteners[tenantID][p.Code] = price
+	return nil
+}
+
+func (f *fakeRepo) DeleteFastenerPosition(_ context.Context, tenantID, code string) error {
+	delete(f.fastenerPositions[tenantID], code)
 	delete(f.fasteners[tenantID], code)
 	return nil
 }

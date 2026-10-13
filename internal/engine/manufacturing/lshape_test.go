@@ -31,6 +31,8 @@ func lshapeConfig(t *testing.T) *engineering.StairConfiguration {
 	cfg.StepThickness = mustLength(t, 40)
 	cfg.LowerStepCount = 6
 	cfg.LandingWidth = mustLength(t, 1000)
+	cfg.Railing = engineering.RailingLeft
+	cfg.RailingHeight = mustLength(t, 900)
 	return cfg
 }
 
@@ -67,7 +69,7 @@ func TestManufactureLShapeParts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := Manufacture(cfg, res)
+	pkg, err := Manufacture(cfg, res, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +109,7 @@ func TestManufactureLShapeDimensions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := Manufacture(cfg, res)
+	pkg, err := Manufacture(cfg, res, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +185,7 @@ func TestManufactureLShapeBOM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := Manufacture(cfg, res)
+	pkg, err := Manufacture(cfg, res, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +249,7 @@ func TestManufactureLShapeNesting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := Manufacture(cfg, res)
+	pkg, err := Manufacture(cfg, res, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

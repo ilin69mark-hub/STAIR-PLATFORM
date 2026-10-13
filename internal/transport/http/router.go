@@ -207,6 +207,11 @@ func NewRouter(svc StairService, projects ProjectService, authSvc AuthService, c
 		mux.Handle("GET /api/v1/admin/store/fasteners", authProtected(handleListFastenerPrices(storeSvc)))
 		mux.Handle("PUT /api/v1/admin/store/fasteners", authMutating(handleSetFastenerPrice(storeSvc, storeCacheInvalidator)))
 		mux.Handle("DELETE /api/v1/admin/store/fasteners/{code}", authMutating(handleDeleteFastenerPrice(storeSvc, storeCacheInvalidator)))
+		// Свои позиции крепежа (000048): маршрут отдельный от прайса, потому
+		// что у позиции есть вид и размер, а у строки прайса — только цена.
+		mux.Handle("GET /api/v1/admin/store/fastener-positions", authProtected(handleListFastenerPositions(storeSvc)))
+		mux.Handle("POST /api/v1/admin/store/fastener-positions", authMutating(handleCreateFastenerPosition(storeSvc, storeCacheInvalidator)))
+		mux.Handle("DELETE /api/v1/admin/store/fastener-positions/{code}", authMutating(handleDeleteFastenerPosition(storeSvc, storeCacheInvalidator)))
 		// Герметик (CONF-SEALANT): прайс в ₽/картридж. Отдельный ресурс по
 		// той же причине, что и крепёж: единица закупки другая.
 		mux.Handle("GET /api/v1/admin/store/sealants", authProtected(handleListSealantPrices(storeSvc)))

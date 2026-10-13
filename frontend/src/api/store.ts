@@ -67,9 +67,9 @@ export interface MaterialPrice {
 
 // FastenerPrice — позиция прайса крепежа, ₽ за штуку (MNT-0001).
 //
-// name_ru/diameter_mm/length_mm приходят с бэкенда из встроенного каталога
-// движка: админка не держит свою копию названий, поэтому добавление позиции
-// в коде сразу появляется здесь без правки интерфейса.
+// name_ru/diameter_mm/length_mm приходят с бэкенда из каталога: встроенного
+// плюс добавленные магазином. Админка не держит свою копию названий, поэтому
+// позиция, добавленная через интерфейс, появляется здесь сразу.
 export interface FastenerPrice {
   code: string
   name_ru: string
@@ -78,6 +78,21 @@ export interface FastenerPrice {
   length_mm: number
   price_per_pc_rub: number
   overridden: boolean
+}
+
+// FastenerPosition — своя позиция крепежа, добавленная магазином (000048).
+//
+// Отдельный тип, а не переиспользование FastenerPrice: у позиции есть вид,
+// размер и материал, а у строки прайса — только код и цена. Смешивать их в
+// одной форме значило бы заполнять неиспользуемые поля нулями.
+export interface FastenerPosition {
+  code: string
+  name_ru: string
+  kind: string
+  diameter_mm: number
+  length_mm: number
+  base: string
+  price_per_pc_rub: number
 }
 
 import { del, get, post, put } from './client'
@@ -173,6 +188,13 @@ export const storeApi = {
     put<FastenerPrice>('/api/v1/admin/store/fasteners', { code, price_per_pc_rub: pricePerPcRub }),
   resetFastenerPrice: (code: string) =>
     del<void>(`/api/v1/admin/store/fasteners/${encodeURIComponent(code)}`),
+  // Свои позиции крепежа (000048). Отдельный ресурс, а не поле прайса: у
+  // позиции есть вид, размер и материал, а у строки прайса — только цена.
+  fastenerPositions: () => get<FastenerPosition[]>('/api/v1/admin/store/fastener-positions'),
+  createFastenerPosition: (p: FastenerPosition) =>
+    post<FastenerPosition>('/api/v1/admin/store/fastener-positions', p),
+  deleteFastenerPosition: (code: string) =>
+    del<void>(`/api/v1/admin/store/fastener-positions/${encodeURIComponent(code)}`),
   // Прайс герметика — store.sealants.*, ₽ за картридж.
   sealants: () => get<SealantPrice[]>('/api/v1/admin/store/sealants'),
   setSealantPrice: (code: string, pricePerCartridgeRub: number) =>

@@ -11,7 +11,7 @@ import (
 
 func TestPlanOperationsRoutes(t *testing.T) {
 	cfg := testConfig(t)
-	pkg, err := Manufacture(cfg, genResult(t, cfg))
+	pkg, err := Manufacture(cfg, genResult(t, cfg), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestPlanOperationsRoutes(t *testing.T) {
 
 func TestPlanOperationsCutTimes(t *testing.T) {
 	cfg := testConfig(t)
-	pkg, err := Manufacture(cfg, genResult(t, cfg))
+	pkg, err := Manufacture(cfg, genResult(t, cfg), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestPlanOperationsCutTimes(t *testing.T) {
 
 func TestPlanOperationsTotalTime(t *testing.T) {
 	cfg := testConfig(t)
-	pkg, err := Manufacture(cfg, genResult(t, cfg))
+	pkg, err := Manufacture(cfg, genResult(t, cfg), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestPlanOperationsTotalTime(t *testing.T) {
 
 func TestPlanOperationsDeterminism(t *testing.T) {
 	cfg := testConfig(t)
-	pkg, err := Manufacture(cfg, genResult(t, cfg))
+	pkg, err := Manufacture(cfg, genResult(t, cfg), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestPlanOperationsDeterminism(t *testing.T) {
 
 func TestPlanOperationsErrors(t *testing.T) {
 	cfg := testConfig(t)
-	pkg, err := Manufacture(cfg, genResult(t, cfg))
+	pkg, err := Manufacture(cfg, genResult(t, cfg), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

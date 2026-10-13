@@ -53,6 +53,13 @@ func testConfig(t *testing.T) *engineering.StairConfiguration {
 	cfg.Material = "STEEL-S235"
 	cfg.TreadMaterial = "STEEL-S235"
 	cfg.StepThickness = mustLength(t, 40)
+	// Ограждение задано ЯВНО — сторона и высота. Спецификация читает их
+	// наравне с геометрией, и неназванная сторона (или нулевая высота)
+	// означает «перил нет»: тесты ниже проверяют лестницу С перилами,
+	// поэтому и сторона названа, и высота задана. Одна нитка — та же база,
+	// что была до появления S-189.
+	cfg.Railing = engineering.RailingLeft
+	cfg.RailingHeight = mustLength(t, 900)
 	return cfg
 }
 
@@ -66,7 +73,7 @@ func genResult(t *testing.T, cfg *engineering.StairConfiguration) *enggeo.Genera
 }
 
 func TestManufactureParts(t *testing.T) {
-	pkg, err := Manufacture(testConfig(t), genResult(t, testConfig(t)))
+	pkg, err := Manufacture(testConfig(t), genResult(t, testConfig(t)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +112,7 @@ func TestManufactureParts(t *testing.T) {
 }
 
 func TestManufacturePartDimensions(t *testing.T) {
-	pkg, err := Manufacture(testConfig(t), genResult(t, testConfig(t)))
+	pkg, err := Manufacture(testConfig(t), genResult(t, testConfig(t)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +192,7 @@ func TestManufacturePartDimensions(t *testing.T) {
 }
 
 func TestManufactureBOM(t *testing.T) {
-	pkg, err := Manufacture(testConfig(t), genResult(t, testConfig(t)))
+	pkg, err := Manufacture(testConfig(t), genResult(t, testConfig(t)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +258,7 @@ func TestManufactureBOM(t *testing.T) {
 func TestManufactureNoSteps(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.StepThickness = mustLength(t, 0)
-	pkg, err := Manufacture(cfg, genResult(t, cfg))
+	pkg, err := Manufacture(cfg, genResult(t, cfg), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,11 +285,11 @@ func TestManufactureNoSteps(t *testing.T) {
 func TestManufactureDeterminism(t *testing.T) {
 	cfg := testConfig(t)
 	gen := genResult(t, cfg)
-	a, err := Manufacture(cfg, gen)
+	a, err := Manufacture(cfg, gen, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := Manufacture(cfg, gen)
+	b, err := Manufacture(cfg, gen, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +299,7 @@ func TestManufactureDeterminism(t *testing.T) {
 }
 
 func TestManufactureNesting(t *testing.T) {
-	pkg, err := Manufacture(testConfig(t), genResult(t, testConfig(t)))
+	pkg, err := Manufacture(testConfig(t), genResult(t, testConfig(t)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,10 +334,10 @@ func TestManufactureErrors(t *testing.T) {
 	cfg := testConfig(t)
 	gen := genResult(t, cfg)
 
-	if _, err := Manufacture(nil, gen); err == nil {
+	if _, err := Manufacture(nil, gen, nil); err == nil {
 		t.Fatal("nil config must be rejected")
 	}
-	if _, err := Manufacture(cfg, nil); err == nil {
+	if _, err := Manufacture(cfg, nil, nil); err == nil {
 		t.Fatal("nil geometry result must be rejected")
 	}
 	// геометрия с ошибками валидации отклоняется (BC-007).
@@ -341,13 +348,13 @@ func TestManufactureErrors(t *testing.T) {
 			Message: "broken",
 		}},
 	}
-	if _, err := Manufacture(cfg, broken); err == nil {
+	if _, err := Manufacture(cfg, broken, nil); err == nil {
 		t.Fatal("geometry with validation errors must be rejected")
 	}
 	// невалидная конфигурация отклоняется.
 	bad := testConfig(t)
 	bad.StepCount = 0
-	if _, err := Manufacture(bad, gen); err == nil {
+	if _, err := Manufacture(bad, gen, nil); err == nil {
 		t.Fatal("invalid config must be rejected")
 	}
 }
@@ -380,7 +387,7 @@ func TestPlateStringerSplitsLongFlights(t *testing.T) {
 	if limit <= 0 {
 		t.Fatal("предел длины детали не найден для поля стола")
 	}
-	pkg, err := Manufacture(cfg, genResult(t, cfg))
+	pkg, err := Manufacture(cfg, genResult(t, cfg), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

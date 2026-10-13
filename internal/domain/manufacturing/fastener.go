@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-
-	"stairplatform/internal/domain/engineering"
 )
 
 // КРЕПЁЖ (MNT-0001) — дюбели и глухари.
@@ -40,6 +38,41 @@ func (k FastenerKind) IsValid() bool {
 	return false
 }
 
+// FastenerBase — материал, в который крепёж вворачивают по умолчанию.
+//
+// Это НЕ engineering.FixingBase, и путать их нельзя. FixingBase описывает, к
+// чему крепится САМА лестница (бетон/дерево), и его пустое значение означает
+// бетон. Здесь пустое значение означает «не задан», и трактовать его как бетон
+// нельзя: позиция без основания получила бы требование дюбеля, которого
+// никто не заказывал. Такая подмена нужна была, чтобы втиснуть в каталог
+// крепёж ограждения — саморез 5х32 в стойку из нержавейки (S-181).
+type FastenerBase string
+
+const (
+	// FastenerBaseConcrete — бетон: глухарь вворачивается через дюбель.
+	FastenerBaseConcrete FastenerBase = "concrete"
+	// FastenerBaseWood — дерево: глухарь вворачивается прямо.
+	FastenerBaseWood FastenerBase = "wood"
+	// FastenerBaseMetal — металл: стойка ограждения из нержавейки, шпилька.
+	FastenerBaseMetal FastenerBase = "metal"
+)
+
+// Valid — допустимо ли значение основания крепежа. Пустое допустимо: у
+// позиции может не быть основания по умолчанию (например, у доп. крепежа,
+// который владелец задаёт объекту).
+func (b FastenerBase) Valid() bool {
+	switch b {
+	case FastenerBaseConcrete, FastenerBaseWood, FastenerBaseMetal, "":
+		return true
+	}
+	return false
+}
+
+// NeedsPlug — нужен ли к этому глухарю дюбель. Основание по умолчанию: в
+// бетон — да, в дерево и металл — нет. Незаданное основание дюбеля не
+// требует (см. FastenerBase).
+func (b FastenerBase) NeedsPlug() bool { return b == FastenerBaseConcrete }
+
 // Fastener — позиция каталога крепежа.
 type Fastener struct {
 	// Code — ключ позиции («SCREW-6x35», «PLUG-10x60»). В смете и в
@@ -52,9 +85,8 @@ type Fastener struct {
 	// админка могла фильтровать и сортировать каталог по размеру.
 	DiameterMM float64
 	LengthMM   float64
-	// Base — основание по умолчанию: для дюбеля всегда бетон, для
-	// глухаря — то, в что его по умолчанию вворачивают.
-	Base engineering.FixingBase
+	// Base — материал, в который позицию вворачивают по умолчанию.
+	Base FastenerBase
 }
 
 // Validate проверяет позицию каталога.
@@ -146,7 +178,19 @@ const (
 	// дюбель не нужен, поэтому в смете появляется только при креплении
 	// в бетон.
 	PlugAnchorCode = "PLUG-10x60"
+	// ScrewRailPostCode — саморез 5х32 крепления ограждения: 2 штуки на
+	// стойку (решение владельца 2026-10-13). В стойку Ø42,4 из
+	// нержавейки дюбель не нужен — это металл, а не бетон, поэтому позиция
+	// заведена отдельной строкой, а не рядом 8/10 × 50…150.
+	ScrewRailPostCode = "SCREW-5x32"
 )
+
+// ScrewRailPostQtyPerPost — сколько саморезов крепления ограждения уходит
+// на одну стойку. Решение владельца 2026-10-13: 2 штуки.
+//
+// В коде геометрии это же число отдаётся как RailScrewsPerPost, чтобы
+// правило крепления и правило построения стойки жили в одном месте.
+const ScrewRailPostQtyPerPost = 2
 
 // defaultFastenerLengthsMM — ряд длин дюбелей и глухарей, который владелец
 // попросил держать в каталоге (решение 2026-10-08). Ряд неполный по
@@ -170,7 +214,13 @@ func DefaultFastenerRegistry() *FastenerRegistry {
 	items := []Fastener{
 		{
 			Code: ScrewTreadRiserCode, NameRu: "Глухарь 6х35", Kind: FastenerScrew,
-			DiameterMM: 6, LengthMM: 35, Base: engineering.BaseWood,
+			DiameterMM: 6, LengthMM: 35, Base: FastenerBaseWood,
+		},
+		{
+			// Крепление ограждения. Длина 32 мм подобрана под стойку
+			// Ø42,4/1,5: длиннее — вылезет наружу через стенку трубы.
+			Code: ScrewRailPostCode, NameRu: "Саморез 5х32 (ограждение)", Kind: FastenerScrew,
+			DiameterMM: 5, LengthMM: 32, Base: FastenerBaseMetal,
 		},
 	}
 	// Ряд 8/10 × 50…150: дюбели для бетона и глухари к ним.
@@ -189,11 +239,11 @@ func DefaultFastenerRegistry() *FastenerRegistry {
 			items = append(items,
 				Fastener{
 					Code: "PLUG-" + code, NameRu: "Дюбель для бетона " + size,
-					Kind: FastenerPlug, DiameterMM: d, LengthMM: l, Base: engineering.BaseConcrete,
+					Kind: FastenerPlug, DiameterMM: d, LengthMM: l, Base: FastenerBaseConcrete,
 				},
 				Fastener{
 					Code: "SCREW-" + code, NameRu: "Глухарь " + size,
-					Kind: FastenerScrew, DiameterMM: d, LengthMM: l, Base: engineering.BaseConcrete,
+					Kind: FastenerScrew, DiameterMM: d, LengthMM: l, Base: FastenerBaseConcrete,
 				},
 			)
 		}
@@ -257,4 +307,11 @@ const (
 	PurposeFloor      = "крепление в пол"
 	PurposeCeiling    = "крепление в перекрытие"
 	PurposeObject     = "по объекту"
+	// PurposeRailFlange — анкерные отверстия фланцев опоры ограждения.
+	// Отдельное назначение, хотя код тот же, что у пяток подступенка:
+	// глухарь 6х35 в пятке ступени и во фланце — разные работы, и в смете
+	// должно быть видно, за что платим.
+	PurposeRailFlange = "анкерные отверстия фланцев ограждения"
+	// PurposeRailPost — крепление поручня к стойкам ограждения.
+	PurposeRailPost = "крепление поручня к стойкам"
 )

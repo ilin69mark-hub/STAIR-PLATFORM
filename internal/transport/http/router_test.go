@@ -55,7 +55,8 @@ const referenceJSON = `{
 	"step_thickness_mm": 6,
 	"riser": true,
 	"clearance_mm": 2500,
-	"railing_height_mm": 1000
+	"railing_height_mm": 1000,
+	"railing": "left"
 }`
 
 func TestCalculateRailingAndDirectionEcho(t *testing.T) {
@@ -163,8 +164,11 @@ func TestCalculateReference(t *testing.T) {
 	// накруткой: 341 030,20 + 2 667,60 = 343 697,80 ₽.
 	// +12893.4 ₽: ограждение перестало стоить ноль (S-179) — 29 покупных
 	// позиций × 250 ₽ с наценкой, накладными, скидкой и НДС.
-	if resp.Pricing.FinalPriceRub != 356591.2 {
-		t.Fatalf("final price = %v, want 356591.2", resp.Pricing.FinalPriceRub)
+	// +533.52 ₽: крепёж ограждения (решение владельца 2026-10-13) — 12
+	// глухарей 6х35 на анкерные отверстия четырёх фланцев и 8 саморезов
+	// 5х32 на четыре стойки, 20 шт × 15 ₽ с той же накруткой.
+	if resp.Pricing.FinalPriceRub != 357124.72 {
+		t.Fatalf("final price = %v, want 357124.72", resp.Pricing.FinalPriceRub)
 	}
 	if len(resp.Manufacturing.Parts) == 0 || len(resp.Manufacturing.BOM) == 0 ||
 		len(resp.Manufacturing.CutList) == 0 || len(resp.Manufacturing.Nesting.Sheets) == 0 {

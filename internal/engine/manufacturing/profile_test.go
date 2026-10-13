@@ -112,7 +112,7 @@ func manufactureForProfile(cfg *engineering.StairConfiguration) (*dommfg.Manufac
 	if err != nil {
 		return nil, err
 	}
-	return Manufacture(cfg, res)
+	return Manufacture(cfg, res, nil)
 }
 
 func absMM(v float64) float64 {

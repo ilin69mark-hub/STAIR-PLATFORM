@@ -163,6 +163,40 @@ func railingEnabled(rh float64, side engineering.RailingSide) bool {
 	return rh > 0 && side.Valid() && side != engineering.RailingNone
 }
 
+// RailingEnabled — строим ли перила по конфигурации. Экспорт наружу нужен
+// спецификации: она обязана решать так же, как геометрия, иначе лестница без
+// перил получает в смете поручень, стойки и фланцы, которых не будет.
+//
+// Пустое значение RailingSide здесь означает «перил нет»: сторона должна быть
+// названа явно, иначе строить нечего. Это поведение геометрии, и раньше
+// спецификация от него отставала.
+func RailingEnabled(cfg *engineering.StairConfiguration) bool {
+	if cfg == nil {
+		return false
+	}
+	return railingEnabled(cfg.RailingHeight.Millimeters(), cfg.Railing)
+}
+
+// RailingSideCount — сколько сторон ограждения оплачивает заказчик: 0 (перил
+// нет), 1 (левая или правая) или 2 (с двух сторон).
+//
+// Та же правда, что и в геометрии: при RailingBoth строятся две независимые
+// нитки перил — своя стойка, свой фланец, свой поручень на каждой стороне.
+func RailingSideCount(cfg *engineering.StairConfiguration) int {
+	if !RailingEnabled(cfg) {
+		return 0
+	}
+	switch cfg.Railing {
+	case engineering.RailingBoth:
+		return 2
+	case engineering.RailingLeft, engineering.RailingRight:
+		return 1
+	case engineering.RailingNone:
+		return 0
+	}
+	return 0
+}
+
 // edgeInset сдвигает координату кромки внутрь ступени на halfSize, чтобы
 // наружная грань детали (поручня или стойки) совпала с кромкой ступени.
 // edge=0 (лево) → halfSize; edge=W (право) → W−halfSize.
@@ -1380,8 +1414,21 @@ func discWithAnchorHoles(q Quality, x, y, z0 float64) *kerngeo.Solid {
 	if err != nil {
 		return nil
 	}
-	return s.WithRole(roleClamp)
+	// Число анкерных отверстий едет вместе с телом — так же, как у пяток
+	// обоймы выреза. Раньше цанга строилась с тремя отверстиями, но их
+	// количество никто не объявлял, и производство о фланцевом крепеже
+	// не знало: геометрия и смета расходились по одной и той же детали.
+	return s.WithRole(roleClamp).WithHoles(anchorN)
 }
+
+// RailFlangeHoles — сколько анкерных отверстий в диске цанги (фланец
+// опоры). Их ровно столько, сколько объявлено на теле, поэтому расчёт
+// крепежа берёт это число, а не своё.
+//
+// Экспорт наружу нужен manufacturing: тот считает фланцевый крепёж по
+// фланцам спецификации, а не по телам модели — тела ограждения строятся
+// как декор и в Model не попадают (см. appendRailingMesh).
+func RailFlangeHoles() int { return anchorN }
 
 // railCapAt строит декоративный колпачок: стакан Ø88 × 17 с полостью Ø86,2
 // под цангу и верхним отверстием Ø51,3 вокруг стойки. Стоит на ступени и

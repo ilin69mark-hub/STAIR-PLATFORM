@@ -98,15 +98,21 @@ func engLen(mm float64) engineering.Length { return engineering.Length(mm) }
 //
 // Правило ОБЯЗАТЕЛЬНО совпадает с balusterSteps() в движке геометрии:
 //
-//	count = ceil((n−1)·b / maxGap) + 1
+//	count = ceil((n−1)·b / maxPostSpan) + 1
 //	idx_i = 1 + round(i·(n−1)/(count−1))
 //
-// плюс проверка «ни один промежуток не длиннее maxGap».
+// плюс проверка «ни один промежуток не длиннее maxPostSpan».
+//
+// Параметра «максимальный пролёт» у функции нет намеренно: значение одно и
+// оно равно maxPostSpan. Параметр, который всегда получал одну и ту же
+// константу, только провоцировал расхождение — выглядел как настраиваемое
+// правило, а правилом не был.
 //
 // Раньше здесь стояла своя формула int(run/1500)+1: на марше 15×270 она
 // давала 3 стойки, а геометрия рисовала 4. Спецификация и модель расходились
 // — ровно та двойная правда, ради устранения которой и заведён каталог.
-func railingPostIndices(n int, b, maxGap float64) []int {
+func railingPostIndices(n int, b float64) []int {
+	maxGap := maxPostSpan
 	if n <= 0 || b <= 0 {
 		return nil
 	}
@@ -146,8 +152,8 @@ func railingPostIndices(n int, b, maxGap float64) []int {
 }
 
 // railingPostCount — сколько стоек на марше.
-func railingPostCount(n int, b, maxGap float64) int {
-	return len(railingPostIndices(n, b, maxGap))
+func railingPostCount(n int, b float64) int {
+	return len(railingPostIndices(n, b))
 }
 
 // purchasedRailingParts собирает покупные детали ограждения.
@@ -163,21 +169,31 @@ func railingPostCount(n int, b, maxGap float64) int {
 // ограждение не знает), а этот конструктор — иначе Part.Validate() ругается
 // на пустой номер.
 func purchasedRailingParts(stepCount int, treadDepth, railLength,
-	railHeight float64, firstNumber int) []dommfg.Part {
-	if stepCount <= 0 || railLength <= 0 {
+	railHeight float64, sides int, firstNumber int) []dommfg.Part {
+	if stepCount <= 0 || railLength <= 0 || sides <= 0 {
 		return nil
 	}
 	runLength := treadDepth * float64(stepCount-1)
-	posts := railingPostCount(stepCount, treadDepth, maxPostSpan)
+	// Стойки, фланцы и ригели ставятся на КАЖДУЮ оплачиваемую сторону: при
+	// RailingBoth геометрия строит две независимые нитки перил (см.
+	// straightRailingSolids/buildLURNailing), и список покупного раньше
+	// показывал половину — по одной стороне. Раньше sides всегда был 1,
+	// потому что сторона вообще не читалась.
+	postsPerSide := railingPostCount(stepCount, treadDepth)
+	posts := postsPerSide * sides
 	var out []dommfg.Part
 
-	// Перила (поручень) — одна непрерывная труба на весь марш.
-	out = append(out, dommfg.Part{
-		Kind: dommfg.PartRailTop, Material: "STAINLESS-304",
-		Thickness: engLen(postWall), Length: engLen(railLength), Width: engLen(postOD),
-		Purchased: true,
-	})
-	// Стойки — по одной на каждой опоре.
+	// Перила (поручень) — по одной непрерывной трубе на марш на сторону.
+	// При двух сторонах это ДВЕ трубы: одна нитка не может обслуживать обе
+	// кромки, геометрия их строит отдельно.
+	for s := 0; s < sides; s++ {
+		out = append(out, dommfg.Part{
+			Kind: dommfg.PartRailTop, Material: "STAINLESS-304",
+			Thickness: engLen(postWall), Length: engLen(railLength), Width: engLen(postOD),
+			Purchased: true,
+		})
+	}
+	// Стойки — по одной на каждой опоре каждой стороны.
 	for i := 0; i < posts; i++ {
 		out = append(out, dommfg.Part{
 			Kind: dommfg.PartPost, Material: "STAINLESS-304",
@@ -185,16 +201,21 @@ func purchasedRailingParts(stepCount int, treadDepth, railLength,
 			Purchased: true,
 		})
 	}
-	// Ригели — два ряда между крайними стойками: posts-1 пролётов в ряд.
-	if posts >= 2 {
-		span := runLength / float64(posts-1)
-		for r := 0; r < rigelRows; r++ {
-			for i := 0; i < posts-1; i++ {
-				out = append(out, dommfg.Part{
-					Kind: dommfg.PartRigel, Material: "STAINLESS-304",
-					Thickness: engLen(rigelWall), Length: engLen(span), Width: engLen(rigelOD),
-					Purchased: true,
-				})
+	// Ригели — два ряда между крайними стойками ОДНОЙ стороны. Пролёт
+	// считается по стойкам своей стороны: если взять общее число стоек
+	// (postsPerSide × sides), то при двух сторонах пролёт вышел бы вдвое
+	// короче настоящего, и в смете лежала бы труба неверной длины.
+	if postsPerSide >= 2 {
+		span := runLength / float64(postsPerSide-1)
+		for s := 0; s < sides; s++ {
+			for r := 0; r < rigelRows; r++ {
+				for i := 0; i < postsPerSide-1; i++ {
+					out = append(out, dommfg.Part{
+						Kind: dommfg.PartRigel, Material: "STAINLESS-304",
+						Thickness: engLen(rigelWall), Length: engLen(span), Width: engLen(rigelOD),
+						Purchased: true,
+					})
+				}
 			}
 		}
 	}
@@ -227,19 +248,21 @@ func purchasedRailingParts(stepCount int, treadDepth, railLength,
 			},
 		)
 	}
-	// Торцевые заглушки — две на марш (вход и выход).
-	out = append(out,
-		dommfg.Part{
-			Kind: dommfg.PartEndCap, Material: "PLASTIC",
-			Thickness: engLen(1.0), Length: engLen(endCapOD), Width: engLen(endCapOD),
-			Purchased: true,
-		},
-		dommfg.Part{
-			Kind: dommfg.PartEndCap, Material: "PLASTIC",
-			Thickness: engLen(1.0), Length: engLen(endCapOD), Width: engLen(endCapOD),
-			Purchased: true,
-		},
-	)
+	// Торцевые заглушки — по две на нитку поручня (вход и выход).
+	for s := 0; s < sides; s++ {
+		out = append(out,
+			dommfg.Part{
+				Kind: dommfg.PartEndCap, Material: "PLASTIC",
+				Thickness: engLen(1.0), Length: engLen(endCapOD), Width: engLen(endCapOD),
+				Purchased: true,
+			},
+			dommfg.Part{
+				Kind: dommfg.PartEndCap, Material: "PLASTIC",
+				Thickness: engLen(1.0), Length: engLen(endCapOD), Width: engLen(endCapOD),
+				Purchased: true,
+			},
+		)
+	}
 	_ = railHeight
 	// Проставляем сквозные номера деталей пакета.
 	for i := range out {

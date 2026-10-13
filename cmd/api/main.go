@@ -177,7 +177,7 @@ func main() {
 	// Ставки магазина подключены к сервису расчёта: transport больше не решает,
 	// откуда брать цены, — источник выбирает stair.Service.resolveRates по
 	// Options.TenantID.
-	stairSvc := stair.NewServiceWithRates(storeSvc)
+	stairSvc := stair.NewServiceWithStore(storeSvc, storeSvc)
 	projectSvc := project.NewService(
 		database.NewProjectRepository(pool),
 		stairSvc,

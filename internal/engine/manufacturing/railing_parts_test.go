@@ -17,7 +17,7 @@ import (
 func TestPurchasedRailingInSpecNotInNesting(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.RailingHeight = mustLength(t, 900)
-	pkg, err := Manufacture(cfg, genResult(t, cfg))
+	pkg, err := Manufacture(cfg, genResult(t, cfg), nil)
 	if err != nil {
 		t.Fatalf("manufacture: %v", err)
 	}

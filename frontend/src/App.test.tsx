@@ -190,6 +190,11 @@ vi.mock('./api/store', () => ({
     fasteners: vi.fn(async () => []),
     setFastenerPrice: vi.fn(async () => ({})),
     resetFastenerPrice: vi.fn(async () => undefined),
+    // Свои позиции крепежа (000048): пусто — блок «Свои позиции» покажет
+    // подсказку о встроенном каталоге.
+    fastenerPositions: vi.fn(async () => []),
+    createFastenerPosition: vi.fn(async () => ({})),
+    deleteFastenerPosition: vi.fn(async () => undefined),
     // Герметик (CONF-SEALANT): пустой прайс, как и у крепежа.
     sealants: vi.fn(async () => []),
     setSealantPrice: vi.fn(async () => ({})),

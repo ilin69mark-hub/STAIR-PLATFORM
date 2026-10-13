@@ -6,6 +6,7 @@ import (
 
 	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
+	enggeo "stairplatform/internal/engine/geometry"
 	kerngeo "stairplatform/internal/geometry"
 )
 
@@ -91,6 +92,8 @@ func FastenerDemandFor(cfg *engineering.StairConfiguration, solids []*kerngeo.So
 	// дюбель, если основание бетонное.
 	acc.addAnchoring(dommfg.ScrewAnchorCode, cfg.FloorFixing.OrDefault(), floor, dommfg.PurposeFloor)
 	acc.addAnchoring(dommfg.ScrewAnchorCode, cfg.CeilingFixing.OrDefault(), ceiling, dommfg.PurposeCeiling)
+	// Ограждение.
+	acc.addRailing(cfg)
 
 	// Дополнительный крепёж по объекту.
 	for _, ex := range parseExtraFasteners(cfg.ExtraFasteners) {
@@ -101,6 +104,40 @@ func FastenerDemandFor(cfg *engineering.StairConfiguration, solids []*kerngeo.So
 		acc.add(ex.Code, ex.Quantity, dommfg.PurposeObject)
 	}
 	return acc.demands(), nil
+}
+
+// addRailing добавляет крепёж ограждения (решение владельца 2026-10-13):
+//
+//	фланец опоры — столько глухарей 6х35, сколько анкерных отверстий в
+//	  цанге (3 на фланец, enggeo.RailFlangeHoles);
+//	стойка — 2 самореза 5х32 на крепление поручня.
+//
+// Откуда берётся число. Считать по телам модели нельзя: тела ограждения
+// строятся как декор и уходят в RailingMesh, а в Model их нет (appendRailingMesh
+// в engine/geometry/engine.go). Поэтому берётся тот же счётчик стоек и тот же
+// счётчик сторон, которыми считаются покупные детали ограждения
+// (railingPostCount и enggeo.RailingSideCount), — одна правда о числе стоек
+// на марше, а не две. Перил «нет» (RailingNone или сторона не названа) —
+// крепежа ограждения тоже нет.
+//
+// Количество фланецев равно числу стоек: в purchasedRailingParts на каждую
+// стойку идёт ровно один комплект (наконечник, фланец, муфта, накладка).
+func (a *demandAccumulator) addRailing(cfg *engineering.StairConfiguration) {
+	if cfg == nil {
+		return
+	}
+	sides := enggeo.RailingSideCount(cfg)
+	if sides <= 0 {
+		return
+	}
+	posts := railingPostCount(cfg.StepCount, cfg.TreadDepth.Millimeters()) * sides
+	if posts <= 0 {
+		return
+	}
+	flanges := posts * enggeo.RailFlangeHoles()
+	a.add(dommfg.ScrewTreadRiserCode, dommfg.Quantity(flanges), dommfg.PurposeRailFlange)
+	a.add(dommfg.ScrewRailPostCode,
+		dommfg.Quantity(posts*dommfg.ScrewRailPostQtyPerPost), dommfg.PurposeRailPost)
 }
 
 // parseExtraFasteners разбирает список доп. крепежа из конфигурации.

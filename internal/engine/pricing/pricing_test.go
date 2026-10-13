@@ -31,12 +31,18 @@ func testDataset(t *testing.T) *dommfg.ManufacturingCostDataset {
 	cfg.Material = "STEEL-S235"
 	cfg.TreadMaterial = "STEEL-S235"
 	cfg.StepThickness = mustLength(t, 40)
+	// Ограждение задано явно (сторона и высота). Спецификация читает их
+	// наравне с геометрией: неназванная сторона означает «перил нет», и
+	// набор данных потерял бы все покупные позиции ограждения, на которых
+	// проверяется, что они доходят до сметы (S-162).
+	cfg.Railing = engineering.RailingLeft
+	cfg.RailingHeight = mustLength(t, 900)
 
 	gen, err := enggeo.Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := engmfg.Manufacture(cfg, gen)
+	pkg, err := engmfg.Manufacture(cfg, gen, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,8 +123,9 @@ func TestPriceChainConsistency(t *testing.T) {
 	if b.FinalPrice.Minor() != b.PreTax.Minor()+b.Tax.Minor() {
 		t.Fatal("final price chain inconsistent")
 	}
-	// 5 строк крепежа (глухарь и дюбель по полю, по перекрытию, плюс обойма
-	// выреза) + 1 строка герметика + 1 материал + станок + труд + накладные
+	// 7 строк крепежа (глухарь и дюбель по полю, по перекрытию, обойма
+	// выреза, анкерные отверстия фланцев ограждения и крепление поручня к
+	// стойкам) + 1 строка герметика + 1 материал + станок + труд + накладные
 	// + маржа + скидка + НДС + по одной строке на покупную позицию (S-162).
 	purchasedLines := 0
 	for _, l := range b.Lines {
@@ -126,9 +133,9 @@ func TestPriceChainConsistency(t *testing.T) {
 			purchasedLines++
 		}
 	}
-	want := 13 + purchasedLines
+	want := 15 + purchasedLines
 	if len(b.Lines) != want {
-		t.Fatalf("lines = %d, want %d (13 базовых + %d покупных)", len(b.Lines), want, purchasedLines)
+		t.Fatalf("lines = %d, want %d (15 базовых + %d покупных)", len(b.Lines), want, purchasedLines)
 	}
 	if purchasedLines == 0 {
 		t.Fatal("покупные позиции не попали в смету ни одной строкой — разрыв вернулся")
@@ -222,17 +229,21 @@ func TestPriceExactValues(t *testing.T) {
 		{"material", b.Material, 25005701},
 		{"machine", b.Machine, 3686386},
 		{"labor", b.Labor, 1470000},
-		{"fastener", b.Fastener, 357000},
+		// Крепёж: 238 штук по пяткам + 20 на ограждение = 258 × 15 ₽.
+		// Ограждение добавилось решением владельца 2026-10-13: 12 глухарей
+		// 6х35 на анкерные отверстия четырёх фланцев и 8 саморезов 5х32 на
+		// четыре стойки. Сдвиг 258 − 238 = 20 штук = 300 ₽ = 30 000 копеек.
+		{"fastener", b.Fastener, 387000},
 		// Герметик: площадь швов 0,6922 м² × 1 мм = 0,6922 л, делим на
 		// 0,31 л картриджа и округляем ВВЕРХ → 3 картриджа × 500 ₽.
 		{"sealant", b.Sealant, 150000},
-		{"overhead", b.Overhead, 6133817},
-		{"production", b.ProductionCost, 36802904},
-		{"margin", b.Margin, 11040871},
-		{"discount", b.Discount, 2392189},
-		{"pre-tax", b.PreTax, 45451586},
-		{"tax", b.Tax, 9090317},
-		{"final", b.FinalPrice, 54541903},
+		{"overhead", b.Overhead, 6139817},
+		{"production", b.ProductionCost, 36838904},
+		{"margin", b.Margin, 11051671},
+		{"discount", b.Discount, 2394529},
+		{"pre-tax", b.PreTax, 45496046},
+		{"tax", b.Tax, 9099209},
+		{"final", b.FinalPrice, 54595255},
 	}
 	for _, c := range checks {
 		if c.got.Minor() != c.want {

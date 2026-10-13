@@ -31,7 +31,7 @@ func chamferFinalPrice(t *testing.T, cfg *engineering.StairConfiguration, radius
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := Manufacture(&cp, gen)
+	pkg, err := Manufacture(&cp, gen, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

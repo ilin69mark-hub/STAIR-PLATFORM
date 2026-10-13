@@ -175,6 +175,20 @@ func Price(ds *dommfg.ManufacturingCostDataset, rates Rates) (*domprc.PriceBreak
 	for _, f := range ds.FastenerConsumption {
 		price, ok := rates.Fastener[f.Code]
 		if !ok {
+			// Ставки нет: строка остаётся нулевой, чтобы разрыв был виден.
+			//
+			// Раньше здесь стоял continue, и комментарий выше обещал
+			// обратное. Позиция с ценой в расчёте, но без ставки в прайсе,
+			// просто исчезала из сметы — а её количество было посчитано по
+			// просверленным отверстиям. Именно так молча пропадал бы крепёж,
+			// добавленный магазином в админке (000048): каталог позиций у
+			// тенанта есть, а ставка по коду в Rates.Fastener — нет.
+			b.Lines = append(b.Lines, domprc.CostComponent{
+				Name:     fmt.Sprintf("Крепёж: %s — %s", f.Name, f.Purpose),
+				Category: domprc.CategoryFastener,
+				Amount:   0,
+				Source:   fmt.Sprintf("fastener:%s,qty:%d,purpose:%s", f.Code, f.Quantity, f.Purpose),
+			})
 			continue
 		}
 		amount := moneyFromQuantity(float64(f.Quantity), price)
