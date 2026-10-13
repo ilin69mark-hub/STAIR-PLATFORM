@@ -15,6 +15,7 @@ import (
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/domain/engineering"
+	dommfg "stairplatform/internal/domain/manufacturing"
 	kerngeo "stairplatform/internal/geometry"
 	cadexp "stairplatform/internal/infrastructure/cad"
 )
@@ -29,7 +30,8 @@ type fakeProjectService struct {
 	configs          []*project.StairConfiguration
 	calc             *project.Calculation
 	cadMesh          *kerngeo.Mesh
-	cadRailings      *kerngeo.Mesh // сетка перил (DOM-003)
+	cadRailings      *kerngeo.Mesh                // сетка перил (DOM-003)
+	cuttingPkg       *dommfg.ManufacturingPackage // пакет для документа реза
 	createErr        error
 	calculateErr     error
 	getErr           error
@@ -326,6 +328,39 @@ func (f *fakeProjectService) ExportCADWithRailings(ctx context.Context, tenantID
 		railings = &kerngeo.Mesh{Vertices: []kerngeo.Point3{}, Triangles: [][3]int{}}
 	}
 	return mesh, railings, nil
+}
+
+// ExportAssembly — геометрия и пакет для сборочного чертежа. Фейк отдаёт
+// пустой меш и минимальный пакет: полной геометрии тестам маршрута не надо.
+func (f *fakeProjectService) ExportAssembly(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, *kerngeo.Mesh, *dommfg.ManufacturingPackage, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, nil, nil, project.ErrNotFound
+	}
+	if f.getErr != nil {
+		return nil, nil, nil, f.getErr
+	}
+	empty := &kerngeo.Mesh{}
+	pkg := &dommfg.ManufacturingPackage{}
+	if f.cuttingPkg != nil {
+		pkg = f.cuttingPkg
+	}
+	return empty, empty, pkg, nil
+}
+
+// ExportCutting — производственный пакет для документов производства.
+// Фейк строит минимальный пакет из своей же карты раскроя: тестам маршрута
+// нужен ответ, а не полный конвейер.
+func (f *fakeProjectService) ExportCutting(ctx context.Context, tenantID, userID, projectID string) (*dommfg.ManufacturingPackage, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, project.ErrNotFound
+	}
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	if f.cuttingPkg == nil {
+		return nil, project.ErrNotFound
+	}
+	return f.cuttingPkg, nil
 }
 
 func (f *fakeProjectService) ExportCAD(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, error) {

@@ -12,6 +12,7 @@ import (
 	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
+	dommfg "stairplatform/internal/domain/manufacturing"
 	kerngeo "stairplatform/internal/geometry"
 	"stairplatform/internal/infrastructure/cad"
 )
@@ -56,6 +57,16 @@ type ProjectService interface {
 	// ExportCADWithRailings — экспорт сетки вместе с сеткой перил (DOM-003).
 	// Экспортируемые DXF/STL/SVG раньше не содержали перил вообще.
 	ExportCADWithRailings(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, *kerngeo.Mesh, error)
+	// ExportCutting — производственный пакет для документов производства
+	// (документ реза, сборочный чертёж, наклейки). Отдельный метод от
+	// ExportCAD, потому что документ реза строится по раскрою (карта
+	// раскроя, номера деталей, отверстия), а не по мешу: меш не знает ни
+	// номера детали, ни её места на листе.
+	ExportCutting(ctx context.Context, tenantID, userID, projectID string) (*dommfg.ManufacturingPackage, error)
+	// ExportAssembly — геометрия и пакет для сборочного чертежа одним
+	// расчётом. Метки чертежа должны стоять на геометрии того же расчёта,
+	// что и пакет, поэтому метод один, а не два вызова.
+	ExportAssembly(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, *kerngeo.Mesh, *dommfg.ManufacturingPackage, error)
 	ListConfigurations(ctx context.Context, tenantID, userID, projectID string) ([]*project.StairConfiguration, error)
 	GetConfiguration(ctx context.Context, tenantID, userID, projectID, configurationID string) (*project.StairConfiguration, error)
 	RestoreConfiguration(ctx context.Context, tenantID, userID, projectID, configurationID string) (*project.StairConfiguration, error)
@@ -1001,6 +1012,157 @@ func handleExportCAD(svc ProjectService) http.HandlerFunc {
 		w.Header().Set("Content-Type", format.MIME())
 		w.Header().Set("Content-Disposition",
 			fmt.Sprintf(`attachment; filename="project-%s%s"`, r.PathValue("id"), format.Extension()))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(buf.Bytes())
+	}
+}
+
+// handleExportCutting — GET /api/v1/projects/{id}/export/cutting (auth).
+//
+// Документ реза: контуры деталей на плоскости листа с отверстиями
+// (настоящие CIRCLE там, где многоугольник доказанно круглый) и номерами
+// деталей. Отдаётся сразу файлом, как и handleExportCAD.
+//
+// Отдельный маршрут от /export/cad, а не параметр format: у документа реза
+// другой вход (раскрой, а не меш) и другой смысл координат (место детали на
+// листе, а не в системе координат изделия). Смешивание двух разных
+// документов в один маршрут с флагом привело бы к тому, что оператор не
+// знал бы, режет он картинку или контур.
+func handleExportCutting(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pkg, err := svc.ExportCutting(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
+		if errors.Is(err, project.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "Для проекта нет конфигурации")
+			return
+		}
+		if errors.Is(err, project.ErrForbidden) {
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
+			return
+		}
+		if err != nil {
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
+			return
+		}
+		var buf bytes.Buffer
+		if err := cad.WriteCutting(&buf, pkg); err != nil {
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Не удалось выполнить экспорт документа реза")
+			return
+		}
+		w.Header().Set("Content-Type", cad.CuttingMIME())
+		w.Header().Set("Content-Disposition",
+			fmt.Sprintf(`attachment; filename="project-%s-cutting.dxf"`, r.PathValue("id")))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(buf.Bytes())
+	}
+}
+
+// handleExportLabels — GET /api/v1/projects/{id}/export/labels (auth).
+//
+// Ведомость наклеек в CSV: строка на каждую деталь пакета с номером и
+// местом («куда»). По этому файлу печатаются наклейки на принтере этикеток:
+// одна строка = одна наклейка.
+//
+// Отдельный маршрут от /export/cutting: документ реза идёт на станок, а
+// ведомость — на принтер этикеток. Это два разных рабочих места с разными
+// файлами, и смешивать их в один ответ нельзя.
+func handleExportLabels(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pkg, err := svc.ExportCutting(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
+		if errors.Is(err, project.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "Для проекта нет конфигурации")
+			return
+		}
+		if errors.Is(err, project.ErrForbidden) {
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
+			return
+		}
+		if err != nil {
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
+			return
+		}
+		var buf bytes.Buffer
+		if err := cad.WriteLabels(&buf, pkg); err != nil {
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Не удалось выполнить экспорт ведомости наклеек")
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition",
+			fmt.Sprintf(`attachment; filename="project-%s-labels.csv"`, r.PathValue("id")))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(buf.Bytes())
+	}
+}
+
+// handleExportSpec — GET /api/v1/projects/{id}/export/spec (auth).
+//
+// Спецификация в CSV: строка на позицию с количеством и перечнем стикеров.
+// Вместе с ведомостью наклеек отвечает «какой стикер куда» с двух сторон:
+// наклейка говорит «я — TRD-07», спецификация говорит «TRD-07 — в позиции
+// 4 (проступь, 15 шт)».
+func handleExportSpec(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pkg, err := svc.ExportCutting(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
+		if errors.Is(err, project.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "Для проекта нет конфигурации")
+			return
+		}
+		if errors.Is(err, project.ErrForbidden) {
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
+			return
+		}
+		if err != nil {
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
+			return
+		}
+		var buf bytes.Buffer
+		if err := cad.WriteSpec(&buf, pkg); err != nil {
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Не удалось выполнить экспорт спецификации")
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition",
+			fmt.Sprintf(`attachment; filename="project-%s-spec.csv"`, r.PathValue("id")))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(buf.Bytes())
+	}
+}
+
+// handleExportAssembly — GET /api/v1/projects/{id}/export/assembly (auth).
+//
+// Сборочный чертёж в SVG: вид сверху с номерами деталей на их местах.
+// Метки и геометрия приходят из одного расчёта (ExportAssembly), чтобы номер
+// не встал на геометрию другого пересчёта.
+func handleExportAssembly(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		mesh, railings, pkg, err := svc.ExportAssembly(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
+		if errors.Is(err, project.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "Для проекта нет конфигурации")
+			return
+		}
+		if errors.Is(err, project.ErrForbidden) {
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
+			return
+		}
+		if err != nil {
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
+			return
+		}
+		var buf bytes.Buffer
+		if err := cad.WriteAssembly(&buf, cad.Merge(mesh, railings), pkg.Parts); err != nil {
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Не удалось выполнить экспорт сборочного чертежа")
+			return
+		}
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Content-Disposition",
+			fmt.Sprintf(`attachment; filename="project-%s-assembly.svg"`, r.PathValue("id")))
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(buf.Bytes())
 	}

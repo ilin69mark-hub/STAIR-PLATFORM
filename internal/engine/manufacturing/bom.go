@@ -21,6 +21,12 @@ type groupKey struct {
 type cutKey struct {
 	groupKey
 	profileID string
+	// holesID — подпись отверстий. Без неё две детали одного размера с
+	// РАЗНЫМИ отверстиями попали бы в одну позицию раскроя, и отверстия
+	// первой из них уехали бы на вторую. Для обоймы выреза это не
+	// абстракция: пятка с четырьмя отверстиями и пятка с шестью занимают
+	// одинаковый прямоугольник, но режутся по-разному.
+	holesID string
 }
 
 // profileID — короткая подпись контура для ключа группировки. Пустой контур
@@ -32,6 +38,21 @@ func profileID(p []dommfg.Point2D) string {
 	var b strings.Builder
 	for _, v := range p {
 		fmt.Fprintf(&b, "%.1f,%.1f;", v.X, v.Y)
+	}
+	return b.String()
+}
+
+// holesID — короткая подпись набора отверстий для ключа группировки.
+func holesID(h [][]dommfg.Point2D) string {
+	if len(h) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, ring := range h {
+		fmt.Fprintf(&b, "[%d]", len(ring))
+		for _, v := range ring {
+			fmt.Fprintf(&b, "%.1f,%.1f;", v.X, v.Y)
+		}
 	}
 	return b.String()
 }
@@ -103,6 +124,7 @@ func buildBOM(parts []dommfg.Part) (dommfg.BOM, dommfg.CutList) {
 	var cutOrder []cutKey
 	cutGroups := make(map[cutKey][]dommfg.PartNumber)
 	profiles := make(map[cutKey][]dommfg.Point2D)
+	holeRings := make(map[cutKey][][]dommfg.Point2D)
 	purchased := make(map[cutKey]bool)
 	joints := make(map[cutKey]jointFlags)
 
@@ -113,7 +135,7 @@ func buildBOM(parts []dommfg.Part) (dommfg.BOM, dommfg.CutList) {
 		}
 		groups[k] = append(groups[k], p.Number)
 
-		ck := cutKey{k, profileID(p.Profile)}
+		ck := cutKey{groupKey: k, profileID: profileID(p.Profile), holesID: holesID(p.Holes)}
 		if _, ok := cutGroups[ck]; !ok {
 			cutOrder = append(cutOrder, ck)
 		}
@@ -126,6 +148,12 @@ func buildBOM(parts []dommfg.Part) (dommfg.BOM, dommfg.CutList) {
 		if len(p.Profile) > 0 && profiles[ck] == nil &&
 			dommfg.ProfilesMatchBounds(p.Profile, p.Length.Millimeters(), p.Width.Millimeters(), 0.5) {
 			profiles[ck] = p.Profile
+		}
+		// Отверстия публикуются под тем же условием, что и контур: они
+		// относятся к той же заготовке. Отверстие вне контура — технологическое
+		// поле, лазер его не ведёт, и в документ реза оно попадать не должно.
+		if len(p.Holes) > 0 && holeRings[ck] == nil {
+			holeRings[ck] = dommfg.HolesWithinProfile(p.Holes, p.Profile)
 		}
 		if p.Purchased {
 			purchased[ck] = true
@@ -150,6 +178,10 @@ func buildBOM(parts []dommfg.Part) (dommfg.BOM, dommfg.CutList) {
 			Quantity:     dommfg.Quantity(len(nums)),
 			Length:       k.length,
 			Width:        k.width,
+			// Стикеры строки — все номера группы. Без них спецификация знает
+			// «15 проступей», но не знает, какие наклейки в эту пятнашку
+			// входят, и «какой стикер куда» ответить не может.
+			Numbers: append([]dommfg.PartNumber(nil), nums...),
 		})
 	}
 
@@ -172,6 +204,7 @@ func buildBOM(parts []dommfg.Part) (dommfg.BOM, dommfg.CutList) {
 			Width:        ck.width,
 			Quantity:     dommfg.Quantity(len(nums)),
 			Profile:      profiles[ck],
+			Holes:        holeRings[ck],
 			HasTongue:    j.tongue,
 			HasMortise:   j.mortise,
 			JointOnWidth: j.onWidth,

@@ -9,6 +9,7 @@ import (
 
 	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/stair"
+	dommfg "stairplatform/internal/domain/manufacturing"
 	kerngeo "stairplatform/internal/geometry"
 )
 
@@ -465,6 +466,94 @@ func (s *Service) ExportCADWithRailings(ctx context.Context, tenantID, userID, p
 	// DOM-003: перила возвращаются отдельным мешем; при railing=none он
 	// пустой (не nil), чтобы транспорт не путал «нет перил» с «ошибка».
 	return res.Mesh, res.RailingMesh, nil
+}
+
+// ExportCutting возвращает производственный пакет последней сохранённой
+// конфигурации — всё, что нужно для документов производства: раскрой на
+// листах, спецификацию, положение каждой детали в сборке.
+//
+// Отдельный метод, а не перегрузка ExportCADWithRailings, потому что у
+// документа реза другой вход: не меш, а карта раскроя. Меш не знает ни
+// номера детали, ни отверстий, ни места детали на листе — то есть ровно того,
+// из чего состоит документ реза.
+//
+// Требуется членство проекта и право чтения, как у остальных выгрузок.
+func (s *Service) ExportCutting(ctx context.Context, tenantID, userID, projectID string) (*dommfg.ManufacturingPackage, error) {
+	me, ok, err := s.member(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if !me.Role.HasPermission(PermissionProjectRead) {
+		return nil, ErrForbidden
+	}
+	sc, err := s.repo.GetLatestConfiguration(ctx, tenantID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if sc == nil {
+		return nil, ErrNotFound
+	}
+	cfg, opts, err := fromConfigEntity(sc)
+	if err != nil {
+		return nil, err
+	}
+	res, err := s.calc.Calculate(ctx, cfg, opts)
+	if err != nil {
+		return nil, fmt.Errorf("project: export cutting: %w", err)
+	}
+	if res.Package == nil {
+		return nil, fmt.Errorf("project: export cutting: %w", ErrConflict)
+	}
+	s.record(ctx, tenantID, userID, projectID, audit.ActionProjectModified, audit.ResultOK, "cutting export")
+	return res.Package, nil
+}
+
+// ExportAssembly — геометрия и производственный пакет для сборочного
+// чертежа: меш (включая перила) плюс детали с их положением.
+//
+// Один метод, а не два вызова ExportCADWithRailings + ExportCutting:
+// чертёж рисует метки на геометрии, и оба должны прийти из ОДНОГО расчёта.
+// Два пересчёта дали бы две копии пакета, и метка могла бы встать на
+// геометрию другого пересчёта — расхождение, которое выглядело бы как
+// ошибка раскроя.
+//
+// Требуется членство проекта и право чтения, как у остальных выгрузок.
+func (s *Service) ExportAssembly(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, *kerngeo.Mesh, *dommfg.ManufacturingPackage, error) {
+	me, ok, err := s.member(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if !ok {
+		return nil, nil, nil, ErrNotFound
+	}
+	if !me.Role.HasPermission(PermissionProjectRead) {
+		return nil, nil, nil, ErrForbidden
+	}
+	sc, err := s.repo.GetLatestConfiguration(ctx, tenantID, projectID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if sc == nil {
+		return nil, nil, nil, ErrNotFound
+	}
+	cfg, opts, err := fromConfigEntity(sc)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	res, err := s.calc.Calculate(ctx, cfg, opts)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("project: export assembly: %w", err)
+	}
+	if res.Mesh == nil || res.Package == nil {
+		return nil, nil, nil, fmt.Errorf("project: export assembly: %w", ErrConflict)
+	}
+	// Слияние мешей — в транспорте через cad.Merge, как у ExportCADWithRailings:
+	// сервис отдаёт геометрию как есть, а склейка для отрисовки — дело вывода.
+	s.record(ctx, tenantID, userID, projectID, audit.ActionProjectModified, audit.ResultOK, "assembly export")
+	return res.Mesh, res.RailingMesh, res.Package, nil
 }
 
 // GetLatestConfig возвращает текущую (или последнюю) сохранённую

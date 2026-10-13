@@ -1367,6 +1367,26 @@ func railEndCaps(q Quality, a, b kerngeo.Point3) []*kerngeo.Solid {
 	return out
 }
 
+// circleRailing — окружность детали ограждения с числом сегментов ПО ДОПУСКУ.
+//
+// Константы вместо этого не годились: 10 сегментов на Ø9 дают отклонение
+// 0,2202 мм, 16 сегментов на Ø51,3 — 0,4929 мм, и обе величины превышают
+// railTubeToleranceMM = 0,19 мм. Обещание было написано в константе
+// допуска, но никем не проверялось, и две окружности его нарушали. Детали
+// ограждения покупные и лазером не режутся, поэтому денег тут не было —
+// чинится видимость и исполнимость обещания.
+//
+// Параметра допуска нет намеренно: у ограждения он один, и параметр,
+// который всегда получал бы railTubeToleranceMM, выглядел бы как
+// настройка, не будучи ею (линтер unparam так и говорит).
+//
+// Нижнюю границу «это ещё отверстие, а не угол» обеспечивает
+// kerngeo.ArcSegments через kerngeo.MinArcSegments.
+func circleRailing(q Quality, center kerngeo.Point3, u, v kerngeo.Vector3, radius float64) []kerngeo.Point3 {
+	segs := kerngeo.ArcSegments(radius, 2*math.Pi, q.arcTol(railTubeToleranceMM))
+	return circleRing(center, u, v, radius, segs)
+}
+
 // railClampAt строит цангу — основание опоры на ступени (чертёж k334):
 // диск Ø86 × 8 с тремя анкерными отверстиями Ø9 на радиусе 32, и муфта
 // Ø43, в которую входит стойка Ø42,4.
@@ -1402,12 +1422,14 @@ func discWithAnchorHoles(q Quality, x, y, z0 float64) *kerngeo.Solid {
 		a := 2 * math.Pi * float64(k) / float64(anchorN)
 		cx := x + anchorR*math.Cos(a)
 		cy := y + anchorR*math.Sin(a)
-		hseg := 10
-		hp := make([]kerngeo.Point3, hseg)
-		for i := 0; i < hseg; i++ {
-			ha := 2 * math.Pi * float64(i) / float64(hseg)
-			hp[i] = kerngeo.NewPoint3(cx+anchorD/2*math.Cos(ha), cy+anchorD/2*math.Sin(ha), z0)
-		}
+		// Сегменты по ДОПУСКУ, а не константой. Константа hseg = 10 давала
+		// для Ø9 отклонение 0,2202 мм при объявленном допуске трубы 0,19 мм
+		// (railingTubeToleranceMM): обещание было нарушено, и никакого теста
+		// это не ловило — константа выглядела как «достаточно». Деталь
+		// покупная, лазером не режется, так что денег здесь нет: чинится
+		// видимость и, главное, исполнимость обещания.
+		hp := circleRailing(ProductionQuality, kerngeo.NewPoint3(cx, cy, z0),
+			kerngeo.NewVector3(1, 0, 0), kerngeo.NewVector3(0, 1, 0), anchorD/2)
 		holes = append(holes, hp)
 	}
 	s, err := kerngeo.ExtrudeWithHoles(prof, holes, dir, clampDiscT)
@@ -1451,12 +1473,14 @@ func railCapAt(q Quality, x, y, z0 float64) []*kerngeo.Solid {
 		a := 2 * math.Pi * float64(i) / float64(seg)
 		prof[i] = kerngeo.NewPoint3(x+capOD/2*math.Cos(a), y+capOD/2*math.Sin(a), z0+capH-capTopT)
 	}
-	hseg := 16
-	hp := make([]kerngeo.Point3, hseg)
-	for i := 0; i < hseg; i++ {
-		ha := 2 * math.Pi * float64(i) / float64(hseg)
-		hp[i] = kerngeo.NewPoint3(x+capTopID/2*math.Cos(ha), y+capTopID/2*math.Sin(ha), z0+capH-capTopT)
-	}
+	// Верхнее отверстие вокруг стойки Ø51,3. Константа hseg = 16 давала
+	// отклонение 0,4929 мм — в 2,6 раза больше объявленного допуска трубы и
+	// вдвое больше прежнего допуска DefaultArcToleranceMM. Отверстие Ø51,3
+	// самое крупное в ограждении, и на виде сбоку оно читалось как
+	// многоугольник. Сегменты берутся по допуску, как у носа ступени.
+	hp := circleRailing(ProductionQuality,
+		kerngeo.NewPoint3(x, y, z0+capH-capTopT),
+		kerngeo.NewVector3(1, 0, 0), kerngeo.NewVector3(0, 1, 0), capTopID/2)
 	lid, err := kerngeo.ExtrudeWithHoles(prof, [][]kerngeo.Point3{hp},
 		kerngeo.NewVector3(0, 0, 1), capTopT)
 	if err != nil || lid == nil {

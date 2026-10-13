@@ -60,6 +60,21 @@ func ParseFormat(s string) (Format, error) {
 // ErrEmptyMesh — сетка не содержит вершин/граней.
 var ErrEmptyMesh = errors.New("cad: empty mesh")
 
+// ErrNoPackage — документ реза запрошен без производственного пакета.
+// Отдельная ошибка от ErrEmptyMesh: пустой меш — это «модель не построена»,
+// а отсутствие пакета — «документ реза не из чего делать».
+var ErrNoPackage = errors.New("cad: manufacturing package is required")
+
+// ErrEmptyCutList — в карте раскроя нет ни одной детали.
+var ErrEmptyCutList = errors.New("cad: cut list is empty")
+
+// CuttingMIME — Content-Type документа реза. Отдельный от DXF MESH:
+// документ реза это контуры на плоскости листа, а не треугольники меша,
+// и открывать его должен CAM-редактор, а не просмотрщик 3D.
+func CuttingMIME() string {
+	return "application/dxf"
+}
+
 // Merge объединяет несколько сеток в одну (DOM-003).
 //
 // Нужен потому, что перила строятся ОТДЕЛЬНЫМ телом и в основной меш

@@ -438,8 +438,115 @@ type Point2D struct {
 // обязан остаться на прямоугольнике: лучше описывающий прямоугольник, чем
 // выдуманный многоугольник.
 func SolidProfile2D(solid *Solid) ([]Point2D, bool) {
+	outer, _, ok := SolidProfileWithHoles2D(solid)
+	return outer, ok
+}
+
+// SolidProfileWithHoles2D — точный плоский контур детали и её ОТВЕРСТИЯ в
+// одной и той же системе координат.
+//
+// Зачем отверстия рядом с контуром, а не отдельно. Чтобы вырезать деталь,
+// нужны оба: лазер идёт по внешнему контуру и по каждому отверстию внутри.
+// Раньше наружу отдавался только внешний контур, и отверстия в документе
+// реза не появлялись вовсе — число их знала только счётка в смете
+// (Part.HoleCount), но оператор на станке их не видел.
+//
+// Оба набора приводятся ОДНИМ поворотом и одним сдвигом, что и внешний
+// контур: отверстие, вытащенное в другую систему, оказалось бы по другому
+// краю детали, и это выглядело бы как ошибка раскроя.
+func SolidProfileWithHoles2D(solid *Solid) ([]Point2D, [][]Point2D, bool) {
+	f, ok := NewProfileFrame(solid)
+	if !ok {
+		return nil, nil, false
+	}
+	if len(f.outer) < 3 {
+		return nil, nil, false
+	}
+
+	// Проецирование точки контура в оси профиля. Один и тот же сдвиг для
+	// внешнего контура и для отверстий — иначе они разъедутся.
+	project := func(pts []Point3) []Point2D {
+		uniq := dedupePoints(pts, 1e-6)
+		out := make([]Point2D, 0, len(uniq))
+		for _, p := range uniq {
+			p0, p1 := coord(p, f.axes[0]), coord(p, f.axes[1])
+			out = append(out, Point2D{X: p0*f.ux + p1*f.uy, Y: -p0*f.uy + p1*f.ux})
+		}
+		return out
+	}
+
+	rawOuter := project(f.outer)
+	minX, minY := math.Inf(1), math.Inf(1)
+	for _, p := range rawOuter {
+		minX, minY = math.Min(minX, p.X), math.Min(minY, p.Y)
+	}
+	shift := func(pts []Point2D) []Point2D {
+		for i := range pts {
+			pts[i].X -= minX
+			pts[i].Y -= minY
+		}
+		return pts
+	}
+	outer := normalizeContour(shift(rawOuter))
+	if len(outer) < 3 {
+		return nil, nil, false
+	}
+
+	holes := make([][]Point2D, 0, 4)
+	for _, w := range f.inner {
+		pts, ok := contourPoints(w)
+		if !ok || len(pts) < 3 {
+			continue
+		}
+		h := shift(project(pts))
+		if len(h) >= 3 {
+			holes = append(holes, h)
+		}
+	}
+	return outer, holes, true
+}
+
+// Профильная рамка тела (ProfileFrame) — тонкая ось, две оси в плоскости и
+// поворот базиса вдоль самого длинного ребра контура.
+//
+// Зачем она отдельная. Профиль детали (SolidProfile2D) и её положение в
+// сборке (SolidPlacement) обязаны быть в ОДНОЙ системе координат: если у них
+// разные тонкая ось или разный поворот, чертёж детали напечатается в одном
+// месте, а на раскрое и на сборке она встанет в другом — и это будет
+// выглядеть как ошибка раскроя, а не как ошибка печати чертежа. Рамка одна,
+// вычисляется один раз, обе функции её читают.
+//
+// Тело должно быть ПЛОСКИМ (призматичным): у него есть тонкая ось, вдоль
+// неё — крышки, и контур крышки описывает вырезаемое пятно. У составных тел
+// тонкой оси нет, и рамка не строится.
+type ProfileFrame struct {
+	// thin — индекс тонкой оси (0=X, 1=Y, 2=Z): вдоль неё лежит толщина.
+	thin int
+	// axes — индексы двух оставшихся осей, в порядке возрастания.
+	axes [2]int
+	// ux, uy — компоненты поворота базиса в плоскости (axes[0], axes[1]).
+	ux, uy float64
+	// outer — контур первой найденной крышки в мировых координатах.
+	outer []Point3
+	// inner — контуры отверстий на той же крышке, что и outer.
+	//
+	// Берутся ИМЕННО с этой крышки: у другой крышки контуры лежат в
+	// параллельной плоскости на расстоянии толщины, и в двухмерный профиль
+	// детали они попали бы по краю в зеркальном положении.
+	inner []*Wire
+	// Origin — мировая точка, которой соответствует начало профиля (0, 0).
+	Origin Point3
+	// U, V — единичные мировые векторы вдоль осей профиля.
+	U, V Vector3
+	// N — единичная мировая нормаль к плоскости детали (тонкая ось).
+	N Vector3
+}
+
+// NewProfileFrame строит профильную рамку тела. Второе значение — «рамка
+// построена».
+func NewProfileFrame(solid *Solid) (ProfileFrame, bool) {
 	if solid == nil {
-		return nil, false
+		return ProfileFrame{}, false
 	}
 	bb := SolidBoundingBox(solid)
 	ext := [3]float64{bb.Max.X - bb.Min.X, bb.Max.Y - bb.Min.Y, bb.Max.Z - bb.Min.Z}
@@ -452,29 +559,44 @@ func SolidProfile2D(solid *Solid) ([]Point2D, bool) {
 	lo, hi := [3]float64{bb.Min.X, bb.Min.Y, bb.Min.Z}[thin],
 		[3]float64{bb.Max.X, bb.Max.Y, bb.Max.Z}[thin]
 	if hi-lo <= Precision {
-		return nil, false
+		return ProfileFrame{}, false
 	}
 
 	// Наружный контур первой найденной крышки: крышек две, и контуры у них
 	// одинаковые, поэтому достаточно одной.
+	//
+	// Запоминаем, с какой именно крышки взят контур (capAt): начало профиля
+	// обязано лежать на ТОЙ ЖЕ плоскости. Иначе профиль с нижней крышки
+	// отобразился бы в мир на толщину детали выше, чем он на самом деле, —
+	// сдвиг 4 мм у пятки и 8 мм у косоура. Для чертежа это мелочь, для
+	// монтажа — ошибка на миллиметр, которая не имеет права быть молчаливой.
 	var outer []Point3
+	var inner []*Wire
+	capAt := lo
 	for _, shell := range solid.Shells() {
 		for _, face := range shell.Faces() {
 			pts, ok := contourPoints(face.Outer())
 			if !ok || len(pts) < 3 {
 				continue
 			}
-			if onPlane(pts, thin, lo) || onPlane(pts, thin, hi) {
-				outer = pts
-				break
+			switch {
+			case onPlane(pts, thin, lo):
+				outer, capAt = pts, lo
+				inner = face.Inner()
+			case onPlane(pts, thin, hi):
+				outer, capAt = pts, hi
+				inner = face.Inner()
+			default:
+				continue
 			}
+			break
 		}
 		if len(outer) > 0 {
 			break
 		}
 	}
 	if len(outer) < 3 {
-		return nil, false
+		return ProfileFrame{}, false
 	}
 
 	// Оси плоскости детали — две оставшиеся, и базис вдоль самого длинного
@@ -497,25 +619,57 @@ func SolidProfile2D(solid *Solid) ([]Point2D, bool) {
 		}
 	}
 	if best <= 0 {
-		return nil, false
+		return ProfileFrame{}, false
 	}
 	ux, uy := bx/best, by/best
 
-	uniq := dedupePoints(outer, 1e-6)
-	out := make([]Point2D, 0, len(uniq))
-	minX, minY := math.Inf(1), math.Inf(1)
-	for _, p := range uniq {
-		p0, p1 := coord(p, axes[0]), coord(p, axes[1])
-		s := p0*ux + p1*uy
-		q := -p0*uy + p1*ux
-		out = append(out, Point2D{X: s, Y: q})
-		minX, minY = math.Min(minX, s), math.Min(minY, q)
+	// Мировые единичные векторы осей профиля. U смотрит вдоль самого
+	// длинного ребра контура, V поперёк, N — вдоль тонкой оси.
+	e0, e1, e2 := axisVec(axes[0]), axisVec(axes[1]), axisVec(thin)
+	f := ProfileFrame{
+		thin:  thin,
+		axes:  axes,
+		ux:    ux,
+		uy:    uy,
+		outer: outer,
+		inner: inner,
+		U: Vector3{
+			X: ux*e0.X + uy*e1.X,
+			Y: ux*e0.Y + uy*e1.Y,
+			Z: ux*e0.Z + uy*e1.Z,
+		},
+		V: Vector3{
+			X: -uy*e0.X + ux*e1.X,
+			Y: -uy*e0.Y + ux*e1.Y,
+			Z: -uy*e0.Z + ux*e1.Z,
+		},
+		N: e2,
 	}
-	for i := range out {
-		out[i].X -= minX
-		out[i].Y -= minY
+	// Начало профиля (0, 0) — мировая точка с минимальными координатами по U
+	// и V, лежащая в плоскости ТОЙ ЖЕ крышки, с которой взят контур (capAt).
+	minU, minV := math.Inf(1), math.Inf(1)
+	for _, p := range outer {
+		minU = math.Min(minU, p.X*f.U.X+p.Y*f.U.Y+p.Z*f.U.Z)
+		minV = math.Min(minV, p.X*f.V.X+p.Y*f.V.Y+p.Z*f.V.Z)
 	}
-	return normalizeContour(out), len(out) >= 3
+	f.Origin = NewPoint3(
+		minU*f.U.X+minV*f.V.X+capAt*e2.X,
+		minU*f.U.Y+minV*f.V.Y+capAt*e2.Y,
+		minU*f.U.Z+minV*f.V.Z+capAt*e2.Z,
+	)
+	return f, true
+}
+
+// axisVec — единичный мировой вектор мировой оси с индексом i.
+func axisVec(i int) Vector3 {
+	switch i {
+	case 0:
+		return Vector3{X: 1}
+	case 1:
+		return Vector3{Y: 1}
+	default:
+		return Vector3{Z: 1}
+	}
 }
 
 // normalizeContour приводит контур к каноническому виду: начало в лексикографически

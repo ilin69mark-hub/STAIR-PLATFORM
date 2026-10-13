@@ -515,6 +515,11 @@ export interface Part {
   Length: number
   Width: number
   SolidIndex: number
+  // Куда ставится деталь («ступень 7», «косоур А»). Для наклейки и
+  // сборочного чертежа.
+  Where?: string
+  // Покупается готовой, не режется. В документ реза не входит.
+  Purchased?: boolean
 }
 
 export interface BomLine {
@@ -522,6 +527,9 @@ export interface BomLine {
   PartNumber: string
   Description: string
   Material: string
+  // Стикеры всех экземпляров позиции. Спецификация отвечает «какой стикер
+  // куда» только если знает полный перечень наклеек.
+  Numbers?: string[]
   Thickness: number
   Quantity: number
   Length: number

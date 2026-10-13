@@ -56,6 +56,13 @@ export const projectsApi = {
 
   exportUrl: (id: string) => `/api/v1/projects/${id}/export`,
 
+  // Документы производства (Фаза 0). Скачиваются тем же способом, что и
+  // JSON-снапшот (fetch + Blob), поэтому здесь только URL.
+  cuttingUrl: (id: string) => `/api/v1/projects/${id}/export/cutting`,
+  labelsUrl: (id: string) => `/api/v1/projects/${id}/export/labels`,
+  specUrl: (id: string) => `/api/v1/projects/${id}/export/spec`,
+  assemblyUrl: (id: string) => `/api/v1/projects/${id}/export/assembly`,
+
   // ---- Участники (EDR-0008) ----
   listMembers: (id: string) => get<ProjectMember[]>(`/api/v1/projects/${id}/members`),
 

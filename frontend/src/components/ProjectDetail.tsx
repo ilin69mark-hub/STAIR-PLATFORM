@@ -31,6 +31,7 @@ import {
 } from '@shared/config'
 import { ResultPanel } from './ResultPanel'
 import { PipelineLiveLine } from './PipelineLiveLine'
+import { ProductionDocs } from './ProductionDocs'
 import { usePipelineRoom } from '../lib/usePipelineRoom'
 import type { Variation } from '@shared/types'
 import { generateProposalPdf } from '../lib/proposal'
@@ -529,14 +530,20 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
             <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Результат последнего расчёта. Вариации A/B/C — превью без сохранения, «Применить» создаёт версию.</p>
             {calculation && (
 <>
-<PipelineLiveLine live={pipelineLive} notices={pipelineNotices} />
-<ResultPanel
-                  snapshot={calculation.result}
-                  onApplyVariation={applyVariation}
-                  activeVariantId={activeVariantId}
-                  heightMM={Number(config.heightMM) || undefined}
-                />
-</>
+              <PipelineLiveLine live={pipelineLive} notices={pipelineNotices} />
+              <ResultPanel
+                snapshot={calculation.result}
+                onApplyVariation={applyVariation}
+                activeVariantId={activeVariantId}
+                heightMM={Number(config.heightMM) || undefined}
+              />
+              <ProductionDocs
+                projectId={projectId}
+                parts={calculation.result.manufacturing?.Parts ?? []}
+                bom={calculation.result.manufacturing?.BOM?.Lines ?? []}
+                hasCalculation={!!calculation}
+              />
+            </>
             )}
             {previewCalculation && (
               <section className="panel">

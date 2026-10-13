@@ -349,6 +349,13 @@ type partDTO struct {
 	LengthMm    float64 `json:"length_mm"`
 	WidthMm     float64 `json:"width_mm"`
 	SolidIndex  int     `json:"solid_index"`
+	// Where — куда ставится деталь («ступень 7», «косоур А»). Пусто, если
+	// место не вычислено: наклейка тогда только с номером, без места.
+	Where string `json:"where,omitempty"`
+	// Purchased — деталь покупается готовой и не режется. Фронт по этому
+	// флагу показывает, что в документ реза она не входит: угадывать по
+	// материалу нельзя, потому что нержавейка бывает и резной.
+	Purchased bool `json:"purchased,omitempty"`
 }
 
 // bomLineDTO — строка спецификации (MFG-0001).
@@ -361,6 +368,9 @@ type bomLineDTO struct {
 	Quantity    int     `json:"quantity"`
 	LengthMm    float64 `json:"length_mm"`
 	WidthMm     float64 `json:"width_mm"`
+	// Numbers — стикеры всех экземпляров строки. Спецификация отвечает
+	// «какой стикер куда» только если знает полный перечень наклеек позиции.
+	Numbers []string `json:"numbers,omitempty"`
 }
 
 // cutItemDTO — позиция карты раскроя (MFG-0001).
@@ -602,14 +612,20 @@ func toManufacturing(p *dommfg.ManufacturingPackage) manufacturingDTO {
 			Number: string(pt.Number), Kind: string(pt.Kind), Material: string(pt.Material),
 			ThicknessMm: pt.Thickness.Millimeters(), LengthMm: pt.Length.Millimeters(),
 			WidthMm: pt.Width.Millimeters(), SolidIndex: pt.SolidIndex,
+			Where: pt.Where, Purchased: pt.Purchased,
 		})
 	}
 	bom := make([]bomLineDTO, 0, len(p.BOM.Lines))
 	for _, l := range p.BOM.Lines {
+		nums := make([]string, 0, len(l.Numbers))
+		for _, n := range l.Numbers {
+			nums = append(nums, string(n))
+		}
 		bom = append(bom, bomLineDTO{
 			Number: l.Number, PartNumber: string(l.PartNumber), Description: l.Description,
 			Material: string(l.MaterialCode), ThicknessMm: l.Thickness.Millimeters(),
 			Quantity: int(l.Quantity), LengthMm: l.Length.Millimeters(), WidthMm: l.Width.Millimeters(),
+			Numbers: nums,
 		})
 	}
 	cut := make([]cutItemDTO, 0, len(p.CutList.Items))

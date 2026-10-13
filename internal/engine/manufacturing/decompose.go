@@ -91,12 +91,24 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 		// крышки тела не распознались: тогда деталь описывается
 		// прямоугольником, и это осознанный отказ от лучшего, а не недосмотр.
 		profile []dommfg.Point2D
+		// holeRings — контуры отверстий в координатах профиля детали.
+		// Имя с уточнением: выше есть holes (число отверстий, int), и путать
+		// количество с геометрией здесь нельзя — одно в смету, другое в рез.
+		holeRings [][]dommfg.Point2D
+		// where — куда ставится деталь («ступень 7», «косоур А»).
+		where string
+		// placement — положение детали в сборке. Берётся из ТОЙ ЖЕ рамки,
+		// что и профиль: одна рамка на оба значения, иначе контур на раскрое
+		// и деталь на сборочном чертеже встали бы в разные стороны.
+		placement dommfg.Placement
 		// pieces — сколько деталей выходит из одного тела: длинная
 		// пластина косоура режется на части со сварным стыком.
 		pieces int
 		// split — план разбиения: длина куска и суммарная длина заготовок с
 		// припуском на шипы. Нулевое значение, если деталь цельная.
 		split dommfg.SplitPlan
+		// role — роль тела в модели: по ней пишется «куда ставить» (Where).
+		role string
 	}
 	specs := make([]spec, len(solids))
 	limit := runtime.GOMAXPROCS(0)
@@ -114,7 +126,7 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 				bb.Max.Y - bb.Min.Y,
 				bb.Max.Z - bb.Min.Z,
 			}
-			s := spec{cutPerimeter: kerngeo.CutLengthMM(solid), holes: solid.Holes()}
+			s := spec{cutPerimeter: kerngeo.CutLengthMM(solid), holes: solid.Holes(), role: solid.Role()}
 			// Точный плоский контур детали (S-163). Берётся из крышек тела,
 			// как и CutLengthMM, и в тех же осях, что и габарит заготовки.
 			// Не нашлось — остаётся прямоугольник: выдуманный многоугольник
@@ -147,8 +159,26 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 			// охватывает весь марш (контур 4845 мм), а заготовка — одну
 			// пластину (2428 мм). Такие контуры отсекаются в buildBOM, в самой
 			// точке выхода в документ, где габариты позиции уже окончательные.
-			if prof, ok := kerngeo.SolidProfile2D(solid); ok {
+			// Контур И отверстия одной операцией: они приводятся в одну
+			// систему координат, и раздельный вызов с разными сдвигами
+			// развёл бы отверстие по краю детали.
+			if prof, holes, ok := kerngeo.SolidProfileWithHoles2D(solid); ok {
 				s.profile = convertProfile(prof)
+				s.holeRings = convertHoles(holes)
+			}
+			// Положение детали в сборке. Берётся из той же профильной
+			// рамки, что и контур выше, — иначе «куда ставить» и «что
+			// вырезается» оказались бы в разных системах координат.
+			if pl, ok := kerngeo.SolidPlacement(solid); ok {
+				s.placement = convertPlacement(pl)
+				// «Куда» выводится из центра тела модели — того же тела, из
+				// которого взят контур. Поэтому строка и чертёж не расходятся:
+				// оба указывают на одну и ту же деталь в одном и том же месте.
+				s.where = whereLabel(cfg, s.role, dommfg.Vec3{
+					X: (bb.Min.X + bb.Max.X) / 2,
+					Y: (bb.Min.Y + bb.Max.Y) / 2,
+					Z: (bb.Min.Z + bb.Max.Z) / 2,
+				})
 			}
 
 			metal := isMetal(solid.Role(), s.thickness)
@@ -229,6 +259,15 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 			if k == 0 {
 				holes = s.holes
 			}
+			// Место с номером куска: разрезанная на части деталь ставит
+			// несколько наклеек с одним префиксом, и без номера куска две
+			// наклейки «косоур А» неотличимы. Куски ставятся подряд снизу
+			// вверх (JointIndex растёт вдоль сборки), и номер куска в строке
+			// читается как порядок: «кусок 1 из 2» — нижний.
+			where := s.where
+			if s.pieces > 1 {
+				where += fmt.Sprintf(", кусок %d из %d", k+1, s.pieces)
+			}
 			parts = append(parts, dommfg.Part{
 				Number:         partNumber(s.kind, seq[s.kind]),
 				Kind:           s.kind,
@@ -241,12 +280,15 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 				HoleCount:      holes,
 				JointIndex:     k,
 				JointCount:     s.pieces,
+				Where:          where,
 				// Стык «шип-паз»: паз выпиливается в куске, который стоит
 				// НИЖЕ по сборке, шип приваривается к куску выше. Крайние
 				// куски несут по одному признаку, внутренние — оба.
 				HasMortise:   s.pieces > 1,
 				HasTongue:    s.pieces > 1 && k > 0,
 				JointOnWidth: s.pieces > 1 && s.split.PiecesAlongWidth > 1,
+				Placement:    s.placement,
+				Holes:        s.holeRings,
 			})
 		}
 	}
@@ -320,6 +362,91 @@ func convertProfile(p []kerngeo.Point2D) []dommfg.Point2D {
 		out = append(out, dommfg.Point2D{X: v.X, Y: v.Y})
 	}
 	return out
+}
+
+// convertPlacement переносит положение детали из геометрического ядра в
+// домен. Known ставится true: вызывающий зовёт эту функцию только когда
+// рамка построилась, а Known = false означал бы «деталь неизвестно где».
+func convertHoles(in [][]kerngeo.Point2D) [][]dommfg.Point2D {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([][]dommfg.Point2D, 0, len(in))
+	for _, ring := range in {
+		c := make([]dommfg.Point2D, 0, len(ring))
+		for _, v := range ring {
+			c = append(c, dommfg.Point2D{X: v.X, Y: v.Y})
+		}
+		if len(c) >= 3 {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// whereLabel — человеческое место детали в сборке: «ступень 7»,
+// «косоур А», «пол, сторона Б».
+//
+// Выводится из ЦЕНТРА тела модели — того же тела, из которого взяты контур
+// и положение. Поэтому строка, чертёж и положение не расходятся: все три
+// указывают на одну деталь.
+//
+// Номер ступени считается по ВЫСОТЕ, а не по горизонтали. Центр ступени k
+// стоит на высоте (k+1)·h − st (builder.go: построение проступей), и высота
+// однозначна: ступени строго друг над другом. Горизонталь для этого не
+// годится — начало марша по X съезжает (подход, позиция в помещении), и
+// формула «ступень = X / проступь» из детали 1 делает деталь 4. Это уже
+// случалось при отладке.
+//
+// Сторона — по половине ширины марша: деталь у нулевой координаты —
+// сторона «А», у дальней грани — «Б».
+//
+// Формулы привязаны к соглашениям геометрии прямого марша (построение по
+// высоте и ширине из конфигурации), поэтому для Г/П-маршей и площадок строки
+// получаются грубыми, но не пустыми: лучше грубое «куда», чем пропуск.
+func whereLabel(cfg *engineering.StairConfiguration, role string, center dommfg.Vec3) string {
+	w := cfg.Width.Millimeters()
+	side := "А"
+	if w > 0 && center.Y*2 >= w {
+		side = "Б"
+	}
+	h := cfg.StepHeight.Millimeters()
+	st := cfg.StepThickness.Millimeters()
+	step := 0
+	if h > 0 && center.Z >= 0 {
+		step = int((center.Z+st)/h + 0.5)
+		if step < 1 {
+			step = 1
+		}
+		if step > cfg.StepCount {
+			step = cfg.StepCount
+		}
+	}
+	switch role {
+	case "tread", "riser", "web":
+		return fmt.Sprintf("ступень %d", step)
+	case "heel":
+		return fmt.Sprintf("ступень %d, сторона %s", step, side)
+	case "first_web":
+		return fmt.Sprintf("ступень 1, сторона %s", side)
+	case "anchor":
+		return fmt.Sprintf("пол, сторона %s", side)
+	case "top_anchor":
+		return fmt.Sprintf("перекрытие, сторона %s", side)
+	case "stringer":
+		return fmt.Sprintf("косоур %s", side)
+	}
+	return role
+}
+
+func convertPlacement(p kerngeo.Placement) dommfg.Placement {
+	return dommfg.Placement{
+		Origin: dommfg.Vec3{X: p.Origin.X, Y: p.Origin.Y, Z: p.Origin.Z},
+		U:      dommfg.Vec3{X: p.U.X, Y: p.U.Y, Z: p.U.Z},
+		V:      dommfg.Vec3{X: p.V.X, Y: p.V.Y, Z: p.V.Z},
+		N:      dommfg.Vec3{X: p.N.X, Y: p.N.Y, Z: p.N.Z},
+		Known:  true,
+	}
 }
 
 // stringerBlank возвращает габариты ЗАГОТОВКИ косоура.

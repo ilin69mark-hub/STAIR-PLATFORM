@@ -6,6 +6,7 @@ import (
 
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
+	dommfg "stairplatform/internal/domain/manufacturing"
 	kerngeo "stairplatform/internal/geometry"
 )
 
@@ -113,6 +114,19 @@ func (p *sec1Projects) ExportCADWithRailings(ctx context.Context, tenantID, user
 
 func (p *sec1Projects) ExportCAD(context.Context, string, string, string) (*kerngeo.Mesh, error) {
 	return &kerngeo.Mesh{}, nil
+}
+
+// ExportCutting — документ реза этой заглушке не нужен: она обслуживает
+// пагинацию и общие проверки. Возвращает пустой пакет, чтобы маршрут
+// отвечал, а не падал на nil.
+func (p *sec1Projects) ExportCutting(context.Context, string, string, string) (*dommfg.ManufacturingPackage, error) {
+	return &dommfg.ManufacturingPackage{}, nil
+}
+
+// ExportAssembly — сборочный чертёж этой заглушке тоже не нужен.
+func (p *sec1Projects) ExportAssembly(context.Context, string, string, string) (*kerngeo.Mesh, *kerngeo.Mesh, *dommfg.ManufacturingPackage, error) {
+	empty := &kerngeo.Mesh{}
+	return empty, empty, &dommfg.ManufacturingPackage{}, nil
 }
 func (p *sec1Projects) ListConfigurations(context.Context, string, string, string) ([]*project.StairConfiguration, error) {
 	return nil, nil
