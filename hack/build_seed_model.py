@@ -347,14 +347,12 @@ def build(doc):
     b_in = (rail_b[0] - rail_u[0] * 18.0, rail_b[1] - rail_u[1] * 18.0,
             rail_b[2] - rail_u[2] * 18.0)
     add(dir_tube(doc, "Rail_Cap_End", b_in, rail_u, 18.0, 39.2, 1.5))
-    # Глухие донышки 1 мм на всю ширину трубы (S-211): наружная грань
-    # на 0,5 мм внутри торца (иначе копланарность с кольцом среза).
-    la = (rail_a[0] + rail_u[0] * 0.5, rail_a[1] + rail_u[1] * 0.5,
-          rail_a[2] + rail_u[2] * 0.5)
+    # Шляпки 1 мм на всю ширину трубы (S-211): сидят СВЕРХУ на торцах
+    # и закрывают их целиком — снаружи видна одна чистая грань.
+    la = (rail_a[0] - rail_u[0] * 1.0, rail_a[1] - rail_u[1] * 1.0,
+          rail_a[2] - rail_u[2] * 1.0)
     add(dir_tube(doc, "Rail_Cap_Start_Lid", la, rail_u, 1.0, 42.4))
-    lb = (rail_b[0] - rail_u[0] * 1.5, rail_b[1] - rail_u[1] * 1.5,
-          rail_b[2] - rail_u[2] * 1.5)
-    add(dir_tube(doc, "Rail_Cap_End_Lid", lb, rail_u, 1.0, 42.4))
+    add(dir_tube(doc, "Rail_Cap_End_Lid", rail_b, rail_u, 1.0, 42.4))
 
     return made
 

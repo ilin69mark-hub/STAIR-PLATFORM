@@ -1643,7 +1643,7 @@
     }
   ],
   "source_model": "seed/minimal-straight.FCStd",
-  "source_sha256": "cdd9e00609c2766b1e65bfe128a757a0cbee11a1566833c1fee22e0c59153407",
+  "source_sha256": "a16ec63b04bd3da3756acf60a5c326876f2c1c1548d052ff9a4e5c149c8cc8ed",
   "tolerance_mm": 0.3,
   "tolerance_volume_pct": 3.0
 }
