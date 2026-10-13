@@ -981,7 +981,7 @@
       "instances": 1,
       "material": "stainless",
       "name": "Перила (поручень)",
-      "note": "ВНИМАНИЕ: в модели брус 50×40 (как в движке), каталог говорит труба Ø42,4 — S-208",
+      "note": "Труба Ø42,4×1,5 через верхи стоек (лежит на наконечниках, S-208a)",
       "role": "rail_top",
       "solids": [
         {
@@ -1020,7 +1020,7 @@
       "instances": 2,
       "material": "stainless",
       "name": "Стойка",
-      "note": "Труба Ø42,4×1,5 высотой 900 (каталог говорит 805,7 — S-206)",
+      "note": "Труба Ø42,4×1,5 высотой 805,7 (движок приведён к каталогу, S-208a)",
       "role": "post",
       "solids": [
         {
@@ -1551,14 +1551,14 @@
         "l": 36.72,
         "w": 39.2
       },
-      "count": 2,
+      "count": 4,
       "form": "part",
       "group": "purchased",
       "id": "ENDP-001",
       "instances": 2,
       "material": "plastic",
       "name": "Торцевая заглушка",
-      "note": "Стакан Ø39,2 на 18 мм внутрь поручня, оба торца одна позиция",
+      "note": "Стакан Ø39,2 на 18 мм внутрь + глухое дно Ø42,4×1 (S-211); оба торца одна позиция",
       "role": "end_cap",
       "solids": [
         {
@@ -1598,6 +1598,44 @@
             }
           ],
           "volume": 3197.8
+        },
+        {
+          "bbox": {
+            "h": 35.83,
+            "l": 24.35,
+            "w": 42.4
+          },
+          "object": "Rail_Cap_Start_Lid",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 35.83,
+                "l": 24.35,
+                "w": 42.4
+              },
+              "volume": 1412.0
+            }
+          ],
+          "volume": 1412.0
+        },
+        {
+          "bbox": {
+            "h": 35.83,
+            "l": 24.35,
+            "w": 42.4
+          },
+          "object": "Rail_Cap_End_Lid",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 35.83,
+                "l": 24.35,
+                "w": 42.4
+              },
+              "volume": 1412.0
+            }
+          ],
+          "volume": 1412.0
         }
       ],
       "source_object": "Rail_Cap_Start",
@@ -1605,7 +1643,7 @@
     }
   ],
   "source_model": "seed/minimal-straight.FCStd",
-  "source_sha256": "d31a9cee007769cd29f2a9214ad3735f843ac27fb74e6dd5cb043bc2747e6e51",
+  "source_sha256": "cdd9e00609c2766b1e65bfe128a757a0cbee11a1566833c1fee22e0c59153407",
   "tolerance_mm": 0.3,
   "tolerance_volume_pct": 3.0
 }

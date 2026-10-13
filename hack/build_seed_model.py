@@ -271,7 +271,11 @@ def build(doc):
     # Геометрия S-208a: стойки 805,7 (каталог), поручень-труба Ø42,4
     # через верхи стоек (лежит на наконечниках), Y над стойками.
     POST_H = 805.7
-    LIFT = 3.0 + 27.7 - 1.3 + 19.4 - 1.6 + 1.0 + POST_OD / 2  # = 69,4
+    # Вылет центра поручня над верхом стойки: стек площадки (3+27,7−1,3+
+    # 19,4−1,6+1,0 = 48,2) + радиус трубы / cos уклона. Без поправки труба
+    # врезается в наклонную площадку на ~3,6 мм (та же формула, что
+    # railLiftAbovePostTop в движке).
+    LIFT = 48.2 + (POST_OD / 2) * math.hypot(B, H) / B  # = 73,7
     bal_y = BALUSTER_EDGE_INSET + 44.0  # edgeInset(0, w, 15+capOD/2)
     slope = H / B
     ang = -math.degrees(math.atan2(N * H, N * B))  # наклон марша: поручень и площадки
@@ -305,7 +309,10 @@ def build(doc):
         jz = rod_z + 27.7 - 1.3
         add(z_tube(doc, "Rail_Tip_%02d_Joint" % pi, x, bal_y, jz, 19.4, 14.0, 1.5))
         tip_bottom = jz + 19.4 - 1.6
-        z_base = tip_bottom + slope * (70.0 - 50.8) / 2
+        # Середина низа ровно на tip_bottom (как в движке S-210):
+        # никаких добавок «на половину наклона» — slab кладёт середину
+        # на z_base по построению, добавка задирала площадку на 6,4 мм.
+        z_base = tip_bottom
         # Стадион 70×50,8: прямые + две полуокружности r=25,4
         # с центрами ±(70−50,8)/2 = ±9,6. Площадка параллельна маршу
         # (тот же угол, что поручень): лежит ПОД трубой (S-208a).
@@ -317,7 +324,10 @@ def build(doc):
         wire = Part.makePolygon([V(px, py, 0.0) for (px, py) in pts] + [V(pts[0][0], pts[0][1], 0.0)])
         o = doc.addObject("Part::Feature", "Rail_Tip_%02d_Plate" % pi)
         o.Shape = Part.Face(wire).extrude(V(0.0, 0.0, 1.0))
-        o.Placement = App.Placement(V(x, bal_y - 25.4, z_base), App.Rotation(V(0, 1, 0), ang))
+        # Контур центрирован (x,y ∈ ±35/±25,4): база = центр, а НЕ минус
+        # половина. Было bal_y−25,4 — площадка висела сбоку на полширины
+        # (S-210a, глаз владельца).
+        o.Placement = App.Placement(V(x, bal_y, z_base), App.Rotation(V(0, 1, 0), ang))
         add(o)
         add(z_tube(doc, "Rail_Deco_%02d_Body" % pi, x, bal_y, z0, 16.0, 88.0, 0.9))
         add(z_tube(doc, "Rail_Deco_%02d_Lid" % pi, x, bal_y, z0 + 16.0, 1.0, 88.0))
@@ -337,6 +347,14 @@ def build(doc):
     b_in = (rail_b[0] - rail_u[0] * 18.0, rail_b[1] - rail_u[1] * 18.0,
             rail_b[2] - rail_u[2] * 18.0)
     add(dir_tube(doc, "Rail_Cap_End", b_in, rail_u, 18.0, 39.2, 1.5))
+    # Глухие донышки 1 мм на всю ширину трубы (S-211): наружная грань
+    # на 0,5 мм внутри торца (иначе копланарность с кольцом среза).
+    la = (rail_a[0] + rail_u[0] * 0.5, rail_a[1] + rail_u[1] * 0.5,
+          rail_a[2] + rail_u[2] * 0.5)
+    add(dir_tube(doc, "Rail_Cap_Start_Lid", la, rail_u, 1.0, 42.4))
+    lb = (rail_b[0] - rail_u[0] * 1.5, rail_b[1] - rail_u[1] * 1.5,
+          rail_b[2] - rail_u[2] * 1.5)
+    add(dir_tube(doc, "Rail_Cap_End_Lid", lb, rail_u, 1.0, 42.4))
 
     return made
 
@@ -355,7 +373,7 @@ def main():
                    "Web": 10, "Anchor": 2, "TopAnchor": 2, "FirstWeb": 2,
                    "Rail_Post": 2, "Rail_Portun": 1, "Rail_Rigel": 2,
                    "Rail_Tip": 10, "Rail_Deco": 4, "Rail_Clamp": 2,
-                   "Rail_Slip": 2, "Rail_Cap": 2}
+                   "Rail_Slip": 2, "Rail_Cap": 4}
     got_counts = {}
     for o in doc.Objects:
         for pre in want_counts:
@@ -367,6 +385,16 @@ def main():
         if got != want:
             raise SystemExit("SEED FAIL: %s: объектов %d, ожидалось %d" % (pre, got, want))
     trace("counts ok")
+    # Соосность узла: площадка, стойка и поручень на одной вертикали Y=59,
+    # площадка по X над своей стойкой (S-210a: было смещение на полширины).
+    for o in doc.Objects:
+        if o.Name.startswith("Rail_Tip_") and o.Name.endswith("_Plate"):
+            bb = o.Shape.BoundBox
+            cx, cy = (bb.XMin + bb.XMax) / 2, (bb.YMin + bb.YMax) / 2
+            if abs(cy - 59.0) > 0.5:
+                raise SystemExit("SEED FAIL: %s cy=%.1f, ось 59" % (o.Name, cy))
+            if min(abs(cx - 115.0), abs(cx - 1465.0)) > 1.0:
+                raise SystemExit("SEED FAIL: %s cx=%.1f, стойки 115/1465" % (o.Name, cx))
     # Один проход по телам: забираем числа (bbox, объём) в обычные float
     # сразу. Повторные обращения к o.Shape падают (OCC-причуда freecadcmd:
     # второй обход doc.Objects молча роняет процесс), поэтому всё нужное

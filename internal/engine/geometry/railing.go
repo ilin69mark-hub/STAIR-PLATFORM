@@ -93,6 +93,13 @@ const (
 	endCapD     = 39.2 // Ø39,2 входит в полость трубы Ø39,4
 	endCapDepth = 18.0 // заход внутрь
 	endCapWall  = 1.5
+	// Глухое дно заглушки (S-211): диск 1 мм на всю ширину трубы —
+	// перекрывает и полость, и стенку. Без него заглушка — полая трубка,
+	// и в поручень видно насквозь: как заглушка не работает.
+	// endCapRecess — утопление наружной грани от торца: иначе кольцо торца
+	// трубы и грань дна копланарны и мерцают в рендере (z-fighting).
+	endCapLidT   = 1.0
+	endCapRecess = 0.5
 	// roleRigel — ригель: заполняющий профиль ограждения из круглой трубы,
 	// отдельный от стойки и поручня, потому что материал и диаметр другие.
 	roleRigel = "rigel"
@@ -450,14 +457,6 @@ func prismAtSloped(xc, y, halfX, halfY, zBase, height, slope float64, role strin
 	return kerngeo.NewSolidRole(role, kerngeo.NewShell(faces...))
 }
 
-// slopeEff2 — tan угла наклона, переведённый в sin (см. slabOutlineAtSloped).
-func slopeEff2(slope float64) float64 {
-	if d := math.Sqrt(1 + slope*slope); d > 0 {
-		return slope / d
-	}
-	return slope
-}
-
 // faceFromRing собирает грань-«кольцо» по замкнутому списку точек.
 func faceFromRing(pts []kerngeo.Point3) *kerngeo.Face {
 	n := len(pts)
@@ -653,18 +652,26 @@ const balusterMaxGap = 1500.0
 // длина трубы: строить трубу длиной rh — значит резать не по каталогу.
 // Совпадение сверяет TestSteelPostMatchesCatalog.
 //
-// railLiftAbovePostTop — центр поручня над верхом стойки: верх площадки
-// наконечника (стек втулки/крышки/шпильки/шарнира/площадки) + радиус трубы.
-// Поручень ЛЕЖИТ на площадке (контакт!), а не висит над ней (S-208:
-// раньше линия поручня шла от x=0 и мимо верхов стоек на 103 мм,
-// наконечник болтался в 160 мм над трубой).
+// steelPostHeight — высота стойки стального ограждения, мм: труба ровно
+// по каталогу (POST-001 Len=805,7), а не rh. Замерено в эталоне
+// (Rail_Post: 805,7 от ступени). rh — номинал высоты ограждения, а не
+// длина трубы: строить трубу длиной rh — значит резать не по каталогу.
+// Совпадение сверяет TestSteelPostMatchesCatalog.
 const steelPostHeight = 805.7
 
-// railLiftAbovePostTop собирается из тех же констант, что держатель
-// (railHolderAt): крышка + шпилька − наезд + шарнир − наезд + площадка
-// + радиус трубы поручня.
-const railLiftAbovePostTop = holderCapH + holderRodH - holderRodJointOverlap +
-	holderJointH - holderTipJointOverlap + holderPlateT + balusterD/2
+// railLiftAbovePostTop — центр поручня над верхом стойки: верх площадки
+// наконечника (стек втулки/крышки/шпильки/шарнира/площадки) + радиус трубы.
+//
+// Тонкость: площадка наклонена параллельно маршу, поэтому вертикальный
+// зазор до центра трубы — это радиус, делённый на косинус угла подъёма
+// (tubeR·hypot(b,h)/b), а не голый радиус. Без поправки труба врезалась
+// бы в площадку на tubeR·(1−cos) ≈ 3,6 мм при типовом уклоне — глазом
+// в 3D видно как пересечение тел. Замерено на сохранённой сид-модели.
+func railLiftAbovePostTop(h, b float64) float64 {
+	const plateStack = holderCapH + holderRodH - holderRodJointOverlap +
+		holderJointH - holderTipJointOverlap + holderPlateT
+	return plateStack + balusterD/2*math.Hypot(b, h)/b
+}
 
 // steelRailEnds — концы поручня-трубы прямого сегмента.
 //
@@ -683,8 +690,9 @@ func steelRailEnds(n int, b, h, nosing, balY, xShift float64) (kerngeo.Point3, k
 	x1 := xShift + (float64(k)-0.5)*b - nosing
 	top1 := float64(k)*h + steelPostHeight
 	slope := h / b
+	lift := railLiftAbovePostTop(h, b)
 	zAt := func(x float64) float64 {
-		return top1 + railLiftAbovePostTop + slope*(x-x1)
+		return top1 + lift + slope*(x-x1)
 	}
 	return kerngeo.NewPoint3(xShift, balY, zAt(xShift)),
 		kerngeo.NewPoint3(xShift+float64(n)*b, balY, zAt(xShift+float64(n)*b))
@@ -800,8 +808,11 @@ func straightRailingSolids(q Quality, n int, b, h, rh, w, nosing float64, side e
 			sols = append(sols, s)
 		}
 		// Заглушки на торцах поручня: заходят внутрь трубы и сидят
-		// заподлицо, перекрывая срез.
+		// заподлицо, перекрывая срез. Плюс глухие донышки 1 мм на всю
+		// ширину трубы (и полость, и стенка): без них в трубу видно
+		// насквозь (S-211).
 		sols = append(sols, railEndCaps(q, A, B)...)
+		sols = append(sols, railEndCapLids(q, A, B)...)
 		steps := balusterSteps(n, b)
 		// Середина СТУПЕНИ по требованию владельца: 115 мм для первой ступени
 		// (135 − 20). Свес уходит НАЗАД, ступень занимает
@@ -1302,10 +1313,15 @@ func railHolderAt(q Quality, x, y, zTop, slope float64) []*kerngeo.Solid {
 	// чего площадка «переламывалась» — низ горизонтально, верх под углом.
 	// Нижняя точка площадки на 1.6 мм ниже верха шарнира (наезд).
 	// Низ площадки (её нижняя дальняя кромка) — на 1.6 мм ниже верха шарнира.
-	// zBase — высота середины нижней грани, поэтому поднимаем на slope*halfX:
-	// иначе площадка уедет вниз на половину своего наклона (12.3 мм).
+	// zBase — высота середины нижней грани: slabOutlineAtSloped кладёт
+	// середину ровно на zBase (z = zBase + slopeEff·x при x=0), поэтому
+	// никаких добавок «на половину наклона» не нужно. Раньше здесь стояло
+	// + slopeEff·(L−W)/2: двойная компенсация задирала площадку на 6,4 мм —
+	// она парила над шарниром и врезалась в поручень (S-210).
+	// Правило: середина низа = tipBottom (наезд 1,6 — сварной вид),
+	// а поручень приходит сверху касательно (считает steelRailEnds).
 	tipBottom := jz + holderJointH - holderTipJointOverlap
-	zBase := tipBottom + slopeEff2(slope)*(holderPlateLen-holderPlateW)/2
+	zBase := tipBottom
 	// Контур — ОВАЛ (стадион 70 x 50,8), как в эталоне. Прямоугольная
 	// пластина выглядела «прямоугольником, висящим в воздухе».
 	outline := stadiumOutline(holderPlateLen, holderPlateW, holderPlateSeg)
@@ -1406,6 +1422,57 @@ func railEndCaps(q Quality, a, b kerngeo.Point3) []*kerngeo.Solid {
 	}
 	bIn := kerngeo.NewPoint3(b.X-off.X, b.Y-off.Y, b.Z-off.Z)
 	if s := tubeAlong(q, b, bIn, endCapD, endCapWall, roleEndCap); s != nil {
+		out = append(out, s)
+	}
+	return out
+}
+
+// discAlong — сплошной диск поперёк направления u: круглый профиль
+// диаметром dia выдавливается вдоль u на t. В отличие от tubeAlong,
+// полости нет: диск глухой. Сегменты — по тому же допуску, что у труб.
+func discAlong(q Quality, base kerngeo.Point3, u kerngeo.Vector3, dia, t float64, role string) *kerngeo.Solid {
+	if t <= kerngeo.Precision || dia <= kerngeo.Precision {
+		return nil
+	}
+	wd, ok := perpTo(u)
+	if !ok {
+		return nil
+	}
+	td, ok := u.Cross(wd).Normalized()
+	if !ok {
+		return nil
+	}
+	seg := kerngeo.ArcSegments(dia/2, 2*math.Pi, q.arcTol(railTubeToleranceMM))
+	prof := circleRing(base, wd, td, dia/2, seg)
+	s, err := kerngeo.Extrude(prof, u, t)
+	if err != nil {
+		return nil
+	}
+	return s.WithRole(role)
+}
+
+// railEndCapLids — глухие донышки заглушек поручня (S-211): диски на всю
+// ширину трубы (перекрывают и полость Ø39,4, и стенку 1,5), толщиной 1 мм,
+// утоплены на endCapRecess от торца. Без них в трубу видно насквозь.
+//
+// Только для трубчатых поручней: у бруса (стекло, площадка) круглое дно
+// не встанет на прямоугольный торец — там решение отдельно (S-209).
+func railEndCapLids(q Quality, a, b kerngeo.Point3) []*kerngeo.Solid {
+	axis := b.Sub(a)
+	u, ok := axis.Normalized()
+	if !ok {
+		return nil
+	}
+	lidD := balusterD
+	var out []*kerngeo.Solid
+	// Старт: наружная грань на endCapRecess внутри от торца A.
+	s0 := a.Add(u.Scale(endCapRecess))
+	if s := discAlong(q, s0, u, lidD, endCapLidT, roleEndCap); s != nil {
+		out = append(out, s)
+	}
+	// Конец: наружная грань на endCapRecess внутри от торца B.
+	s1 := b.Add(u.Scale(-(endCapRecess + endCapLidT)))
+	if s := discAlong(q, s1, u, lidD, endCapLidT, roleEndCap); s != nil {
 		out = append(out, s)
 	}
 	return out

@@ -158,10 +158,11 @@ func TestRailPassesOverPosts(t *testing.T) {
 	}
 	steps := balusterSteps(seedStepCount, seedTreadDepth)
 	balY := edgeInset(0, seedWidth, balusterEdgeInset+capOD/2)
+	lift := railLiftAbovePostTop(seedStepHeight, seedTreadDepth)
 	for _, k := range steps {
 		x := (float64(k)-0.5)*seedTreadDepth - cfgProfileNosing(cfg)
 		top := float64(k)*seedStepHeight + steelPostHeight
-		p := kerngeo.NewPoint3(x, balY, top+railLiftAbovePostTop)
+		p := kerngeo.NewPoint3(x, balY, top+lift)
 		best := math.Inf(1)
 		for _, bb := range rails {
 			if d := distToBox(p, bb); d < best {
@@ -175,8 +176,155 @@ func TestRailPassesOverPosts(t *testing.T) {
 	}
 }
 
+// TestTipPlateMeetsRail — площадка наконечника касательно под поручнем
+// (S-210): расстояние от середины верха площадки до оси трубы равно
+// радиусу трубы ±1 мм.
+//
+// Что ловит: завышенная площадка врезается в трубу, заниженная висит
+// в воздухе — глазом в 3D оба выглядят как «пластина не на месте».
+// Площадка ищется как верхнее тело держателя над стойкой (а не по
+// формуле): тест меряет построенную геометрию, а не повторяет её.
+func TestTipPlateMeetsRail(t *testing.T) {
+	cfg := seedConfig()
+	nosing := cfgProfileNosing(cfg)
+	sols := straightRailingSolids(ProductionQuality,
+		seedStepCount, seedTreadDepth, seedStepHeight, seedRailingHeight,
+		seedWidth, nosing, engineering.RailingLeft)
+	balY := edgeInset(0, seedWidth, balusterEdgeInset+capOD/2)
+	a, bp := steelRailEnds(seedStepCount, seedTreadDepth, seedStepHeight,
+		nosing, balY, 0)
+	axis, ok := bp.Sub(a).Normalized()
+	if !ok {
+		t.Fatal("ось поручня вырождена")
+	}
+	steps := balusterSteps(seedStepCount, seedTreadDepth)
+	for _, k := range steps {
+		x := (float64(k)-0.5)*seedTreadDepth - nosing
+		// Верхнее тело держателя над этой стойкой — площадка.
+		var top float64
+		found := false
+		topCZ := 0.0
+		for _, s := range sols {
+			if s.Role() != "holder" {
+				continue
+			}
+			bb := kerngeo.SolidBoundingBox(s)
+			cx := (bb.Min.X + bb.Max.X) / 2
+			if math.Abs(cx-x) > 40 {
+				continue
+			}
+			cz := (bb.Min.Z + bb.Max.Z) / 2
+			if !found || cz > topCZ {
+				topCZ = cz
+				top = cz + holderPlateT/2
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("ступень %d: над стойкой нет тел держателя", k)
+			continue
+		}
+		// Расстояние от середины верха площадки до оси поручня.
+		mid := kerngeo.NewPoint3(x, balY, top)
+		w := mid.Sub(a)
+		cross := w.Cross(axis)
+		if got := cross.Norm(); math.Abs(got-balusterD/2) > 1.0 {
+			t.Errorf("ступень %d: площадка до оси поручня %.1f, радиус %.1f",
+				k, got, balusterD/2)
+		}
+	}
+}
+
+// TestRailEndsAreClosed — торец поручня заглушен наглухо (S-211):
+// стакан + глухое дно 1 мм на всю ширину трубы (и полость, и стенка).
+//
+// Объём одного конца: стакан π/4·(39,2²−36,2²)·18 + дно π·21,2²·1 ≈ 4613.
+// Допуск ±15 %: тесселированные трубы идут ниже аналитики (~7 % хорды
+// плюс аномалия зеркальной трубы, S-212), но голый стакан без дна дал бы
+// −35 %, а дно без стакана −70 %: требование различимо с запасом.
+// Позиция: центр донышка в пределах 3 мм от торца трубы.
+func TestRailEndsAreClosed(t *testing.T) {
+	cfg := seedConfig()
+	nosing := cfgProfileNosing(cfg)
+	sols := straightRailingSolids(ProductionQuality,
+		seedStepCount, seedTreadDepth, seedStepHeight, seedRailingHeight,
+		seedWidth, nosing, engineering.RailingLeft)
+	balY := edgeInset(0, seedWidth, balusterEdgeInset+capOD/2)
+	railA, railB := steelRailEnds(seedStepCount, seedTreadDepth, seedStepHeight,
+		nosing, balY, 0)
+	var caps []*kerngeo.Solid
+	for _, s := range sols {
+		if s.Role() == "end_cap" {
+			caps = append(caps, s)
+		}
+	}
+	// Одна сторона: 2 стакана + 2 донышка.
+	if len(caps) != 4 {
+		t.Fatalf("заглушек %d, want 4 (2 стакана + 2 донышка)", len(caps))
+	}
+	tubeV := math.Pi / 4 * (39.2*39.2 - 36.2*36.2) * 18.0
+	lidV := math.Pi * 21.2 * 21.2 * 1.0
+	want := tubeV + lidV
+	midX := float64(seedStepCount) * seedTreadDepth / 2
+	ends := []struct {
+		name string
+		pt   kerngeo.Point3
+		vs   []float64
+	}{
+		{"начало", railA, nil},
+		{"конец", railB, nil},
+	}
+	for _, c := range sols {
+		if c.Role() != "end_cap" {
+			continue
+		}
+		v, err := kerngeo.Volume(c)
+		if err != nil {
+			t.Fatalf("Volume: %v", err)
+		}
+		bb := kerngeo.SolidBoundingBox(c)
+		cx := (bb.Min.X + bb.Max.X) / 2
+		t.Logf("cap cx=%.1f X[%.1f,%.1f] vol=%.0f", cx, bb.Min.X, bb.Max.X, v)
+		if cx < midX {
+			ends[0].vs = append(ends[0].vs, v)
+		} else {
+			ends[1].vs = append(ends[1].vs, v)
+		}
+	}
+	for _, e := range ends {
+		if len(e.vs) != 2 {
+			t.Errorf("%s: тел %d, want 2 (стакан + дно)", e.name, len(e.vs))
+			continue
+		}
+		if got := e.vs[0] + e.vs[1]; math.Abs(got-want)/want > 0.15 {
+			t.Errorf("%s: объём %.0f, want %.0f (стакан + дно 1 мм)", e.name, got, want)
+		}
+	}
+	// Донышки — меньшие тела; их центры у торцов трубы.
+	for _, c := range sols {
+		if c.Role() != "end_cap" {
+			continue
+		}
+		v, err := kerngeo.Volume(c)
+		if err != nil {
+			t.Fatalf("Volume: %v", err)
+		}
+		if v > lidV*1.5 {
+			continue // стакан, не дно
+		}
+		bb := kerngeo.SolidBoundingBox(c)
+		cx, cy, cz := (bb.Min.X+bb.Max.X)/2, (bb.Min.Y+bb.Max.Y)/2, (bb.Min.Z+bb.Max.Z)/2
+		dA := math.Sqrt((cx-railA.X)*(cx-railA.X) + (cy-railA.Y)*(cy-railA.Y) + (cz-railA.Z)*(cz-railA.Z))
+		dB := math.Sqrt((cx-railB.X)*(cx-railB.X) + (cy-railB.Y)*(cy-railB.Y) + (cz-railB.Z)*(cz-railB.Z))
+		if d := math.Min(dA, dB); d > 3.0 {
+			t.Errorf("дно (%.1f,%.1f,%.1f) в %.1f мм от торца", cx, cy, cz, d)
+		}
+	}
+}
+
 // TestRailingLayoutCounts — число якорей сходится с числом тел геометрии
-// там, где соответствие один-к-одному: стойки, поручни, ригели, заглушки.
+// там, где соответствие известно: стойки, поручни, ригели — один-к-одному;
+// заглушки — два тела на якорь (стакан + глухое дно, S-211).
 // Держатели и цанги состоят из нескольких тел (наконечник — 7 тел),
 // поэтому для них — только близость (тест выше), а не счёт.
 func TestRailingLayoutCounts(t *testing.T) {
@@ -198,11 +346,14 @@ func TestRailingLayoutCounts(t *testing.T) {
 		{"baluster", "post"},
 		{"railing", "rail_top"},
 		{"rigel", "rigel"},
-		{"end_cap", "end_cap"},
 	}
 	for _, p := range pairs {
 		if countSol[p[0]] != countLay[p[1]] {
 			t.Errorf("тел %q: %d, якорей %q: %d", p[0], countSol[p[0]], p[1], countLay[p[1]])
 		}
+	}
+	if countSol["end_cap"] != 2*countLay["end_cap"] {
+		t.Errorf("тел end_cap: %d, якорей end_cap: %d (want ×2: стакан + дно)",
+			countSol["end_cap"], countLay["end_cap"])
 	}
 }
