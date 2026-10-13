@@ -673,10 +673,10 @@
                 "l": 4.0,
                 "w": 50.0
               },
-              "volume": 29466.6
+              "volume": 30114.8
             }
           ],
-          "volume": 29466.6
+          "volume": 30114.8
         },
         {
           "bbox": {
@@ -692,14 +692,14 @@
                 "l": 4.0,
                 "w": 50.0
               },
-              "volume": 29466.6
+              "volume": 30114.8
             }
           ],
-          "volume": 29466.6
+          "volume": 30114.8
         }
       ],
       "source_object": "TopAnchor_A",
-      "volume": 29466.6
+      "volume": 30114.8
     },
     {
       "bbox": {
@@ -714,7 +714,7 @@
       "instances": 6,
       "material": "wood",
       "name": "Проступь",
-      "note": "Дуб, без фаски R10 (в движке фаска есть, −0,2 % объёма)",
+      "note": "Дуб, филёнка R10 на носу (как в движке)",
       "role": "tread",
       "solids": [
         {
@@ -731,10 +731,10 @@
                 "l": 290.0,
                 "w": 900.0
               },
-              "volume": 10440000.0
+              "volume": 10420685.8
             }
           ],
-          "volume": 10440000.0
+          "volume": 10420685.8
         },
         {
           "bbox": {
@@ -750,10 +750,10 @@
                 "l": 290.0,
                 "w": 900.0
               },
-              "volume": 10440000.0
+              "volume": 10420685.8
             }
           ],
-          "volume": 10440000.0
+          "volume": 10420685.8
         },
         {
           "bbox": {
@@ -769,10 +769,10 @@
                 "l": 290.0,
                 "w": 900.0
               },
-              "volume": 10440000.0
+              "volume": 10420685.8
             }
           ],
-          "volume": 10440000.0
+          "volume": 10420685.8
         },
         {
           "bbox": {
@@ -788,10 +788,10 @@
                 "l": 290.0,
                 "w": 900.0
               },
-              "volume": 10440000.0
+              "volume": 10420685.8
             }
           ],
-          "volume": 10440000.0
+          "volume": 10420685.8
         },
         {
           "bbox": {
@@ -807,10 +807,10 @@
                 "l": 290.0,
                 "w": 900.0
               },
-              "volume": 10440000.0
+              "volume": 10420685.8
             }
           ],
-          "volume": 10440000.0
+          "volume": 10420685.8
         },
         {
           "bbox": {
@@ -826,14 +826,14 @@
                 "l": 330.0,
                 "w": 900.0
               },
-              "volume": 11880000.0
+              "volume": 11860685.8
             }
           ],
-          "volume": 11880000.0
+          "volume": 11860685.8
         }
       ],
       "source_object": "Tread_01",
-      "volume": 10440000.0
+      "volume": 10420685.8
     },
     {
       "bbox": {
@@ -969,6 +969,7 @@
       "volume": 5040000.0
     },
     {
+      "axis_len": 1947.0,
       "bbox": {
         "h": 1115.28,
         "l": 1643.52,
@@ -1005,9 +1006,14 @@
         }
       ],
       "source_object": "Rail_Portun",
+      "tube": {
+        "od": 42.4,
+        "wall": 1.5
+      },
       "volume": 375257.9
     },
     {
+      "axis_len": 805.7,
       "bbox": {
         "h": 805.7,
         "l": 42.4,
@@ -1063,9 +1069,14 @@
         }
       ],
       "source_object": "Rail_Post_01",
+      "tube": {
+        "od": 42.4,
+        "wall": 1.5
+      },
       "volume": 155288.0
     },
     {
+      "axis_len": 1622.5,
       "bbox": {
         "h": 909.98,
         "l": 1356.66,
@@ -1121,6 +1132,10 @@
         }
       ],
       "source_object": "Rail_Rigel_1_01",
+      "tube": {
+        "od": 12.0,
+        "wall": 1.0
+      },
       "volume": 56069.5
     },
     {
@@ -1643,7 +1658,7 @@
     }
   ],
   "source_model": "seed/minimal-straight.FCStd",
-  "source_sha256": "a16ec63b04bd3da3756acf60a5c326876f2c1c1548d052ff9a4e5c149c8cc8ed",
+  "source_sha256": "9d91fa78a20a04e40e2a5a6aaddff86cafe83eb09fdafea232db6102baddb207",
   "tolerance_mm": 0.3,
   "tolerance_volume_pct": 3.0
 }

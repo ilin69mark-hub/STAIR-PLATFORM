@@ -58,8 +58,8 @@ func TestManufactureUShapeParts(t *testing.T) {
 	for _, p := range cuttableParts(pkg) {
 		byKind[p.Kind]++
 	}
-	if byKind[dommfg.PartStringer] != 4 || byKind[dommfg.PartTread] != 16 || byKind[dommfg.PartRiser] != 15 {
-		t.Fatalf("part kinds = %+v, want stringer 4 / tread 16 / riser 15", byKind)
+	if byKind[dommfg.PartStringer] != 4 || byKind[dommfg.PartTread] != 15 || byKind[dommfg.PartRiser] != 15 || byKind[dommfg.PartLanding] != 1 {
+		t.Fatalf("part kinds = %+v, want stringer 4 / tread 15 / riser 15 / landing 1", byKind)
 	}
 	// Трассировка к геометрии по режущимся деталям: покупное ограждение к
 	// телу модели не относится (его геометрия — декорация).
@@ -92,9 +92,9 @@ func TestManufactureUShapeDimensions(t *testing.T) {
 		{"STR-03", 2898.309, 300},
 		{"STR-04", 2898.309, 300},
 		{"TRD-01", 850, 290},
-		{"TRD-07", 1800, 900},
-		{"TRD-08", 850, 290},
-		{"TRD-16", 850, 330}, // последняя ступень длиннее на TopStepExtend
+		{"LND-01", 1800, 900}, // площадка — своим видом, не проступь (S-204)
+		{"TRD-07", 850, 290},
+		{"TRD-15", 850, 330}, // последняя ступень длиннее на TopStepExtend
 		{"RSR-01", 850, 140},
 		{"RSR-02", 850, 180},
 		{"RSR-15", 850, 180},
@@ -124,7 +124,7 @@ func TestManufactureUShapeDimensions(t *testing.T) {
 		switch p.Kind {
 		case dommfg.PartHeel, dommfg.PartWeb, dommfg.PartAnchor, dommfg.PartFirstWeb:
 			want = 4
-		case dommfg.PartStringer, dommfg.PartTread, dommfg.PartRiser, dommfg.PartRailTop, dommfg.PartPost, dommfg.PartRigel, dommfg.PartTip, dommfg.PartFlange, dommfg.PartSlip, dommfg.PartDeco, dommfg.PartEndCap:
+		case dommfg.PartStringer, dommfg.PartTread, dommfg.PartRiser, dommfg.PartLanding, dommfg.PartRailTop, dommfg.PartPost, dommfg.PartRigel, dommfg.PartTip, dommfg.PartFlange, dommfg.PartSlip, dommfg.PartDeco, dommfg.PartEndCap:
 			// остальные детали косоура — по нормативу выпуска листа
 		}
 		if !nearlyEqual(p.Thickness.Millimeters(), want) {
@@ -174,7 +174,7 @@ func TestManufactureUShapeBOM(t *testing.T) {
 		{"Anchor (floor/landing bracket)", 4, 270, 50},
 		{"Anchor (floor/landing bracket)", 4, 166, 50},
 		{"First-step plate", 4, 122, 40},
-		{"Tread", 1, 1800, 900},
+		{"Landing", 1, 1800, 900},
 		{"Stringer", 2, 2898.309, 300},
 	}
 	// BOM включает покупные позиции ограждения сверх каркаса; want описывает

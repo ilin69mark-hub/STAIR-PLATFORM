@@ -6,9 +6,12 @@
 // а decompose() разбирает только тело модели. В спецификации ограждения не
 // было: ни позиций, ни цен.
 //
-// Здесь детали ограждения собираются из КОНФИГУРАЦИИ и каталога
-// engineering.PurchasedParts(), а не из геометрии: у них постоянные размеры,
-// меняется только количество и длина поручня.
+// Здесь детали ограждения собираются из КОНФИГУРАЦИИ, каталога
+// engineering.PurchasedParts() и геометрии: диаметры труб и высота стойки
+// постоянны (каталог), а длины поручня и ригелей — по оси, из геометрии
+// (enggeo.RailingRailAxisLen / RailingRigelAxisLen). Длина по оси, а не
+// горизонтальная проекция: смета режет трубу, и проекция короче настоящей
+// на ~20 % (S-206).
 //
 // Длины и диаметры взяты из каталога internal/domain/engineering/parts.go,
 // который сверяется с эталоном FreeCAD (TestCatalog*).
@@ -17,7 +20,6 @@ package manufacturing
 
 import (
 	"fmt"
-	"math"
 
 	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
@@ -72,84 +74,33 @@ func purchasedDimH(id string) float64     { return purchasedSpec(id).DimH }
 // Параметры раскладки ограждения. Это НЕ размеры деталей, а правила
 // размещения, поэтому они остались константами: в каталоге им не место.
 const (
-	// maxPostSpan — максимальный пролёт между стойками, мм (как в эталоне).
-	maxPostSpan = 1500.0
 	// rigelRows — число рядов ригелей (33% и 66% высоты ограждения).
 	rigelRows = 2
 )
 
-// railLengthMM — длина поручня вдоль марша: горизонтальный пробег плюс
-// вылет за габарит на обоих концах. Вылет 135 мм — как в эталоне
-// FreeCAD (OVERHANG); поручень должен перекрывать края марша.
-const railOverhangMM = 135.0
-
-func railLengthMM(cfg *engineering.StairConfiguration) float64 {
-	run := cfg.TreadDepth.Millimeters() * float64(cfg.StepCount-1)
-	l := run + 2*railOverhangMM
-	if l <= 0 {
-		return 0
-	}
-	return l
-}
-
 // engLen — короткий перевод float64 (мм) в engineering.Length.
 func engLen(mm float64) engineering.Length { return engineering.Length(mm) }
 
+// railingBayLengths — длины ригелей по оси для каждого пролёта между
+// соседними стойками. Пролёты не обязаны быть равными (стойки привязаны
+// к ближайшим ступеням), поэтому длина у каждого пролёта своя —
+// усреднять в один «span» запрещено (S-206).
+func railingBayLengths(steps []int, b, h float64) []float64 {
+	out := make([]float64, 0, len(steps))
+	for i := 0; i+1 < len(steps); i++ {
+		out = append(out, enggeo.RailingRigelAxisLen(steps[i], steps[i+1], b, h))
+	}
+	return out
+}
+
 // railingPostIndices — индексы ступеней, на которых стоят стойки.
 //
-// Правило ОБЯЗАТЕЛЬНО совпадает с balusterSteps() в движке геометрии:
-//
-//	count = ceil((n−1)·b / maxPostSpan) + 1
-//	idx_i = 1 + round(i·(n−1)/(count−1))
-//
-// плюс проверка «ни один промежуток не длиннее maxPostSpan».
-//
-// Параметра «максимальный пролёт» у функции нет намеренно: значение одно и
-// оно равно maxPostSpan. Параметр, который всегда получал одну и ту же
-// константу, только провоцировал расхождение — выглядел как настраиваемое
-// правило, а правилом не был.
-//
-// Раньше здесь стояла своя формула int(run/1500)+1: на марше 15×270 она
-// давала 3 стойки, а геометрия рисовала 4. Спецификация и модель расходились
-// — ровно та двойная правда, ради устранения которой и заведён каталог.
+// Делегирует геометрии (enggeo.RailingPostSteps): правило одно, и оно живёт
+// в одном месте. Раньше здесь стояла своя копия правила плюс своя формула
+// int(run/1500)+1: на марше 15×270 она давала 3 стойки, а геометрия рисовала
+// 4 — спецификация и модель расходились (см. историю в git).
 func railingPostIndices(n int, b float64) []int {
-	maxGap := maxPostSpan
-	if n <= 0 || b <= 0 {
-		return nil
-	}
-	if n == 1 {
-		return []int{1}
-	}
-	count := int(math.Ceil(float64(n-1)*b/maxGap)) + 1
-	if count > n {
-		count = n
-	}
-	if count < 2 {
-		count = 2
-	}
-	for {
-		idx := make([]int, count)
-		for i := 0; i < count; i++ {
-			idx[i] = 1 + int(math.Round(float64(i)*float64(n-1)/float64(count-1)))
-			if idx[i] < 1 {
-				idx[i] = 1
-			}
-			if idx[i] > n {
-				idx[i] = n
-			}
-		}
-		ok := true
-		for i := 1; i < len(idx); i++ {
-			if float64(idx[i]-idx[i-1])*b > maxGap {
-				ok = false
-				break
-			}
-		}
-		if ok || count >= n {
-			return idx
-		}
-		count++
-	}
+	return enggeo.RailingPostSteps(n, b)
 }
 
 // railingPostCount — сколько стоек на марше.
@@ -175,12 +126,14 @@ func railingPostCount(n int, b float64) int {
 func purchasedRailingParts(cfg *engineering.StairConfiguration, firstNumber int) []dommfg.Part {
 	stepCount := cfg.StepCount
 	treadDepth := cfg.TreadDepth.Millimeters()
-	railLength := railLengthMM(cfg)
+	stepHeight := cfg.StepHeight.Millimeters()
+	// Длина поручня — по оси, из геометрии: та же линия, что строит модель.
+	// Горизонтальная проекция здесь запрещена (S-206: −20 % длины).
+	railLength := enggeo.RailingRailAxisLen(stepCount, treadDepth, stepHeight)
 	sides := enggeo.RailingSideCount(cfg)
 	if stepCount <= 0 || railLength <= 0 || sides <= 0 {
 		return nil
 	}
-	runLength := treadDepth * float64(stepCount-1)
 	// Стойки, фланцы и ригели ставятся на КАЖДУЮ оплачиваемую сторону: при
 	// RailingBoth геометрия строит две независимые нитки перил (см.
 	// straightRailingSolids/buildLURNailing), и список покупного раньше
@@ -188,6 +141,11 @@ func purchasedRailingParts(cfg *engineering.StairConfiguration, firstNumber int)
 	// потому что сторона вообще не читалась.
 	postsPerSide := railingPostCount(stepCount, treadDepth)
 	posts := postsPerSide * sides
+	// Длины ригелей по оси — по одному значению на пролёт между стойками.
+	// Пролёты бывают неравными, поэтому индекс пролёта идёт по порядку
+	// эмиссии (s/r/i), а не усредняется (S-206).
+	steps := enggeo.RailingPostSteps(stepCount, treadDepth)
+	bayLen := railingBayLengths(steps, treadDepth, stepHeight)
 
 	// Порядок эмиссии (раньше — пять циклов, теперь один список, порядок
 	// тот же): поручни, стойки, ригели, фитинги, заглушки.
@@ -202,9 +160,8 @@ func purchasedRailingParts(cfg *engineering.StairConfiguration, firstNumber int)
 	// считается по стойкам своей стороны: если взять общее число стоек
 	// (postsPerSide × sides), то при двух сторонах пролёт вышел бы вдвое
 	// короче настоящего, и в смете лежала бы труба неверной длины.
-	span := 0.0
+	// Длина каждого пролёта — по оси (bayLen), пролёты бывают неравными.
 	if postsPerSide >= 2 {
-		span = runLength / float64(postsPerSide-1)
 		for s := 0; s < sides; s++ {
 			for r := 0; r < rigelRows; r++ {
 				for i := 0; i < postsPerSide-1; i++ {
@@ -238,8 +195,16 @@ func purchasedRailingParts(cfg *engineering.StairConfiguration, firstNumber int)
 	}
 
 	out := make([]dommfg.Part, 0, len(kinds))
+	// Порядок эмиссии ригелей — s/r/i (сторона, ряд, пролёт), поэтому номер
+	// пролёта — это счётчик ригелей по модулю числа пролётов на стороне.
+	ri := 0
 	for i, kind := range kinds {
-		p := railingPartDims(kind, railLength, span)
+		rigelLen := 0.0
+		if kind == dommfg.PartRigel && len(bayLen) > 0 {
+			rigelLen = bayLen[ri%len(bayLen)]
+			ri++
+		}
+		p := railingPartDims(kind, railLength, rigelLen)
 		// Проставляем сквозные номера деталей пакета.
 		p.Number = partNumber(kind, firstNumber+i)
 		p.Purchased = true
@@ -254,9 +219,10 @@ func purchasedRailingParts(cfg *engineering.StairConfiguration, firstNumber int)
 }
 
 // railingPartDims — габариты и материал покупной детали по её виду.
-// Размеры — из каталога (переменные файла), меняется только длина
-// поручня и пролёт ригеля.
-func railingPartDims(kind dommfg.PartKind, railLength, span float64) dommfg.Part {
+// Диаметры и высота стойки — из каталога (переменные файла), длины
+// поручня и ригеля — по оси из геометрии (аргументы): резать трубу по
+// горизонтальной проекции запрещено (S-206).
+func railingPartDims(kind dommfg.PartKind, railLength, rigelLen float64) dommfg.Part {
 	switch kind {
 	case dommfg.PartRailTop:
 		// Перила (поручень) — по одной непрерывной трубе на марш на сторону.
@@ -272,9 +238,10 @@ func railingPartDims(kind dommfg.PartKind, railLength, span float64) dommfg.Part
 			Thickness: engLen(postWall), Length: engLen(balusterLen), Width: engLen(postOD),
 		}
 	case dommfg.PartRigel:
+		// Ригель — длина своего пролёта по оси (пролёты бывают неравными).
 		return dommfg.Part{
 			Kind: dommfg.PartRigel, Material: "STAINLESS-304",
-			Thickness: engLen(rigelWall), Length: engLen(span), Width: engLen(rigelOD),
+			Thickness: engLen(rigelWall), Length: engLen(rigelLen), Width: engLen(rigelOD),
 		}
 	case dommfg.PartTip:
 		// Наконечник регулируемый: овальная площадка под поручень.
@@ -305,7 +272,7 @@ func railingPartDims(kind dommfg.PartKind, railLength, span float64) dommfg.Part
 			Kind: dommfg.PartEndCap, Material: "PLASTIC",
 			Thickness: engLen(1.0), Length: engLen(endCapOD), Width: engLen(endCapOD),
 		}
-	case dommfg.PartStringer, dommfg.PartTread, dommfg.PartRiser,
+	case dommfg.PartStringer, dommfg.PartTread, dommfg.PartRiser, dommfg.PartLanding,
 		dommfg.PartHeel, dommfg.PartWeb, dommfg.PartAnchor, dommfg.PartFirstWeb:
 		// Детали каркаса сюда попадать не должны: они разбираются из тел
 		// модели в decompose, а не строятся здесь. Явный перечень, а не
@@ -364,7 +331,7 @@ func railingWhere(el enggeo.RailingPlaced) string {
 		return fmt.Sprintf("накладка, стойка %d, сторона %s", el.PostIdx, el.Side)
 	case dommfg.PartEndCap:
 		return fmt.Sprintf("торец поручня (%s), сторона %s", el.End, el.Side)
-	case dommfg.PartStringer, dommfg.PartTread, dommfg.PartRiser,
+	case dommfg.PartStringer, dommfg.PartTread, dommfg.PartRiser, dommfg.PartLanding,
 		dommfg.PartHeel, dommfg.PartWeb, dommfg.PartAnchor, dommfg.PartFirstWeb:
 		// Детали каркаса место получают в decompose, их Where — whereLabel.
 		// Сюда они не доходят; ветка — для полноты switch (exhaustive).

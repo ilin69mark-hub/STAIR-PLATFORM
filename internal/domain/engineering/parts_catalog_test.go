@@ -32,6 +32,10 @@ type referencePart struct {
 	Volume    float64
 	TubeOD    float64
 	TubeWall  float64
+	// AxisLen — длина трубы по оси, замеренная в модели (S-206).
+	// AxisAllowance — сколько мм оси спрятано в сплавленном соседе.
+	AxisLen       float64
+	AxisAllowance float64
 }
 
 type referenceFile struct {
@@ -85,6 +89,8 @@ func loadReference(t *testing.T) referenceFile {
 		if p.Tube != nil {
 			rp.TubeOD = p.Tube.OD
 			rp.TubeWall = p.Tube.Wall
+			rp.AxisLen = p.AxisLen
+			rp.AxisAllowance = p.AxisAllowance
 		}
 		ref.Parts = append(ref.Parts, rp)
 	}
@@ -153,6 +159,42 @@ func TestCatalogTubeODVsReference(t *testing.T) {
 		if math.Abs(spec.TubeWall-rp.TubeWall) > 0.1 {
 			t.Errorf("%s (%s): стенка каталог %.1f, эталон %.1f",
 				rp.ID, spec.Name, spec.TubeWall, rp.TubeWall)
+		}
+	}
+}
+
+// TestCatalogTubeLenVsReference — длина трубы в каталоге равна длине
+// по оси, замеренной в эталоне, а НЕ проекции bbox (S-206).
+//
+// До S-206 длину трубы не сверял никто, и в каталоге лежали проекции:
+// RAIL-P 4195 вместо 5161, RIGL-001 1224,2 вместо 1506,3 — мастер резал
+// бы трубу на ~20 % короче настоящей. Проекция от оси отличается только
+// у наклонных труб; у вертикальных (POST-001) совпадает, кроме сплавления
+// с соседом — его припуск заявлен в YAML модели (axis_allowance), а не
+// зашит в тест: молчаливое исключение здесь — та же дыра, что и раньше.
+func TestCatalogTubeLenVsReference(t *testing.T) {
+	ref := loadReference(t)
+	tol := ref.ToleranceMM // 0,3 мм — допуск из самого манифеста
+	for _, rp := range ref.Parts {
+		spec, ok := PartByID(rp.ID)
+		if !ok || spec.Form != FormTube {
+			continue
+		}
+		if rp.AxisLen <= 0 {
+			t.Errorf("%s (%s): эталон без axis_len — ось не замерена, сверять не с чем",
+				rp.ID, rp.SourceObj)
+			continue
+		}
+		want := rp.AxisLen + rp.AxisAllowance
+		if math.Abs(spec.Len-want) > tol {
+			t.Errorf("%s (%s): Len каталог %.1f, ось эталона %.1f (+припуск %.1f) — "+
+				"похоже на проекцию, а не ось (S-206)",
+				rp.ID, spec.Name, spec.Len, rp.AxisLen, rp.AxisAllowance)
+		}
+		if math.Abs(spec.CutLen-spec.Len) > 1e-9 {
+			t.Errorf("%s (%s): CutLen %.1f != Len %.1f — припуск не заявлен, "+
+				"а рез отличается от размера (S-206: без припуска)",
+				rp.ID, spec.Name, spec.CutLen, spec.Len)
 		}
 	}
 }

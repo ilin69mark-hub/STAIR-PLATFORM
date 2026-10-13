@@ -67,8 +67,16 @@ type Part struct {
 	BBox      Box     `json:"bbox"`
 	Volume    float64 `json:"volume"`
 	Tube      *Tube   `json:"tube,omitempty"`
-	Solids    []Solid `json:"solids"`
-	Note      string  `json:"note,omitempty"`
+	// AxisLen — длина трубы по оси, замеренная в модели (самая длинная
+	// прямая кромка тела). Каталог обязан совпадать с ней, а не с
+	// проекцией bbox: проекция короче оси на ~20 % (S-206).
+	AxisLen float64 `json:"axis_len,omitempty"`
+	// AxisAllowance — сколько мм оси спрятано в сплавленном соседе
+	// (POST-001 эталона: шов 797,7, покупная труба 805,7 — 8 мм во
+	// фланце). Заявлено в YAML модели, проверяется гейтом вместе с осью.
+	AxisAllowance float64 `json:"axis_allowance,omitempty"`
+	Solids        []Solid `json:"solids"`
+	Note          string  `json:"note,omitempty"`
 }
 
 // Manifest — корень parts-manifest.json.

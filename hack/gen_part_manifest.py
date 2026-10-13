@@ -84,6 +84,28 @@ def bbox_of(shape):
             "h": round(bb.ZLength, 2)}
 
 
+def axis_len_of(shape):
+    """Длина трубы по оси: самая длинная прямая кромка тела.
+
+    У цилиндра это шов — ровно L. Круги (торцы, длина πD) и дуги
+    отбрасываем: они не ось. Нужно, чтобы каталог сверялся с осью,
+    а не с проекцией bbox (S-206: проекция короче оси на ~20 %).
+    Нет прямых кромок — 0.0 (гейт такую деталь отбракует, а не скроет).
+    """
+    best = 0.0
+    try:
+        edges = shape.Edges
+    except (AttributeError, Exception):
+        return 0.0
+    for e in edges:
+        try:
+            if e.Curve.TypeId == "Part::GeomLine" and e.Length > best:
+                best = e.Length
+        except (AttributeError, Exception):
+            continue
+    return round(best, 2)
+
+
 def build_manifest():
     with open(PARTS_YAML, encoding="utf-8") as f:
         spec = yaml.safe_load(f)
@@ -112,19 +134,23 @@ def build_manifest():
                     "ни одного объекта семейства %r" %
                     (entry["id"], entry["source"], key))
             rep = objs[0]
+            # Shape трогаем один раз на объект: повторные обращения к
+            # o.Shape под freecadcmd роняли процесс. Всё ниже — из кэша.
+            shapes = [o.Shape for o in objs]
+            rep_shape = shapes[0]
             solids = []
-            for o in objs:
+            for o, sh in zip(objs, shapes):
                 sub = []
                 try:
-                    subshapes = o.Shape.Solids
+                    subshapes = sh.Solids
                 except AttributeError:
                     subshapes = []
                 for s in subshapes:
                     sub.append({"bbox": bbox_of(s),
                                 "volume": round(s.Volume, 1)})
                 solids.append({"object": o.Name,
-                               "bbox": bbox_of(o.Shape),
-                               "volume": round(o.Shape.Volume, 1),
+                               "bbox": bbox_of(sh),
+                               "volume": round(sh.Volume, 1),
                                "subsolids": sub})
             rec = {"id": entry["id"],
                    "name": entry.get("name", ""),
@@ -138,14 +164,21 @@ def build_manifest():
                    # (весь эталон S-198). Расходятся у составных фитингов
                    # сида (TIP: 10 тел на 2 изделия): заказывать и считать
                    # надо по instances, а count — для контроля полноты.
-                   "count": len(objs),
-                   "instances": entry.get("count", len(objs)),
-                   "bbox": bbox_of(rep.Shape),
-                   "volume": round(rep.Shape.Volume, 1),
-                   "solids": solids}
+                    "count": len(objs),
+                    "instances": entry.get("count", len(objs)),
+                    "bbox": bbox_of(rep_shape),
+                    "volume": round(rep_shape.Volume, 1),
+                    "solids": solids}
             tube = (spec.get("tubes") or {}).get(entry["id"])
             if tube:
                 rec["tube"] = {"od": tube["od"], "wall": tube["wall"]}
+                # Замер оси прямо в модели (S-206): каталог обязан
+                # совпадать с ним, а не с проекцией bbox.
+                rec["axis_len"] = axis_len_of(rep_shape)
+                # Припуск сплавления (POST-001 эталона: шов короче покупной
+                # трубы на высоту фланца). Заявлен в YAML, а не зашит в гейт.
+                if tube.get("axis_allowance"):
+                    rec["axis_allowance"] = tube["axis_allowance"]
             if entry.get("note"):
                 rec["note"] = entry["note"]
             parts.append(rec)

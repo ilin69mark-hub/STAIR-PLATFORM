@@ -82,8 +82,8 @@ func TestManufactureLShapeParts(t *testing.T) {
 	for _, p := range pkg.Parts {
 		byKind[p.Kind]++
 	}
-	if byKind[dommfg.PartStringer] != 4 || byKind[dommfg.PartTread] != 16 || byKind[dommfg.PartRiser] != 15 {
-		t.Fatalf("part kinds = %+v, want stringer 4 / tread 16 / riser 15", byKind)
+	if byKind[dommfg.PartStringer] != 4 || byKind[dommfg.PartTread] != 15 || byKind[dommfg.PartRiser] != 15 || byKind[dommfg.PartLanding] != 1 {
+		t.Fatalf("part kinds = %+v, want stringer 4 / tread 15 / riser 15 / landing 1", byKind)
 	}
 	// Трассировка к геометрии: индексы покрывают все тела модели. Покупные
 	// детали ограждения к телу модели не относятся (их геометрия — декорация),
@@ -97,6 +97,41 @@ func TestManufactureLShapeParts(t *testing.T) {
 		if p.Kind.IsValid() == false {
 			t.Fatalf("покупная деталь %q с некорректным видом %q", p.Number, p.Kind)
 		}
+	}
+}
+
+// TestManufactureLandingIsOwnKind — площадка идёт своим видом PartLanding
+// (S-204), а не проступью: номер LND, место «площадка», материал ступеней.
+// Раньше её было не отличить от проступи ни в спецификации, ни в наклейках.
+func TestManufactureLandingIsOwnKind(t *testing.T) {
+	cfg := lshapeConfig(t)
+	res, err := enggeo.Generate(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, err := Manufacture(cfg, res, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *dommfg.Part
+	for i := range pkg.Parts {
+		if pkg.Parts[i].Kind == dommfg.PartLanding {
+			found = &pkg.Parts[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("в пакете L-марша нет детали вида landing")
+	}
+	if found.Number != "LND-01" {
+		t.Errorf("номер площадки %q, want LND-01", found.Number)
+	}
+	if found.Where != "площадка" {
+		t.Errorf("место площадки %q, want площадка", found.Where)
+	}
+	if string(found.Material) != cfg.TreadMaterial {
+		t.Errorf("материал площадки %q, want %q (материал ступеней)",
+			found.Material, cfg.TreadMaterial)
 	}
 }
 
@@ -121,10 +156,10 @@ func TestManufactureLShapeDimensions(t *testing.T) {
 		{"STR-02", 1924.810, 300},
 		{"STR-03", 2898.309, 300},
 		{"STR-04", 2898.309, 300},
-		{"TRD-01", 900, 290}, // вся ширина марша, глубина = шаг 270 + нос 20
-		{"TRD-07", 1000, 900},
-		{"TRD-08", 900, 290},
-		{"TRD-16", 900, 330}, // последняя ступень длиннее на TopStepExtend
+		{"TRD-01", 900, 290},  // вся ширина марша, глубина = шаг 270 + нос 20
+		{"LND-01", 1000, 900}, // площадка — своим видом, не проступь (S-204)
+		{"TRD-07", 900, 290},
+		{"TRD-15", 900, 330}, // последняя ступень длиннее на TopStepExtend
 		{"RSR-01", 900, 140},
 		{"RSR-02", 900, 180},
 		{"RSR-15", 900, 180},
@@ -153,7 +188,7 @@ func TestManufactureLShapeDimensions(t *testing.T) {
 		switch p.Kind {
 		case dommfg.PartHeel, dommfg.PartWeb, dommfg.PartAnchor, dommfg.PartFirstWeb:
 			want = 4
-		case dommfg.PartStringer, dommfg.PartTread, dommfg.PartRiser, dommfg.PartRailTop, dommfg.PartPost, dommfg.PartRigel, dommfg.PartTip, dommfg.PartFlange, dommfg.PartSlip, dommfg.PartDeco, dommfg.PartEndCap:
+		case dommfg.PartStringer, dommfg.PartTread, dommfg.PartRiser, dommfg.PartLanding, dommfg.PartRailTop, dommfg.PartPost, dommfg.PartRigel, dommfg.PartTip, dommfg.PartFlange, dommfg.PartSlip, dommfg.PartDeco, dommfg.PartEndCap:
 			// остальные детали косоура — по нормативу выпуска листа
 		}
 		if !nearlyEqual(p.Thickness.Millimeters(), want) {
@@ -205,7 +240,7 @@ func TestManufactureLShapeBOM(t *testing.T) {
 		{"Anchor (floor/landing bracket)", 4, 270, 50},
 		{"Anchor (floor/landing bracket)", 4, 166, 50},
 		{"First-step plate", 4, 122, 40},
-		{"Tread", 1, 1000, 900},
+		{"Landing", 1, 1000, 900},
 		{"Stringer", 2, 2898.309, 300},
 	}
 	// BOM включает и покупные позиции ограждения, а want описывает только

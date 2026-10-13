@@ -196,10 +196,13 @@ func TestManufactureBOM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// BOM включает 10 строк каркаса/ступеней плюс 8 покупных позиций
+	// BOM включает 10 строк каркаса/ступеней плюс 9 покупных позиций
 	// ограждения. Режется только каркас — строки ограждения в раскрой не идут.
-	if len(pkg.BOM.Lines) != 18 {
-		t.Fatalf("BOM lines = %d, want 18 (10 каркаса + 8 ограждения)",
+	// Девятая покупная строка — второй типоразмер ригеля: пролёты между
+	// стойками неравные (опоры на ступенях 1/6/10/15 → ходы 5/4/5), и ригели
+	// идут длинами по оси своего пролёта (S-206), а не одним усреднённым.
+	if len(pkg.BOM.Lines) != 19 {
+		t.Fatalf("BOM lines = %d, want 19 (10 каркаса + 9 ограждения: ригели двух длин)",
 			len(pkg.BOM.Lines))
 	}
 	if len(pkg.CutList.Items) != 10 {
@@ -245,6 +248,27 @@ func TestManufactureBOM(t *testing.T) {
 		t.Fatalf("cut list items = %d, want 10 — карта раскроя повторяет только "+
 			"режущиеся строки BOM; покупное ограждение в неё не входит",
 			len(pkg.CutList.Items))
+	}
+	// Ригели — двумя строками по длинам пролётов (S-206): ходы 5/4/5 ступеней
+	// по 324,4996 мм → 1622,4980 ×4 (два крайних пролёта × два ряда) и
+	// 1297,9985 ×2 (средний пролёт × два ряда). Одна строка на всех была бы
+	// усреднением, а резать надо каждый пролёт в свой размер.
+	rigelLines := 0
+	for _, line := range pkg.BOM.Lines[10:] {
+		if line.Description != "Ригель" {
+			continue
+		}
+		rigelLines++
+		switch {
+		case nearlyEqual(line.Length.Millimeters(), 1622.4980739588) && int(line.Quantity) == 4:
+		case nearlyEqual(line.Length.Millimeters(), 1297.9984591670) && int(line.Quantity) == 2:
+		default:
+			t.Fatalf("строка ригеля %v×%v — нет такого пролёта (S-206)",
+				line.Quantity, line.Length.Millimeters())
+		}
+	}
+	if rigelLines != 2 {
+		t.Fatalf("строк ригелей %d, want 2 (два типоразмера по пролётам)", rigelLines)
 	}
 	for i := range pkg.CutList.Items {
 		it := pkg.CutList.Items[i]

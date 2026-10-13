@@ -61,6 +61,11 @@ func seedConfig() *engineering.StairConfiguration {
 		Riser:             true,
 		Material:          "STEEL-S235",
 		TreadMaterial:     "WOOD-OAK",
+		// Нос проступи скруглён R10: дубовые ступени идут с филёнкой
+		// (TreadNoseRadiusMM приходит из материала в проде; в фикстуре
+		// задаём явно, иначе сид строится с острым носом, которого
+		// в изделии нет — S-213).
+		TreadNoseRadiusMM: 10,
 		Comb:              engineering.CombFrameDefaults(),
 		Clearance:         2000,
 		RailingHeight:     seedRailingHeight,

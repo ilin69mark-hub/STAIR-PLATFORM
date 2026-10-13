@@ -15,6 +15,11 @@ const (
 	PartTread PartKind = "tread"
 	// PartRiser — подступенок: тело, тонкое по глубине (ось X).
 	PartRiser PartKind = "riser"
+	// PartLanding — площадка: горизонтальная плита между маршами.
+	// Раньше сводилась к PartTread без своего вида (S-204): в спецификации
+	// площадку было не отличить от проступи, хотя это другая деталь —
+	// другого размера, с другим креплением и ценой.
+	PartLanding PartKind = "landing"
 	// Пятки обоймы выреза металлокаркаса (решение владельца 2026-10-05) —
 	// плоские детали из листа 4 мм с отверстиями и регулировочными овалами:
 	// PartHeel — пятка 1 под ступенью, PartWeb — пятка 2 вдоль зуба,
@@ -51,7 +56,7 @@ const (
 // IsValid проверяет корректность типа детали.
 func (k PartKind) IsValid() bool {
 	switch k {
-	case PartStringer, PartTread, PartRiser,
+	case PartStringer, PartTread, PartRiser, PartLanding,
 		PartHeel, PartWeb, PartAnchor, PartFirstWeb,
 		PartRailTop, PartPost, PartRigel, PartTip,
 		PartFlange, PartSlip, PartDeco, PartEndCap:

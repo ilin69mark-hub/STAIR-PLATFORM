@@ -75,6 +75,10 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
   const [rates, setRates] = useState<RatesForm>(defaultRates)
   const [calculation, setCalculation] = useState<Calculation | null>(null)
   const [savedAt, setSavedAt] = useState<Date | null>(null)
+  // stagedByDrag — форма изменена перетаскиванием в 3D (S-205), сервер
+  // ещё не считал: сцена показывает старую модель. Сбрасывается успешным
+  // расчётом. Сам жест сервер не дёргает — только кнопка «Рассчитать».
+  const [stagedByDrag, setStagedByDrag] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   // Прайс крепежа для списка «по объекту» (MNT-0001). Грузится один раз на
@@ -186,6 +190,16 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
   const setRate = (key: keyof RatesForm, value: string) =>
     setRates((r) => ({ ...r, [key]: value }))
 
+  // stageDrag — завершённый жест в 3D кладёт значение в форму (S-205).
+  // Сервер НЕ вызывается: ни расчёт, ни превью. Живая валидация внутри
+  // setField — можно (это проверка без геометрии, не реконструкция).
+  // Округление до 0,1 — как на витрине: дроби тоньше не имеют смысла.
+  const stageDrag =
+    (key: 'heightMM' | 'comfortStepMM' | 'landingWidthMM' | 'landingDepthMM') =>
+    (mm: number) => {
+      setField(key, String(Math.round(mm * 10) / 10))
+      setStagedByDrag(true)
+    }
   // handleCalculate — отправляет расчёт и сохраняет результат в проекте.
   // Возвращает true при успешном сохранении.
   const handleCalculate = async (source?: ConfigForm): Promise<boolean> => {
@@ -202,6 +216,7 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
       // Ответ устаревшего запроса: молча уходим, не трогая сцену.
       if (seq !== calcSeq.current) return false
       setCalculation(calc)
+      setStagedByDrag(false)
       setSavedAt(new Date())
       liveValidator.current.invalidate(configKey(src))
       applyLive(null)
@@ -440,9 +455,9 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
             className="btn btn--accent"
             onClick={() => void handleCalculate()}
             disabled={busy || hasHardErrors || project?.status === 'in_review'}
-            title={project?.status === 'in_review' ? 'Расчёт заморожен до решения владельца' : undefined}
+            title={stagedByDrag ? 'Параметры изменены перетаскиванием в 3D — сцена покажет новый расчёт' : project?.status === 'in_review' ? 'Расчёт заморожен до решения владельца' : undefined}
           >
-            {busy ? 'Расчёт…' : 'Рассчитать'}
+            {busy ? 'Расчёт…' : stagedByDrag ? 'Рассчитать*' : 'Рассчитать'}
           </button>
           <button
             className="btn"
@@ -536,6 +551,15 @@ export function ProjectDetail({ projectId, onBack, onChanged }: Props) {
                 onApplyVariation={applyVariation}
                 activeVariantId={activeVariantId}
                 heightMM={Number(config.heightMM) || undefined}
+                drag={{
+                  onHeight: stageDrag('heightMM'),
+                  onComfort: stageDrag('comfortStepMM'),
+                  onLandingWidth: stageDrag('landingWidthMM'),
+                  onLandingDepth: stageDrag('landingDepthMM'),
+                }}
+                comfortStepMM={Number(config.comfortStepMM) || undefined}
+                landingWidthMM={Number(config.landingWidthMM) || undefined}
+                landingDepthMM={Number(config.landingDepthMM) || undefined}
               />
               <ProductionDocs
                 projectId={projectId}

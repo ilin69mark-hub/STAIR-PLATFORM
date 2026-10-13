@@ -17,9 +17,7 @@
 Кадр ЛОКАЛЬНЫЙ (x от 0, без сдвига approachShift): модель — библиотека
 деталей, сдвиг даёт калькулятор при размещении (этап 2).
 
-Осознанные упрощения (влияют на объём заведомо меньше допуска 3 %):
-- фаска носа R10 пропущена (+0,2 % к проступям);
-- поручень — прямой короб 50×40 без скругления кромок;
+Осознанные упрощения (влияют на объём заведомо меньше допуска 0,5 %):
 - ориентация 3 отверстий Ø9 в диске цанги произвольна (90/210/330°).
 
 Осознанное повторение поведения движка 1:1 — S-208a закрыт в движке,
@@ -56,8 +54,8 @@ BALUSTER_EDGE_INSET = 15.0
 POST_OD, POST_WALL = 42.4, 1.5
 RIGEL_OD, RIGEL_WALL = 12.0, 1.0
 
-# Объём сида движка (seed_test.go): близнец обязан сойтись в ±3 %.
-SEED_VOLUME = 109079232.0
+# Объём сида движка (лог TestSeedIsManufacturable, сид с филёнкой R10).
+SEED_VOLUME = 108961605.0
 
 V = App.Vector
 
@@ -107,6 +105,25 @@ def cut_holes_x(obj, holes):
     for (y, z, r, x0, x1) in holes:
         tool = Part.makeCylinder(r, x1 - x0, V(x0, y, z), V(1, 0, 0))
         sh = sh.cut(tool)
+    obj.Shape = sh
+
+
+def fillet_nose(obj, x0, ztop, width, r=10.0):
+    """Скруглить нос проступи R10: верхнее переднее ребро вдоль Y (S-213).
+
+    То же место, что roundBack в движке (plateSection): угол (x0, ztop).
+    Ребро ищется по геометрии, а не по индексу: порядок рёбер в боксе
+    не специфицирован.
+    """
+    es = [e for e in obj.Shape.Edges
+          if abs(e.Length - width) < 0.5
+          and all(abs(v.X - x0) < 0.01 and abs(v.Z - ztop) < 0.01
+                  for v in e.Vertexes)]
+    if len(es) != 1:
+        raise SystemExit("SEED FAIL: ребро носа не найдено однозначно: %d" % len(es))
+    sh = obj.Shape.makeFillet(r, es)
+    if sh is None or sh.isNull():
+        raise SystemExit("SEED FAIL: фаска R10 не построилась")
     obj.Shape = sh
 
 
@@ -192,7 +209,8 @@ def build(doc):
         if k == N - 1:
             x1 = N * B  # TopStepExtend: последняя доходит до конца косоура
         zt = (k + 1) * H
-        add(box(doc, "Tread_%02d" % (k + 1), x0, 0.0, zt - ST, x1 - x0, W, ST))
+        o = add(box(doc, "Tread_%02d" % (k + 1), x0, 0.0, zt - ST, x1 - x0, W, ST))
+        fillet_nose(o, x0, zt, W)
         rx0 = k * B - ST
         rz0 = max(k * H - ST, 0.0)
         add(box(doc, "Riser_%02d" % (k + 1), rx0, 0.0, rz0, ST, W, (k + 1) * H - ST - rz0))
@@ -242,8 +260,11 @@ def build(doc):
         yc = hy0 + HEEL_W / 2
         x0 = N * B - HEEL_T
         zt = z_top - web_h
-        s1 = Part.makeBox(HEEL_T + 2, ANCHOR_D, SLOT_L,
-                          V(x0 - 1, yc - ANCHOR_D / 2, zt + tzs[0] - SLOT_L / 2))
+        # Первый паз (вдоль Z): короб РОВНО на прямом участке (18), иначе
+        # скруглённые торцы тонут внутри и паз выходит прямоугольным (S-214).
+        # Диски-торцы r6 в центрах z=15/33 от начала паза.
+        s1 = Part.makeBox(HEEL_T + 2, ANCHOR_D, SLOT_L - ANCHOR_D,
+                          V(x0 - 1, yc - ANCHOR_D / 2, zt + tzs[0] - SLOT_L / 2 + ANCHOR_D / 2))
         c1a = Part.makeCylinder(ANCHOR_D / 2, HEEL_T + 2,
                                 V(x0 - 1, yc, zt + tzs[0] - SLOT_L / 2 + ANCHOR_D / 2), V(1, 0, 0))
         c1b = Part.makeCylinder(ANCHOR_D / 2, HEEL_T + 2,
@@ -251,12 +272,15 @@ def build(doc):
         sh = sh.cut(s1.fuse(c1a).fuse(c1b))
         sh = sh.cut(Part.makeCylinder(ANCHOR_D / 2, HEEL_T + 2,
                                       V(x0 - 1, yc, zt + tzs[1]), V(1, 0, 0)))
-        s3 = Part.makeBox(HEEL_T + 2, SLOT_L, ANCHOR_D,
-                          V(x0 - 1, yc - SLOT_L / 2, zt + tzs[2] - ANCHOR_D / 2))
-        c3a = Part.makeCylinder(ANCHOR_D / 2, SLOT_L,
-                                V(x0 - 1, yc - SLOT_L / 2 + ANCHOR_D / 2, zt + tzs[2]), V(0, 1, 0))
-        c3b = Part.makeCylinder(ANCHOR_D / 2, SLOT_L,
-                                V(x0 - 1, yc + SLOT_L / 2 - ANCHOR_D / 2, zt + tzs[2]), V(0, 1, 0))
+        # Последний паз (вдоль Y): диски-торцы — КРУГИ в плоскости YZ
+        # (ось X, сквозь пластину), а не стержни вдоль Y. Стержни давали
+        # паз 54 мм с прорывом кромки пластины — открытую прорезь (S-214).
+        s3 = Part.makeBox(HEEL_T + 2, SLOT_L - ANCHOR_D, ANCHOR_D,
+                          V(x0 - 1, yc - (SLOT_L - ANCHOR_D) / 2, zt + tzs[2] - ANCHOR_D / 2))
+        c3a = Part.makeCylinder(ANCHOR_D / 2, HEEL_T + 2,
+                                V(x0 - 1, yc - (SLOT_L - ANCHOR_D) / 2, zt + tzs[2]), V(1, 0, 0))
+        c3b = Part.makeCylinder(ANCHOR_D / 2, HEEL_T + 2,
+                                V(x0 - 1, yc + (SLOT_L - ANCHOR_D) / 2, zt + tzs[2]), V(1, 0, 0))
         sh = sh.cut(s3.fuse(c3a).fuse(c3b))
         o.Shape = sh
         fw_w = HEEL_W - 2 * INSET
@@ -437,6 +461,15 @@ def main():
                 break
     for k in sorted(by_kind):
         trace("SUBTOTAL %s %.1f" % (k, by_kind[k]))
+    # Объёмы пяток с отверстиями — гейт формы пазов (S-214): прорванный
+    # паз или прямые углы вместо овалов меняют объём за пределами допуска.
+    # Пластина 4·50·166=33200 минус паз 329,1 + круг 113,1 + паз 329,1,
+    # всё ×4 мм: 30114,8 на штуку. Пол: 4·50·270=54000 минус
+    # (329,1+113,1+113,1+329,1)·4: 50462,8 на штуку.
+    for part, want_each in (("TopAnchor", 30114.8), ("Anchor", 50462.8)):
+        got = by_kind.get(part, 0.0) / 2.0
+        if abs(got - want_each) / want_each > 0.015:
+            raise SystemExit("SEED FAIL: %s объём %.1f, want %.1f — пазы не те" % (part, got, want_each))
     # Объём МОДЕЛИ (без перил) против сида движка: перила сверяются
     # отдельно, их правда сейчас спорна (S-208), и валить близнеца
     # из-за неё нельзя.

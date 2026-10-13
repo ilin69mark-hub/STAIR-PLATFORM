@@ -26,8 +26,12 @@ source_model: reference/stair-comb-railings.FCStd
 
 # tubes — диаметры труб, которые нельзя снять с bbox (см. выше).
 # Источник: константы fix_railings.py (PD, WALL, RIGEL_D, RIGEL_WALL).
+# axis_allowance — сколько мм оси трубы спрятано в сплавленном соседе:
+# стойка сплавлена с фланцем 8 мм, поэтому её шов 797,7 при покупной
+# длине 805,7 (S-206). Без этой записи гейт длин сравнивал бы шов
+# с покупной длиной и врал бы на 8 мм.
 tubes:
-  POST-001: {od: 42.4, wall: 1.5}
+  POST-001: {od: 42.4, wall: 1.5, axis_allowance: 8.0}
   RAIL-P:   {od: 42.4, wall: 1.5}
   RIGL-001: {od: 12.0, wall: 1.0}
 

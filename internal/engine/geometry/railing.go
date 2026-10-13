@@ -526,11 +526,9 @@ func slabOutlineAtSloped(xc, y float64, pts [][2]float64, zBase, t, slope float6
 func balusterAtSloped(q Quality, x, y, z0, height, slope float64) *kerngeo.Solid {
 	// Стойка ограждения — ПОЛАЯ круглая труба Ø42,4 × 1,5 (нержавеющая
 	// сталь), а не квадратный брусок: это балясина самосборной системы.
+	// Строится шаблоном библиотеки (S-204), а не локальной копией формулы.
 	_ = slope
-	s := tubeAlong(q,
-		kerngeo.NewPoint3(x, y, z0),
-		kerngeo.NewPoint3(x, y, z0+height),
-		balusterD, balusterWall, roleBaluster)
+	s := TubeAt(q, kerngeo.NewPoint3(x, y, z0), balusterD, balusterWall, height, roleBaluster)
 	if s == nil {
 		return prismAtSloped(x, y, balusterD/2, balusterD/2, z0, height, slope, roleBaluster)
 	}
@@ -695,6 +693,42 @@ func steelRailEnds(n int, b, h, nosing, balY, xShift float64) (kerngeo.Point3, k
 	}
 	return kerngeo.NewPoint3(xShift, balY, zAt(xShift)),
 		kerngeo.NewPoint3(xShift+float64(n)*b, balY, zAt(xShift+float64(n)*b))
+}
+
+// RailingRailAxisLen — длина поручня-трубы по оси: расстояние между
+// концами из steelRailEnds. Та же линия, что строит straightRailingSolids,
+// — никаких отдельных формул «длины поручня» в производстве быть не
+// должно (S-206: там считали горизонтальную проекцию, и трубу резали
+// на ~20 % короче настоящей).
+//
+// Свеc, balY и xShift на длину не влияют — это сдвиги, а не растяжения,
+// поэтому аргументов всего три: число ступеней, глубина и высота.
+func RailingRailAxisLen(n int, b, h float64) float64 {
+	if n <= 0 || b <= 0 || h <= 0 {
+		return 0
+	}
+	a, bp := steelRailEnds(n, b, h, 0, 0, 0)
+	return bp.Sub(a).Norm()
+}
+
+// RailingPostSteps — ступени, на которых стоят опоры. Единственный
+// источник расстановки (геометрия и смета): дублировать формулу «где
+// стойки» в производстве запрещено — расхождение проявилось бы в готовом
+// ограждении, а не в тесте (S-180).
+func RailingPostSteps(n int, b float64) []int {
+	return balusterSteps(n, b)
+}
+
+// RailingRigelAxisLen — длина ригеля по оси между соседними стойками на
+// ступенях stepA и stepB. Та же линия, что строит straightRailingSolids:
+// xoff и доля высоты стойки сокращаются (оба конца подняты одинаково),
+// поэтому длина = ход между опорами по уклону: (k2−k1)·hypot(b, h).
+// Горизонтальный «span» из производства здесь запрещён (S-206).
+func RailingRigelAxisLen(stepA, stepB int, b, h float64) float64 {
+	if stepB <= stepA || b <= 0 || h <= 0 {
+		return 0
+	}
+	return float64(stepB-stepA) * math.Hypot(b, h)
 }
 
 // balusterSteps возвращает номера ступеней, на которых ставятся опоры.

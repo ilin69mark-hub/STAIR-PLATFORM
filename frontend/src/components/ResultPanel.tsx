@@ -21,6 +21,19 @@ interface Props {
   // Высота марша из ввода пользователя (поле «Высота», мм): задаёт высоту
   // стен периметра в 3D-вьювере.
   heightMM?: number
+  // drag — перетаскивание деталей в 3D (S-205): колбэки вызываются один раз
+  // на завершённый жест и КЛАДУТ значения в форму, а не считают. Пересчёт —
+  // только кнопкой «Рассчитать»: сцена показывает уже посчитанную модель,
+  // сервер во время жеста не трогаем. Нет drag — вьювер просто смотрит.
+  drag?: {
+    onHeight: (mm: number) => void
+    onComfort: (mm: number) => void
+    onLandingWidth: (mm: number) => void
+    onLandingDepth: (mm: number) => void
+  }
+  comfortStepMM?: number
+  landingWidthMM?: number
+  landingDepthMM?: number
 }
 
 // ResultTab — ключ активной под-вкладки результата. Часть панелей
@@ -28,7 +41,7 @@ interface Props {
 // не растягивать страницу в бесконечную портянку.
 type ResultTab = 'flight' | 'geometry' | 'manufacturing' | 'pricing'
 
-export function ResultPanel({ snapshot, onApplyVariation, activeVariantId, heightMM }: Props) {
+export function ResultPanel({ snapshot, onApplyVariation, activeVariantId, heightMM, drag, comfortStepMM, landingWidthMM, landingDepthMM }: Props) {
   const s = snapshot
   const stopped = !s.manufacturing || !s.pricing
   const [tab, setTab] = useState<ResultTab>('flight')
@@ -90,7 +103,7 @@ export function ResultPanel({ snapshot, onApplyVariation, activeVariantId, heigh
           )}
           {active === 'flight' && flightPanel}
           {active === 'geometry' && s.measurement && (
-            <GeometryPanel snapshot={s} heightMM={heightMM} />
+            <GeometryPanel snapshot={s} heightMM={heightMM} drag={drag} comfortStepMM={comfortStepMM} landingWidthMM={landingWidthMM} landingDepthMM={landingDepthMM} />
           )}
           {active === 'manufacturing' && s.manufacturing && (
             <ManufacturingPanel snapshot={s} />
@@ -420,7 +433,28 @@ function UShapePanel({ snapshot, heightMM }: { snapshot: Snapshot; heightMM?: nu
 }
 
 
-function GeometryPanel({ snapshot, heightMM }: { snapshot: Snapshot; heightMM?: number }) {
+function GeometryPanel({ snapshot, heightMM, drag, comfortStepMM, landingWidthMM, landingDepthMM }: {
+  snapshot: Snapshot
+  heightMM?: number
+  drag?: {
+    onHeight: (mm: number) => void
+    onComfort: (mm: number) => void
+    onLandingWidth: (mm: number) => void
+    onLandingDepth: (mm: number) => void
+  }
+  comfortStepMM?: number
+  landingWidthMM?: number
+  landingDepthMM?: number
+}) {
+  // Выбранная деталь и живое значение перетаскивания — локально: сервер
+  // не участвует, пока не нажата кнопка «Рассчитать».
+  const [selected, setSelected] = useState<{ solid: number; role: string } | null>(null)
+  const [preview, setPreview] = useState<{
+    heightMM: number
+    comfortStepMM: number
+    landingWidthMM?: number
+    landingDepthMM?: number
+  } | null>(null)
   const m = snapshot.measurement
   if (!m) return null
   const sch = schematicOf(snapshot)
@@ -474,10 +508,53 @@ function GeometryPanel({ snapshot, heightMM }: { snapshot: Snapshot; heightMM?: 
             approachSpace={sch?.solver?.approachSpace}
             heightMM={heightMM}
             stepThickness={snapshot.step_thickness}
+            interactive={!!drag}
+            selectedPart={selected}
+            onSelectPart={setSelected}
+            onDragPreview={drag ? setPreview : undefined}
+            onDragHeight={drag?.onHeight}
+            onDragComfortStep={drag?.onComfort}
+            comfortStepMM={comfortStepMM}
+            onDragLandingWidth={drag?.onLandingWidth}
+            onDragLandingDepth={drag?.onLandingDepth}
+            landingWidthMM={landingWidthMM}
+            landingDepthMM={landingDepthMM}
           />
         </Suspense>
       )}
+      {drag && (
+        <p className="muted" style={{ fontSize: 12 }}>
+          Детали можно тянуть прямо в 3D (ступень — высоту и шаг, площадку — размер).
+          Сцена не пересчитывается: жест кладёт значения в форму, считает только кнопка «Рассчитать».
+        </p>
+      )}
+      {selected && <SelectedPartLine snapshot={snapshot} selected={selected} />}
+      {preview && (
+        <p className="muted" style={{ fontSize: 12 }}>
+          Будет: высота {preview.heightMM} мм, шаг {preview.comfortStepMM} мм
+          {preview.landingWidthMM !== undefined && `, площадка ${preview.landingWidthMM} мм`}
+          {preview.landingDepthMM !== undefined && `, глубина ${preview.landingDepthMM} мм`}
+          {' '}— нажмите «Рассчитать».
+        </p>
+      )}
     </section>
+  )
+}
+
+// SelectedPartLine — строка выбранной в 3D детали: номер, куда, материал.
+// Связь деталь→строка спецификации — по SolidIndex (BC-007). Чисто клиентская,
+// сервер не вызывается.
+function SelectedPartLine({ snapshot, selected }: {
+  snapshot: Snapshot
+  selected: { solid: number; role: string }
+}) {
+  const part = snapshot.manufacturing?.Parts.find((p) => p.SolidIndex === selected.solid)
+  return (
+    <p className="muted" style={{ fontSize: 12 }}>
+      {part
+        ? `Деталь ${part.Number} — ${part.Where || selected.role}, ${part.Material} ${part.Thickness}×${part.Length}×${part.Width}`
+        : `Тело ${selected.solid} (${selected.role}) — в спецификации нет`}
+    </p>
   )
 }
 

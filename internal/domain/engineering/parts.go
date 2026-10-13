@@ -85,11 +85,16 @@ type PartSpec struct {
 	// стенки, мм. Ноль для не-труб.
 	TubeOD, TubeWall float64
 
-	// Len — длина трубы по оси, мм (FormTube).
+	// Len — длина трубы ПО ОСИ, мм (FormTube): то, что режут в цехе.
+	// Горизонтальная проекция наклонной трубы здесь запрещена: это
+	// −20 % длины, и мастер отрежет короткую трубу (S-206). Для
+	// вертикальных труб ось совпадает с высотой — расхождения нет.
 	Len float64
 
 	// CutLen — длина реза трубы с учётом припуска/подрезки, мм.
 	// Для труб это то, что идёт в производство; Len — чистая геометрия.
+	// Решение владельца: припуска нет, режем в размер (S-206),
+	// поэтому CutLen == Len — честно, а не «забыли заполнить».
 	CutLen float64
 
 	// SheetL, SheetW, SheetT — габарит плоской детали из листа, мм
@@ -176,7 +181,7 @@ func PurchasedParts() []PartSpec {
 			ID: "RAIL-P", Name: "Перила (поручень)", Group: GroupPurchased, Form: FormTube,
 			Material: MatStainless,
 			Note:     "Труба нерж. AISI 304, рез по длине",
-			TubeOD:   42.4, TubeWall: 1.5, Len: 4195, CutLen: 4195,
+			TubeOD:   42.4, TubeWall: 1.5, Len: 5160.8, CutLen: 5160.8,
 		},
 		{
 			ID: "POST-001", Name: "Стойка", Group: GroupPurchased, Form: FormTube,
@@ -188,7 +193,7 @@ func PurchasedParts() []PartSpec {
 			ID: "RIGL-001", Name: "Ригель", Group: GroupPurchased, Form: FormTube,
 			Material: MatStainless,
 			Note:     "Трубка нерж. AISI 304, два ряда, рез по длине",
-			TubeOD:   12.0, TubeWall: 1.0, Len: 1224.2, CutLen: 1224.2,
+			TubeOD:   12.0, TubeWall: 1.0, Len: 1506.3, CutLen: 1506.3,
 		},
 		{
 			ID: "TIP-001", Name: "Наконечник регулируемый", Group: GroupPurchased, Form: FormPart,

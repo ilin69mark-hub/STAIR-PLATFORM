@@ -241,15 +241,13 @@ func buildStraightFlight(cfg *engineering.StairConfiguration, q Quality) (*kerng
 				x1 = float64(n) * b
 			}
 			z := float64(k+1)*h - st
-			section, err := plateSection(q, x0, x1, z, st, noseR, treadRoundSide)
+			// Проступь строится шаблоном библиотеки (S-204): одно определение
+			// проступи на движок и библиотеку, а не две копии сечения.
+			solid, err := NosedSlab(q, x0, x1, z, st, noseR, treadRoundSide, y0, y1, "tread")
 			if err != nil {
 				return nil, fmt.Errorf("geometry: tread %d: %w", k, err)
 			}
-			solid, err := kerngeo.Extrude(shiftY(section, y0), kerngeo.NewVector3(0, 1, 0), y1-y0)
-			if err != nil {
-				return nil, fmt.Errorf("geometry: tread %d: %w", k, err)
-			}
-			return solid.WithRole("tread"), nil
+			return solid, nil
 		})
 	}
 
@@ -288,17 +286,12 @@ func buildStraightFlight(cfg *engineering.StairConfiguration, q Quality) (*kerng
 			}
 		}
 		builds = append(builds, func() (*kerngeo.Solid, error) {
-			profile := []kerngeo.Point3{
-				kerngeo.NewPoint3(x0, y0, z0),
-				kerngeo.NewPoint3(x0, y0, z1),
-				kerngeo.NewPoint3(x0, y1, z1),
-				kerngeo.NewPoint3(x0, y1, z0),
-			}
-			solid, err := kerngeo.Extrude(profile, kerngeo.NewVector3(1, 0, 0), rt)
+			// Подступенок — шаблоном библиотеки (S-204), как и проступь выше.
+			solid, err := SlabX(x0, y0, y1, z0, z1, rt, "riser")
 			if err != nil {
 				return nil, fmt.Errorf("geometry: riser %d: %w", k, err)
 			}
-			return solid.WithRole("riser"), nil
+			return solid, nil
 		})
 	}
 

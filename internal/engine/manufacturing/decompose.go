@@ -425,6 +425,8 @@ func whereLabel(cfg *engineering.StairConfiguration, role string, center dommfg.
 	switch role {
 	case "tread", "riser", "web":
 		return fmt.Sprintf("ступень %d", step)
+	case "landing":
+		return "площадка"
 	case "heel":
 		return fmt.Sprintf("ступень %d, сторона %s", step, side)
 	case "first_web":
@@ -545,14 +547,17 @@ func plateBlankOf(solid *kerngeo.Solid) (length, width float64) {
 
 // defaultSteelCode — сталь по умолчанию: ею заполняется каркас, когда
 // roleKind сопоставляет семантическую метку тела типу детали.
-// Площадка (landing) — горизонтальная плита, обрабатывается как проступь
-// (PartTread), но получает уникальный номер (TRD).
+// Площадка (landing) — горизонтальная плита со своим видом (PartLanding,
+// S-204): раньше сводилась к проступи, и в спецификации их было
+// не различить. Номер — свой (LND).
 func roleKind(role string) (dommfg.PartKind, bool) {
 	switch role {
 	case "stringer":
 		return dommfg.PartStringer, true
-	case "tread", "landing", "winder":
+	case "tread", "winder":
 		return dommfg.PartTread, true
+	case "landing":
+		return dommfg.PartLanding, true
 	case "riser":
 		return dommfg.PartRiser, true
 	case "heel":
@@ -620,6 +625,8 @@ func partNumber(kind dommfg.PartKind, seq int) dommfg.PartNumber {
 		prefix = "STR"
 	case dommfg.PartTread:
 		prefix = "TRD"
+	case dommfg.PartLanding:
+		prefix = "LND"
 	case dommfg.PartRiser:
 		prefix = "RSR"
 	case dommfg.PartHeel:

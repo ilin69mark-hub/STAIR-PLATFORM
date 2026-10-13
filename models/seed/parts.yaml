@@ -18,6 +18,13 @@
 
 source_model: seed/minimal-straight.FCStd
 
+# tubes — диаметры труб для замера axis_len (генератор S-198/S-206).
+# Те же номиналы, что в эталоне: сид строится из тех же труб.
+tubes:
+  POST-001: {od: 42.4, wall: 1.5}
+  RAIL-P:   {od: 42.4, wall: 1.5}
+  RIGL-001: {od: 12.0, wall: 1.0}
+
 parts:
   - id: COS-001
     name: Косоур
@@ -87,7 +94,7 @@ parts:
     material: wood
     source: Tread_01
     count: 6
-    note: Дуб, без фаски R10 (в движке фаска есть, −0,2 % объёма)
+    note: Дуб, филёнка R10 на носу (как в движке)
 
   - id: RISR-001
     name: Подступенок

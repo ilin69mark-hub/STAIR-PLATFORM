@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ProjectDetail } from './ProjectDetail'
 import { projectsApi } from '../api/projects'
@@ -374,5 +374,71 @@ describe('гонка расчётов', () => {
     await new Promise((r) => setTimeout(r, 20))
 
     expect(screen.queryByText('Старый запрос упал')).not.toBeInTheDocument()
+  })
+})
+
+describe('ProjectDetail · перетаскивание в 3D (S-205)', () => {
+  it('жест кладёт значение в форму и НЕ считает: сервер — только по кнопке', async () => {
+    const result = makeCalculation({
+      result: makeSnapshot({ mesh: mesh3d, room_mesh: mesh3d }),
+    })
+    vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
+    const calculate = vi.spyOn(projectsApi, 'calculate').mockResolvedValue(result)
+    vi.spyOn(projectsApi, 'validateStair').mockResolvedValue({ blocking: false } as never)
+    renderDetail()
+
+    await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await screen.findByText(/Расчёт сохранён/)
+    expect(calculate).toHaveBeenCalledTimes(1)
+
+    // Открываем 3D: вьювер получает drag-колбэки.
+    fireEvent.click(screen.getByRole('tab', { name: 'Геометрия' }))
+    await waitFor(() => expect(viewerProps.current.onDragHeight).toBeTypeOf('function'))
+
+    // Завершённый жест высоты: значение в форме, сервер молчит.
+    await act(async () => {
+      ;(viewerProps.current.onDragHeight as (mm: number) => void)(2750)
+    })
+    expect(calculate).toHaveBeenCalledTimes(1)
+    // Кнопка помечает staged-состояние, сцена не пересчитывается.
+    expect(screen.getByRole('button', { name: 'Рассчитать*' })).toBeInTheDocument()
+
+    // Кнопка считает один раз — со staged-значением.
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать*' }))
+    await waitFor(() => expect(calculate).toHaveBeenCalledTimes(2))
+    expect(calculate.mock.calls[1][1] as Record<string, unknown>).toMatchObject({ height_mm: 2750 })
+    // Успешный расчёт гасит метку.
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Рассчитать*' })).not.toBeInTheDocument(),
+    )
+  })
+
+  it('превью жеста не трогает сервер вообще', async () => {
+    const result = makeCalculation({
+      result: makeSnapshot({ mesh: mesh3d, room_mesh: mesh3d }),
+    })
+    vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
+    const calculate = vi.spyOn(projectsApi, 'calculate').mockResolvedValue(result)
+    const validate = vi.spyOn(projectsApi, 'validateStair').mockResolvedValue({ blocking: false } as never)
+    renderDetail()
+
+    await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await screen.findByText(/Расчёт сохранён/)
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Геометрия' }))
+    await waitFor(() => expect(viewerProps.current.onDragPreview).toBeTypeOf('function'))
+
+    // Живое значение во время жеста: только текст на экране, ноль запросов.
+    await act(async () => {
+      ;(viewerProps.current.onDragPreview as (v: unknown) => void)({
+        heightMM: 2750,
+        comfortStepMM: 630,
+      })
+    })
+    expect(calculate).not.toHaveBeenCalledTimes(2)
+    expect(validate).not.toHaveBeenCalled()
+    expect(screen.getByText(/нажмите «Рассчитать»/)).toBeInTheDocument()
   })
 })
