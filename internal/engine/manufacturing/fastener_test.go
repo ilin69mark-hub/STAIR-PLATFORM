@@ -197,9 +197,7 @@ func TestFastenerNoRailingNoRailFasteners(t *testing.T) {
 		if n := qty(got, dommfg.ScrewRailPostCode, dommfg.PurposeRailPost); n != 0 {
 			t.Errorf("сторона %q: саморезов на стойки = %d, want 0", side, n)
 		}
-		if parts := purchasedRailingParts(cfg.StepCount, cfg.TreadDepth.Millimeters(),
-			railLengthMM(cfg), cfg.RailingHeight.Millimeters(),
-			enggeo.RailingSideCount(cfg), 1); len(parts) != 0 {
+		if parts := purchasedRailingParts(cfg, 1); len(parts) != 0 {
 			t.Errorf("сторона %q: в спецификации %d покупных деталей ограждения, want 0",
 				side, len(parts))
 		}
@@ -285,8 +283,7 @@ func TestFastenerRailPost(t *testing.T) {
 // из двух сторон.
 func TestRailingFastenerCountsMatchSpec(t *testing.T) {
 	cfg := testCfg()
-	parts := purchasedRailingParts(cfg.StepCount, cfg.TreadDepth.Millimeters(),
-		railLengthMM(cfg), cfg.RailingHeight.Millimeters(), enggeo.RailingSideCount(cfg), 1)
+	parts := purchasedRailingParts(cfg, 1)
 	flanges, posts := 0, 0
 	for _, p := range parts {
 		// Остальные покупные детали ограждения крепёж не несут: поручень и

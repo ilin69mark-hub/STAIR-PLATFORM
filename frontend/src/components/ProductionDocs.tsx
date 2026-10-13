@@ -5,7 +5,8 @@
 // рабочих места, и у каждого свой файл:
 //   лазер          — документ реза (DXF с сервера),
 //   принтер этикеток — ведомость наклеек (CSV с сервера),
-//   участок печати — лист наклеек (эта страница, печать в PDF из браузера),
+//   участок печати — лист наклеек: PDF-файл (S-191) или печать этой
+//                    страницы из браузера,
 //   монтажник      — сборочная ведомость (номер → куда, ниже).
 //
 // Лист наклеек рисуется здесь, а не на сервере, намеренно: вёрстка наклейки
@@ -16,6 +17,7 @@
 
 import { useState } from 'react'
 import { projectsApi } from '../api/projects'
+import { downloadLabelsPdf } from '../lib/labelsPdf'
 import type { BomLine, Part } from '@shared/types'
 
 interface Props {
@@ -122,6 +124,17 @@ export function ProductionDocs({ projectId, parts, bom, hasCalculation }: Props)
           </button>
           <button className="btn" disabled={parts.length === 0} onClick={() => window.print()}>
             Печать листа наклеек
+          </button>
+          <button
+            className="btn"
+            disabled={parts.length === 0 || status === 'busy'}
+            onClick={() =>
+              void run('наклейки PDF', () =>
+                downloadLabelsPdf(parts, `project-${projectId}-labels.pdf`),
+              )
+            }
+          >
+            Наклейки (PDF)
           </button>
         </div>
         {message && <div className="alert alert--error">{message}</div>}

@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
 	enggeo "stairplatform/internal/engine/geometry"
 	kerngeo "stairplatform/internal/geometry"
@@ -152,23 +153,100 @@ func TestPlacementRoundTripInDecompose(t *testing.T) {
 	t.Logf("деталей с положением: %d из %d", known, len(parts))
 }
 
-// TestPurchasedPartsHaveNoPlacement — у покупных деталей ограждения
-// положения НЕТ, и это должно быть видно, а не молчаливый ноль.
+// TestPurchasedPartsHavePlacement — у покупных деталей прямого стального
+// ограждения положение ЕСТЬ (S-192): якоря из enggeo.RailingPurchasedLayout,
+// номера на сборочном чертеже стоят на местах.
+//
+// Оси обязаны быть единичными и ортонормированными: кривая рамка уводит
+// Center мимо детали, и номер встанет не на неё. Where обязан быть
+// непустым: наклейка без «куда» — это половина S-192.
+func TestPurchasedPartsHavePlacement(t *testing.T) {
+	cfg := testConfig(t)
+	parts := purchasedRailingParts(cfg, 1)
+	if len(parts) == 0 {
+		t.Skip("конфигурация без ограждения")
+	}
+	for _, p := range parts {
+		if !p.Placement.Known {
+			t.Errorf("покупная деталь %s (%s) без места на прямом стальном марше", p.Number, p.Kind)
+			continue
+		}
+		if n := normVec(p.Placement.U); math.Abs(n-1) > 1e-9 {
+			t.Errorf("деталь %s: ось U не единичная: %.12f", p.Number, n)
+		}
+		if n := normVec(p.Placement.V); math.Abs(n-1) > 1e-9 {
+			t.Errorf("деталь %s: ось V не единичная: %.12f", p.Number, n)
+		}
+		dot := p.Placement.U.X*p.Placement.V.X +
+			p.Placement.U.Y*p.Placement.V.Y + p.Placement.U.Z*p.Placement.V.Z
+		if math.Abs(dot) > 1e-9 {
+			t.Errorf("деталь %s: оси U и V не перпендикулярны: %.12f", p.Number, dot)
+		}
+		if p.Where == "" {
+			t.Errorf("деталь %s: пустое «куда»", p.Number)
+		}
+	}
+}
+
+// TestPurchasedLayoutZipped — детали и раскладка идут в одном порядке
+// (S-192): i-й детали соответствует i-й якорь, и Center() детали
+// возвращается ровно в якорь + U·L/2.
+//
+// Порядок один, потому что номера сквозные: расхождение переставило бы
+// номера между физическими деталями, и наклейка легла бы не на свою.
+// Математика проверяется напрямую (без повторения геометрии): ожидаемый
+// якорь считается из того же элемента раскладки, поэтому тест ловит
+// ошибки Origin (знаки, перепутанные L/W), а не ошибки геометрии
+// (их ловит TestRailingLayoutMatchesGeometry в пакете geometry).
+func TestPurchasedLayoutZipped(t *testing.T) {
+	cfg := testConfig(t)
+	parts := purchasedRailingParts(cfg, 1)
+	layout := enggeo.RailingPurchasedLayout(cfg)
+	if len(parts) == 0 || len(layout) == 0 {
+		t.Skip("конфигурация без ограждения")
+	}
+	if len(parts) != len(layout) {
+		t.Fatalf("деталей %d, якорей %d — порядок разошёлся", len(parts), len(layout))
+	}
+	for i := range parts {
+		if string(parts[i].Kind) != layout[i].Kind {
+			t.Fatalf("позиция %d: деталь %q, якорь %q", i, parts[i].Kind, layout[i].Kind)
+		}
+		l := parts[i].Length.Millimeters()
+		w := parts[i].Width.Millimeters()
+		got := parts[i].Placement.Center(l, w)
+		el := layout[i]
+		want := dommfg.Vec3{
+			X: el.Ref.X + el.U.X*(l/2),
+			Y: el.Ref.Y + el.U.Y*(l/2),
+			Z: el.Ref.Z + el.U.Z*(l/2),
+		}
+		d := math.Sqrt((got.X-want.X)*(got.X-want.X) +
+			(got.Y-want.Y)*(got.Y-want.Y) + (got.Z-want.Z)*(got.Z-want.Z))
+		if d > 1e-6 {
+			t.Errorf("деталь %s: Center отклонился от якоря на %.6f мм", parts[i].Number, d)
+		}
+	}
+}
+
+// TestPurchasedPartsUnknownOutsideStraight — вне прямого стального марша
+// места по-прежнему нет, и это видно, а не молчаливый ноль (S-192:
+// раскладка честно возвращает nil для L-марша, стекла и выключенных перил).
 //
 // Тела ограждения строятся как декор и в Model не входят
 // (appendRailingMesh), поэтому разложение по телам модели их не видит.
 // Если бы Placement молча остался нулевым, деталь нарисовалась бы в начале
 // координат — и это выглядело бы как ошибка раскроя, а не как «не знаю».
-func TestPurchasedPartsHaveNoPlacement(t *testing.T) {
+func TestPurchasedPartsUnknownOutsideStraight(t *testing.T) {
 	cfg := testConfig(t)
-	parts := purchasedRailingParts(cfg.StepCount, cfg.TreadDepth.Millimeters(),
-		railLengthMM(cfg), cfg.RailingHeight.Millimeters(), enggeo.RailingSideCount(cfg), 1)
+	cfg.Flight = engineering.FlightLShape
+	parts := purchasedRailingParts(cfg, 1)
 	if len(parts) == 0 {
 		t.Skip("конфигурация без ограждения")
 	}
 	for _, p := range parts {
 		if p.Placement.Known {
-			t.Errorf("покупная деталь %s заявила положение, которого у неё нет", p.Number)
+			t.Errorf("покупная деталь %s заявила положение вне прямого марша", p.Number)
 		}
 	}
 }

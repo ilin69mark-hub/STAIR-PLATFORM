@@ -1,9 +1,11 @@
 // parts_catalog_test.go — автоматическая сверка каталога деталей с эталоном
-// FreeCAD (freecad-out/stair-comb-railings.FCStd).
+// FreeCAD (models/reference/stair-comb-railings.FCStd).
 //
-// Эталон выгружается скриптом freecad-out/export_catalog.py в
-// reference_parts.json. Этот тест сравнивает размеры, зафиксированные в
-// internal/domain/engineering/parts.go, с эталонными.
+// Эталон читается НЕ с диска, а из манифеста, вшитого в бинарь
+// (models.Load, S-199): искать файл вверх по дереву и молча скипаться
+// при его отсутствии (S-194) — запрещено. Нет манифеста — нет сборки.
+// Легаси-путь через ../freecad-out/reference_parts.json удалён: правда одна,
+// и она в models/parts-manifest.json.
 //
 // Зачем: до появления каталога размеры деталей жили в трёх местах
 // (FreeCAD-скрипт, константы railing.go, тесты), и расхождения находились
@@ -12,32 +14,31 @@
 package engineering
 
 import (
-	"encoding/json"
 	"math"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
+
+	"stairplatform/models"
 )
 
-// referencePart — запись из reference_parts.json (эталон FreeCAD).
+// referencePart — запись эталона: берётся из вшитого манифеста,
+// а не из внешнего JSON (см. шапку файла).
 type referencePart struct {
-	ID        string  `json:"id"`
-	SourceObj string  `json:"source_object"`
-	Count     int     `json:"count"`
-	BBoxL     float64 `json:"bbox_l"`
-	BBoxW     float64 `json:"bbox_w"`
-	BBoxH     float64 `json:"bbox_h"`
-	Volume    float64 `json:"volume"`
-	TubeOD    float64 `json:"tube_od"`
-	TubeWall  float64 `json:"tube_wall"`
+	ID        string
+	SourceObj string
+	Count     int
+	BBoxL     float64
+	BBoxW     float64
+	BBoxH     float64
+	Volume    float64
+	TubeOD    float64
+	TubeWall  float64
 }
 
 type referenceFile struct {
-	Source         string          `json:"source"`
-	ToleranceMM    float64         `json:"tolerance_mm"`
-	ToleranceVolPC float64         `json:"tolerance_volume_pct"`
-	Parts          []referencePart `json:"parts"`
+	Source         string
+	ToleranceMM    float64
+	ToleranceVolPC float64
+	Parts          []referencePart
 }
 
 // sortedDims возвращает габарит по убыванию — порядок осей в эталоне и в
@@ -57,33 +58,35 @@ func sortedDims(a, b, c float64) [3]float64 {
 
 func loadReference(t *testing.T) referenceFile {
 	t.Helper()
-	// Эталон лежит в каталоге freecad-out рядом с репозиторием (не внутри
-	// него), поэтому ищем вверх по дереву от каталога пакета. Явно задать
-	// путь можно переменной окружения STAIR_REFERENCE_PARTS.
-	rel := "reference_parts.json"
-	var buf []byte
-	var err error
-	if p := os.Getenv("STAIR_REFERENCE_PARTS"); p != "" {
-		//nolint:gosec // G304: путь задаёт разработчик через переменную окружения —
-		// это указание на эталонный JSON рядом с репозиторием, а не ввод от пользователя.
-		buf, err = os.ReadFile(p)
-	} else {
-		for up := 0; up < 6; up++ {
-			buf, err = os.ReadFile(filepath.Join("..", "..", "..",
-				strings.Repeat(".."+string(filepath.Separator), up),
-				"freecad-out", rel))
-			if err == nil {
-				break
-			}
-		}
-	}
+	// Единственный источник эталона — манифест, вшитый в бинарь.
+	// Ошибка разбора означает испорченный репозиторий, а не «нет данных»:
+	// падаем, а не скипаемся (S-194). Переменной окружения для подмены
+	// эталона нет осознанно: тест обязан сверять закоммиченный файл,
+	// иначе CI проверяет неизвестно что.
+	m, err := models.Load()
 	if err != nil {
-		t.Skipf("эталон %s не найден (%v) — запусти freecad-out/export_catalog.py",
-			rel, err)
+		t.Fatalf("вшитый манифест не разобрался: %v", err)
 	}
-	var ref referenceFile
-	if err := json.Unmarshal(buf, &ref); err != nil {
-		t.Fatalf("разбор %s: %v", rel, err)
+	ref := referenceFile{
+		Source:         m.SourceModel,
+		ToleranceMM:    m.ToleranceMM,
+		ToleranceVolPC: m.ToleranceVolumePC,
+	}
+	for _, p := range m.Parts {
+		rp := referencePart{
+			ID:        p.ID,
+			SourceObj: p.SourceObject,
+			Count:     p.Count,
+			BBoxL:     p.BBox.L,
+			BBoxW:     p.BBox.W,
+			BBoxH:     p.BBox.H,
+			Volume:    p.Volume,
+		}
+		if p.Tube != nil {
+			rp.TubeOD = p.Tube.OD
+			rp.TubeWall = p.Tube.Wall
+		}
+		ref.Parts = append(ref.Parts, rp)
 	}
 	return ref
 }
@@ -107,7 +110,8 @@ func TestCatalogCoversReference(t *testing.T) {
 // эталоном. Ловит «неверный размер».
 func TestCatalogDimsVsReference(t *testing.T) {
 	ref := loadReference(t)
-	const tol = 0.5
+	// Допуск — из самого манифеста, а не из головы: 0,3 мм.
+	tol := ref.ToleranceMM
 	for _, rp := range ref.Parts {
 		spec, ok := PartByID(rp.ID)
 		if !ok {

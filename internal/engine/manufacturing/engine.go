@@ -108,14 +108,7 @@ func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResu
 	// раскроя не идут, но в спецификацию и прайс обязаны попасть. Раньше их
 	// не было в пакете вообще — геометрия ограждения строится как декорация,
 	// а decompose() разбирает только тело модели.
-	parts = append(parts, purchasedRailingParts(
-		cfg.StepCount,
-		cfg.TreadDepth.Millimeters(),
-		railLengthMM(cfg),
-		cfg.RailingHeight.Millimeters(),
-		enggeo.RailingSideCount(cfg),
-		len(parts)+1,
-	)...)
+	parts = append(parts, purchasedRailingParts(cfg, len(parts)+1)...)
 
 	bom, cut := buildBOM(parts)
 	sheets, err := DefaultStockSheetRegistry()

@@ -21,6 +21,7 @@ import (
 
 	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
+	enggeo "stairplatform/internal/engine/geometry"
 )
 
 // Каталожные размеры покупных деталей ограждения, мм.
@@ -158,18 +159,24 @@ func railingPostCount(n int, b float64) int {
 
 // purchasedRailingParts собирает покупные детали ограждения.
 //
-// runLength — длина марша по горизонтали (X), мм;
-// railLength — длина поручня вдоль марша с учётом вылета, мм;
-// railHeight — высота ограждения, мм (из неё считаются ряды ригелей).
-//
 // Все детали помечены Purchased = true: они идут в спецификацию и прайс,
 // но не в карту раскроя.
 // purchasedRailingParts начиная с firstNumber: сквозная нумерация деталей
 // пакета. Номера присваивает не decompose (он разбирает тело модели и про
 // ограждение не знает), а этот конструктор — иначе Part.Validate() ругается
 // на пустой номер.
-func purchasedRailingParts(stepCount int, treadDepth, railLength,
-	railHeight float64, sides int, firstNumber int) []dommfg.Part {
+//
+// Место (Placement + Where) — из enggeo.RailingPurchasedLayout: только
+// прямой марш со стальным ограждением. Вне его раскладка возвращает nil,
+// и детали остаются без места (честное «не знаю», см. Placement.Known).
+// Порядок эмиссии обязан совпадать с порядком раскладки один в один:
+// расхождение — паника, а не тихий сдвиг номеров (сверяет
+// TestPurchasedLayoutZipped).
+func purchasedRailingParts(cfg *engineering.StairConfiguration, firstNumber int) []dommfg.Part {
+	stepCount := cfg.StepCount
+	treadDepth := cfg.TreadDepth.Millimeters()
+	railLength := railLengthMM(cfg)
+	sides := enggeo.RailingSideCount(cfg)
 	if stepCount <= 0 || railLength <= 0 || sides <= 0 {
 		return nil
 	}
@@ -181,92 +188,188 @@ func purchasedRailingParts(stepCount int, treadDepth, railLength,
 	// потому что сторона вообще не читалась.
 	postsPerSide := railingPostCount(stepCount, treadDepth)
 	posts := postsPerSide * sides
-	var out []dommfg.Part
 
-	// Перила (поручень) — по одной непрерывной трубе на марш на сторону.
-	// При двух сторонах это ДВЕ трубы: одна нитка не может обслуживать обе
-	// кромки, геометрия их строит отдельно.
+	// Порядок эмиссии (раньше — пять циклов, теперь один список, порядок
+	// тот же): поручни, стойки, ригели, фитинги, заглушки.
+	var kinds []dommfg.PartKind
 	for s := 0; s < sides; s++ {
-		out = append(out, dommfg.Part{
-			Kind: dommfg.PartRailTop, Material: "STAINLESS-304",
-			Thickness: engLen(postWall), Length: engLen(railLength), Width: engLen(postOD),
-			Purchased: true,
-		})
+		kinds = append(kinds, dommfg.PartRailTop)
 	}
-	// Стойки — по одной на каждой опоре каждой стороны.
 	for i := 0; i < posts; i++ {
-		out = append(out, dommfg.Part{
-			Kind: dommfg.PartPost, Material: "STAINLESS-304",
-			Thickness: engLen(postWall), Length: engLen(balusterLen), Width: engLen(postOD),
-			Purchased: true,
-		})
+		kinds = append(kinds, dommfg.PartPost)
 	}
 	// Ригели — два ряда между крайними стойками ОДНОЙ стороны. Пролёт
 	// считается по стойкам своей стороны: если взять общее число стоек
 	// (postsPerSide × sides), то при двух сторонах пролёт вышел бы вдвое
 	// короче настоящего, и в смете лежала бы труба неверной длины.
+	span := 0.0
 	if postsPerSide >= 2 {
-		span := runLength / float64(postsPerSide-1)
+		span = runLength / float64(postsPerSide-1)
 		for s := 0; s < sides; s++ {
 			for r := 0; r < rigelRows; r++ {
 				for i := 0; i < postsPerSide-1; i++ {
-					out = append(out, dommfg.Part{
-						Kind: dommfg.PartRigel, Material: "STAINLESS-304",
-						Thickness: engLen(rigelWall), Length: engLen(span), Width: engLen(rigelOD),
-						Purchased: true,
-					})
+					kinds = append(kinds, dommfg.PartRigel)
 				}
 			}
 		}
 	}
 	// Фитинги — по одному комплекту на каждую стойку.
 	for i := 0; i < posts; i++ {
-		out = append(out,
-			// Наконечник регулируемый: овальная площадка под поручень.
-			dommfg.Part{
-				Kind: dommfg.PartTip, Material: "STAINLESS-304",
-				Thickness: engLen(1.0), Length: engLen(tipSizeL), Width: engLen(tipSizeW),
-				Purchased: true,
-			},
-			// Фланец опоры: крепит стойку к ступени.
-			dommfg.Part{
-				Kind: dommfg.PartFlange, Material: "STAINLESS-304",
-				Thickness: engLen(flangeH), Length: engLen(flangeOD), Width: engLen(flangeOD),
-				Purchased: true,
-			},
-			// Накидная часть (муфта).
-			dommfg.Part{
-				Kind: dommfg.PartSlip, Material: "STAINLESS-304",
-				Thickness: engLen(balusterLen), Length: engLen(slipOD), Width: engLen(slipOD),
-				Purchased: true,
-			},
-			// Декоративная накладка (колпачок).
-			dommfg.Part{
-				Kind: dommfg.PartDeco, Material: "STAINLESS-304",
-				Thickness: engLen(decoH), Length: engLen(decoOD), Width: engLen(decoOD),
-				Purchased: true,
-			},
-		)
+		kinds = append(kinds,
+			dommfg.PartTip, dommfg.PartFlange, dommfg.PartSlip, dommfg.PartDeco)
 	}
 	// Торцевые заглушки — по две на нитку поручня (вход и выход).
 	for s := 0; s < sides; s++ {
-		out = append(out,
-			dommfg.Part{
-				Kind: dommfg.PartEndCap, Material: "PLASTIC",
-				Thickness: engLen(1.0), Length: engLen(endCapOD), Width: engLen(endCapOD),
-				Purchased: true,
-			},
-			dommfg.Part{
-				Kind: dommfg.PartEndCap, Material: "PLASTIC",
-				Thickness: engLen(1.0), Length: engLen(endCapOD), Width: engLen(endCapOD),
-				Purchased: true,
-			},
-		)
+		kinds = append(kinds, dommfg.PartEndCap, dommfg.PartEndCap)
 	}
-	_ = railHeight
-	// Проставляем сквозные номера деталей пакета.
-	for i := range out {
-		out[i].Number = partNumber(out[i].Kind, firstNumber+i)
+
+	layout := enggeo.RailingPurchasedLayout(cfg)
+	if layout != nil {
+		if len(layout) != len(kinds) {
+			panic(fmt.Sprintf("раскладка ограждения: элементов %d, деталей %d — порядок разошёлся",
+				len(layout), len(kinds)))
+		}
+		for i := range kinds {
+			if layout[i].Kind != string(kinds[i]) {
+				panic(fmt.Sprintf("раскладка ограждения: позиция %d — %q против %q",
+					i, layout[i].Kind, kinds[i]))
+			}
+		}
+	}
+
+	out := make([]dommfg.Part, 0, len(kinds))
+	for i, kind := range kinds {
+		p := railingPartDims(kind, railLength, span)
+		// Проставляем сквозные номера деталей пакета.
+		p.Number = partNumber(kind, firstNumber+i)
+		p.Purchased = true
+		if layout != nil {
+			el := layout[i]
+			p.Placement = placePurchased(el, p.Width.Millimeters())
+			p.Where = railingWhere(el)
+		}
+		out = append(out, p)
 	}
 	return out
+}
+
+// railingPartDims — габариты и материал покупной детали по её виду.
+// Размеры — из каталога (переменные файла), меняется только длина
+// поручня и пролёт ригеля.
+func railingPartDims(kind dommfg.PartKind, railLength, span float64) dommfg.Part {
+	switch kind {
+	case dommfg.PartRailTop:
+		// Перила (поручень) — по одной непрерывной трубе на марш на сторону.
+		// При двух сторонах это ДВЕ трубы: одна нитка не может обслуживать обе
+		// кромки, геометрия их строит отдельно.
+		return dommfg.Part{
+			Kind: dommfg.PartRailTop, Material: "STAINLESS-304",
+			Thickness: engLen(postWall), Length: engLen(railLength), Width: engLen(postOD),
+		}
+	case dommfg.PartPost:
+		return dommfg.Part{
+			Kind: dommfg.PartPost, Material: "STAINLESS-304",
+			Thickness: engLen(postWall), Length: engLen(balusterLen), Width: engLen(postOD),
+		}
+	case dommfg.PartRigel:
+		return dommfg.Part{
+			Kind: dommfg.PartRigel, Material: "STAINLESS-304",
+			Thickness: engLen(rigelWall), Length: engLen(span), Width: engLen(rigelOD),
+		}
+	case dommfg.PartTip:
+		// Наконечник регулируемый: овальная площадка под поручень.
+		return dommfg.Part{
+			Kind: dommfg.PartTip, Material: "STAINLESS-304",
+			Thickness: engLen(1.0), Length: engLen(tipSizeL), Width: engLen(tipSizeW),
+		}
+	case dommfg.PartFlange:
+		// Фланец опоры: крепит стойку к ступени.
+		return dommfg.Part{
+			Kind: dommfg.PartFlange, Material: "STAINLESS-304",
+			Thickness: engLen(flangeH), Length: engLen(flangeOD), Width: engLen(flangeOD),
+		}
+	case dommfg.PartSlip:
+		// Накидная часть (муфта).
+		return dommfg.Part{
+			Kind: dommfg.PartSlip, Material: "STAINLESS-304",
+			Thickness: engLen(balusterLen), Length: engLen(slipOD), Width: engLen(slipOD),
+		}
+	case dommfg.PartDeco:
+		// Декоративная накладка (колпачок).
+		return dommfg.Part{
+			Kind: dommfg.PartDeco, Material: "STAINLESS-304",
+			Thickness: engLen(decoH), Length: engLen(decoOD), Width: engLen(decoOD),
+		}
+	case dommfg.PartEndCap:
+		return dommfg.Part{
+			Kind: dommfg.PartEndCap, Material: "PLASTIC",
+			Thickness: engLen(1.0), Length: engLen(endCapOD), Width: engLen(endCapOD),
+		}
+	case dommfg.PartStringer, dommfg.PartTread, dommfg.PartRiser,
+		dommfg.PartHeel, dommfg.PartWeb, dommfg.PartAnchor, dommfg.PartFirstWeb:
+		// Детали каркаса сюда попадать не должны: они разбираются из тел
+		// модели в decompose, а не строятся здесь. Явный перечень, а не
+		// default: линтер exhaustive требует видеть все виды.
+		panic(fmt.Sprintf("деталь каркаса %q не покупная", kind))
+	default:
+		panic(fmt.Sprintf("покупная деталь вида %q не описана в railingPartDims", kind))
+	}
+}
+
+// placePurchased — Placement из якоря раскладки.
+//
+// Раскладка даёт опорную точку Ref и оси U/V; ширина W — то же число,
+// что лежит в Part.Width (его передаёт вызывающий). Origin подбирается
+// так, чтобы Center(L, W) вернулся в якорь (Ref + U·L/2) при ЛЮБОМ L:
+// слагаемые с L сокращаются, поэтому длины в сигнатуре нет — это не
+// упущение, а математика (unparam здесь прав, и это хорошо).
+// Сборочный чертёж ставит номер тем же вызовом Center, поэтому якорь
+// и номер совпадают по построению, а не по надежде.
+func placePurchased(el enggeo.RailingPlaced, widthMM float64) dommfg.Placement {
+	ox := el.Ref.X - el.V.X*(widthMM/2)
+	oy := el.Ref.Y - el.V.Y*(widthMM/2)
+	oz := el.Ref.Z - el.V.Z*(widthMM/2)
+	n := el.U.Cross(el.V)
+	nn, ok := n.Normalized()
+	if !ok {
+		panic(fmt.Sprintf("s-192: вырожденная рамка раскладки у %q", el.Kind))
+	}
+	vec := func(x, y, z float64) dommfg.Vec3 { return dommfg.Vec3{X: x, Y: y, Z: z} }
+	return dommfg.Placement{
+		Origin: vec(ox, oy, oz),
+		U:      vec(el.U.X, el.U.Y, el.U.Z),
+		V:      vec(el.V.X, el.V.Y, el.V.Z),
+		N:      vec(nn.X, nn.Y, nn.Z),
+		Known:  true,
+	}
+}
+
+// railingWhere — человеческое место покупной детали: номер на наклейке
+// и строка указывают на одну стойку/сторону.
+func railingWhere(el enggeo.RailingPlaced) string {
+	switch dommfg.PartKind(el.Kind) {
+	case dommfg.PartRailTop:
+		return fmt.Sprintf("поручень, сторона %s", el.Side)
+	case dommfg.PartPost:
+		return fmt.Sprintf("стойка %d, сторона %s", el.PostIdx, el.Side)
+	case dommfg.PartRigel:
+		return fmt.Sprintf("ригель, ряд %d, сторона %s", el.Row+1, el.Side)
+	case dommfg.PartTip:
+		return fmt.Sprintf("наконечник, стойка %d, сторона %s", el.PostIdx, el.Side)
+	case dommfg.PartFlange:
+		return fmt.Sprintf("фланец, стойка %d, сторона %s", el.PostIdx, el.Side)
+	case dommfg.PartSlip:
+		return fmt.Sprintf("муфта, стойка %d, сторона %s", el.PostIdx, el.Side)
+	case dommfg.PartDeco:
+		return fmt.Sprintf("накладка, стойка %d, сторона %s", el.PostIdx, el.Side)
+	case dommfg.PartEndCap:
+		return fmt.Sprintf("торец поручня (%s), сторона %s", el.End, el.Side)
+	case dommfg.PartStringer, dommfg.PartTread, dommfg.PartRiser,
+		dommfg.PartHeel, dommfg.PartWeb, dommfg.PartAnchor, dommfg.PartFirstWeb:
+		// Детали каркаса место получают в decompose, их Where — whereLabel.
+		// Сюда они не доходят; ветка — для полноты switch (exhaustive).
+		return el.Kind
+	default:
+		return el.Kind
+	}
 }
