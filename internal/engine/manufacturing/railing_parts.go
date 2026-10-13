@@ -48,6 +48,7 @@ var (
 	flangeOD    = purchasedDimL("FLNG-001") // фланец опоры
 	flangeH     = purchasedDimH("FLNG-001")
 	slipOD      = purchasedDimL("SLIP-001") // накидная часть (муфта)
+	slipH       = purchasedDimH("SLIP-001")
 	decoOD      = purchasedDimL("DECO-001") // декоративная накладка
 	decoH       = purchasedDimH("DECO-001")
 	endCapOD    = purchasedDimL("ENDP-001") // торцевая заглушка
@@ -266,10 +267,11 @@ func railingPartDims(kind dommfg.PartKind, railLength, rigelLen float64) dommfg.
 			Thickness: engLen(flangeH), Length: engLen(flangeOD), Width: engLen(flangeOD),
 		}
 	case dommfg.PartSlip:
-		// Накидная часть (муфта).
+		// Накидная часть (муфта): высота из каталога (34, S-209),
+		// а не высота стойки — чехол на всю стойку не моделируем.
 		return dommfg.Part{
 			Kind: dommfg.PartSlip, Material: "STAINLESS-304",
-			Thickness: engLen(balusterLen), Length: engLen(slipOD), Width: engLen(slipOD),
+			Thickness: engLen(slipH), Length: engLen(slipOD), Width: engLen(slipOD),
 		}
 	case dommfg.PartDeco:
 		// Декоративная накладка (колпачок).

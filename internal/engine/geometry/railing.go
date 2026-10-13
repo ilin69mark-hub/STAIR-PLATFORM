@@ -648,12 +648,6 @@ const balusterMaxGap = 1500.0
 // (Rail_Post: 805,7 от ступени). rh — номинал высоты ограждения, а не
 // длина трубы: строить трубу длиной rh — значит резать не по каталогу.
 // Совпадение сверяет TestSteelPostMatchesCatalog.
-//
-// steelPostHeight — высота стойки стального ограждения, мм: труба ровно
-// по каталогу (POST-001 Len=805,7), а не rh. Замерено в эталоне
-// (Rail_Post: 805,7 от ступени). rh — номинал высоты ограждения, а не
-// длина трубы: строить трубу длиной rh — значит резать не по каталогу.
-// Совпадение сверяет TestSteelPostMatchesCatalog.
 const steelPostHeight = 805.7
 
 // railLiftAbovePostTop — центр поручня над верхом стойки: верх площадки
@@ -1021,7 +1015,10 @@ func landingRailingSolids(q Quality, w, wp, flightW, rh, h1, b float64, x0 float
 	for i := range top {
 		p0 := landingInset(top[i][0], leftEdgeX, rightEdgeX, wp, railWidth/2)
 		p1 := landingInset(top[i][1], leftEdgeX, rightEdgeX, wp, railWidth/2)
-		if s := railAlong(q, p0, p1); s != nil {
+		// Поручень площадки — та же труба Ø42,4×1,5, что на маршах
+		// (S-209, решение владельца «труба как у марша»): брус 50×40
+		// здесь был остатком до-S-208 эпохи. Линия та же — расчёт не тронут.
+		if s := tubeAlong(q, p0, p1, balusterD, balusterWall, roleRailing); s != nil {
 			sols = append(sols, s)
 		}
 	}

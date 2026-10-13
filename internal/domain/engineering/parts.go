@@ -209,7 +209,10 @@ func PurchasedParts() []PartSpec {
 		},
 		{
 			ID: "SLIP-001", Name: "Накидная часть", Group: GroupPurchased, Form: FormPart,
-			DimL: 43.0, DimW: 43.0, DimH: 805.7,
+			// DimH — 34, а не 805,7: муфта короткая (34 по двигателю
+			// clampMufH и замеру сида), а не чехол на всю стойку.
+			// Раньше здесь стояла высота стойки — похоже, копипаст (S-209).
+			DimL: 43.0, DimW: 43.0, DimH: 34.0,
 			Material: MatStainless,
 			Note:     "Муфта-обойма, накрывает стойку",
 		},
