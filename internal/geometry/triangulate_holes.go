@@ -68,10 +68,12 @@ func TriangulateWithHoles(outer []Point3, inner [][]Point3) ([]Point3, [][3]int,
 	}
 	xs = uniqueSorted(xs)
 
-	// Проекция отбрасывает одну координату; её значение берём из внешнего
-	// контура — плоскость грани восстанавливается точно (для верхней крышки
-	// это, например, Z = толщина, а не 0).
-	base3 := droppedCoord(outer[0], normal)
+	// Проекция отбрасывает одну координату; её значение берём ИЗ
+	// УРАВНЕНИЯ ПЛОСКОСТИ грани (normal·x = planeD), а не из координаты
+	// первой точки: для грани, параллельной мировой оси, это одно и то
+	// же, а для наклонной — нет, и константа схлопывала грань (S-212).
+	// Для верхней крышки это, например, уравнение «Z = толщина».
+	planeD := droppedCoord(outer[0], normal)
 
 	// Ёмкость с запасом: на каждую пару чёток в полосе — два треугольника
 	// и три точки. Без предвыделения срез рос логарифмическими шагами.
@@ -81,9 +83,9 @@ func TriangulateWithHoles(outer []Point3, inner [][]Point3) ([]Point3, [][3]int,
 	addTri := func(a, b, c [2]float64) {
 		i0 := len(pts)
 		pts = append(pts,
-			unproject2D(a, normal, base3),
-			unproject2D(b, normal, base3),
-			unproject2D(c, normal, base3))
+			unproject2D(a, normal, planeD),
+			unproject2D(b, normal, planeD),
+			unproject2D(c, normal, planeD))
 		tris = append(tris, [3]int{i0, i0 + 1, i0 + 2})
 	}
 
@@ -155,29 +157,42 @@ func droppedAxis(normal Vector3) int {
 	return axis
 }
 
-// droppedCoord — значение координаты, отброшенной проекцией.
+// droppedCoord — уравнение плоскости грани: значение скалярного
+// произведения normal·p для любой точки этой плоскости.
+//
+// Раньше здесь возвращалась координата отброшенной оси у ОДНОЙ точки
+// внешнего контура (outer[0]). Для грани, параллельной мировой оси, это
+// одно и то же (все точки плоскости имеют одинаковую координату по этой
+// оси) — а для наклонной грани нет: у трубы под уклоном все точки крышки
+// лежат в одной плоскости, но их X разный. Восстановление константой
+// схлопывало крышку в вертикальную плоскость и теряло до 20 % её
+// площади, а с ней и объём (S-212). Поэтому возвращаем уравнение
+// плоскости, из которого координата восстанавливается точно.
 func droppedCoord(p Point3, normal Vector3) float64 {
-	switch droppedAxis(normal) {
-	case 0:
-		return p.X
-	case 1:
-		return p.Y
-	default:
-		return p.Z
-	}
+	return Vector3(p).Dot(normal)
 }
 
-// unproject2D возвращает 2D-точки обратно в пространство, восстанавливая
-// отброшенную координату из base — так треугольник остаётся в плоскости
-// грани, а не схлопывается в Z = 0.
-func unproject2D(p [2]float64, normal Vector3, base float64) Point3 {
+// unproject2D возвращает 2D-точку обратно в пространство.
+//
+// Отброшенная координата берётся ИЗ УРАВНЕНИЯ ПЛОСКОСТИ грани
+// (normal·x = d), а не из константы: для наклонной грани координата
+// отброшенной оси — функция двух сохранённых. Знаменатель — компонента
+// нормали по отброшенной оси, а droppedAxis выбирает наибольшую по
+// модулю, так что деление устойчиво (плоскость не вырождена).
+//
+// Знак при axis == 1 повторяет проекцию (X, −Z): p[1] — это −Z.
+func unproject2D(p [2]float64, normal Vector3, d float64) Point3 {
 	switch droppedAxis(normal) {
 	case 0:
-		return Point3{X: base, Y: p[0], Z: p[1]}
+		return Point3{X: (d - p[0]*normal.Y - p[1]*normal.Z) / normal.X,
+			Y: p[0], Z: p[1]}
 	case 1:
-		return Point3{X: p[0], Y: base, Z: -p[1]}
+		return Point3{X: p[0],
+			Y: (d - p[0]*normal.X + p[1]*normal.Z) / normal.Y,
+			Z: -p[1]}
 	default:
-		return Point3{X: p[0], Y: p[1], Z: base}
+		return Point3{X: p[0], Y: p[1],
+			Z: (d - p[0]*normal.X - p[1]*normal.Y) / normal.Z}
 	}
 }
 

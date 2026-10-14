@@ -145,3 +145,106 @@ func mustNormal(p []Point3) Vector3 {
 	n, _ := polygonNormal(p)
 	return n
 }
+
+// TestTriangulateWithHolesSlopedFace — грань с отверстием под наклоном
+// триангулируется в своей плоскости (S-212).
+//
+// Почему тест: проекция отбрасывает ОДНУ МИРОВУЮ ось, а отброшенная
+// координата восстанавливалась константой (из первой точки внешнего
+// контура). Для грани, параллельной мировой оси, это верно; для
+// наклонной — нет: все точки лежат в одной плоскости, но их координаты
+// по отброшенной оси разные, и грань схлопывалась. Крышка трубы под
+// уклоном теряла до 20 % площади, и с ней объём поручня и ригелей.
+// Тест держит регрессию на трёх ориентациях сразу.
+func TestTriangulateWithHolesSlopedFace(t *testing.T) {
+	want := 192.74 // π/4·(42,4²−39,4²): крышка трубы Ø42,4×1,5
+	for _, c := range []struct {
+		name string
+		dir  Vector3
+	}{
+		{"ось Z", NewVector3(0, 0, 1)},
+		{"уклон 33,7°", NewVector3(1620, 0, 1080)},
+		{"уклон 36,1°", NewVector3(4195, 0, 3075)},
+		{"горизонтальный Y", NewVector3(0, 1000, 0)},
+	} {
+		u, ok := c.dir.Normalized()
+		if !ok {
+			t.Fatalf("%s: нулевой вектор", c.name)
+		}
+		// Строим крышку-трубу через тот же путь, что и геометрия:
+		// ExtrudeWithHoles создаёт грани с отверстиями и триангулирует их.
+		s, err := ExtrudeWithHoles(
+			ringPoints(u, 42.4, 0),
+			// полость в той же плоскости: сдвиг на верхнюю крышку делает
+			// сам ExtrudeWithHoles, передавать сдвинутую — значит отверстие
+			// уедет за пределы грани и тест перестанет что-либо мерить.
+			[][]Point3{ringPoints(u, 39.4, 0)},
+			u, 1947)
+		if err != nil {
+			t.Fatalf("%s: ExtrudeWithHoles: %v", c.name, err)
+		}
+		cache := NewTessellationCache()
+		caps := 0
+		for _, sh := range s.Shells() {
+			for _, f := range sh.Faces() {
+				if len(f.Inner()) == 0 {
+					continue
+				}
+				caps++
+				tess := cache.FaceOf(f)
+				if tess.TrisErr != nil {
+					t.Fatalf("%s: триангуляция: %v", c.name, tess.TrisErr)
+				}
+				var area float64
+				for _, tr := range tess.Tris {
+					p := tess.Points
+					ab := p[tr[1]].Sub(p[tr[0]])
+					ac := p[tr[2]].Sub(p[tr[0]])
+					area += 0.5 * ab.Cross(ac).Norm()
+				}
+				if area/want < 0.98 {
+					t.Errorf("%s: крышка площадью %.2f, ждали %.2f (−%.1f %%)",
+						c.name, area, want, (1-area/want)*100)
+				}
+			}
+		}
+		if caps != 2 {
+			t.Errorf("%s: крышек с отверстиями %d, ждали 2", c.name, caps)
+		}
+	}
+}
+
+// ringPoints — окружность в плоскости, перпендикулярной u, с центром
+// на расстоянии along от начала: крышка трубы вдоль оси u.
+func ringPoints(u Vector3, dia, along float64) []Point3 {
+	w, ok := perp(u)
+	if !ok {
+		panic("ringPoints: нулевой вектор")
+	}
+	t, ok := u.Cross(w).Normalized()
+	if !ok {
+		panic("ringPoints: вырожденный базис")
+	}
+	seg := ArcSegments(dia/2, 2*3.141592653589793, 0.19)
+	pts := make([]Point3, seg)
+	for i := range pts {
+		a := 2 * 3.141592653589793 * float64(i) / float64(seg)
+		off := w.Scale(dia / 2 * cosA(a)).Add(t.Scale(dia / 2 * sinA(a)))
+		p := u.Scale(along).Add(off)
+		pts[i] = Point3(p)
+	}
+	return pts
+}
+
+// perp — единичный вектор, перпендикулярный v (копия одноимённой
+// геометрической функции, чтобы тест не зависел от неё).
+func perp(v Vector3) (Vector3, bool) {
+	ref := NewVector3(0, 0, 1)
+	if math.Abs(v.Z) > 0.9 {
+		ref = NewVector3(1, 0, 0)
+	}
+	return v.Cross(ref).Normalized()
+}
+
+func cosA(a float64) float64 { return math.Cos(a) }
+func sinA(a float64) float64 { return math.Sin(a) }
