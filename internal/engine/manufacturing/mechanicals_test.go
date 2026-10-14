@@ -235,3 +235,99 @@ func TestWoodHardwoodHasNoElasticModulus(t *testing.T) {
 		}
 	}
 }
+
+// TestNoMechanicalNumberWithoutFullSource — единый гейт по материалам
+// (S-241 п. 5): ЛИБОЕ известное число несёт источник с документом и
+// пунктом, и ни одно число не равно нулю молча.
+//
+// Раньше это правило было размазано по трём тестам в двух пакетах, и
+// дыра между ними была возможна: например, заполнить Source без документа
+// не ловил ни один из них. Здесь проверка одна и на весь каталог.
+func TestNoMechanicalNumberWithoutFullSource(t *testing.T) {
+	reg, err := engmfg.DefaultMaterialRegistry()
+	if err != nil {
+		t.Fatalf("каталог материалов: %v", err)
+	}
+
+	for _, m := range reg.Materials() {
+		g := m.Mechanicals
+		if g == nil {
+			// Отсутствие — законно (MechUnknown), и это ПРОВЕРЯЕТСЯ
+			// отдельно: не «нет данных», а «нет набора».
+			continue
+		}
+		if g.Status() == dommfg.MechUnknown && g.Source != "" {
+			t.Errorf("%s: набор помечен неизвестным, но источник заполнен — "+
+				"одно из двух врёт: то ли характеристики есть, то ли нет", m.Code)
+		}
+		if g.Status() == dommfg.MechKnown {
+			// Известный набор обязан называть ДОКУМЕНТ и ПРИВЯЗКУ в нём.
+			// Требовать именно «ГОСТ» нельзя: СП 16 и СП 64 — своды правил,
+			// а не стандарты. Требовать именно «п.» тоже нельзя: значения
+			// древесины по СП 64 идут из ТАБЛИЦ (табл. 3 поз. 1а), а не из
+			// пунктов, и требование «п.» заставило бы переписать честную
+			// ссылку под неверную форму.
+			hasDoc := strings.Contains(g.Source, "СП ") || strings.Contains(g.Source, "ГОСТ ")
+			if !hasDoc {
+				t.Errorf("%s: набор известен, но в источнике нет ни СП, ни ГОСТ: %s",
+					m.Code, g.Source)
+			}
+			hasLocator := false
+			for _, loc := range []string{"п.", "табл.", "поз.", "прил."} {
+				if strings.Contains(g.Source, loc) {
+					hasLocator = true
+					break
+				}
+			}
+			if !hasLocator {
+				t.Errorf("%s: набор известен, но в источнике нет привязки "+
+					"(пункт, таблица, позиция или приложение): %s", m.Code, g.Source)
+			}
+		}
+		// Модуль упругости и предел текучести — числа, которые нельзя
+		// оставить нулевыми молча, если набор вообще наполнен.
+		if g.Source != "" && g.ElasticModulusMPa == 0 {
+			// Допустимо, но должно быть сказано вслух: именно так выглядит
+			// пробел СП 64 для дуба. Молчаливый ноль читался бы как «ноль
+			// жёсткости».
+			if !strings.Contains(g.Source, "не приведён") &&
+				!strings.Contains(g.Source, "НЕ НАЙДЕНО") &&
+				!strings.Contains(g.Source, "НЕ ОПРЕДЕЛЁН") {
+				t.Errorf("%s: E = 0 при заполненном источнике, но источник "+
+					"не говорит, что модуль в норме отсутствует: %s", m.Code, g.Source)
+			}
+		}
+	}
+}
+
+// TestKnownMaterialsHaveAllBasesFilled — известный набор заполнен целиком.
+//
+// MechKnown означает «расчёт можно вести». Если у такого набора пусто любое
+// из базовых чисел, то расчёт пойдёт по неполным данным, а статус будет
+// врать, что всё в порядке.
+func TestKnownMaterialsHaveAllBasesFilled(t *testing.T) {
+	reg, err := engmfg.DefaultMaterialRegistry()
+	if err != nil {
+		t.Fatalf("каталог материалов: %v", err)
+	}
+	for _, m := range reg.Materials() {
+		g := m.Mechanicals
+		if g == nil || !g.Known() {
+			continue
+		}
+		for name, v := range map[string]float64{
+			"предел текучести / изгиб": g.YieldMPa,
+			"растяжение":               g.TensileMPa,
+			"модуль упругости":         g.ElasticModulusMPa,
+		} {
+			if v <= 0 {
+				t.Errorf("%s: статус known, но %s = 0 — расчёт по неполному "+
+					"набору выдаст себя за полный", m.Code, name)
+			}
+		}
+		if !g.HasSafetyFactor() {
+			t.Errorf("%s: статус known, но коэффициент надёжности не задан "+
+				"и не помечен как вложенный в значения", m.Code)
+		}
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"stairplatform/internal/application/stair"
 	"stairplatform/internal/engine/constraint"
 	"stairplatform/internal/engine/validation"
 )
@@ -82,5 +83,60 @@ func TestReportAdditiveToOldContract(t *testing.T) {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("старое поле %q пропало из ответа: %s", want, raw)
 		}
+	}
+}
+
+// TestNormDataSurvivesFullRoundTrip — нормативные данные доезжают до
+// клиента ЧЕРЕЗ СОБРАННЫЙ ОТВЕТ, а не через вызов конвертера (S-241 п. 4).
+//
+// Предыдущий гейт проверял toValidation и toReport по отдельности. Эта
+// проверка идёт дальше: берёт реальный stair.Result, прогоняет через
+// публичный конвертер и смотрит собранный JSON. Поле может потеряться
+// между слоями — там, где DTO собирается из нескольких источников, — и
+// только цельный проход это покажет.
+func TestNormDataSurvivesFullRoundTrip(t *testing.T) {
+	res := &stair.Result{
+		Validation: validation.Result{
+			Valid: false,
+			Issues: []validation.Issue{{
+				Code:     constraint.SAF_RAILING_HEIGHT,
+				Severity: constraint.SeverityError,
+				Message:  "высота ограждения должна быть не менее 900 мм",
+				Value:    850, Min: 900, HasMin: true,
+				Source: "СП 55.13330, п. 5.1 [норма]",
+			}},
+		},
+		Material:      "STAINLESS-304",
+		TreadMaterial: "WOOD-OAK",
+	}
+
+	raw, err := json.Marshal(toValidationResult(res))
+	if err != nil {
+		t.Fatalf("маршализация: %v", err)
+	}
+	body := string(raw)
+
+	// Источник правила.
+	for _, want := range []string{"СП 55.13330", "п. 5.1", "норма"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("в ответе потеряно %q из источника правила: %s", want, body)
+		}
+	}
+	// Уровни и их честные статусы.
+	for _, want := range []string{
+		`"code":"geometry"`, `"code":"codes"`, `"code":"calculation"`,
+		`"status":"not_performed"`, `"overall":"failed"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("в ответе нет %q: %s", want, body)
+		}
+	}
+	// Причины невыполнения — и они РАЗНЫЕ для нержавейки и дуба. Общий
+	// список был бы враньём: заказчику сказали бы то, чего нет.
+	if !strings.Contains(body, "ГОСТ 11068-81") {
+		t.Errorf("в причинах нет упоминания нержавейки: %s", body)
+	}
+	if !strings.Contains(body, "СП 64.13330") {
+		t.Errorf("в причинах нет упоминания дуба: %s", body)
 	}
 }
