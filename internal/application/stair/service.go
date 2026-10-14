@@ -197,6 +197,14 @@ type Result struct {
 	// рисуется именно этой глубиной, а не толщиной листа. Для дерева —
 	// толщина косоура, гребёнки там нет.
 	StringerSpine engineering.Length
+	// Material и TreadMaterial — коды материалов каркаса и ступеней
+	// (S-240). Нужны отчёту, чтобы назвать, ЧТО ИМЕННО мешает расчёту
+	// прочности: для нержавейки, дуба и ореха причины разные, и общий
+	// список был бы враньём в другую сторону. Заполняются в основном пути
+	// конвейера; в ранних выходах пусты, и отчёт тогда даёт общую причину
+	// без привязки к материалу.
+	Material      string
+	TreadMaterial string
 	// Эхо перил/направлений (CONF-RAILING/DIRECTION).
 	Railing        engineering.RailingSide
 	RailingLower   engineering.RailingSide
@@ -519,6 +527,8 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 	res.Riser = c.Riser
 	res.StringerThickness = c.StringerThickness
 	res.StringerSpine = engineering.Length(c.CombOrDefault().StringerSpine)
+	res.Material = c.Material
+	res.TreadMaterial = string(cfg.TreadMaterial)
 	res.Railing = c.Railing
 	res.RailingLower = c.RailingLower
 	res.RailingLanding = c.RailingLanding

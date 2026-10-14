@@ -3,12 +3,15 @@ package http
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"math"
 
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
 	domprc "stairplatform/internal/domain/pricing"
 	"stairplatform/internal/engine/solver"
+	"stairplatform/internal/engine/validation"
 )
 
 // All DTOs use mm / degrees / mm³ / mm² / mm и руб (старшие единицы валюты)
@@ -160,6 +163,13 @@ type validationIssueDTO struct {
 	// Variations — альтернативные конфигурации (варианты A/B/C) для
 	// неблокирующих нарушений (room_fit и т.п.), предлагаемые как выбор.
 	Variations []variationDTO `json:"variations,omitempty"`
+	// Source — откуда взяты числа правила (S-235): документ, пункт,
+	// основание. ПОЛЯ НЕ БЫЛО, хотя Issue.Source заполнялся с S-235:
+	// конвертер его просто не переносил, и вся нормативная библиотека
+	// оставалась в бэкенде. Клиент не мог показать, по какому документу
+	// выставлен предел, а отчёт без источника — мнение, а не проверка.
+	// Поле аддитивное: старые клиенты его просто не увидят.
+	Source string `json:"source,omitempty"`
 }
 
 // suggestionDTO — готовый вариант конфигурации, проходящий нормы
@@ -188,11 +198,64 @@ type variationDTO struct {
 	Summary     string            `json:"summary"`
 }
 
+// reportCheckDTO — одна развёрнутая проверка отчёта (S-240).
+// Повторяет правило, но показывает его развёрнуто: источник, границы,
+// значение, вердикт и что делать. В Issues остаётся короткое сообщение
+// для подсветки поля, здесь — полная картина для человека.
+type reportCheckDTO struct {
+	Code    string `json:"code"`
+	Title   string `json:"title"`
+	Status  string `json:"status"`
+	Element string `json:"element,omitempty"`
+	Doc     string `json:"doc,omitempty"`
+	Clause  string `json:"clause,omitempty"`
+	// Origin — основание: норма, эргономика, производство. Неизвестное
+	// основание остаётся неизвестным, а не превращается в «норму».
+	Origin string  `json:"origin,omitempty"`
+	Note   string  `json:"note,omitempty"`
+	Value  float64 `json:"value,omitempty"`
+	Min    float64 `json:"min,omitempty"`
+	Max    float64 `json:"max,omitempty"`
+	HasMin bool    `json:"has_min,omitempty"`
+	HasMax bool    `json:"has_max,omitempty"`
+	// Margin — запас до ближайшей границы, доля от предела. НЕ запас по
+	// прочности: прочность не считается, и называть это «запасом» значит
+	// обещать цифру, которой нет. Для размерных правил это честная
+	// величина, для остальных — пусто.
+	Margin string `json:"margin,omitempty"`
+	Fix    string `json:"fix,omitempty"`
+	Guide  string `json:"guide,omitempty"`
+}
+
+// reportLevelDTO — уровень отчёта (S-240).
+type reportLevelDTO struct {
+	Code    string `json:"code"`
+	Title   string `json:"title"`
+	Status  string `json:"status"`
+	Summary string `json:"summary"`
+	// Reasons — почему уровень не выполнен. Обязателен при
+	// not_performed: без причины это читается как забытый модуль.
+	Reasons []string         `json:"reasons,omitempty"`
+	Checks  []reportCheckDTO `json:"checks,omitempty"`
+}
+
+// reportDTO — развёрнутый отчёт проверки.
+type reportDTO struct {
+	// Overall — сводный вердикт. not_performed уровень тянет итог в
+	// partial, а не в passed: проект не «проверен полностью».
+	Overall string           `json:"overall"`
+	Levels  []reportLevelDTO `json:"levels"`
+}
+
 // validationDTO — итог валидации конфигурации.
 type validationDTO struct {
 	Valid    bool                 `json:"valid"`
 	Blocking bool                 `json:"blocking"`
 	Issues   []validationIssueDTO `json:"issues"`
+	// Report — развёрнутый отчёт по уровням (S-240). Аддитивно: старый
+	// контракт `valid`/`blocking`/`issues` живёт как был, чтобы правка
+	// отчёта не ломала клиентов, которые о нём ещё не знают.
+	Report *reportDTO `json:"report,omitempty"`
 }
 
 // flightDTO — результат Solver (EDR-0001). Производственные параметры
@@ -502,14 +565,35 @@ type calculateResponse struct {
 // фильтра в теле не было никогда — аргумент ничего не менял. Параметр убран;
 // если отбрасывание замечаний выключенных маршей понадобится, это отдельная
 // задача, а не молчаливо работающий флаг.
+// toValidationResult — конвертер результата приложения в раздел ответа.
+//
+// Рабочая часть вынесена в toValidation, потому что отчёт (S-240) собирается
+// из САМОГО Result: в нём лежат коды материалов, без которых уровень
+// прочности не может назвать причины. Поэтому toValidationResult сначала
+// собирает раздел без отчёта, а затем дописывает его.
 func toValidationResult(r *stair.Result) validationDTO {
-	issues := make([]validationIssueDTO, 0, len(r.Validation.Issues))
-	for _, i := range r.Validation.Issues {
+	dto := toValidation(r.Validation)
+	dto.Report = toReport(r.Report())
+	return dto
+}
+
+// toValidation — сборка раздела валидации из доменного результата без
+// отчёта. Выделено ради гейта контракта (S-240): пропажа источника была не
+// в логике конвертера, а в том, что он не переносил поле, — и заметить
+// это можно было только собранным ответом.
+func toValidation(r validation.Result) validationDTO {
+	issues := make([]validationIssueDTO, 0, len(r.Issues))
+	for _, i := range r.Issues {
 		dto := validationIssueDTO{
 			ID: i.ID, Code: string(i.Code), Severity: string(i.Severity),
 			Element: i.Element, Message: i.Message, Value: i.Value,
 			Min: i.Min, Max: i.Max, Fix: i.Fix,
 			Param: i.Param, Guide: i.Guide,
+			// Source доезжает до клиента (S-240). До этого правило
+			// складывалось в строку и тут же терялось: нормативная
+			// библиотека была собрана, но её не мог увидеть никто, кроме
+			// бэкенда.
+			Source: i.Source,
 		}
 		if len(i.Suggestions) > 0 {
 			dto.Suggestions = make([]suggestionDTO, 0, len(i.Suggestions))
@@ -535,7 +619,61 @@ func toValidationResult(r *stair.Result) validationDTO {
 		}
 		issues = append(issues, dto)
 	}
-	return validationDTO{Valid: r.Validation.Valid, Blocking: r.Validation.Blocking, Issues: issues}
+	return validationDTO{
+		Valid: r.Valid, Blocking: r.Blocking,
+		Issues: issues,
+	}
+}
+
+// toReport — доменный отчёт в DTO. Развёрнуто: каждая проверка с
+// источником, границами, вердиктом и запасом до предела.
+func toReport(r *validation.Report) *reportDTO {
+	if r == nil {
+		return nil
+	}
+	out := &reportDTO{Overall: string(r.Overall()), Levels: make([]reportLevelDTO, 0, len(r.Levels))}
+	for _, l := range r.Levels {
+		lv := reportLevelDTO{
+			Code: string(l.Code), Title: l.Title,
+			Status: string(l.Status), Summary: l.Summary,
+			Reasons: append([]string(nil), l.Reasons...),
+		}
+		// Порядок стабильный: иначе отчёт и его гейт зависели бы от
+		// порядка обхода внутри движка.
+		checks := l.SortedChecks()
+		if len(checks) > 0 {
+			lv.Checks = make([]reportCheckDTO, 0, len(checks))
+			for _, c := range checks {
+				lv.Checks = append(lv.Checks, reportCheckDTO{
+					Code: c.Code, Title: c.Title, Status: string(c.Status),
+					Element: c.Element, Doc: c.Doc, Clause: c.Clause,
+					Origin: c.Origin(), Note: c.Note,
+					Value: c.Value, Min: c.Min, Max: c.Max,
+					HasMin: c.HasMin, HasMax: c.HasMax,
+					Margin: marginOf(c), Fix: c.Fix, Guide: c.Guide,
+				})
+			}
+		}
+		out.Levels = append(out.Levels, lv)
+	}
+	return out
+}
+
+// marginOf — запас до ближайшей границы в долях от предела.
+//
+// Только для размерных правил и только когда предел задан. Для проверки
+// без границы запас не вычисляется и не показывается: «запас 0 %» без
+// границы — это число, придуманное на пустом месте.
+func marginOf(c validation.Check) string {
+	switch {
+	case c.HasMin && c.Max != 0:
+		return fmt.Sprintf("%.1f%%", c.Value/c.Max*100)
+	case c.HasMax && c.Min != 0:
+		return fmt.Sprintf("%.1f%%", c.Min/c.Value*100)
+	case c.HasMin && c.HasMax:
+		return fmt.Sprintf("%.1f%%", math.Min(c.Value/c.Max, c.Min/c.Value)*100)
+	}
+	return ""
 }
 
 func toFlight(r stair.Result) flightDTO {
