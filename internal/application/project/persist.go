@@ -117,7 +117,9 @@ func toConfigEntity(projectID string, cfg stair.Config, opts stair.Options) *Sta
 		RiserThicknessMM:  cfg.RiserThickness.Millimeters(),
 		FloorFixing:       string(cfg.FloorFixing),
 		CeilingFixing:     string(cfg.CeilingFixing),
-		ExtraFasteners:    append([]string(nil), cfg.ExtraFasteners...),
+		// Назначение здания (S-236): профиль норм — терять нельзя.
+		Purpose:        string(cfg.Purpose),
+		ExtraFasteners: append([]string(nil), cfg.ExtraFasteners...),
 	}
 }
 
@@ -216,6 +218,7 @@ func fromConfigEntity(e *StairConfiguration) (stair.Config, stair.Options, error
 		RiserThickness:         engineering.Length(e.RiserThicknessMM),
 		FloorFixing:            engineering.FixingBase(e.FloorFixing),
 		CeilingFixing:          engineering.FixingBase(e.CeilingFixing),
+		Purpose:                engineering.BuildingPurpose(e.Purpose),
 		ExtraFasteners:         append([]string(nil), e.ExtraFasteners...),
 		SealantLayerMM:         e.SealantLayerMM,
 		ExtraSealantCartridges: e.ExtraSealantCartridges,

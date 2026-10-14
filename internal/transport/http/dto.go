@@ -39,7 +39,11 @@ type calculateRequest struct {
 	PreviewMesh     bool    `json:"preview_mesh,omitempty"`
 	ApproachSpaceMM float64 `json:"approach_space_mm,omitempty"`
 	LowerStepCount  int     `json:"lower_step_count,omitempty"`
-	Material        string  `json:"material,omitempty"`
+	// Purpose — назначение здания: выбирает нормативный профиль правил
+	// (S-236, п. 67 библии): house (по умолчанию, СП 55), flat (СП 54),
+	// public (СП 118), industrial (СП 56). Пусто = дом.
+	Purpose  string `json:"purpose,omitempty"`
+	Material string `json:"material,omitempty"`
 	// TreadMaterial — материал СТУПЕНЕЙ (проступи, площадки, поворотные
 	// ступени), отдельно от материала каркаса. Пусто → наследуется от
 	// material (лестница из одного материала). Нужен потому, что у дерева
@@ -687,22 +691,24 @@ func toPricing(b *domprc.PriceBreakdown) pricingDTO {
 
 func toConfig(req calculateRequest) stair.Config {
 	cfg := stair.Config{
-		Width:                  engineering.Length(req.WidthMM),
-		Height:                 engineering.Length(req.HeightMM),
-		Flight:                 engineering.FlightType(req.Flight),
-		StepHeight:             engineering.Length(req.StepHeightMM),
-		StringerThickness:      engineering.Length(req.StringerThicknessMM),
-		StepThickness:          engineering.Length(req.StepThicknessMM),
-		Riser:                  req.Riser,
-		Clearance:              engineering.Length(req.ClearanceMM),
-		RailingHeight:          engineering.Length(req.RailingHeightMM),
-		LandingWidth:           engineering.Length(req.LandingWidthMM),
-		LandingDepth:           engineering.Length(req.LandingDepthMM),
-		RoomWidth:              engineering.Length(req.RoomWidthMM),
-		RoomLength:             engineering.Length(req.RoomLengthMM),
-		CeilingHeight:          engineering.Length(req.CeilingHeightMM),
-		ApproachSpace:          engineering.Length(req.ApproachSpaceMM),
-		LowerStepCount:         req.LowerStepCount,
+		Width:             engineering.Length(req.WidthMM),
+		Height:            engineering.Length(req.HeightMM),
+		Flight:            engineering.FlightType(req.Flight),
+		StepHeight:        engineering.Length(req.StepHeightMM),
+		StringerThickness: engineering.Length(req.StringerThicknessMM),
+		StepThickness:     engineering.Length(req.StepThicknessMM),
+		Riser:             req.Riser,
+		Clearance:         engineering.Length(req.ClearanceMM),
+		RailingHeight:     engineering.Length(req.RailingHeightMM),
+		LandingWidth:      engineering.Length(req.LandingWidthMM),
+		LandingDepth:      engineering.Length(req.LandingDepthMM),
+		RoomWidth:         engineering.Length(req.RoomWidthMM),
+		RoomLength:        engineering.Length(req.RoomLengthMM),
+		CeilingHeight:     engineering.Length(req.CeilingHeightMM),
+		ApproachSpace:     engineering.Length(req.ApproachSpaceMM),
+		LowerStepCount:    req.LowerStepCount,
+		// Назначение здания → нормативный профиль правил (S-236).
+		Purpose:                engineering.BuildingPurpose(req.Purpose),
 		Material:               dommfg.MaterialCode(req.Material),
 		TreadMaterial:          dommfg.MaterialCode(req.TreadMaterial),
 		RiserThickness:         engineering.Length(req.RiserThicknessMM),

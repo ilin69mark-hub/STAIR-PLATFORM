@@ -72,6 +72,10 @@ func Validate(cfg *engineering.StairConfiguration, set *constraint.ConstraintSet
 			HasMin:   rule.Range.HasMin,
 			HasMax:   rule.Range.HasMax,
 			Fix:      rule.Fix,
+			// Происхождение числа — в каждое нарушение (S-235): пустой
+			// источник у правила невозможен (Add его отвергнет), значит и
+			// здесь строка не поднимет вопрос «а откуда 900?».
+			Source: rule.Source.String(),
 		}
 		// Подсказка правила (Advice) применяется здесь же, на этапе валидации:
 		// Param и Guide (отрендеренный) доступны каждому issue сразу — в т.ч.

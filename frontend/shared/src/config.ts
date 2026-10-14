@@ -139,6 +139,22 @@ export function railingLabel(code: string): string {
   return railingOptions.find((r) => r.value === code)?.label ?? code
 }
 
+// Назначение здания выбирает нормативный профиль правил (S-236):
+// нормы на лестницы разные для жилых, общественных и производственных
+// зданий. Пусто = дом (СП 55) — дефолт заказов без назначения.
+export const purposeOptions = [
+  { value: 'house', label: 'Частный дом (СП 55)' },
+  { value: 'flat', label: 'Многоквартирный дом (СП 54)' },
+  { value: 'public', label: 'Общественное здание (СП 118)' },
+  { value: 'industrial', label: 'Производственное здание (СП 56)' },
+] as const
+
+export type Purpose = (typeof purposeOptions)[number]['value']
+
+export function purposeLabel(code: string): string {
+  return purposeOptions.find((p) => p.value === code)?.label ?? code
+}
+
 // ---- Направление (CONF-DIRECTION) ----
 // DOM-001: тип поворота площадки. «Площадка» — прямоугольная промежуточная
 // площадка (поведение по умолчанию). «Поворотные ступени» — вместо площадки
@@ -172,6 +188,9 @@ export interface ConfigForm {
   riser: boolean
   clearanceMM: string
   railingHeightMM: string
+  // Назначение здания (S-236): '' = дом (дефолт), поле не показывается
+  // пустым — выбор делает пользователь явно.
+  purpose: Purpose | ''
   comfortStepMM: string
   landingWidthMM: string
   landingDepthMM: string
@@ -236,6 +255,7 @@ export const defaultConfig: ConfigForm = {
   riser: true,
   clearanceMM: '80',
   railingHeightMM: '900',
+  purpose: 'house',
   comfortStepMM: '',
   landingWidthMM: '1000',
   landingDepthMM: '1000',
@@ -771,6 +791,11 @@ export function toRequest(f: ConfigForm): Record<string, unknown> {
       : {}),
     clearance_mm: Number(f.clearanceMM),
     railing_height_mm: Number(f.railingHeightMM),
+  }
+  // Назначение здания (S-236). Пусто не отправляем: бэкенд трактует
+  // пустое как дом (СП 55) — дефолт владельца.
+  if (f.purpose) {
+    req.purpose = f.purpose
   }
   if (f.comfortStepMM.trim() !== '') {
     req.comfort_step_mm = Number(f.comfortStepMM)

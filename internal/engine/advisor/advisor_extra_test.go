@@ -20,6 +20,8 @@ func TestExtraAdvise_NoAdviceRule(t *testing.T) {
 		Range:    constraint.Range{Min: 150, Max: 200, HasMin: true, HasMax: true},
 		Message:  "m",
 		Fix:      "f",
+		// S-235: правилу обязательно объяснять, откуда число.
+		Source: &constraint.Source{Doc: "тест", Basis: constraint.BasisErgonomics},
 	}
 	if err := set.Add(rule); err != nil {
 		t.Fatal(err)

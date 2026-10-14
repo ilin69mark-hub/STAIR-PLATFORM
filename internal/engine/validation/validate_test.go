@@ -160,6 +160,8 @@ func TestValidateInactiveVersionSkipped(t *testing.T) {
 		Severity: constraint.SeverityError,
 		Range:    constraint.Range{Min: 150, Max: 200, HasMin: true, HasMax: true, Tolerance: 0.1},
 		Message:  "step height 150-200", Fix: "fix",
+		// S-235: правилу обязательно объяснять, откуда число.
+		Source: &constraint.Source{Doc: "тест", Basis: constraint.BasisErgonomics},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -168,6 +170,7 @@ func TestValidateInactiveVersionSkipped(t *testing.T) {
 		Severity: constraint.SeverityError,
 		Range:    constraint.Range{Min: 150, Max: 160, HasMin: true, HasMax: true, Tolerance: 0.1},
 		Message:  "step height 150-160", Fix: "fix",
+		Source: &constraint.Source{Doc: "тест", Basis: constraint.BasisErgonomics},
 	}); err != nil {
 		t.Fatal(err)
 	}

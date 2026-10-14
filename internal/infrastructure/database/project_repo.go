@@ -331,7 +331,7 @@ const configCols = `id, project_id, revision, width_mm, height_mm, flight, step_
 	turn_kind, winder_count,
 	railing, railing_lower, railing_landing, railing_upper,
 	direction, material_code, tread_material_code, riser_thickness_mm,
-	floor_fixing, ceiling_fixing, extra_fasteners,
+	floor_fixing, ceiling_fixing, extra_fasteners, purpose,
 	sealant_layer_mm, extra_sealant_cartridges, is_measurement,
 	created_at, updated_at`
 
@@ -349,7 +349,7 @@ func scanConfig(row pgx.Row) (*project.StairConfiguration, error) {
 	var c project.StairConfiguration
 	var turnKind, railing, railingLower, railingLanding, railingUpper *string
 	var direction, materialCode, treadMaterialCode *string
-	var floorFixing, ceilingFixing *string
+	var floorFixing, ceilingFixing, purpose *string
 	// extra_fasteners — JSONB-массив кодов. Сканируется строкой: разбором
 	// занимается decodeFastenerList, а не pgx (в проекции поле хранится
 	// списком строк, сериализация — дело инфраструктуры, ADR-0006).
@@ -361,7 +361,7 @@ func scanConfig(row pgx.Row) (*project.StairConfiguration, error) {
 		&turnKind, &c.WinderCount,
 		&railing, &railingLower, &railingLanding, &railingUpper,
 		&direction, &materialCode, &treadMaterialCode, &c.RiserThicknessMM,
-		&floorFixing, &ceilingFixing, &extraFasteners,
+		&floorFixing, &ceilingFixing, &extraFasteners, &purpose,
 		&c.SealantLayerMM, &c.ExtraSealantCartridges, &c.IsMeasurement,
 		&c.CreatedAt, &c.UpdatedAt); err != nil {
 		return nil, err
@@ -376,6 +376,8 @@ func scanConfig(row pgx.Row) (*project.StairConfiguration, error) {
 	c.TreadMaterialCode = deref(treadMaterialCode)
 	c.FloorFixing = deref(floorFixing)
 	c.CeilingFixing = deref(ceilingFixing)
+	// Назначение здания (S-236): "" = дом, профиль по умолчанию.
+	c.Purpose = deref(purpose)
 	c.ExtraFasteners = decodeFastenerList(extraFasteners)
 	return &c, nil
 }
@@ -460,11 +462,11 @@ func insertConfiguration(ctx context.Context, tx pgx.Tx, c *project.StairConfigu
 			turn_kind, winder_count,
 			railing, railing_lower, railing_landing, railing_upper,
 			direction, material_code, tread_material_code, riser_thickness_mm,
-			floor_fixing, ceiling_fixing, extra_fasteners,
+			floor_fixing, ceiling_fixing, extra_fasteners, purpose,
 			sealant_layer_mm, extra_sealant_cartridges,
 			revision)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
-		        $19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,
+		        $19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,
 		   (SELECT COALESCE(MAX(s.revision),0)+1 FROM stair_configurations s WHERE s.project_id = $1))
 		 RETURNING id, created_at, updated_at, revision`,
 		c.ProjectID, c.WidthMM, c.HeightMM, c.Flight, c.StepHeightMM,
@@ -477,6 +479,7 @@ func insertConfiguration(ctx context.Context, tx pgx.Tx, c *project.StairConfigu
 		nullableStr(c.Direction), nullableStr(c.MaterialCode),
 		nullableStr(c.TreadMaterialCode), c.RiserThicknessMM,
 		nullableStr(c.FloorFixing), nullableStr(c.CeilingFixing),
+		nullableStr(c.Purpose),
 		encodeFastenerList(c.ExtraFasteners),
 		c.SealantLayerMM, c.ExtraSealantCartridges,
 	).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt, &c.Revision); err != nil {

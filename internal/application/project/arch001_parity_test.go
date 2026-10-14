@@ -87,6 +87,7 @@ var configFieldToColumn = map[string]string{
 	"RailingUpper":      "RailingUpper",
 	"Direction":         "Direction",
 	"FloorFixing":       "FloorFixing",
+	"Purpose":           "Purpose",
 	"CeilingFixing":     "CeilingFixing",
 	"ExtraFasteners":    "ExtraFasteners",
 	// Герметик (CONF-SEALANT): толщина слоя и доп. картриджи по объекту.

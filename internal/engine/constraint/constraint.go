@@ -50,6 +50,67 @@ type ConstraintAdvice struct {
 	Suggest bool
 }
 
+// Basis — ЧЕМ обосновано число правила. Это не украшение: половина
+// наших диапазонов — не норма, а эргономика или производственное
+// решение, и выдавать их за нормативные нельзя (S-235).
+type Basis string
+
+const (
+	// BasisNorm — число взято из нормативного документа (пункт в Doc).
+	// Пункт может быть пустым (норма требует сверки с текстом) — тогда
+	// Doc обязателен, а пустой Clause означает «документ указан, пункт
+	// уточняется», и это видно в отчёте.
+	BasisNorm Basis = "norm"
+	// BasisErgonomics — эргономическое решение (Блондель, антропометрия).
+	// Документом может быть классическая формула, а не ГОСТ.
+	BasisErgonomics Basis = "ergonomics"
+	// BasisManufacturing — производственное ограничение (сортаж листа,
+	// лазерный раскрой). Нормой не является.
+	BasisManufacturing Basis = "manufacturing"
+)
+
+// Source — происхождение числа правила (S-235).
+//
+// Зачем: до S-235 диапазоны жили в коде без единой ссылки на источник,
+// и проверить их по норме было нечем — числа похожи на ГОСТ, но
+// доказать это нельзя. Теперь происхождение — часть правила, а правило
+// без источника не собирается (см. ConstraintSet.Add).
+//
+// Doc обязателен, Clause — по возможности: подставлять номер пункта по
+// памяти опаснее, чем оставить его пустым и сказать «уточняется».
+type Source struct {
+	// Doc — документ или расчётная формула («ГОСТ 23120», «2h+b Блонделя»).
+	Doc string
+	// Clause — пункт/таблица/формулировка. Пусто = «документ указан, пункт
+	// уточняется при сверке с текстом».
+	Clause string
+	// Basis — норма это или эргономика/производство (см. Basis).
+	Basis Basis
+	// Note — пояснение, почему документ такой (например, что правило
+	// старше издания нормы и требует подтверждения).
+	Note string
+}
+
+// IsZero — источник не задан.
+func (s *Source) IsZero() bool {
+	return s == nil || s.Doc == ""
+}
+
+// String — источник строкой для отчётов и логов.
+func (s *Source) String() string {
+	if s == nil {
+		return ""
+	}
+	out := s.Doc
+	if s.Clause != "" {
+		out += ", " + s.Clause
+	}
+	if s.Basis != "" {
+		out += " [" + string(s.Basis) + "]"
+	}
+	return out
+}
+
 // Constraint — ограничение с кодом, категорией, диапазоном и версией.
 type Constraint struct {
 	Code     RuleCode
@@ -60,6 +121,9 @@ type Constraint struct {
 	Active   bool
 	Message  string
 	Fix      string
+	// Source — происхождение диапазона (S-235). Обязательно: правило без
+	// источника — число, которое нечем проверить.
+	Source *Source
 	// MaterialClass — класс материала, к которому относится правило:
 	// "" — к любому, MaterialMetal — к листовому металлу,
 	// MaterialWood — к пиломатериалу. Правило с классом, который не совпадает
@@ -133,12 +197,26 @@ func NewSet(id, name string) *ConstraintSet {
 
 // Add добавляет версию правила.
 // Инвариант BC-003: правило имеет уникальный код, а версия — уникальный номер.
+//
+// S-235: правило без источника не добавляется. Причина не в формализме:
+// диапазон без ссылки на документ нечем проверить, и именно такие
+// числа молча расходятся с нормой (проверено на S-212).
 func (s *ConstraintSet) Add(c *Constraint) error {
 	if c.Code == "" {
 		return fmt.Errorf("constraint: rule code is required")
 	}
 	if c.Version < 1 {
 		return fmt.Errorf("constraint: %s version must be >= 1, got %d", c.Code, c.Version)
+	}
+	if c.Source.IsZero() {
+		return fmt.Errorf("constraint: %s v%d has no source — every range must "+
+			"say where the number comes from (S-235)", c.Code, c.Version)
+	}
+	switch c.Source.Basis {
+	case BasisNorm, BasisErgonomics, BasisManufacturing:
+	default:
+		return fmt.Errorf("constraint: %s v%d has unknown basis %q",
+			c.Code, c.Version, c.Source.Basis)
 	}
 	for _, existing := range s.Constraints[c.Code] {
 		if existing.Version == c.Version {

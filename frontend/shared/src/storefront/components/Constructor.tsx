@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ConfigForm } from '@shared/config'
-import { defaultConfig, directionOptions, flightOptions, materialOptions, fitThicknessMM, fieldRulesFor, railingOptions, rulesFor, fixedTreadThicknessMM, plateStringerThicknessMM, isPlateFrame, toRequest, turnKindOptions, validateForm, REQUIRED_VALUE_ERROR, type FieldErrors, type FieldRule } from '@shared/config'
+import { defaultConfig, directionOptions, flightOptions, materialOptions, fitThicknessMM, fieldRulesFor, railingOptions, purposeOptions, rulesFor, fixedTreadThicknessMM, plateStringerThicknessMM, isPlateFrame, toRequest, turnKindOptions, validateForm, REQUIRED_VALUE_ERROR, type FieldErrors, type FieldRule } from '@shared/config'
 import type { QuoteResult, QuoteSuggestion, Variation } from '@shared/types'
 import {
   LiveValidator,
@@ -88,6 +88,7 @@ const labels: Record<keyof ConfigForm, string> = {
   clearanceMM: 'Просвет (мм)',
   ceilingHeightMM: 'Высота перекрытия (мм)',
   railingHeightMM: 'Высота перил (мм)',
+  purpose: 'Тип здания',
   comfortStepMM: 'Шаг комфорта (мм)',
   landingWidthMM: 'Ширина площадки (мм)',
   landingDepthMM: 'Глубина площадки (мм)',
@@ -156,6 +157,7 @@ const emptyConfig: ConfigForm = {
   stepThicknessMM: '40',
   clearanceMM: '',
   railingHeightMM: '',
+  purpose: '',
   comfortStepMM: '',
   landingWidthMM: '',
   lowerStepCountMM: '',
@@ -461,6 +463,8 @@ export function Constructor() {
       case 'railingLanding':
       case 'railingUpper':
         return railingOptions
+      case 'purpose':
+        return purposeOptions
       case 'direction':
         return directionOptions
       case 'turnKind':
@@ -1206,6 +1210,7 @@ export function Constructor() {
             </>
           ) : null}
           {renderField('railingHeightMM')}
+          {renderField('purpose')}
         </>
       ),
     },

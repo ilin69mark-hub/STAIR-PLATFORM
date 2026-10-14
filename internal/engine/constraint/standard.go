@@ -47,8 +47,16 @@ func StandardProfile(name string) *ConstraintSet {
 		Range:    Range{Min: 150, Max: 200, HasMin: true, HasMax: true, Tolerance: 0.1},
 		Version:  1,
 		Active:   true,
-		Message:  "высота ступени должна быть в диапазоне 150-200 мм",
-		Fix:      "скорректируйте число ступеней или общую высоту подъёма",
+		// S-235: диапазон эргономический (антропометрия шага), а не
+		// нормативный: ГОСТ 23120 ограничивает высоту ступени иначе и по
+		// разным зданиям по-разному. Выдавать это за норму нельзя.
+		Source: &Source{
+			Doc:   "эргономика (антропометрия шага)",
+			Basis: BasisErgonomics,
+			Note:  "нормативный предел по назначению здания — профиль HOUSE/FLAT/PUBLIC (S-236)",
+		},
+		Message: "высота ступени должна быть в диапазоне 150-200 мм",
+		Fix:     "скорректируйте число ступеней или общую высоту подъёма",
 		Advice: &ConstraintAdvice{
 			Param:   "Высота ступени",
 			Guide:   "Высота ступени {value} мм вне нормы ({min}–{max} мм). Измените число ступеней — варианты ниже проходят все нормы и подходят к вашей высоте {height} мм.",
@@ -62,8 +70,13 @@ func StandardProfile(name string) *ConstraintSet {
 		Range:    Range{Min: 260, Max: 320, HasMin: true, HasMax: true, Tolerance: 0.1},
 		Version:  1,
 		Active:   true,
-		Message:  "проступь должна быть в диапазоне 260-320 мм",
-		Fix:      "скорректируйте проступь или угол наклона марша",
+		Source: &Source{
+			Doc:   "эргономика (антропометрия шага)",
+			Basis: BasisErgonomics,
+			Note:  "ГОСТ 23120 задаёт проступь по назначению здания — профиль (S-236)",
+		},
+		Message: "проступь должна быть в диапазоне 260-320 мм",
+		Fix:     "скорректируйте проступь или угол наклона марша",
 		Advice: &ConstraintAdvice{
 			Param:   "Проступь",
 			Guide:   "Проступь {value} мм вне нормы ({min}–{max} мм). Измените число ступеней (или шаг комфорта) — варианты ниже проходят все нормы.",
@@ -77,8 +90,15 @@ func StandardProfile(name string) *ConstraintSet {
 		Range:    Range{Min: 30, Max: 45, HasMin: true, HasMax: true, Tolerance: 0.01},
 		Version:  1,
 		Active:   true,
-		Message:  "угол наклона марша должен быть в диапазоне 30-45 градусов",
-		Fix:      "скорректируйте геометрию марша",
+		Source: &Source{
+			// 45° — предел для главных лестниц по ГОСТ 23120; нижняя
+			// граница 30° эргономическая (уклон марша для жилого здания).
+			Doc:   "ГОСТ 23120 (предельный уклон марша)",
+			Basis: BasisNorm,
+			Note:  "30° — эргономическая граница; пункт нормы уточняется (S-235)",
+		},
+		Message: "угол наклона марша должен быть в диапазоне 30-45 градусов",
+		Fix:     "скорректируйте геометрию марша",
 		Advice: &ConstraintAdvice{
 			Param:   "Число ступеней",
 			Guide:   "Угол наклона {angle}° вне нормы ({min}–{max}°). Измените число ступеней — варианты ниже дают угол в норме при вашей высоте {height} мм.",
@@ -92,8 +112,13 @@ func StandardProfile(name string) *ConstraintSet {
 		Range:    Range{Min: 2000, HasMin: true, Tolerance: 1},
 		Version:  1,
 		Active:   true,
-		Message:  "вертикальный просвет должен быть не менее 2000 мм",
-		Fix:      "увеличьте высоту помещения или измените разбивку марша",
+		Source: &Source{
+			Doc:   "СП 59.13330 (доступность), СП 54.13330/СП 118.13330",
+			Basis: BasisNorm,
+			Note:  "просвет под маршем 2000 мм — по жилым и общественным зданиям; точный пункт уточняется",
+		},
+		Message: "вертикальный просвет должен быть не менее 2000 мм",
+		Fix:     "увеличьте высоту помещения или измените разбивку марша",
 		Advice: &ConstraintAdvice{
 			Param:   "Просвет",
 			Guide:   "Просвет {value} мм, нужно не менее {min} мм. Увеличьте поле «Просвет» в конструкторе или измените разбивку марша.",
@@ -111,8 +136,13 @@ func StandardProfile(name string) *ConstraintSet {
 		Version:       1,
 		Active:        true,
 		MaterialClass: MaterialWood,
-		Message:       "толщина косоура должна быть не менее 30 мм",
-		Fix:           "увеличьте толщину косоура",
+		Source: &Source{
+			Doc:   "производство (пиломатериал по ГОСТ 8486/24454)",
+			Basis: BasisManufacturing,
+			Note:  "минимальная несущая способность бруска; нормативной проверки прочности пока нет (S-237)",
+		},
+		Message: "толщина косоура должна быть не менее 30 мм",
+		Fix:     "увеличьте толщину косоура",
 		Advice: &ConstraintAdvice{
 			Param:   "Толщина косоура",
 			Guide:   "Толщина косоура {value} мм, нужно не менее {min} мм. Увеличьте поле «Толщина косоура».",
@@ -127,8 +157,13 @@ func StandardProfile(name string) *ConstraintSet {
 		Version:       2,
 		Active:        true,
 		MaterialClass: MaterialMetal,
-		Message:       fmt.Sprintf("толщина боковой пластины косоура должна быть в диапазоне 3-%d мм", engineering.PlateMaxThicknessMM),
-		Fix:           fmt.Sprintf("задайте толщину листа в пределах 3-%d мм", engineering.PlateMaxThicknessMM),
+		Source: &Source{
+			Doc:   "производство (лазерный раскрой листа, MFG-0005)",
+			Basis: BasisManufacturing,
+			Note:  "3–8 мм — раскрываемый сортаж листа, не норма о конструкциях",
+		},
+		Message: fmt.Sprintf("толщина боковой пластины косоура должна быть в диапазоне 3-%d мм", engineering.PlateMaxThicknessMM),
+		Fix:     fmt.Sprintf("задайте толщину листа в пределах 3-%d мм", engineering.PlateMaxThicknessMM),
 		Advice: &ConstraintAdvice{
 			Param: "Толщина косоура",
 			Guide: "Толщина косоура {value} мм: лист лазерного раскроя — от {min} до {max} мм. " +
@@ -143,8 +178,14 @@ func StandardProfile(name string) *ConstraintSet {
 		Range:    Range{Min: 900, HasMin: true, Tolerance: 1},
 		Version:  1,
 		Active:   true,
-		Message:  "высота ограждения должна быть не менее 900 мм",
-		Fix:      "увеличьте высоту ограждения",
+		Source: &Source{
+			Doc:   "ГОСТ 25772-2025 (ограждения лестниц, площадок)",
+			Basis: BasisNorm,
+			Note: "900 мм — жилое здание; для общественных и по назначению здания больше — профиль (S-236). " +
+				"Пункт нормы уточняется; severity warning → error в профилях (S-239)",
+		},
+		Message: "высота ограждения должна быть не менее 900 мм",
+		Fix:     "увеличьте высоту ограждения",
 		Advice: &ConstraintAdvice{
 			Param:   "Высота перил",
 			Guide:   "Высота ограждения {value} мм, нужно не менее {min} мм. Увеличьте поле «Высота перил».",

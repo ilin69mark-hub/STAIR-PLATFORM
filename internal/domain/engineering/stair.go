@@ -47,6 +47,46 @@ func (f FlightType) Valid() bool {
 	return false
 }
 
+// BuildingPurpose — назначение здания (S-236, п. 67 библии нормативов).
+//
+// Это не украшение: нормы на лестницы разные для жилых, общественных и
+// производственных зданий, и проверять их одним набором нельзя. Профиль
+// выбирает набор правил (constraint.ProfileFor), а не двигает габариты
+// сам: пока подтверждённых чисел по назначению мало, профили различаются
+// строгостью правил (S-239), а не выдуманными значениями.
+type BuildingPurpose string
+
+const (
+	// PurposeHouse — одноквартирный дом, СП 55.13330. Профиль по умолчанию
+	// (решение владельца 2026-10-13): пока назначение не задано, действует
+	// именно он.
+	PurposeHouse BuildingPurpose = "house"
+	// PurposeFlat — многоквартирный жилой дом, СП 54.13330.
+	PurposeFlat BuildingPurpose = "flat"
+	// PurposePublic — общественное здание, СП 118.13330.
+	PurposePublic BuildingPurpose = "public"
+	// PurposeIndustrial — производственное здание, СП 56.13330.
+	PurposeIndustrial BuildingPurpose = "industrial"
+)
+
+// PurposeEffective — назначение с правилом по умолчанию: пусто = дом.
+func (p BuildingPurpose) PurposeEffective() BuildingPurpose {
+	switch p {
+	case PurposeHouse, PurposeFlat, PurposePublic, PurposeIndustrial:
+		return p
+	}
+	return PurposeHouse
+}
+
+// Valid — допустимое значение назначения. Пусто допустим (дом).
+func (p BuildingPurpose) Valid() bool {
+	switch p {
+	case "", PurposeHouse, PurposeFlat, PurposePublic, PurposeIndustrial:
+		return true
+	}
+	return false
+}
+
 // RailingSide — сторона установки перил (CONF-RAILING). Отсчёт сторон
 // определяется со стороны первой ступени по ходу подъёма: слева от
 // смотрящего вперёд человека — левые перила, справа — правые.
@@ -256,6 +296,9 @@ type StairConfiguration struct {
 	// RailingType — тип ограждения: стальное (круглые трубы) или
 	// стеклянное (панели). Пусто = стальное.
 	RailingType RailingType
+	// Purpose — назначение здания (S-236): выбирает нормативный профиль
+	// правил. Пусто = дом (СП 55), решение владельца 2026-10-13.
+	Purpose BuildingPurpose
 	// Перила по сегментам маршей с площадкой (только L/U):
 	// первый марш → площадка → второй марш.
 	RailingLower   RailingSide
@@ -436,6 +479,12 @@ func (c *StairConfiguration) Validate() error {
 	}
 	if c.Direction != "" && !c.Direction.Valid() {
 		return fmt.Errorf("stair: invalid turn direction (left|right)")
+	}
+	// Назначение здания (S-236): неизвестное значение молча уехало бы в
+	// профиль «дом» — пользователь бы выбрал «общественное», получил бы
+	// проверку частного дома и не узнал бы об этом.
+	if !c.Purpose.Valid() {
+		return fmt.Errorf("stair: invalid building purpose (house|flat|public|industrial)")
 	}
 	return nil
 }

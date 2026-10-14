@@ -57,6 +57,11 @@ type Config struct {
 	// расходилось с Geometry Engine.
 	ApproachSpace  engineering.Length
 	LowerStepCount int // n1 — число ступеней нижнего марша
+	// Purpose — назначение здания: выбирает нормативный профиль правил
+	// (S-236, п. 67 библии). Пусто = дом (СП 55) — решение владельца:
+	// основной продукт, и пока назначение не задано, действует профиль
+	// одноквартирного дома.
+	Purpose engineering.BuildingPurpose
 	// TurnKind — тип поворота для маршей с площадкой (L/U): площадка
 	// (platform, по умолчанию) либо поворотные ступени (winder, только U).
 	TurnKind engineering.TurnKind
@@ -246,6 +251,19 @@ type Service struct {
 	fastenerRegs FastenerRegistryResolver
 }
 
+// profileFor — нормативный профиль заказа (S-236).
+//
+// Назначение здания выбирает набор правил: без него действует профиль
+// одноквартирного дома (решение владельца 2026-10-13) — то есть заказ по
+// умолчанию проверяется по СП 55, а не по замороженному STANDARD.
+// Профиль строится на каждый вызов: набор правил переиспользуемый, но
+// мутации (severity, источник) не должны течь между запросами — раньше
+// профиль был один на сервис, и это была ровно та общая правда, которую
+// S-180/S-212 вылавливали дважды.
+func (s *Service) profileFor(purpose engineering.BuildingPurpose) *constraint.ConstraintSet {
+	return constraint.ProfileFor(purpose)
+}
+
 // NewService создаёт сервис со стандартным профилем правил (EDR-0002).
 func NewService() *Service {
 	return &Service{
@@ -353,13 +371,15 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 		}
 		return nil, err
 	}
+	// Профиль по назначению заказа (S-236); cfg.Purpose пуст = дом.
+	cs := s.profileFor(cfg.Purpose)
 
 	comfort := opts.ComfortStep
 	if comfort == 0 {
 		comfort = solver.DefaultComfortStep
 	}
 
-	res, err := s.checkedSolve(ctx, cfg, c, comfort)
+	res, err := s.checkedSolve(ctx, cfg, c, comfort, cs)
 	if err != nil {
 		return nil, err
 	}
@@ -388,12 +408,12 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 				field, value),
 			Fix: "Задайте толщину косоура и ступени в мм",
 		})
-		return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+		return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr, cs)}, nil
 	}
 	gen, err := geometry.Generate(ctx, c)
 	if err != nil {
 		if vr, ok := inputIssue(err); ok {
-			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr, cs)}, nil
 		}
 		return nil, fmt.Errorf("stair: geometry: %w", err)
 	}
@@ -411,7 +431,7 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 			return &Result{Validation: manufacturingBlocked(feas, c.StringerThickness, dommfg.MaterialCode(c.Material))}, nil
 		}
 		if vr, ok := inputIssue(err); ok {
-			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr, cs)}, nil
 		}
 		return nil, fmt.Errorf("stair: manufacturing: %w", err)
 	}
@@ -463,7 +483,7 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 					"Лестница не помещается в помещение %.0f×%.0f мм (ширина×длина). Выберите готовый вариант ниже — лестница сохранит остальные параметры.",
 					rw, rl),
 				Fix:        "Уменьшите габариты лестницы или выберите один из готовых вариантов.",
-				Variations: variation.ForRoomFit(ctx, c, s.constraints),
+				Variations: variation.ForRoomFit(ctx, c, cs),
 			})
 			break
 		}
@@ -520,7 +540,8 @@ func (s *Service) calculate(ctx context.Context, cfg Config, opts Options) (*Res
 // GEO-ANGLE — собственный подбор числа ступеней и шага комфорта,
 // остальные — преобразование Suggestions советника. Вызывается и в
 // блокирующей, и в неблокирующей ветках, поэтому варианты есть всегда.
-func (s *Service) advise(ctx context.Context, cfg Config, c *engineering.StairConfiguration, comfort float64, vr validation.Result) validation.Result {
+// cs — профиль заказа (S-236), см. profileFor.
+func (s *Service) advise(ctx context.Context, cfg Config, c *engineering.StairConfiguration, comfort float64, vr validation.Result, cs *constraint.ConstraintSet) validation.Result {
 	// Вход советника собирается из исходной конфигурации: checked-функции
 	// зануляют поля при blocking-валидации, а они нужны для подбора вариантов.
 	advIn := advisor.Input{
@@ -539,50 +560,52 @@ func (s *Service) advise(ctx context.Context, cfg Config, c *engineering.StairCo
 		StepThicknessMm: cfg.StepThickness.Millimeters(),
 		Material:        cfg.Material,
 	}
-	vrr := advisor.Advise(advIn, s.constraints, vr)
-	attachVariations(ctx, &vrr, c, s.constraints)
+	vrr := advisor.Advise(advIn, cs, vr)
+	attachVariations(ctx, &vrr, c, cs)
 	return vrr
 }
 
-func (s *Service) checkedSolve(ctx context.Context, cfg Config, c *engineering.StairConfiguration, comfort float64) (*Result, error) {
+// cs — профиль заказа (S-236): calculate и Validate зовут checkedSolve
+// с профилем своего назначения, чтобы правила не подменялись внутри.
+func (s *Service) checkedSolve(ctx context.Context, cfg Config, c *engineering.StairConfiguration, comfort float64, cs *constraint.ConstraintSet) (*Result, error) {
 	res := &Result{}
 	switch cfg.Flight {
 	case engineering.FlightStraight:
-		flight, vr, err := solver.SolveChecked(c, s.constraints, comfort)
+		flight, vr, err := solver.SolveChecked(c, cs, comfort)
 		if err != nil {
 			if vr, ok := inputIssue(err); ok {
-				return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+				return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr, cs)}, nil
 			}
 			return nil, err
 		}
 		if vr.Blocking {
-			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr, cs)}, nil
 		}
 		res.Validation = vr
 		res.Flight = flight
 	case engineering.FlightLShape:
-		lres, vr, err := solver.SolveCheckedLShape(c, s.constraints, comfort)
+		lres, vr, err := solver.SolveCheckedLShape(c, cs, comfort)
 		if err != nil {
 			if vr, ok := inputIssue(err); ok {
-				return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+				return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr, cs)}, nil
 			}
 			return nil, err
 		}
 		if vr.Blocking {
-			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr, cs)}, nil
 		}
 		res.Validation = vr
 		res.LShape = &lres
 	case engineering.FlightUShape:
-		ures, vr, err := solver.SolveCheckedUShape(c, s.constraints, comfort)
+		ures, vr, err := solver.SolveCheckedUShape(c, cs, comfort)
 		if err != nil {
 			if vr, ok := inputIssue(err); ok {
-				return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+				return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr, cs)}, nil
 			}
 			return nil, err
 		}
 		if vr.Blocking {
-			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+			return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr, cs)}, nil
 		}
 		res.Validation = vr
 		res.UShape = &ures
@@ -599,7 +622,7 @@ func (s *Service) checkedSolve(ctx context.Context, cfg Config, c *engineering.S
 			Guide:   "Допустимые типы марша: straight (прямой), l_shape (Г-образный), u_shape (П-образный).",
 			Fix:     "Выберите тип марша из списка",
 		})
-		return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr)}, nil
+		return &Result{Validation: s.advise(ctx, cfg, c, comfort, vr, cs)}, nil
 	}
 	// Нормативы на косоур (решение владельца 2026-10-05): деревянная балка и
 	// листовая сварная. Минимальная толщина зависит от длины марша по проекции
@@ -840,11 +863,13 @@ func (s *Service) Validate(ctx context.Context, cfg Config, opts Options) (*Resu
 		}
 		return nil, err
 	}
+	// Профиль по назначению заказа (S-236); cfg.Purpose пуст = дом.
+	cs := s.profileFor(cfg.Purpose)
 	comfort := opts.ComfortStep
 	if comfort == 0 {
 		comfort = solver.DefaultComfortStep
 	}
-	res, err := s.checkedSolve(ctx, cfg, c, comfort)
+	res, err := s.checkedSolve(ctx, cfg, c, comfort, cs)
 	if err != nil {
 		return nil, err
 	}
