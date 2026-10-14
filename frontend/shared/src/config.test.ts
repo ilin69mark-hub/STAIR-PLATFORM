@@ -11,6 +11,10 @@ import {
   toRatesRequest,
   toRequest,
   validateForm,
+  purposeOptions,
+  purposeOptionsFor,
+  purposeLabel,
+  purposeScopeNote,
 } from './config'
 
 describe('flightFields', () => {
@@ -562,5 +566,81 @@ describe('толщина металлической ступени', () => {
   it('границы выпуска листа на месте, даже при фиксированной толщине', () => {
     // Диапазон нужен серверу для проверки, а не пользователю для выбора.
     expect(rulesFor('stepThicknessMM', 'STEEL-C245')).toEqual({ min: 3, max: 8 })
+  })
+})
+
+// Область применения назначения здания (решение владельца 2026-10-14):
+// пока только жилые здания. Тест держит два свойства сразу — что
+// нежилые назначения НЕЛЬЗЯ выбрать, и что сохранённый заказ с таким
+// назначением всё равно виден и назван. Второе важнее первого: молча
+// исчезнувшее значение выглядит как поломка данных, а не как решение.
+describe('назначение здания: область применения', () => {
+  it('в переключателе только жилые', () => {
+    const values = purposeOptionsFor('house').map((o) => o.value)
+    expect(values).toEqual(['house', 'flat'])
+    for (const o of purposeOptionsFor('house')) {
+      expect(o.disabled).toBeUndefined()
+    }
+  })
+
+  it('нежилое назначение нельзя выбрать', () => {
+    for (const p of ['public', 'industrial']) {
+      const opts = purposeOptionsFor('house')
+      const opt = opts.find((o) => o.value === p)
+      expect(opt).toBeUndefined()
+      // и при этом текущем значении оно не появляется как доступное
+      const asCurrent = purposeOptionsFor(p)
+      expect(asCurrent.filter((o) => o.disabled !== true)).toEqual(
+        expect.arrayContaining([
+          { value: 'house', label: expect.any(String) },
+          { value: 'flat', label: expect.any(String) },
+        ]),
+      )
+    }
+  })
+
+  it('сохранённое нежилое назначение показано, но заблокировано', () => {
+    const opts = purposeOptionsFor('public')
+    const kept = opts.find((o) => o.value === 'public')
+    expect(kept).toBeDefined()
+    expect(kept?.disabled).toBe(true)
+    // Подпись остаётся нормативной: заказ обязан называть свой класс
+    // здания, а не «что-то вне области».
+    expect(kept?.label).toBe('Общественное здание (СП 118)')
+    expect(kept?.hint).toContain('Вне текущей области')
+    // И рядом остаются доступные жилые — из него можно уйти.
+    expect(opts.filter((o) => o.disabled !== true).map((o) => o.value)).toEqual([
+      'house',
+      'flat',
+    ])
+  })
+
+  it('мусорное и пустое значение не добавляет кнопку', () => {
+    for (const v of ['', 'мусор', 'HOUSE']) {
+      expect(purposeOptionsFor(v).map((o) => o.value)).toEqual(['house', 'flat'])
+    }
+  })
+
+  it('пустой дефолт остаётся домом', () => {
+    // Назначение по умолчанию — дом (СП 55); пустое поле не должно
+    // превращаться в «ничего не выбрано» после сужения списка.
+    expect(purposeOptionsFor(defaultConfig.purpose)[0].value).toBe('house')
+  })
+
+  it('полный нормативный список не пострадал', () => {
+    // purposeOptions нужен для типа Purpose и purposeLabel: сужение
+    // относится к ВЫБОРУ, а не к тому, что система знает о нормах.
+    expect(purposeOptions.map((p) => p.value)).toEqual([
+      'house',
+      'flat',
+      'public',
+      'industrial',
+    ])
+    expect(purposeLabel('public')).toBe('Общественное здание (СП 118)')
+    expect(purposeLabel('мусор')).toBe('мусор')
+  })
+
+  it('причина ограничения объявлена для показа', () => {
+    expect(purposeScopeNote).toContain('жилых зданиях')
   })
 })

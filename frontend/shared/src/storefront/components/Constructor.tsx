@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ConfigForm } from '@shared/config'
-import { defaultConfig, directionOptions, flightOptions, materialOptions, fitThicknessMM, fieldRulesFor, railingOptions, purposeOptions, rulesFor, fixedTreadThicknessMM, plateStringerThicknessMM, isPlateFrame, toRequest, turnKindOptions, validateForm, REQUIRED_VALUE_ERROR, type FieldErrors, type FieldRule } from '@shared/config'
+import { defaultConfig, directionOptions, flightOptions, materialOptions, fitThicknessMM, fieldRulesFor, purposeOptionsFor, purposeScopeNote, railingOptions, rulesFor, fixedTreadThicknessMM, plateStringerThicknessMM, isPlateFrame, toRequest, turnKindOptions, validateForm, REQUIRED_VALUE_ERROR, type FieldErrors, type FieldRule } from '@shared/config'
 import type { QuoteResult, QuoteSuggestion, Variation } from '@shared/types'
 import {
   LiveValidator,
@@ -464,7 +464,7 @@ export function Constructor() {
       case 'railingUpper':
         return railingOptions
       case 'purpose':
-        return purposeOptions
+        return purposeOptionsFor(config.purpose)
       case 'direction':
         return directionOptions
       case 'turnKind':
@@ -969,6 +969,11 @@ export function Constructor() {
             options={selectOptions(k)!}
             columns={segmentedCols(k)}
             compact={isRailingField(k)}
+            // Ограничение переключателя типа здания объясняется ПОД ним.
+            // Без объяснения два доступных варианта читаются как
+            // «остальные сломались», и человек уходит за несуществующим
+            // общественным зданием вместо того, чтобы позвонить.
+            hint={k === 'purpose' ? purposeScopeNote : undefined}
             onChange={(v) => update(k, v)}
           />
         ) : sliderFor(k) ? (
