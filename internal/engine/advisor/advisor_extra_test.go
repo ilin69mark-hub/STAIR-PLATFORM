@@ -64,12 +64,12 @@ func TestExtraHasIssue(t *testing.T) {
 }
 
 func TestExtraManufacturingIssue_MaterialFallback(t *testing.T) {
-	// Неизвестный материал + несуществующая толщина → автоназначение STEEL-S235.
+	// Неизвестный материал + несуществующая толщина → автоназначение STEEL-C245.
 	it := manufacturingIssue(Input{Material: dommfg.MaterialCode("UNKNOWN"), StringerThickMm: 1, HeightMm: 5000}, [2]float64{9000, 3000})
 	if it.Code != constraint.MFG_SHEET {
 		t.Fatalf("code = %s", it.Code)
 	}
-	// Автоназначение даёт STEEL-S235, а у стали ограничение — рабочее поле
+	// Автоназначение даёт STEEL-C245, а у стали ограничение — рабочее поле
 	// лазерного стола 3000×1500, а не каталог листов (типоразмер один).
 	if !strings.Contains(it.Guide, "9000×3000") || !strings.Contains(it.Guide, "3000×1500") {
 		t.Fatalf("guide must use fallback material sheet: %q", it.Guide)

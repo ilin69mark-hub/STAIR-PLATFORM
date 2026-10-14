@@ -81,15 +81,15 @@ func TestPublicMaterials(t *testing.T) {
 		}
 	}
 	// У стали отдельного предела ступени нет: действует общий 3 мм.
-	if byCode["STEEL-S235"].MinTreadThicknessMM != byCode["STEEL-S235"].MinThicknessMM {
+	if byCode["STEEL-C245"].MinTreadThicknessMM != byCode["STEEL-C245"].MinThicknessMM {
 		t.Errorf("сталь: min_tread_thickness_mm %v != min_thickness_mm %v",
-			byCode["STEEL-S235"].MinTreadThicknessMM, byCode["STEEL-S235"].MinThicknessMM)
+			byCode["STEEL-C245"].MinTreadThicknessMM, byCode["STEEL-C245"].MinThicknessMM)
 	}
 	// Верхняя граница стали 12 мм, а не 8: норматив на листовой косоур
 	// (решение владельца 2026-10-05) описывает строки 8 / 10 / 12 мм, и
 	// публичный каталог обязан показывать предел, который сервер пропускает.
 	// Иначе калькулятор не даст ввести предписанную толщину.
-	if got := byCode["STEEL-S235"].MaxThicknessMM; got != 12 {
+	if got := byCode["STEEL-C245"].MaxThicknessMM; got != 12 {
 		t.Errorf("сталь: max_thickness_mm %v, ожидалось 12 (строки норматива 8/10/12)", got)
 	}
 }

@@ -22,7 +22,7 @@ import (
 
 func woodTreads() stair.Config {
 	cfg := testConfig()
-	cfg.Material = "STEEL-S235"
+	cfg.Material = "STEEL-C245"
 	cfg.TreadMaterial = "WOOD-OAK"
 	// Проступь из дуба пилится из доски 20–60 мм; эталонные 6 мм — стальные.
 	cfg.StepThickness = engineering.Length(40)
@@ -32,8 +32,8 @@ func woodTreads() stair.Config {
 
 func steelTreads() stair.Config {
 	cfg := testConfig()
-	cfg.Material = "STEEL-S235"
-	cfg.TreadMaterial = "STEEL-S235"
+	cfg.Material = "STEEL-C245"
+	cfg.TreadMaterial = "STEEL-C245"
 	cfg.Riser = true
 	return cfg
 }

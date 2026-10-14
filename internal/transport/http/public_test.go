@@ -400,7 +400,7 @@ func woodJSON(material string) string {
 	// пилится из доски 20–60 мм. Один набор на оба материала давал 422
 	// MFG-MATERIAL на дубе (40 мм ступени при стали / 8 мм косоура при дубе).
 	stringerT, stepT := 8, 6
-	if material != "STEEL-S235" {
+	if material != "STEEL-C245" {
 		stringerT, stepT = 50, 40
 	}
 	return `{
@@ -424,7 +424,7 @@ func TestPublicQuoteMaterialChoice(t *testing.T) {
 		material string
 		prices   *float64
 	}{
-		{"STEEL-S235", &steelPrice},
+		{"STEEL-C245", &steelPrice},
 		{"WOOD-OAK", &woodPrice},
 	} {
 		req := publicQuoteRequest(woodJSON(tc.material))

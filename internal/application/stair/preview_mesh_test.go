@@ -36,7 +36,7 @@ func baseConfig(material string, w, h float64) Config {
 // по-разному в зависимости от маршрута. Это ровно тот класс ошибок, что
 // уже случался в проекте дважды: со ставками и с таблицей норматива.
 func TestPreviewMeshDoesNotChangePrice(t *testing.T) {
-	for _, material := range []string{"WOOD-OAK", "STEEL-S235"} {
+	for _, material := range []string{"WOOD-OAK", "STEEL-C245"} {
 		cfg := baseConfig(material, 900, 2700)
 		s := NewService()
 		ctx := context.Background()

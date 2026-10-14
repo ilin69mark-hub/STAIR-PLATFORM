@@ -82,6 +82,11 @@ type Material struct {
 	// ступени (20 мм — минимальная для дерева) и не выходило за пределы
 	// нормы: мягкое дерево крошится, поэтому радиус меньше.
 	TreadNoseRadiusMm float64
+	// Mechanicals — прочностные характеристики (S-237). НИЛЬ = их нет:
+	// материал годен для производства, но расчёт прочности по нему не
+	// выполняется. Ноль внутри набора тоже не характеристика — см.
+	// Mechanicals.Status (пусто ≠ «прочность нулевая»).
+	Mechanicals *Mechanicals
 }
 
 // Validate проверяет корректность записи материала.
@@ -144,6 +149,12 @@ func (m *Material) Validate() error {
 	if m.TreadNoseRadiusMm > 0 && m.TreadNoseRadiusMm > minTread/2 {
 		return fmt.Errorf("manufacturing: material %q nose radius %v exceeds half of min tread thickness %v",
 			m.Code, m.TreadNoseRadiusMm, minTread)
+	}
+	// Прочностные характеристики (S-237) — либо полны, либо честно пусты.
+	// Отсутствие данных не ошибка материала, но набор с числами без
+	// источника или с несостыковкой — ошибка.
+	if err := m.Mechanicals.Validate(string(m.Code)); err != nil {
+		return err
 	}
 	return nil
 }

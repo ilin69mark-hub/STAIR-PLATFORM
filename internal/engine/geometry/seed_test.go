@@ -59,7 +59,7 @@ func seedConfig() *engineering.StairConfiguration {
 		StepThickness:     seedStepThick,
 		RiserThickness:    seedStepThick,
 		Riser:             true,
-		Material:          "STEEL-S235",
+		Material:          "STEEL-C245",
 		TreadMaterial:     "WOOD-OAK",
 		// Нос проступи скруглён R10: дубовые ступени идут с филёнкой
 		// (TreadNoseRadiusMM приходит из материала в проде; в фикстуре

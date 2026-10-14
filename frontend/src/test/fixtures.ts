@@ -91,7 +91,7 @@ export const manufacturingFixture: Manufacturing = {
     {
       Number: 'P1',
       Kind: 'stringer',
-      Material: 'STEEL-S235',
+      Material: 'STEEL-C245',
       Thickness: 50,
       Length: 4783,
       Width: 300,
@@ -104,7 +104,7 @@ export const manufacturingFixture: Manufacturing = {
         Number: 1,
         PartNumber: 'P1',
         Description: 'Косоур',
-        Material: 'STEEL-S235',
+        Material: 'STEEL-C245',
         Thickness: 50,
         Quantity: 2,
         Length: 4783,
@@ -116,7 +116,7 @@ export const manufacturingFixture: Manufacturing = {
   Nesting: {
     Sheets: [
       {
-        Material: 'STEEL-S235',
+        Material: 'STEEL-C245',
         Thickness: 50,
         Length: 6000,
         Width: 1500,

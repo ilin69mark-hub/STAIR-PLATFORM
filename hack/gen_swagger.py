@@ -166,7 +166,7 @@ CONFIG_INPUT_PROPERTIES: list[tuple[str, str, str, str | None, str]] = [
     # поля (outer_radius_mm, spiral_direction), и интегратор читал в схеме
     # то, чего сервер уже не принимает.
     ("flight", "string", None, ["straight", "l_shape", "u_shape"], "true"),
-    ("material", "string", None, ["STEEL-S235", "WOOD-OAK",
+    ("material", "string", None, ["STEEL-C245", "WOOD-OAK",
                                   "WOOD-WALNUT", "WOOD-ASH", "WOOD-SOFT"], ""),
     ("step_height_mm", "number", "double", None, "true"),
     ("stringer_thickness_mm", "number", "double", None, "true"),

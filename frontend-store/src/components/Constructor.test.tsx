@@ -229,7 +229,7 @@ describe('Constructor', () => {
     expect(screen.getByText('Прямой марш')).toBeInTheDocument()
     // Материал каркаса в калькуляторе только сталь, поэтому показан строкой,
     // а не кнопкой выбора (одна кнопка — ложный выбор).
-    expect(inSections(() => screen.queryByText('Сталь S235'))).toBeInTheDocument()
+    expect(inSections(() => screen.queryByText('Сталь С245'))).toBeInTheDocument()
   })
 
   // Раскладка аккордеона. Пять секций в пять рядов оставляли телу ~280px при
@@ -694,7 +694,7 @@ describe('Constructor', () => {
     expect(screen.getByText('Предварительная цена')).toBeInTheDocument()
     await waitFor(() =>
       expect(quoteApi.calculate).toHaveBeenCalledWith(
-        expect.objectContaining({ width_mm: 900, height_mm: 2700, flight: 'straight', material: 'STEEL-S235' }),
+        expect.objectContaining({ width_mm: 900, height_mm: 2700, flight: 'straight', material: 'STEEL-C245' }),
       ),
     )
   })
@@ -740,10 +740,10 @@ describe('Constructor', () => {
     // Каркас — сталь, ступени — дуб: запрос несёт оба кода раздельно.
     await waitFor(() =>
       expect(quoteApi.calculate).toHaveBeenCalledWith(
-        expect.objectContaining({ material: 'STEEL-S235', tread_material: 'WOOD-OAK' }),
+        expect.objectContaining({ material: 'STEEL-C245', tread_material: 'WOOD-OAK' }),
       ),
     )
-    expect(await screen.findByText('Материал каркаса: Сталь S235')).toBeInTheDocument()
+    expect(await screen.findByText('Материал каркаса: Сталь С245')).toBeInTheDocument()
   })
 
   it('L-образный тип показывает поля площадки', async () => {

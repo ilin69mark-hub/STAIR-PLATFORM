@@ -89,7 +89,7 @@ func TestOpenRiserTreadFitsInsideStringer(t *testing.T) {
 		cfg := testConfig(t)
 		if tc.plate {
 			cfg.StringerThickness = mustLength(t, 8)
-			cfg.Material = "STEEL-S235"
+			cfg.Material = "STEEL-C245"
 			cfg.TreadMaterial = "WOOD-OAK"
 			cfg.RiserThickness = mustLength(t, 40)
 		}
@@ -218,7 +218,7 @@ func pointInPolygon2(poly [][2]float64, x, z float64) bool {
 func TestOpenRiserKeepsPlatesExceptWeb(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.StringerThickness = mustLength(t, 8) // лист → металлокаркас
-	cfg.Material = "STEEL-S235"
+	cfg.Material = "STEEL-C245"
 	cfg.TreadMaterial = "WOOD-OAK"
 	cfg.RiserThickness = mustLength(t, 40)
 	cfg.Riser = false

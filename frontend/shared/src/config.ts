@@ -32,8 +32,8 @@ export const materialOptions = [
   // ступени она одна, 5 мм (то же решение). Поле в калькуляторе при этом
   // скрывается, а значение приводится к 5 мм.
   {
-    value: 'STEEL-S235',
-    label: 'Сталь S235',
+    value: 'STEEL-C245',
+    label: 'Сталь С245',
     minThicknessMM: 3,
     maxThicknessMM: 12,
     density: 7850,
@@ -242,7 +242,7 @@ export const defaultConfig: ConfigForm = {
   widthMM: '900',
   heightMM: '2700',
   flight: 'straight',
-  material: 'STEEL-S235',
+  material: 'STEEL-C245',
   stepHeightMM: '180',
   // Стартовая комплектация витрины — стальной каркас, поэтому толщина
   // косоура берётся из выпуска листа 3–8 мм, а не из деревянных 50.
@@ -342,7 +342,7 @@ export function toRatesRequest(f: RatesForm): Rates | undefined {
   const num = (v: string) => (v.trim() === '' ? undefined : Number(v))
   const out: Rates = {}
   const mats: Record<string, number | undefined> = {
-    'STEEL-S235': num(f.steel),
+    'STEEL-C245': num(f.steel),
     'WOOD-OAK': num(f.wood),
     'WOOD-WALNUT': num(f.walnut),
     'WOOD-ASH': num(f.ash),
@@ -442,7 +442,7 @@ export const materialLimits: Record<
   MaterialCode,
   Partial<Record<keyof ConfigForm, FieldRule>>
 > = {
-  'STEEL-S235': {
+  'STEEL-C245': {
     widthMM: { max: 3000 },
     // 5000, а не 6000: граница изделия S-169 уже ниже прежнего предела
     // конструктора по длине листа.

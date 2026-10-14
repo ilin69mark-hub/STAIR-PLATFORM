@@ -19,7 +19,7 @@ func sealantCfg(riser bool) *engineering.StairConfiguration {
 		StepCount: 15, StepHeight: 180, TreadDepth: 270,
 		StringerThickness: 8, StepThickness: 5, Riser: riser,
 		Clearance: 2000, RailingHeight: 900, ApproachSpace: 1000,
-		Material: "STEEL-S235", TreadMaterial: "STEEL-S235",
+		Material: "STEEL-C245", TreadMaterial: "STEEL-C245",
 		Comb: engineering.CombFrameDefaults(),
 	}
 }

@@ -222,7 +222,7 @@ func TestStringerThicknessNormDependsOnMaterial(t *testing.T) {
 	set := constraint.StandardProfile("standard")
 
 	sheet := validConfig(t)
-	sheet.Material = "STEEL-S235"
+	sheet.Material = "STEEL-C245"
 	sheet.StringerThickness = mustLength(t, 8)
 	if res := Validate(sheet, set); len(res.Issues) != 0 {
 		t.Fatalf("стальной лист 8 мм должен проходить без замечаний, получено %+v", res.Issues)
@@ -237,7 +237,7 @@ func TestStringerThicknessNormDependsOnMaterial(t *testing.T) {
 
 	// Лист 50 мм у стали — как раз то, чего не бывает.
 	thick := validConfig(t)
-	thick.Material = "STEEL-S235"
+	thick.Material = "STEEL-C245"
 	thick.StringerThickness = mustLength(t, 50)
 	res := Validate(thick, set)
 	if len(res.Issues) != 1 || res.Issues[0].Code != constraint.GEO_STRINGER_THICKNESS_SHEET {

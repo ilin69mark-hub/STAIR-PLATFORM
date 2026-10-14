@@ -138,7 +138,7 @@ func c003StoreRates() *engprc.Rates {
 		panic(err)
 	}
 	rs.MarginPercent = margin
-	rs.Material["STEEL-S235"] = domprc.NewMoney(90000) // 900 ₽/кг
+	rs.Material["STEEL-C245"] = domprc.NewMoney(90000) // 900 ₽/кг
 	return &rs
 }
 

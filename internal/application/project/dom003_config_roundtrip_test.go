@@ -28,7 +28,7 @@ func TestDOM003_ConfigRoundTripPreservesNineParams(t *testing.T) {
 	cfg.RailingLanding = engineering.RailingNone
 	cfg.RailingUpper = engineering.RailingRight
 	cfg.Direction = engineering.TurnRight
-	cfg.Material = dommfg.MaterialCode("STEEL-S235")
+	cfg.Material = dommfg.MaterialCode("STEEL-C245")
 
 	e := toConfigEntity("p-1", cfg, stair.Options{ComfortStep: 630})
 
@@ -200,7 +200,7 @@ func fullyPopulatedConfig() stair.Config {
 		LowerStepCount:    7,
 		TurnKind:          engineering.TurnWinder,
 		WinderCount:       3,
-		Material:          dommfg.MaterialCode("STEEL-S235"),
+		Material:          dommfg.MaterialCode("STEEL-C245"),
 		Railing:           engineering.RailingBoth,
 		RailingLower:      engineering.RailingLeft,
 		RailingLanding:    engineering.RailingRight,

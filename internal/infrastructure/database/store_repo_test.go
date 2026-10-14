@@ -82,7 +82,7 @@ func TestStoreMaterialPricesCRUD(t *testing.T) {
 	if err := repo.SetMaterialPrice(ctx, tenant, "WOOD-OAK", 4200, ""); err != nil {
 		t.Fatalf("SetMaterialPrice: %v", err)
 	}
-	if err := repo.SetMaterialPrice(ctx, tenant, "STEEL-S235", 120, ""); err != nil {
+	if err := repo.SetMaterialPrice(ctx, tenant, "STEEL-C245", 120, ""); err != nil {
 		t.Fatalf("SetMaterialPrice: %v", err)
 	}
 	// Upsert: повторная запись меняет цену, а не падает.
@@ -97,8 +97,8 @@ func TestStoreMaterialPricesCRUD(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("ожидались 2 цены, получено %d: %+v", len(got), got)
 	}
-	// Сортировка по коду: STEEL-S235 раньше WOOD-OAK.
-	if got[0].Code != "STEEL-S235" || got[0].PricePerKgRub != 120 {
+	// Сортировка по коду: STEEL-C245 раньше WOOD-OAK.
+	if got[0].Code != "STEEL-C245" || got[0].PricePerKgRub != 120 {
 		t.Fatalf("первая цена искажена: %+v", got[0])
 	}
 	if got[1].Code != "WOOD-OAK" || got[1].PricePerKgRub != 4500 || !got[1].Overridden {
@@ -112,7 +112,7 @@ func TestStoreMaterialPricesCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListMaterialPrices after delete: %v", err)
 	}
-	if len(got) != 1 || got[0].Code != "STEEL-S235" {
+	if len(got) != 1 || got[0].Code != "STEEL-C245" {
 		t.Fatalf("удаление не сработало: %+v", got)
 	}
 }

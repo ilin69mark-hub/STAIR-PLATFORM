@@ -195,7 +195,7 @@ func TestPlateStringerThicknessFor(t *testing.T) {
 // бруса от деревянной модели) — в конвейере их быть не должно.
 func TestNormalizePlateStringerReplacesBeamThickness(t *testing.T) {
 	c := &StairConfiguration{
-		Material:          "STEEL-S235",
+		Material:          "STEEL-C245",
 		Width:             Length(900),
 		StringerThickness: Length(50),
 	}
@@ -237,7 +237,7 @@ func TestNormalizePlateStringerKeepsWoodAndUnsetMaterial(t *testing.T) {
 // чертёжника на кручение), резать её вниз нельзя.
 func TestNormalizePlateStringerNeverShrinksComb(t *testing.T) {
 	c := &StairConfiguration{
-		Material:          "STEEL-S235",
+		Material:          "STEEL-C245",
 		Width:             Length(900),
 		StringerThickness: Length(50),
 		Comb:              &CombFrame{StringerSpine: 420},
@@ -254,7 +254,7 @@ func TestNormalizePlateStringerNeverShrinksComb(t *testing.T) {
 // Без маршей норматив неприменим: длину марша узнать неоткуда, и подставлять
 // толщину по догадке нельзя.
 func TestNormalizePlateStringerNeedsRun(t *testing.T) {
-	c := &StairConfiguration{Material: "STEEL-S235", Width: Length(900), StringerThickness: Length(50)}
+	c := &StairConfiguration{Material: "STEEL-C245", Width: Length(900), StringerThickness: Length(50)}
 	if _, _, changed := NormalizePlateStringer(c, nil); changed {
 		t.Fatal("без длины марша норматив не применяется")
 	}

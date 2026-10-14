@@ -100,7 +100,7 @@ describe('AssistantPanel', () => {
     const body = ask.mock.calls[0][1] as {
       rates?: { material_per_kg_rub?: Record<string, number> }
     }
-    expect(body.rates?.material_per_kg_rub?.['STEEL-S235']).toBe(200)
+    expect(body.rates?.material_per_kg_rub?.['STEEL-C245']).toBe(200)
   })
 
   it('показывает пустое состояние без альтернатив', async () => {

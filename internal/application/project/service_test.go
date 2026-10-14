@@ -518,8 +518,8 @@ func testConfig() stair.Config {
 		// поднимают под свой материал — см. woodTreads/steelTreads.
 		StringerThickness: engineering.Length(8),
 		StepThickness:     engineering.Length(6),
-		Material:          "STEEL-S235",
-		TreadMaterial:     "STEEL-S235",
+		Material:          "STEEL-C245",
+		TreadMaterial:     "STEEL-C245",
 		Clearance:         engineering.Length(80),
 		RailingHeight:     engineering.Length(900),
 	}

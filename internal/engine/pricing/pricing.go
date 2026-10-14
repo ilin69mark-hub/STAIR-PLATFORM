@@ -95,7 +95,7 @@ func DefaultRates() Rates {
 	return Rates{
 		Currency: domprc.CurrencyRUB,
 		Material: map[dommfg.MaterialCode]domprc.Money{
-			"STEEL-S235":  domprc.NewMoney(10000), // 100 ₽/кг
+			"STEEL-C245":  domprc.NewMoney(10000), // 100 ₽/кг
 			"WOOD-OAK":    domprc.NewMoney(8000),  // 80 ₽/кг
 			"WOOD-WALNUT": domprc.NewMoney(22000), // 220 ₽/кг
 			"WOOD-ASH":    domprc.NewMoney(6000),  // 60 ₽/кг

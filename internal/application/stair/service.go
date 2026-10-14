@@ -946,7 +946,7 @@ func manufacturingBlocked(feas *engmfg.FeasibilityError, stringerThick engineeri
 			var err error
 			material, err = engmfg.DefaultMaterialForThickness(stringerThick.Millimeters())
 			if err != nil {
-				material = dommfg.MaterialCode("STEEL-S235")
+				material = dommfg.MaterialCode("STEEL-C245")
 			}
 		}
 		if reg, err := engmfg.DefaultMaterialRegistry(); err == nil {

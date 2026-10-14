@@ -24,7 +24,7 @@ func specPackage() *dommfg.ManufacturingPackage {
 			Numbers: []dommfg.PartNumber{"TRD-01", "TRD-02"},
 		}, {
 			Number: 2, PartNumber: "STR-01", Description: "Косоур",
-			MaterialCode: "STEEL-S235", Thickness: 8, Quantity: 1,
+			MaterialCode: "STEEL-C245", Thickness: 8, Quantity: 1,
 			Length: 2428, Width: 300,
 			Numbers: []dommfg.PartNumber{"STR-01"},
 		}}},

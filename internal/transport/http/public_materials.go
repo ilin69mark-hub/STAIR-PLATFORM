@@ -41,7 +41,7 @@ type materialDTO struct {
 // materialFinishes — финиши по коду материала. Держим рядом с каталогом на
 // бэкенде, чтобы витрина и калькулятор показывали один и тот же список.
 var materialFinishes = map[dommfg.MaterialCode][]string{
-	"STEEL-S235": {"raw", "black", "white"},
+	"STEEL-C245": {"raw", "black", "white"},
 	// Нержавейка AISI 304 — ограждение. Витрина показывает финиш, который
 	// менеджер выбирает для перил: брашированный, зеркальный или матовый.
 	"STAINLESS-304": {"brushed", "mirror", "matte"},

@@ -114,14 +114,14 @@ func TestManufacturingBlocked(t *testing.T) {
 	feas := &engmfg.FeasibilityError{PartLen: 8000, PartWid: 2000, Thickness: 8, FieldLength: 3000, FieldWidth: 1500}
 
 	// Материал задан явно — крупнейший лист находится в каталоге.
-	if vr := manufacturingBlocked(feas, 50, dommfg.MaterialCode("STEEL-S235")); !vr.Blocking || len(vr.Issues) == 0 {
+	if vr := manufacturingBlocked(feas, 50, dommfg.MaterialCode("STEEL-C245")); !vr.Blocking || len(vr.Issues) == 0 {
 		t.Fatal("want blocking issues for explicit material")
 	}
-	// Пустой материал — подбор по толщине (50 мм → STEEL-S235).
+	// Пустой материал — подбор по толщине (50 мм → STEEL-C245).
 	if vr := manufacturingBlocked(feas, 50, ""); !vr.Blocking {
 		t.Fatal("want blocking result for thickness-based material")
 	}
-	// Толщина без поддержки в каталоге — фолбэк STEEL-S235.
+	// Толщина без поддержки в каталоге — фолбэк STEEL-C245.
 	if vr := manufacturingBlocked(feas, 0, ""); !vr.Blocking {
 		t.Fatal("want blocking result for unsupported thickness")
 	}

@@ -263,7 +263,7 @@ func TestCalculateInvalidInput(t *testing.T) {
 // позиции каталога, а не подмена цены, и он остаётся рабочим. Ставку для
 // материала задаёт сервер (DefaultRates либо store_rates).
 func TestSEC001_RateOverrideRejected_NewMaterial(t *testing.T) {
-	codes := []string{"WOOD-WALNUT", "WOOD-ASH", "WOOD-SOFT", "STEEL-S235"}
+	codes := []string{"WOOD-WALNUT", "WOOD-ASH", "WOOD-SOFT", "STEEL-C245"}
 	base := `{
 				"width_mm": 900, "height_mm": 2700, "flight": "straight",
 				"material": "%s",
@@ -274,7 +274,7 @@ func TestSEC001_RateOverrideRejected_NewMaterial(t *testing.T) {
 		// дерево пилится из доски 20–60 мм. Один набор на всех не проходит:
 		// запрос с 40 мм при стали отвергается MFG-MATERIAL.
 		stringerT, stepT := 8, 6
-		if code != "STEEL-S235" {
+		if code != "STEEL-C245" {
 			stringerT, stepT = 50, 40
 		}
 		t.Run(code, func(t *testing.T) {
@@ -327,7 +327,7 @@ func TestSEC001_RateOverrideRejected_AllRates(t *testing.T) {
 		"step_height_mm": 180, "stringer_thickness_mm": 8,
 		"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 1000,
 		"rates": {
-			"material_per_kg_rub": {"STEEL-S235": 200},
+			"material_per_kg_rub": {"STEEL-C245": 200},
 			"machine_per_hour_rub": 8000,
 			"labor_per_hour_rub": 3000,
 			"overhead_percent": 20,
@@ -342,7 +342,7 @@ func TestSEC001_RateOverrideRejected_AllRates(t *testing.T) {
 		"step_height_mm": 180, "stringer_thickness_mm": 8,
 		"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 1000,
 		"rates": {
-			"material_per_kg_rub": {"STEEL-S235": 0.01, "WOOD-OAK": 0.01,
+			"material_per_kg_rub": {"STEEL-C245": 0.01, "WOOD-OAK": 0.01,
 				"WOOD-WALNUT": 0.01, "WOOD-ASH": 0.01, "WOOD-SOFT": 0.01},
 			"machine_per_hour_rub": 0.01, "labor_per_hour_rub": 0.01,
 			"overhead_percent": 0.0001, "margin_percent": 0.0001,

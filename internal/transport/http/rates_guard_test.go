@@ -126,7 +126,7 @@ const sec1Body = `{
 
 // sec1Evil — тот самый payload, который в 2026-09-26 обнулял цену.
 const sec1EvilRates = `,
- "rates":{"material_per_kg_rub":{"STEEL-S235":0.01,"WOOD-OAK":0.01,
+ "rates":{"material_per_kg_rub":{"STEEL-C245":0.01,"WOOD-OAK":0.01,
    "WOOD-WALNUT":0.01,"WOOD-ASH":0.01,"WOOD-SOFT":0.01},
    "machine_per_hour_rub":0.01,"labor_per_hour_rub":0.01,
    "overhead_percent":0.0001,"margin_percent":0.0001,

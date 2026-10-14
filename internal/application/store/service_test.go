@@ -330,7 +330,7 @@ func TestResolveRatesAppliesStore(t *testing.T) {
 	if rub := got.Material["WOOD-OAK"].Major(domprc.CurrencyRUB); rub != 5000 {
 		t.Fatalf("цена материала не применена: %v", rub)
 	}
-	if got.Material["STEEL-S235"] != base.Material["STEEL-S235"] {
+	if got.Material["STEEL-C245"] != base.Material["STEEL-C245"] {
 		t.Fatal("чужая ставка изменилась")
 	}
 }

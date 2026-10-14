@@ -13,7 +13,7 @@ import (
 // физически невозможно для металлокаркаса с деревянными ступенями: стальной
 // косоур 8 мм и проступь из дуба (MinThickness = 20 мм) не помещались в одно
 // значение. Валидация отвергала такую конфигурацию с ошибкой «material
-// STEEL-S235 does not support thickness 40 mm of ступени».
+// STEEL-C245 does not support thickness 40 mm of ступени».
 //
 // Тесты ниже фиксируют именно эту ошибку: если разделение откатят или
 // склеят обратно, они упадут.
@@ -31,7 +31,7 @@ func metalFrameWoodTreadConfig(t *testing.T) Config {
 		RiserThickness:    engineering.Length(8),  // подступенок стальной, тонкий
 		Clearance:         engineering.Length(2000),
 		RailingHeight:     engineering.Length(900),
-		Material:          "STEEL-S235",
+		Material:          "STEEL-C245",
 		TreadMaterial:     "WOOD-OAK",
 	}
 }
@@ -77,14 +77,14 @@ func TestTreadMaterialRouting(t *testing.T) {
 				treadWood++
 			}
 		case "stringer":
-			if p.Material == "STEEL-S235" {
+			if p.Material == "STEEL-C245" {
 				stringerSteel++
 			}
 		case "riser":
 			if p.Material == "WOOD-OAK" {
 				riserWood++
 			}
-			if p.Material == "STEEL-S235" {
+			if p.Material == "STEEL-C245" {
 				riserSteel++
 			}
 		}
@@ -93,18 +93,18 @@ func TestTreadMaterialRouting(t *testing.T) {
 		t.Errorf("ни одна проступь не изготовлена из WOOD-OAK — материал ступеней не применяется")
 	}
 	if stringerSteel == 0 {
-		t.Errorf("ни один косоур не изготовлен из STEEL-S235 — материал каркаса не применяется")
+		t.Errorf("ни один косоур не изготовлен из STEEL-C245 — материал каркаса не применяется")
 	}
 	if riserWood == 0 {
 		t.Errorf("ни один подступенок не изготовлен из WOOD-OAK — подступенок должен идти по материалу ступеней")
 	}
 	if riserSteel != 0 {
-		t.Errorf("%d подступенков изготовлено из STEEL-S235, хотя ступени деревянные: подступенок идёт по материалу ступеней", riserSteel)
+		t.Errorf("%d подступенков изготовлено из STEEL-C245, хотя ступени деревянные: подступенок идёт по материалу ступеней", riserSteel)
 	}
 
 	// Ни одна стальная деталь не должна получить минимальную толщину дуба.
 	for _, p := range res.Package.Parts {
-		if p.Material == "STEEL-S235" && p.Thickness.Millimeters() > 60 {
+		if p.Material == "STEEL-C245" && p.Thickness.Millimeters() > 60 {
 			t.Errorf("стальная деталь %q имеет неправдоподобную толщину %.1f мм",
 				p.Number, p.Thickness.Millimeters())
 		}
@@ -117,7 +117,7 @@ func TestTreadMaterialRouting(t *testing.T) {
 func TestTreadMaterialInheritsFrame(t *testing.T) {
 	svc := NewService()
 	cfg := metalFrameWoodTreadConfig(t)
-	cfg.TreadMaterial = "" // не задан → наследуется STEEL-S235
+	cfg.TreadMaterial = "" // не задан → наследуется STEEL-C245
 	// Толщину ступени тогда тоже надо согласовать с материалом каркаса,
 	// иначе это другая ошибка (не тот сценарий).
 	cfg.StepThickness = engineering.Length(8)
@@ -130,7 +130,7 @@ func TestTreadMaterialInheritsFrame(t *testing.T) {
 		t.Fatal("нет производственного пакета")
 	}
 	for _, p := range res.Package.Parts {
-		if string(p.Kind) == "tread" && p.Material != "STEEL-S235" {
+		if string(p.Kind) == "tread" && p.Material != "STEEL-C245" {
 			t.Errorf("проступь без tread_material должна идти по каркасу, получено %q", p.Material)
 		}
 	}
@@ -220,8 +220,8 @@ func TestRiserFollowsTreadMaterial(t *testing.T) {
 	if err != nil {
 		t.Fatalf("старое riser_thickness_mm=6 не должно отвергаться: %v", err)
 	}
-	if got := riserMaterials(res); got["STEEL-S235"] != 0 {
-		t.Errorf("стальных подступенков %d, хотя ступени деревянные: %v", got["STEEL-S235"], got)
+	if got := riserMaterials(res); got["STEEL-C245"] != 0 {
+		t.Errorf("стальных подступенков %d, хотя ступени деревянные: %v", got["STEEL-C245"], got)
 	}
 	if got := riserMaterials(res); got["WOOD-OAK"] == 0 {
 		t.Errorf("нет деревянных подступенков: %v", got)
@@ -229,14 +229,14 @@ func TestRiserFollowsTreadMaterial(t *testing.T) {
 
 	// Всё стальное: подступенки стальные, толщина ступени.
 	steel := metalFrameWoodTreadConfig(t)
-	steel.TreadMaterial = "STEEL-S235"
+	steel.TreadMaterial = "STEEL-C245"
 	steel.StepThickness = engineering.Length(6)
 	steel.RiserThickness = engineering.Length(0) // 0 → наследует толщину ступени
 	res, err = svc.Calculate(context.Background(), steel, Options{})
 	if err != nil {
 		t.Fatalf("стальная лестница не посчиталась: %v", err)
 	}
-	if got := riserMaterials(res); got["STEEL-S235"] == 0 {
+	if got := riserMaterials(res); got["STEEL-C245"] == 0 {
 		t.Errorf("стальных подступенков нет, хотя всё из стали: %v", got)
 	}
 }

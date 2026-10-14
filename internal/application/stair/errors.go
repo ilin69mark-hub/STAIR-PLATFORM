@@ -162,7 +162,7 @@ func limitGuide(c limitCase) string {
 //
 // Отдельная проверка обязательна, потому что граница материала выглядит
 // ПОЧТИ так же: «stair: width 4000 mm exceeds maximum 3000 mm for material
-// "STEEL-S235"» — тот же префикс и те же слова. Различает суффикс
+// "STEEL-C245"» — тот же префикс и те же слова. Различает суффикс
 // «for material»: предел материала зависит от выбранного материала и
 // должен вернуть код MFG_MATERIAL, а не GEO_WIDTH.
 func isProductLimitError(msg string) bool {

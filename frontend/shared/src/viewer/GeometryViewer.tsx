@@ -70,7 +70,7 @@ interface Props {
   // environmentHDRI — URL студийного HDRI (Poly Haven, CC0) для отражений.
   // Необязателен: при ошибке загрузки остаётся процедурный RoomEnvironment.
   environmentHDRI?: string
-  // materialCode — код материала деталей (WOOD-OAK, STEEL-S235, …) из
+  // materialCode — код материала деталей (WOOD-OAK, STEEL-C245, …) из
   // пользовательского ввода: определяет PBR-набор в 3D (этап 1).
   materialCode?: string
   // treadMaterialCode — материал ступеней отдельно от каркаса. Без него
@@ -289,7 +289,7 @@ export function GeometryViewer({
   direction,
   roomWidth,
   environmentHDRI,
-  materialCode = 'STEEL-S235',
+  materialCode = 'STEEL-C245',
   treadMaterialCode,
   finishId,
   treadFinishId,
@@ -682,7 +682,7 @@ export function GeometryViewer({
     // геометрией: непрозрачный синий MeshStandardMaterial закрывал
     // PBR-меши ровно на тех же треугольниках, и в кадре оставался один
     // синий «схематичный» марш, хотя текстуры и HDRI грузились и
-    // применялись (см. материал STEEL-S235 на скриншоте: грузится 200,
+    // применялись (см. материал STEEL-C245 на скриншоте: грузится 200,
     // на экране — синий).
     // Этап 2: те же диапазоны — карта «треугольник → деталь» для выбора в 3D.
     const partGroups: PartGroup[] = groupsFromRanges(mesh.PartRanges)

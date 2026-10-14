@@ -35,7 +35,7 @@ func DefaultMachineRates() MachineRates {
 		// древесина — по мягкости: орех и ясень режутся чуть медленнее дуба,
 		// сосна — быстрее. Этап 1 добавил эти коды в каталог материалов.
 		CutSpeed: map[dommfg.MaterialCode]float64{
-			"STEEL-S235":  2000,
+			"STEEL-C245":  2000,
 			"WOOD-OAK":    10000,
 			"WOOD-WALNUT": 8500,
 			"WOOD-ASH":    9500,
@@ -45,7 +45,7 @@ func DefaultMachineRates() MachineRates {
 		// примерно 350 мм/мин, по сосне — вдвое быстрее (мягче режет, меньше
 		// нагрузка на кромку).
 		MillFeed: map[dommfg.MaterialCode]float64{
-			"STEEL-S235":  0, // фасок по металлу нет: операция не планируется
+			"STEEL-C245":  0, // фасок по металлу нет: операция не планируется
 			"WOOD-OAK":    350,
 			"WOOD-WALNUT": 300,
 			"WOOD-ASH":    400,
@@ -76,7 +76,7 @@ func (r MachineRates) Validate() error {
 		if math.IsNaN(feed) || math.IsInf(feed, 0) || feed < 0 {
 			return fmt.Errorf("manufacturing: machine rates have invalid mill feed for %q", code)
 		}
-		if feed == 0 && r.CutSpeed[code] > 0 && code != "STEEL-S235" {
+		if feed == 0 && r.CutSpeed[code] > 0 && code != "STEEL-C245" {
 			return fmt.Errorf("manufacturing: mill feed for %q must be positive", code)
 		}
 	}

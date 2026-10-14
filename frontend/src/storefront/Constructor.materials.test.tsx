@@ -16,7 +16,7 @@ describe('ассортимент калькулятора', () => {
     render(<Constructor />)
     fireEvent.click(screen.getByText('Цвет и материал'))
 
-    expect(screen.getByText('Сталь S235')).toBeTruthy()
+    expect(screen.getByText('Сталь С245')).toBeTruthy()
   })
 
   it('кнопки материала каркаса не появляются ни в одной роли', () => {
@@ -24,7 +24,7 @@ describe('ассортимент калькулятора', () => {
     render(<Constructor />)
     fireEvent.click(screen.getByText('Цвет и материал'))
 
-    expect(frameButtons()).not.toContain('Сталь S235')
+    expect(frameButtons()).not.toContain('Сталь С245')
   })
 
   it('у деревянных лестниц породы остаются, это другая ось выбора', () => {

@@ -300,8 +300,8 @@ func mfgResult(util, waste float64) *stair.Result {
 		},
 		Package: &dommfg.ManufacturingPackage{
 			Parts: []dommfg.Part{
-				{Number: "P-01", Material: "STEEL-S235"},
-				{Number: "P-02", Material: "STEEL-S235"},
+				{Number: "P-01", Material: "STEEL-C245"},
+				{Number: "P-02", Material: "STEEL-C245"},
 			},
 			BOM:     dommfg.BOM{Lines: []dommfg.BOMLine{{Number: 1}}},
 			CutList: dommfg.CutList{Items: []dommfg.CutItem{{PartNumber: "P-01"}}},

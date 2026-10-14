@@ -342,7 +342,7 @@ export interface CreateProjectRequest {
 
 export interface Rates {
   material_per_kg_rub?: {
-    'STEEL-S235'?: number
+    'STEEL-C245'?: number
     'WOOD-OAK'?: number
     'WOOD-WALNUT'?: number
     'WOOD-ASH'?: number

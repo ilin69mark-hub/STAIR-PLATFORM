@@ -24,7 +24,7 @@ func cuttingFixture() []cuttingPart {
 	field := circlePoints2D(5, 24, 200, 60)
 	return []cuttingPart{{
 		Number:   "HLT-01",
-		Material: "STEEL-S235",
+		Material: "STEEL-C245",
 		Outer: []kerngeo.Point2D{
 			{X: 0, Y: 0}, {X: 260, Y: 0}, {X: 260, Y: 50}, {X: 0, Y: 50},
 		},
@@ -180,7 +180,7 @@ func cuttingPackage(t *testing.T) *dommfg.ManufacturingPackage {
 	}
 	item := dommfg.CutItem{
 		PartNumber:   "HLT-01",
-		MaterialCode: "STEEL-S235",
+		MaterialCode: "STEEL-C245",
 		Length:       260,
 		Width:        50,
 		Quantity:     1,
@@ -192,7 +192,7 @@ func cuttingPackage(t *testing.T) *dommfg.ManufacturingPackage {
 	return &dommfg.ManufacturingPackage{
 		CutList: dommfg.CutList{Items: []dommfg.CutItem{item}},
 		Nesting: &dommfg.NestingResult{Sheets: []dommfg.SheetLayout{{
-			MaterialCode: "STEEL-S235",
+			MaterialCode: "STEEL-C245",
 			Length:       3000,
 			Width:        1500,
 			Placed: []dommfg.PlacedPart{{

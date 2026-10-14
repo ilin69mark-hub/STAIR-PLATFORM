@@ -28,8 +28,8 @@ func testDataset(t *testing.T) *dommfg.ManufacturingCostDataset {
 	// стали (диапазон 2–60), и тесты молча проверяли стальной марш на
 	// конфигурации без материала. С выходом стали на выпуск 3–8 мм такой
 	// вывод стал давать дуб, и тесты проверяли бы не то.
-	cfg.Material = "STEEL-S235"
-	cfg.TreadMaterial = "STEEL-S235"
+	cfg.Material = "STEEL-C245"
+	cfg.TreadMaterial = "STEEL-C245"
 	cfg.StepThickness = mustLength(t, 40)
 	// Ограждение задано явно (сторона и высота). Спецификация читает их
 	// наравне с геометрией: неназванная сторона означает «перил нет», и
@@ -173,7 +173,7 @@ func TestPriceErrors(t *testing.T) {
 
 	// материал без цены в ставках.
 	rates := DefaultRates()
-	delete(rates.Material, "STEEL-S235")
+	delete(rates.Material, "STEEL-C245")
 	if _, err := Price(ds, rates); err == nil {
 		t.Fatal("material without price must be rejected")
 	}

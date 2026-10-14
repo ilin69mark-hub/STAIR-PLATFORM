@@ -34,8 +34,8 @@ const steelTestWidthMM = 900.0
 
 func steelPlateConfig(height, thick float64) Config {
 	cfg := referenceConfig()
-	cfg.Material = "STEEL-S235"
-	cfg.TreadMaterial = "STEEL-S235"
+	cfg.Material = "STEEL-C245"
+	cfg.TreadMaterial = "STEEL-C245"
 	cfg.Height = engineering.Length(height)
 	cfg.Width = engineering.Length(steelTestWidthMM)
 	cfg.StringerThickness = engineering.Length(thick)

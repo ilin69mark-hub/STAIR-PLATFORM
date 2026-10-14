@@ -38,8 +38,8 @@ func referenceConfig() Config {
 		// подходили стали (2–60), и эталон молча проверял сталь на конфигурации
 		// без материала. С выходом стали на выпуск 3–8 мм такой вывод стал
 		// давать дуб, и эталон проверял уже не то изделие.
-		Material:      "STEEL-S235",
-		TreadMaterial: "STEEL-S235",
+		Material:      "STEEL-C245",
+		TreadMaterial: "STEEL-C245",
 		Riser:         true,
 		Clearance:     mustLengthHelper(2500),
 		RailingHeight: mustLengthHelper(1000),
@@ -53,7 +53,7 @@ func referenceConfig() Config {
 // customRates — ставки пользователя (переопределение дефолтов).
 func customRates() *engprc.Rates {
 	r := engprc.DefaultRates()
-	r.Material[dommfg.MaterialCode("STEEL-S235")] = domprc.NewMoney(20000) // 200 ₽/кг
+	r.Material[dommfg.MaterialCode("STEEL-C245")] = domprc.NewMoney(20000) // 200 ₽/кг
 	return &r
 }
 
@@ -301,7 +301,7 @@ func TestCalculateExceedsMaterialMaxHeight(t *testing.T) {
 func TestCalculateExceedsMaterialMaxWidth(t *testing.T) {
 	s := NewService()
 	cfg := referenceConfig()
-	cfg.Material = dommfg.MaterialCode("STEEL-S235")
+	cfg.Material = dommfg.MaterialCode("STEEL-C245")
 	cfg.Width = mustLengthHelper(4000)
 	res, err := s.Calculate(context.Background(), cfg, Options{})
 	if err != nil {
@@ -384,7 +384,7 @@ func TestCalculateInvalidRailingConfig(t *testing.T) {
 func TestCalculateWithinMaterialLimits(t *testing.T) {
 	s := NewService()
 	limits := map[dommfg.MaterialCode]struct{ height, width int }{
-		"STEEL-S235": {5000, 3000}, // граница изделия S-169 (было 6000)
+		"STEEL-C245": {5000, 3000}, // граница изделия S-169 (было 6000)
 		"WOOD-OAK":   {4550, 3000},
 		"WOOD-SOFT":  {4550, 3000},
 	}
@@ -393,7 +393,7 @@ func TestCalculateWithinMaterialLimits(t *testing.T) {
 		cfgH.Material = code
 		cfgH.TreadMaterial = code
 		// Доска для дерева, лист для стали: эталонные 8 мм дуб не принимает.
-		if code != "STEEL-S235" {
+		if code != "STEEL-C245" {
 			cfgH.StringerThickness = mustLengthHelper(50)
 			cfgH.StepThickness = mustLengthHelper(40)
 		}
@@ -411,7 +411,7 @@ func TestCalculateWithinMaterialLimits(t *testing.T) {
 		cfgW.Material = code
 		cfgW.TreadMaterial = code
 		// Доска для дерева, лист для стали: эталонные 8 мм дуб не принимает.
-		if code != "STEEL-S235" {
+		if code != "STEEL-C245" {
 			cfgW.StringerThickness = mustLengthHelper(50)
 			cfgW.StepThickness = mustLengthHelper(40)
 		}
@@ -667,7 +667,7 @@ func TestCalculateCancelled(t *testing.T) {
 
 func TestCalculateMaterialSelection(t *testing.T) {
 	s := NewService()
-	materials := []dommfg.MaterialCode{"STEEL-S235", "WOOD-OAK", "WOOD-SOFT"}
+	materials := []dommfg.MaterialCode{"STEEL-C245", "WOOD-OAK", "WOOD-SOFT"}
 	// Толщина косоура зависит от материала каркаса: сталь 3–8, дерево
 	// 20–100. Один эталон на всех не годится.
 	prices := make(map[dommfg.MaterialCode]int64)
@@ -676,7 +676,7 @@ func TestCalculateMaterialSelection(t *testing.T) {
 		cfg.Material = m
 		cfg.TreadMaterial = m
 		// Доска для дерева, лист для стали: 8 мм дуб не принимает.
-		if m != "STEEL-S235" {
+		if m != "STEEL-C245" {
 			cfg.StringerThickness = mustLengthHelper(50)
 			cfg.StepThickness = mustLengthHelper(40)
 		}
@@ -717,7 +717,7 @@ func TestCalculateMaterialSelection(t *testing.T) {
 			t.Fatalf("%s: nesting missing", m)
 		}
 	}
-	if prices["STEEL-S235"] == prices["WOOD-SOFT"] || prices["STEEL-S235"] == prices["WOOD-OAK"] {
+	if prices["STEEL-C245"] == prices["WOOD-SOFT"] || prices["STEEL-C245"] == prices["WOOD-OAK"] {
 		t.Fatalf("prices must differ across materials, got %v", prices)
 	}
 }

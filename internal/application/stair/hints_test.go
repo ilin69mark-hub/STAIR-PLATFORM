@@ -83,7 +83,7 @@ func TestStringerNormHintWideFlight(t *testing.T) {
 // TestStringerNormHintPlateFrame — листовой каркас: подсказка собирается из
 // таблицы листа (2026-10-06), а не из деревянной.
 func TestStringerNormHintPlateFrame(t *testing.T) {
-	hint := hintFor(t, "STEEL-S235", 900, 2700)
+	hint := hintFor(t, "STEEL-C245", 900, 2700)
 	if hint == "" {
 		t.Fatal("подсказка пуста для листового каркаса")
 	}

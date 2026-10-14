@@ -31,7 +31,7 @@ func testCfg() *engineering.StairConfiguration {
 		StringerThickness: 8, StepThickness: 5, Riser: true,
 		Clearance: 2000, RailingHeight: 900, ApproachSpace: 1000,
 		Railing:  engineering.RailingLeft,
-		Material: "STEEL-S235", TreadMaterial: "STEEL-S235",
+		Material: "STEEL-C245", TreadMaterial: "STEEL-C245",
 		Comb: engineering.CombFrameDefaults(),
 	}
 }

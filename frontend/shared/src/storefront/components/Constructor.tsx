@@ -53,13 +53,13 @@ const PRODUCTS: ProductTab[] = [
 // Список здесь, а не в config.materialOptions, потому что тот общий:
 // админка и showcase должны видеть все материалы, которые мы в состоянии
 // изготовить.
-const METAL_MATERIALS = ['STEEL-S235'] as const
+const METAL_MATERIALS = ['STEEL-C245'] as const
 const WOOD_MATERIALS = ['WOOD-OAK', 'WOOD-WALNUT', 'WOOD-ASH', 'WOOD-SOFT'] as const
 
 // Стартовый материал изделия. Металлокаркас — стальной каркас с дубовыми
 // ступенями (самая частая комплектация), деревянная лестница — дуб целиком.
 const PRODUCT_DEFAULT: Record<string, { frame: string; tread: string }> = {
-  metal: { frame: 'STEEL-S235', tread: 'WOOD-OAK' },
+  metal: { frame: 'STEEL-C245', tread: 'WOOD-OAK' },
   wood: { frame: 'WOOD-OAK', tread: 'WOOD-OAK' },
 }
 
@@ -1275,7 +1275,7 @@ export function Constructor() {
                 { value: 'wood', label: 'Дерево' },
                 { value: 'metal', label: 'Металл' },
               ]}
-              onChange={(v) => setTreadMaterial(v === 'wood' ? 'WOOD-OAK' : 'STEEL-S235')}
+              onChange={(v) => setTreadMaterial(v === 'wood' ? 'WOOD-OAK' : 'STEEL-C245')}
             />
           )}
 

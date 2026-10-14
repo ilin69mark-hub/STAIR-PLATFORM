@@ -296,7 +296,7 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 }
 
 // Лазерный раскрой металла: диапазон толщины листа 3–12 мм, тот же, что в
-// каталоге STEEL-S235 (MinThickness 3, MaxThickness engineering.PlateMaxThicknessMM).
+// каталоге STEEL-C245 (MinThickness 3, MaxThickness engineering.PlateMaxThicknessMM).
 //
 // Верхняя граница именно 12 мм, а не 8: норматив на листовой косоур
 // (решение владельца 2026-10-05) содержит строки 8 / 10 / 12 мм, и заготовка

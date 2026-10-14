@@ -1221,7 +1221,7 @@ interface RatesFormProps {
 }
 
 const rateFields: Array<{ key: keyof RatesForm; label: string; placeholder: string }> = [
-  { key: 'steel', label: 'Сталь STEEL-S235, ₽/кг', placeholder: 'дефолт' },
+  { key: 'steel', label: 'Сталь STEEL-C245, ₽/кг', placeholder: 'дефолт' },
   { key: 'wood', label: 'Дуб WOOD-OAK, ₽/кг', placeholder: 'дефолт' },
   { key: 'walnut', label: 'Орех WOOD-WALNUT, ₽/кг', placeholder: 'дефолт' },
   { key: 'ash', label: 'Ясень WOOD-ASH, ₽/кг', placeholder: 'дефолт' },

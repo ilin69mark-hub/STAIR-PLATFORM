@@ -80,7 +80,7 @@ describe('ProjectDetail', () => {
     const [id, body] = calculate.mock.calls[0]
     expect(id).toBe('p1')
     expect((body as Record<string, unknown>).width_mm).toBe(900)
-    expect((body as Record<string, unknown>).material).toBe('STEEL-S235')
+    expect((body as Record<string, unknown>).material).toBe('STEEL-C245')
     expect((body as Record<string, unknown>).rates).toBeUndefined()
   })
 
@@ -91,7 +91,7 @@ describe('ProjectDetail', () => {
 
     await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
     const select = screen.getByLabelText('Материал') as HTMLSelectElement
-    expect(select.value).toBe('STEEL-S235')
+    expect(select.value).toBe('STEEL-C245')
     fireEvent.change(select, { target: { value: 'WOOD-OAK' } })
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
     await screen.findByText(/Расчёт сохранён/)
@@ -111,7 +111,7 @@ describe('ProjectDetail', () => {
     await screen.findByText(/Расчёт сохранён/)
 
     const body = calculate.mock.calls[0][1] as { rates?: { material_per_kg_rub?: Record<string, number> } }
-    expect(body.rates?.material_per_kg_rub?.['STEEL-S235']).toBe(200)
+    expect(body.rates?.material_per_kg_rub?.['STEEL-C245']).toBe(200)
   })
 
   it('показывает ошибку при неудачном расчёте', async () => {

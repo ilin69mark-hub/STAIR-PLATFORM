@@ -185,7 +185,7 @@ func TestARCH001_RoundTripCoversEveryMappedField(t *testing.T) {
 		"RailingLanding":    {ents.RailingLanding, "right"},
 		"RailingUpper":      {ents.RailingUpper, "none"},
 		"Direction":         {ents.Direction, "left"},
-		"Material":          {ents.MaterialCode, "STEEL-S235"},
+		"Material":          {ents.MaterialCode, "STEEL-C245"},
 	}
 	for name, chk := range checks {
 		if chk.got != chk.want {
@@ -207,7 +207,7 @@ func TestARCH001_RoundTripCoversEveryMappedField(t *testing.T) {
 	if back.TurnKind != "winder" || back.WinderCount != 3 {
 		t.Errorf("winder потерян: TurnKind=%q WinderCount=%d", back.TurnKind, back.WinderCount)
 	}
-	if back.Material != "STEEL-S235" {
+	if back.Material != "STEEL-C245" {
 		t.Errorf("Material потерян: %q", back.Material)
 	}
 	if back.RailingLanding != "right" || back.RailingUpper != "none" {

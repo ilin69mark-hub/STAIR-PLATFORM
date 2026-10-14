@@ -12,7 +12,7 @@ import (
 // seedGoldenConfig — 6-ступенчатый сид для золотого гейта S-204:
 // те же номиналы, что seedConfig() в пакете geometry
 // (900×1080, 6×180×270, косоур 8, проступь 40 с филёнкой R10,
-// подступенки, перила 900 слева, STEEL-S235 + WOOD-OAK).
+// подступенки, перила 900 слева, STEEL-C245 + WOOD-OAK).
 func seedGoldenConfig(t *testing.T) *engineering.StairConfiguration {
 	t.Helper()
 	cfg, err := engineering.NewStairConfiguration(
@@ -25,7 +25,7 @@ func seedGoldenConfig(t *testing.T) *engineering.StairConfiguration {
 	cfg.TreadDepth = mustLength(t, 270)
 	cfg.StringerThickness = mustLength(t, 8)
 	cfg.StepThickness = mustLength(t, 40)
-	cfg.Material = "STEEL-S235"
+	cfg.Material = "STEEL-C245"
 	cfg.TreadMaterial = "WOOD-OAK"
 	cfg.TreadNoseRadiusMM = mustLength(t, 10)
 	cfg.Riser = true
@@ -113,8 +113,8 @@ const (
 	seedGoldenTris   = 14152
 )
 
-const seedGoldenPackage = `STR-01|stringer|STEEL-S235|8.0|1924.8x300.0|косоур А|false
-STR-02|stringer|STEEL-S235|8.0|1924.8x300.0|косоур Б|false
+const seedGoldenPackage = `STR-01|stringer|STEEL-C245|8.0|1924.8x300.0|косоур А|false
+STR-02|stringer|STEEL-C245|8.0|1924.8x300.0|косоур Б|false
 TRD-01|tread|WOOD-OAK|40.0|900.0x290.0|ступень 1|false
 TRD-02|tread|WOOD-OAK|40.0|900.0x290.0|ступень 2|false
 TRD-03|tread|WOOD-OAK|40.0|900.0x290.0|ступень 3|false
@@ -127,34 +127,34 @@ RSR-03|riser|WOOD-OAK|40.0|900.0x180.0|ступень 3|false
 RSR-04|riser|WOOD-OAK|40.0|900.0x180.0|ступень 4|false
 RSR-05|riser|WOOD-OAK|40.0|900.0x180.0|ступень 5|false
 RSR-06|riser|WOOD-OAK|40.0|900.0x180.0|ступень 6|false
-HLT-01|heel|STEEL-S235|4.0|260.0x50.0|ступень 1, сторона А|false
-HLT-02|heel|STEEL-S235|4.0|260.0x50.0|ступень 2, сторона А|false
-HLT-03|heel|STEEL-S235|4.0|260.0x50.0|ступень 3, сторона А|false
-HLT-04|heel|STEEL-S235|4.0|260.0x50.0|ступень 4, сторона А|false
-HLT-05|heel|STEEL-S235|4.0|260.0x50.0|ступень 5, сторона А|false
-HLT-06|heel|STEEL-S235|4.0|260.0x50.0|ступень 6, сторона А|false
-WEB-01|web|STEEL-S235|4.0|166.0x50.0|ступень 2|false
-WEB-02|web|STEEL-S235|4.0|166.0x50.0|ступень 3|false
-WEB-03|web|STEEL-S235|4.0|166.0x50.0|ступень 4|false
-WEB-04|web|STEEL-S235|4.0|166.0x50.0|ступень 5|false
-WEB-05|web|STEEL-S235|4.0|166.0x50.0|ступень 6|false
-ANC-01|anchor|STEEL-S235|4.0|270.0x50.0|пол, сторона А|false
-ANC-02|anchor|STEEL-S235|4.0|166.0x50.0|перекрытие, сторона А|false
-FPW-01|first_web|STEEL-S235|4.0|122.0x40.0|ступень 1, сторона А|false
-HLT-07|heel|STEEL-S235|4.0|260.0x50.0|ступень 1, сторона Б|false
-HLT-08|heel|STEEL-S235|4.0|260.0x50.0|ступень 2, сторона Б|false
-HLT-09|heel|STEEL-S235|4.0|260.0x50.0|ступень 3, сторона Б|false
-HLT-10|heel|STEEL-S235|4.0|260.0x50.0|ступень 4, сторона Б|false
-HLT-11|heel|STEEL-S235|4.0|260.0x50.0|ступень 5, сторона Б|false
-HLT-12|heel|STEEL-S235|4.0|260.0x50.0|ступень 6, сторона Б|false
-WEB-06|web|STEEL-S235|4.0|166.0x50.0|ступень 2|false
-WEB-07|web|STEEL-S235|4.0|166.0x50.0|ступень 3|false
-WEB-08|web|STEEL-S235|4.0|166.0x50.0|ступень 4|false
-WEB-09|web|STEEL-S235|4.0|166.0x50.0|ступень 5|false
-WEB-10|web|STEEL-S235|4.0|166.0x50.0|ступень 6|false
-ANC-03|anchor|STEEL-S235|4.0|270.0x50.0|пол, сторона Б|false
-ANC-04|anchor|STEEL-S235|4.0|166.0x50.0|перекрытие, сторона Б|false
-FPW-02|first_web|STEEL-S235|4.0|122.0x40.0|ступень 1, сторона Б|false
+HLT-01|heel|STEEL-C245|4.0|260.0x50.0|ступень 1, сторона А|false
+HLT-02|heel|STEEL-C245|4.0|260.0x50.0|ступень 2, сторона А|false
+HLT-03|heel|STEEL-C245|4.0|260.0x50.0|ступень 3, сторона А|false
+HLT-04|heel|STEEL-C245|4.0|260.0x50.0|ступень 4, сторона А|false
+HLT-05|heel|STEEL-C245|4.0|260.0x50.0|ступень 5, сторона А|false
+HLT-06|heel|STEEL-C245|4.0|260.0x50.0|ступень 6, сторона А|false
+WEB-01|web|STEEL-C245|4.0|166.0x50.0|ступень 2|false
+WEB-02|web|STEEL-C245|4.0|166.0x50.0|ступень 3|false
+WEB-03|web|STEEL-C245|4.0|166.0x50.0|ступень 4|false
+WEB-04|web|STEEL-C245|4.0|166.0x50.0|ступень 5|false
+WEB-05|web|STEEL-C245|4.0|166.0x50.0|ступень 6|false
+ANC-01|anchor|STEEL-C245|4.0|270.0x50.0|пол, сторона А|false
+ANC-02|anchor|STEEL-C245|4.0|166.0x50.0|перекрытие, сторона А|false
+FPW-01|first_web|STEEL-C245|4.0|122.0x40.0|ступень 1, сторона А|false
+HLT-07|heel|STEEL-C245|4.0|260.0x50.0|ступень 1, сторона Б|false
+HLT-08|heel|STEEL-C245|4.0|260.0x50.0|ступень 2, сторона Б|false
+HLT-09|heel|STEEL-C245|4.0|260.0x50.0|ступень 3, сторона Б|false
+HLT-10|heel|STEEL-C245|4.0|260.0x50.0|ступень 4, сторона Б|false
+HLT-11|heel|STEEL-C245|4.0|260.0x50.0|ступень 5, сторона Б|false
+HLT-12|heel|STEEL-C245|4.0|260.0x50.0|ступень 6, сторона Б|false
+WEB-06|web|STEEL-C245|4.0|166.0x50.0|ступень 2|false
+WEB-07|web|STEEL-C245|4.0|166.0x50.0|ступень 3|false
+WEB-08|web|STEEL-C245|4.0|166.0x50.0|ступень 4|false
+WEB-09|web|STEEL-C245|4.0|166.0x50.0|ступень 5|false
+WEB-10|web|STEEL-C245|4.0|166.0x50.0|ступень 6|false
+ANC-03|anchor|STEEL-C245|4.0|270.0x50.0|пол, сторона Б|false
+ANC-04|anchor|STEEL-C245|4.0|166.0x50.0|перекрытие, сторона Б|false
+FPW-02|first_web|STEEL-C245|4.0|122.0x40.0|ступень 1, сторона Б|false
 RAL-43|rail_top|STAINLESS-304|1.5|1947.0x42.4|поручень, сторона А|true
 PST-44|post|STAINLESS-304|1.5|805.7x42.4|стойка 1, сторона А|true
 PST-45|post|STAINLESS-304|1.5|805.7x42.4|стойка 2, сторона А|true
@@ -171,16 +171,16 @@ DEC-55|deco|STAINLESS-304|17.0|88.0x88.0|накладка, стойка 2, ст�
 ENC-56|end_cap|PLASTIC|1.0|39.2x39.2|торец поручня (начало), сторона А|true
 ENC-57|end_cap|PLASTIC|1.0|39.2x39.2|торец поручня (конец), сторона А|true
 ---
-1|STR-01|Stringer|STEEL-S235|2|1924.8x300.0
+1|STR-01|Stringer|STEEL-C245|2|1924.8x300.0
 2|TRD-01|Tread|WOOD-OAK|5|900.0x290.0
 3|TRD-06|Tread|WOOD-OAK|1|900.0x330.0
 4|RSR-01|Riser|WOOD-OAK|1|900.0x140.0
 5|RSR-02|Riser|WOOD-OAK|5|900.0x180.0
-6|HLT-01|Heel (seat bracket)|STEEL-S235|12|260.0x50.0
-7|WEB-01|Web (tooth bracket)|STEEL-S235|10|166.0x50.0
-8|ANC-01|Anchor (floor/landing bracket)|STEEL-S235|2|270.0x50.0
-9|ANC-02|Anchor (floor/landing bracket)|STEEL-S235|2|166.0x50.0
-10|FPW-01|First-step plate|STEEL-S235|2|122.0x40.0
+6|HLT-01|Heel (seat bracket)|STEEL-C245|12|260.0x50.0
+7|WEB-01|Web (tooth bracket)|STEEL-C245|10|166.0x50.0
+8|ANC-01|Anchor (floor/landing bracket)|STEEL-C245|2|270.0x50.0
+9|ANC-02|Anchor (floor/landing bracket)|STEEL-C245|2|166.0x50.0
+10|FPW-01|First-step plate|STEEL-C245|2|122.0x40.0
 11|RAL-43|Перила (поручень)|STAINLESS-304|1|1947.0x42.4
 12|PST-44|Стойка опоры|STAINLESS-304|2|805.7x42.4
 13|RGL-46|Ригель|STAINLESS-304|2|1622.5x12.0

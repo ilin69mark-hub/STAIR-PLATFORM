@@ -141,7 +141,7 @@ describe('validateForm', () => {
   it('толщина ступени ограничена материалом СТУПЕНЕЙ, а не каркаса', () => {
     const steelFrameWoodTread = {
       ...defaultConfig,
-      material: 'STEEL-S235' as const,
+      material: 'STEEL-C245' as const,
       treadMaterial: 'WOOD-OAK',
       stepThicknessMM: '40',
     }
@@ -163,11 +163,11 @@ describe('validateForm', () => {
     // PartRiser из cfg.TreadMaterial), поэтому его толщина обязана быть
     // допустимой для дуба, то есть 40 мм, а не 6 мм стали.
     const base = { ...defaultConfig, stepThicknessMM: '40' }
-    const mixed = { ...base, material: 'STEEL-S235' as const, treadMaterial: 'WOOD-OAK' }
+    const mixed = { ...base, material: 'STEEL-C245' as const, treadMaterial: 'WOOD-OAK' }
     expect(toRequest(mixed).riser_thickness_mm).toBe(40)
 
     // Металлические ступени: подступенок стальной, толщина ступени та же.
-    const allSteel = { ...base, material: 'STEEL-S235' as const, treadMaterial: 'STEEL-S235', stepThicknessMM: '6' }
+    const allSteel = { ...base, material: 'STEEL-C245' as const, treadMaterial: 'STEEL-C245', stepThicknessMM: '6' }
     expect(toRequest(allSteel).riser_thickness_mm).toBe(6)
 
     // Деревянная лестница: подступенок и проступь из одного материала.
@@ -178,7 +178,7 @@ describe('validateForm', () => {
   it('toRequest отправляет tread_material только когда он отличается', () => {
     const base = { ...defaultConfig, stepThicknessMM: '40' }
     expect(toRequest({ ...base, treadMaterial: '' })).not.toHaveProperty('tread_material')
-    expect(toRequest({ ...base, treadMaterial: 'STEEL-S235' })).not.toHaveProperty('tread_material')
+    expect(toRequest({ ...base, treadMaterial: 'STEEL-C245' })).not.toHaveProperty('tread_material')
     expect(toRequest({ ...base, treadMaterial: 'WOOD-OAK' }).tread_material).toBe('WOOD-OAK')
   })
 
@@ -253,19 +253,19 @@ describe('validateForm', () => {
 
 describe('rulesFor', () => {
   it('базовая норма без материал-зависимых переопределений', () => {
-    expect(rulesFor('stepHeightMM', 'STEEL-S235')).toEqual({ min: 150, max: 200 })
+    expect(rulesFor('stepHeightMM', 'STEEL-C245')).toEqual({ min: 150, max: 200 })
     expect(rulesFor('clearanceMM', 'WOOD-OAK').min).toBe(0)
   })
 
   it('толщина ступени и высота берутся из предела материала', () => {
-    expect(rulesFor('stepThicknessMM', 'STEEL-S235')).toEqual({ min: 3, max: 8 })
+    expect(rulesFor('stepThicknessMM', 'STEEL-C245')).toEqual({ min: 3, max: 8 })
     // Предел СТУПЕНИ 40 мм отдельно от общего минимума детали 20 мм:
     // косоур той же породы остаётся от 20 мм.
     expect(rulesFor('stepThicknessMM', 'WOOD-OAK')).toEqual({ min: 40, max: 60 })
     // Косоур из дуба остаётся от 30 мм (базовый норматив пиломатериала):
     // правило 40 мм подняло ТОЛЬКО ступень.
     expect(rulesFor('stringerThicknessMM', 'WOOD-OAK').min).toBe(30)
-    expect(rulesFor('heightMM', 'STEEL-S235').max).toBe(5000)
+    expect(rulesFor('heightMM', 'STEEL-C245').max).toBe(5000)
     expect(rulesFor('heightMM', 'WOOD-OAK').max).toBe(4550)
     // Удалённые из каталога коды не должны попадать в пределы: правила
     // приходят из materialLimits, и код вне каталога обязан давать пусто.
@@ -373,7 +373,7 @@ describe('toRequest', () => {
   })
 
   it('включает выбранный материал', () => {
-    expect(toRequest(defaultConfig).material).toBe('STEEL-S235')
+    expect(toRequest(defaultConfig).material).toBe('STEEL-C245')
     const rw = toRequest({ ...defaultConfig, material: 'WOOD-OAK' })
     expect(rw.material).toBe('WOOD-OAK')
   })
@@ -425,7 +425,7 @@ describe('toRatesRequest', () => {
   it('включает только заполненные ставки', () => {
     const r = toRatesRequest({ ...defaultRates, steel: '200', overheadPct: '12.5' })
     expect(r).toEqual({
-      material_per_kg_rub: { 'STEEL-S235': 200 },
+      material_per_kg_rub: { 'STEEL-C245': 200 },
       overhead_percent: 12.5,
     })
   })
@@ -484,7 +484,7 @@ describe('норматив на деревянный косоур-балку', (
     expect(validateForm(wood({ stringerThicknessMM: '101' })).stringerThicknessMM).toBe('Не более 100')
     // Стальной каркас: норматив для балки не применяется вовсе.
     expect(
-      validateForm(wood({ material: 'STEEL-S235', stringerThicknessMM: '8' })).stringerThicknessMM,
+      validateForm(wood({ material: 'STEEL-C245', stringerThicknessMM: '8' })).stringerThicknessMM,
     ).toBeUndefined()
   })
 
@@ -501,8 +501,8 @@ describe('норматив на деревянный косоур-балку', (
 describe('норматив на листовой (сварный) косоур', () => {
   const steel = (over: Partial<ConfigForm> = {}): ConfigForm => ({
     ...defaultConfig,
-    material: 'STEEL-S235',
-    treadMaterial: 'STEEL-S235',
+    material: 'STEEL-C245',
+    treadMaterial: 'STEEL-C245',
     heightMM: '2700',
     stepHeightMM: '180',
     widthMM: '900',
@@ -520,7 +520,7 @@ describe('норматив на листовой (сварный) косоур',
   it('у стали поле толщины косоура скрыто, у дерева остаётся выбор', () => {
     // Скрытие задано в форме (Constructor.visible): у листового каркаса
     // толщина не входной параметр, у балки из пиломатериала — выбор.
-    expect(isPlateFrame('STEEL-S235')).toBe(true)
+    expect(isPlateFrame('STEEL-C245')).toBe(true)
     expect(isPlateFrame('WOOD-OAK')).toBe(false)
     expect(isPlateFrame('METAL-AISI304')).toBe(true)
   })
@@ -535,8 +535,8 @@ describe('норматив на листовой (сварный) косоур',
 // к 5 мм, и расчёт показал бы одно, а 3D — другое.
 describe('толщина металлической ступени', () => {
   it('сталь: фиксированные 5 мм', () => {
-    expect(fixedTreadThicknessMM('STEEL-S235')).toBe(5)
-    expect(materialThicknessMM('STEEL-S235')).toBe(5)
+    expect(fixedTreadThicknessMM('STEEL-C245')).toBe(5)
+    expect(materialThicknessMM('STEEL-C245')).toBe(5)
   })
 
   it('дерево: толщина выбирается, пресета 40 мм', () => {
@@ -547,7 +547,7 @@ describe('толщина металлической ступени', () => {
 
   it('fitThicknessMM приводит любое значение к 5 мм у металла', () => {
     for (const cur of ['3', '5', '6', '8', '40', '']) {
-      expect(fitThicknessMM('STEEL-S235', cur)).toBe('5')
+      expect(fitThicknessMM('STEEL-C245', cur)).toBe('5')
     }
     // У дерева текущее значение сохраняется, если оно в допуске.
     expect(fitThicknessMM('WOOD-OAK', '40')).toBe('40')
@@ -555,12 +555,12 @@ describe('толщина металлической ступени', () => {
   })
 
   it('дефолт калькулятора — стальная лестница с 5 мм ступени', () => {
-    expect(defaultConfig.material).toBe('STEEL-S235')
+    expect(defaultConfig.material).toBe('STEEL-C245')
     expect(defaultConfig.stepThicknessMM).toBe('5')
   })
 
   it('границы выпуска листа на месте, даже при фиксированной толщине', () => {
     // Диапазон нужен серверу для проверки, а не пользователю для выбора.
-    expect(rulesFor('stepThicknessMM', 'STEEL-S235')).toEqual({ min: 3, max: 8 })
+    expect(rulesFor('stepThicknessMM', 'STEEL-C245')).toEqual({ min: 3, max: 8 })
   })
 })

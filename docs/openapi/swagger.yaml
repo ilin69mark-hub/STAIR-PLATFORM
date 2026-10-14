@@ -6860,7 +6860,7 @@ components:
           enum: [straight, l_shape, u_shape]
         material:
           type: string
-          enum: [STEEL-S235, WOOD-OAK, WOOD-WALNUT, WOOD-ASH, WOOD-SOFT]
+          enum: [STEEL-C245, WOOD-OAK, WOOD-WALNUT, WOOD-ASH, WOOD-SOFT]
         step_height_mm:
           type: number
           format: double

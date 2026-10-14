@@ -16,7 +16,7 @@ import (
 // запрос возвращает блокирующую валидацию с перечнем допустимых типов.
 
 const spiralRejectBody = `{
-	"width_mm": 900, "height_mm": 2800, "flight": "spiral", "material": "STEEL-S235",
+	"width_mm": 900, "height_mm": 2800, "flight": "spiral", "material": "STEEL-C245",
 	"step_height_mm": 175, "step_thickness_mm": 6, "stringer_thickness_mm": 8,
 	"clearance_mm": 2000, "railing_height_mm": 900
 }`
@@ -73,7 +73,7 @@ func TestInternalCalculateRejectsSpiralToo(t *testing.T) {
 // Проверка остаётся как защита от возврата типа марша через вариации.
 func TestPublicQuoteOffersNoSpiralVariations(t *testing.T) {
 	body := `{
-		"width_mm": 1100, "height_mm": 2700, "flight": "straight", "material": "STEEL-S235",
+		"width_mm": 1100, "height_mm": 2700, "flight": "straight", "material": "STEEL-C245",
 		"step_height_mm": 168, "step_thickness_mm": 6, "stringer_thickness_mm": 8,
 		"riser": true, "clearance_mm": 2000, "railing_height_mm": 900,
 		"room_width_mm": 4500, "room_length_mm": 900

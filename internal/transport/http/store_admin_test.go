@@ -323,7 +323,7 @@ func TestPublicQuoteRejectsClientRates(t *testing.T) {
 	body := `{"width_mm":900,"height_mm":2800,"flight":"straight","step_height_mm":175,
 	          "stringer_thickness_mm":40,"step_thickness_mm":40,"riser":true,
 	          "clearance_mm":2200,"railing_height_mm":900,
-	          "rates":{"material_per_kg_rub":{"STEEL-S235":0.01},"margin_percent":0}}`
+	          "rates":{"material_per_kg_rub":{"STEEL-C245":0.01},"margin_percent":0}}`
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, publicJSONRequest(http.MethodPost, "/api/v1/public/stairs:quote", body))
 	if rec.Code != http.StatusUnprocessableEntity {

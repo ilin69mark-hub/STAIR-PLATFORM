@@ -33,7 +33,7 @@ func cuttingTestPackage() *dommfg.ManufacturingPackage {
 	}
 	item := dommfg.CutItem{
 		PartNumber:   "HLT-01",
-		MaterialCode: "STEEL-S235",
+		MaterialCode: "STEEL-C245",
 		Length:       260,
 		Width:        50,
 		Quantity:     1,
@@ -47,7 +47,7 @@ func cuttingTestPackage() *dommfg.ManufacturingPackage {
 	// количеством, и номера всех экземпляров, кроме первого, потеряны).
 	return &dommfg.ManufacturingPackage{
 		Parts: []dommfg.Part{{
-			Number: "HLT-01", Kind: "heel", Material: "STEEL-S235",
+			Number: "HLT-01", Kind: "heel", Material: "STEEL-C245",
 			Thickness: 4, Length: 260, Width: 50, Where: "ступень 1, сторона А",
 			Placement: dommfg.Placement{
 				Origin: dommfg.Vec3{X: 100, Y: 200, Z: 0},
@@ -59,7 +59,7 @@ func cuttingTestPackage() *dommfg.ManufacturingPackage {
 		}},
 		CutList: dommfg.CutList{Items: []dommfg.CutItem{item}},
 		Nesting: &dommfg.NestingResult{Sheets: []dommfg.SheetLayout{{
-			MaterialCode: "STEEL-S235",
+			MaterialCode: "STEEL-C245",
 			Length:       3000,
 			Width:        1500,
 			Placed: []dommfg.PlacedPart{{

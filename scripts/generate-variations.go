@@ -53,7 +53,7 @@ func mustLength(v float64) engineering.Length {
 }
 
 func randomValid(flight string) (*Case, bool) {
-	mats := []string{"STEEL-S235", "WOOD-OAK"}
+	mats := []string{"STEEL-C245", "WOOD-OAK"}
 	mat := mats[rand.Intn(len(mats))]
 	// width 300-1200 stratified
 	W := 300 + rand.Float64()*900
@@ -61,7 +61,7 @@ func randomValid(flight string) (*Case, bool) {
 		W = 1500 + rand.Float64()*1500
 	}
 	Hmax := 6000.0
-	if mat != "STEEL-S235" {
+	if mat != "STEEL-C245" {
 		Hmax = 4550
 	}
 	H := 1800 + rand.Float64()*(Hmax-1800)
@@ -71,7 +71,7 @@ func randomValid(flight string) (*Case, bool) {
 	// step thickness per material
 	var stepTh float64
 	switch mat {
-	case "STEEL-S235":
+	case "STEEL-C245":
 		stepTh = 3 + rand.Float64()*5
 	default:
 		stepTh = 20 + rand.Float64()*20

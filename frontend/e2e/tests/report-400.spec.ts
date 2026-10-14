@@ -69,7 +69,7 @@ test.describe.serial('report-400: 100×4 марша, все кнопки', () =>
           step_thickness_mm: rndInt(30, 50, 5),
           clearance_mm: rndInt(2200, 2700, 50),
           railing_height_mm: rndInt(800, 1100, 50),
-          material: pick(['STEEL-S235', 'WOOD-OAK']),
+          material: pick(['STEEL-C245', 'WOOD-OAK']),
           landing_width_mm: w,
           landing_depth_mm: w,
           lower_step_count: rndInt(3, 8, 1),
@@ -87,7 +87,7 @@ test.describe.serial('report-400: 100×4 марша, все кнопки', () =>
         step_thickness_mm: rndInt(30, 50, 5),
         clearance_mm: rndInt(2200, 2700, 50),
         railing_height_mm: rndInt(800, 1100, 50),
-        material: pick(['STEEL-S235', 'WOOD-OAK']),
+        material: pick(['STEEL-C245', 'WOOD-OAK']),
       }
       out.push(base)
     }

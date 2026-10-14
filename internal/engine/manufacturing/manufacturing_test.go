@@ -50,8 +50,8 @@ func testConfig(t *testing.T) *engineering.StairConfiguration {
 	// стали (диапазон 2–60), и тесты молча проверяли стальной марш на
 	// конфигурации без материала. С выходом стали на выпуск 3–8 мм такой
 	// вывод стал давать дуб, и тесты проверяли бы не то.
-	cfg.Material = "STEEL-S235"
-	cfg.TreadMaterial = "STEEL-S235"
+	cfg.Material = "STEEL-C245"
+	cfg.TreadMaterial = "STEEL-C245"
 	cfg.StepThickness = mustLength(t, 40)
 	// Ограждение задано ЯВНО — сторона и высота. Спецификация читает их
 	// наравне с геометрией, и неназванная сторона (или нулевая высота)
@@ -239,8 +239,8 @@ func TestManufactureBOM(t *testing.T) {
 		if !nearlyEqual(line.Length.Millimeters(), w.length) || !nearlyEqual(line.Width.Millimeters(), w.width) {
 			t.Fatalf("line %d dims = %v×%v, want %v×%v", i, line.Length.Millimeters(), line.Width.Millimeters(), w.length, w.width)
 		}
-		if line.MaterialCode != "STEEL-S235" {
-			t.Fatalf("line %d material = %q, want STEEL-S235", i, line.MaterialCode)
+		if line.MaterialCode != "STEEL-C245" {
+			t.Fatalf("line %d material = %q, want STEEL-C245", i, line.MaterialCode)
 		}
 	}
 	// карта раскроя повторяет строки BOM.
@@ -405,8 +405,8 @@ func TestPlateStringerSplitsLongFlights(t *testing.T) {
 	cfg.StepHeight = mustLength(t, 180)
 	cfg.TreadDepth = mustLength(t, 280)
 	cfg.StringerThickness = mustLength(t, 8)
-	cfg.Material = "STEEL-S235"
-	cfg.TreadMaterial = "STEEL-S235"
+	cfg.Material = "STEEL-C245"
+	cfg.TreadMaterial = "STEEL-C245"
 	limit := dommfg.MaxPartLengthMM(8)
 	if limit <= 0 {
 		t.Fatal("предел длины детали не найден для поля стола")

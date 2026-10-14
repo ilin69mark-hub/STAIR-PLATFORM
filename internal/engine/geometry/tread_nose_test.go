@@ -25,7 +25,7 @@ func woodNoseConfig(t *testing.T, nose float64) *engineering.StairConfiguration 
 		StepThickness:     engineering.Length(40),
 		RiserThickness:    engineering.Length(40),
 		Riser:             true,
-		Material:          "STEEL-S235",
+		Material:          "STEEL-C245",
 		TreadMaterial:     "WOOD-OAK",
 		TreadNoseRadiusMM: engineering.Length(nose),
 		ApproachSpace:     engineering.Length(0),

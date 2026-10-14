@@ -42,7 +42,7 @@ const PARAMS = {
   stepHeight: 175,
   treadDepth: 280,
   stringerThickness: 10,
-  material: "STEEL-S235",
+  material: "STEEL-C245",
 };
 
 export default function () {

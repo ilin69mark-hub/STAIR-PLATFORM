@@ -31,7 +31,7 @@ func TestDOM003_ConfigurationDTOCarriesEightParams(t *testing.T) {
 		RailingLanding: "none",
 		RailingUpper:   "right",
 		Direction:      "right",
-		MaterialCode:   "STEEL-S235",
+		MaterialCode:   "STEEL-C245",
 		CreatedAt:      time.Now(),
 	}}
 
@@ -56,7 +56,7 @@ func TestDOM003_ConfigurationDTOCarriesEightParams(t *testing.T) {
 		"railing_landing": "none",
 		"railing_upper":   "right",
 		"direction":       "right",
-		"material":        "STEEL-S235",
+		"material":        "STEEL-C245",
 	} {
 		got, ok := raw[k]
 		if !ok {

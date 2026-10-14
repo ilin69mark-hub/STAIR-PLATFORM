@@ -54,8 +54,8 @@ func TestPrepareCostMetrics(t *testing.T) {
 		t.Fatalf("operation plan must contain 98 part routes, got %d",
 			len(ds.OperationPlan.Parts))
 	}
-	if len(ds.MaterialConsumption) != 1 || ds.MaterialConsumption[0].MaterialCode != "STEEL-S235" {
-		t.Fatalf("consumption = %+v, want single STEEL-S235", ds.MaterialConsumption)
+	if len(ds.MaterialConsumption) != 1 || ds.MaterialConsumption[0].MaterialCode != "STEEL-C245" {
+		t.Fatalf("consumption = %+v, want single STEEL-C245", ds.MaterialConsumption)
 	}
 
 	// Метрики производственного набора. Значения — после починки заготовки
@@ -75,7 +75,7 @@ func TestPrepareCostMetrics(t *testing.T) {
 	//
 	// Объём и масса выросли ещё и потому, что заготовка косоура теперь
 	// толщиной 12 мм, а не 8: конструктивная толщина 50 мм сжимается к
-	// ВЕРХУ выпуска листа, а выпуск STEEL-S235 расширен до PlateMaxThicknessMM
+	// ВЕРХУ выпуска листа, а выпуск STEEL-C245 расширен до PlateMaxThicknessMM
 	// вместе с нормативом на листовой косоур (строки 8 / 10 / 12 мм).
 	checks := []struct {
 		name string

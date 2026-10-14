@@ -42,7 +42,7 @@ const BASE: Record<string, { color: number; roughness: number; metalness: number
   // пластины и 102,111,125 с другой — тёплая и холодная при одном
   // материале (это и выглядело как «деревянный косоур»). 0.35/0.6 дают
   // ровный серый тон с обеих сторон и мягкий блик на кромках.
-  'STEEL-S235': { color: 0x9aa3ad, roughness: 0.6, metalness: 0.35 },
+  'STEEL-C245': { color: 0x9aa3ad, roughness: 0.6, metalness: 0.35 },
 }
 
 /** Финиши одного материала: меняют вид, но не код материала и не цену. */
@@ -52,7 +52,7 @@ export const FINISHES: Record<string, FinishSpec[]> = {
     { id: 'matte', label: 'Матовый лак', roughnessFactor: 0.4, clearcoat: 0.25 },
     { id: 'toned', label: 'Тонировка', color: 0x9a7448, roughnessFactor: 0.55 },
   ],
-  'STEEL-S235': [
+  'STEEL-C245': [
     { id: 'raw', label: 'Без покрытия', roughnessFactor: 0.6 },
     { id: 'black', label: 'Чёрный', color: 0x24262a, roughnessFactor: 0.55 },
     { id: 'white', label: 'Белый', color: 0xe8e8e6, roughnessFactor: 0.55 },

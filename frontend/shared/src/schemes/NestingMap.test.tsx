@@ -9,7 +9,7 @@ function part(p: Partial<PlacedPart> & { PartNumber: string }): PlacedPart {
 
 function nesting(placed: PlacedPart[]): Nesting {
   return {
-    Sheets: [{ Material: 'STEEL-S235', Thickness: 8, Length: 6000, Width: 1500, Placed: placed }],
+    Sheets: [{ Material: 'STEEL-C245', Thickness: 8, Length: 6000, Width: 1500, Placed: placed }],
     PartCount: placed.length,
     PartArea: placed.length * 2400 * 300,
     SheetArea: 9000000,

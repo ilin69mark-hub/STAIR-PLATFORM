@@ -17,7 +17,7 @@ import (
 
 func woodStairConfig() Config {
 	cfg := referenceConfig()
-	cfg.Material = "STEEL-S235" // каркас стальной
+	cfg.Material = "STEEL-C245" // каркас стальной
 	cfg.TreadMaterial = "WOOD-OAK"
 	// Проступь из дуба пилится из доски 20–100 мм; эталонные 6 мм — стальные.
 	cfg.StepThickness = mustLengthHelper(40)
@@ -26,8 +26,8 @@ func woodStairConfig() Config {
 
 func metalStairConfig() Config {
 	cfg := referenceConfig()
-	cfg.Material = "STEEL-S235"
-	cfg.TreadMaterial = "STEEL-S235"
+	cfg.Material = "STEEL-C245"
+	cfg.TreadMaterial = "STEEL-C245"
 	// Ступень из стали — тоже лист лазерного раскроя: 3–8 мм. Со
 	// страницей эталона (40 мм, значение для дерева) расчёт блокировался
 	// MFG-MATERIAL, и Price приходил пустым. Раньше конфигурация была
@@ -189,9 +189,9 @@ func TestEveryWoodSpeciesNoseRadiusIsTen(t *testing.T) {
 	}
 	// У металла фасок нет: прокат/шлифовка дают прямой профиль, и цена
 	// металлической лестницы не должна зависеть от поля радиуса.
-	steel, ok := reg.Find("STEEL-S235")
+	steel, ok := reg.Find("STEEL-C245")
 	if !ok {
-		t.Fatal("STEEL-S235 not in registry")
+		t.Fatal("STEEL-C245 not in registry")
 	}
 	if steel.TreadNoseRadiusMm != 0 {
 		t.Fatalf("steel nose radius = %g mm, want 0", steel.TreadNoseRadiusMm)

@@ -38,7 +38,7 @@ func TestDOM007_UnknownFieldRejectedOnDangerousEndpoints(t *testing.T) {
 		{
 			name: "цена материала: опечатка в имени поля",
 			path: "/api/v1/admin/store/prices",
-			body: `{"code":"STEEL-S235","pricePerKgRub":2500}`,
+			body: `{"code":"STEEL-C245","pricePerKgRub":2500}`,
 		},
 	}
 	for _, tc := range cases {
@@ -83,7 +83,7 @@ func TestDOM007_KnownFieldsStillAccepted(t *testing.T) {
 		body string
 	}{
 		{"настройки магазина", "/api/v1/admin/store/settings", `{"contacts":{"email":"shop@example.com"}}`},
-		{"цена материала", "/api/v1/admin/store/prices", `{"code":"STEEL-S235","price_per_kg_rub":2500}`},
+		{"цена материала", "/api/v1/admin/store/prices", `{"code":"STEEL-C245","price_per_kg_rub":2500}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

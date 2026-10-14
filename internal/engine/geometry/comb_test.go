@@ -25,7 +25,7 @@ func combConfig() *engineering.StairConfiguration {
 		StepThickness:     40,
 		RiserThickness:    40,
 		Riser:             true,
-		Material:          "STEEL-S235",
+		Material:          "STEEL-C245",
 		TreadMaterial:     "WOOD-OAK",
 		Comb:              engineering.CombFrameDefaults(),
 	}

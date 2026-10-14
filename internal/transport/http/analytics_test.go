@@ -275,7 +275,7 @@ func TestManufacturingAnalytics(t *testing.T) {
 		Totals: analytics.ManufacturingTotals{
 			Calculations: 2, Parts: 10, BomLines: 3, CutItems: 2, Sheets: 1,
 			PartArea: 1000, SheetArea: 2000, WasteArea: 1000, Utilization: 0.5,
-			Materials: map[string]int{"STEEL-S235": 10},
+			Materials: map[string]int{"STEEL-C245": 10},
 		},
 		Series: []analytics.ManufacturingPoint{
 			{Bucket: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
@@ -293,7 +293,7 @@ func TestManufacturingAnalytics(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if body.Totals.Parts != 10 || body.Totals.Materials["STEEL-S235"] != 10 {
+	if body.Totals.Parts != 10 || body.Totals.Materials["STEEL-C245"] != 10 {
 		t.Fatalf("unexpected totals: %+v", body.Totals)
 	}
 	if len(body.Series) != 1 || body.Series[0].Sheets != 1 {

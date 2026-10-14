@@ -22,7 +22,7 @@ func metalConfig(t *testing.T) *engineering.StairConfiguration {
 	cfg.TreadDepth = mustLength(t, 280)
 	cfg.StringerThickness = mustLength(t, 8)
 	cfg.StepThickness = mustLength(t, 40)
-	cfg.Material = "STEEL-S235"
+	cfg.Material = "STEEL-C245"
 	return cfg
 }
 

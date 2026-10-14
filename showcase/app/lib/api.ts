@@ -116,7 +116,7 @@ export async function fetchExamples(): Promise<ShowcaseExample[]> {
       id: 'l-shape-steel',
       title: 'L-образный марш, сталь',
       caption: 'Площадка 1200 мм, чёрная сталь, перила слева',
-      material: 'STEEL-S235',
+      material: 'STEEL-C245',
       result: { validation: { valid: true, blocking: false }, mesh: undefined },
     },
   ]
@@ -145,7 +145,7 @@ export async function fetchExamples(): Promise<ShowcaseExample[]> {
       width_mm: 900,
       height_mm: 2800,
       flight: 'l_shape',
-      material: 'STEEL-S235',
+      material: 'STEEL-C245',
       step_height_mm: 175,
       step_thickness_mm: 6,
       stringer_thickness_mm: 50,

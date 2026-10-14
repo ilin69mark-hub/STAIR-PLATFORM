@@ -23,7 +23,7 @@ func rectCut(t *testing.T, material dommfg.MaterialCode, thickness, length, widt
 
 func TestNestSingleSheet(t *testing.T) {
 	// 12 проступей 800×270 на листе 2500×1250 (kerf 3): 4 ряда × 3 — один лист.
-	cut := rectCut(t, "STEEL-S235", 40, 800, 270, 12)
+	cut := rectCut(t, "STEEL-C245", 40, 800, 270, 12)
 	res, err := Nest(cut, mustSheets(t))
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestNestSingleSheet(t *testing.T) {
 	if int(res.PartCount) != 12 || len(sheet.Placed) != 12 {
 		t.Fatalf("placed = %d, want 12", res.PartCount)
 	}
-	if sheet.MaterialCode != "STEEL-S235" || sheet.Thickness.Millimeters() != 40 {
+	if sheet.MaterialCode != "STEEL-C245" || sheet.Thickness.Millimeters() != 40 {
 		t.Fatalf("sheet material/thickness = %q/%v", sheet.MaterialCode, sheet.Thickness.Millimeters())
 	}
 	assertNoOverlap(t, sheet)
@@ -58,7 +58,7 @@ func TestNestMultipleSheets(t *testing.T) {
 		t.Fatalf("вместимость заготовки %d, ожидалось 15 (3 в ряду × 5 рядов)", perBlank)
 	}
 	qty := 50
-	cut := rectCut(t, "STEEL-S235", 8, 800, 270, dommfg.Quantity(qty))
+	cut := rectCut(t, "STEEL-C245", 8, 800, 270, dommfg.Quantity(qty))
 	res, err := Nest(cut, mustSheets(t))
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func TestNestMultipleSheets(t *testing.T) {
 // листа, а не подбором размера. Раньше листов было четыре, и для мелкой детали
 // выбирался самый маленький 2500×1250.
 func TestNestSteelSheetSizeIsFixed(t *testing.T) {
-	cut := rectCut(t, "STEEL-S235", 8, 800, 270, 1)
+	cut := rectCut(t, "STEEL-C245", 8, 800, 270, 1)
 	res, err := Nest(cut, mustSheets(t))
 	if err != nil {
 		t.Fatal(err)
@@ -103,9 +103,9 @@ func TestNestSteelSheetSizeIsFixed(t *testing.T) {
 
 func TestNestDeterminism(t *testing.T) {
 	cut := dommfg.CutList{Items: []dommfg.CutItem{
-		{PartNumber: "TRD", MaterialCode: "STEEL-S235", Thickness: mustLength(t, 8), Length: mustLength(t, 800), Width: mustLength(t, 270), Quantity: 15},
-		{PartNumber: "RSR", MaterialCode: "STEEL-S235", Thickness: mustLength(t, 40), Length: mustLength(t, 800), Width: mustLength(t, 180), Quantity: 15},
-		{PartNumber: "STR", MaterialCode: "STEEL-S235", Thickness: mustLength(t, 8), Length: mustLength(t, 2644), Width: mustLength(t, 300), Quantity: 2},
+		{PartNumber: "TRD", MaterialCode: "STEEL-C245", Thickness: mustLength(t, 8), Length: mustLength(t, 800), Width: mustLength(t, 270), Quantity: 15},
+		{PartNumber: "RSR", MaterialCode: "STEEL-C245", Thickness: mustLength(t, 40), Length: mustLength(t, 800), Width: mustLength(t, 180), Quantity: 15},
+		{PartNumber: "STR", MaterialCode: "STEEL-C245", Thickness: mustLength(t, 8), Length: mustLength(t, 2644), Width: mustLength(t, 300), Quantity: 2},
 	}}
 	a, err := Nest(cut, mustSheets(t))
 	if err != nil {
@@ -128,7 +128,7 @@ func TestNestDeterminism(t *testing.T) {
 // какому примыкает.
 func TestNestCarriesJointMarks(t *testing.T) {
 	cut := dommfg.CutList{Items: []dommfg.CutItem{{
-		PartNumber: "STR", MaterialCode: "STEEL-S235", Thickness: mustLength(t, 8),
+		PartNumber: "STR", MaterialCode: "STEEL-C245", Thickness: mustLength(t, 8),
 		Length: mustLength(t, 2427), Width: mustLength(t, 300), Quantity: 2,
 		HasTongue: true, HasMortise: true, JointCount: 2,
 	}}}
@@ -156,10 +156,10 @@ func TestNestCarriesJointMarks(t *testing.T) {
 // но карта раскроя обязана показать, что стык в позиции есть.
 func TestBuildBOMAggregatesJointMarks(t *testing.T) {
 	parts := []dommfg.Part{
-		{Number: "STR-01", Kind: dommfg.PartStringer, Material: "STEEL-S235",
+		{Number: "STR-01", Kind: dommfg.PartStringer, Material: "STEEL-C245",
 			Thickness: mustLength(t, 8), Length: mustLength(t, 2427), Width: mustLength(t, 300),
 			JointIndex: 0, JointCount: 2, HasMortise: true},
-		{Number: "STR-02", Kind: dommfg.PartStringer, Material: "STEEL-S235",
+		{Number: "STR-02", Kind: dommfg.PartStringer, Material: "STEEL-C245",
 			Thickness: mustLength(t, 8), Length: mustLength(t, 2427), Width: mustLength(t, 300),
 			JointIndex: 1, JointCount: 2, HasTongue: true, HasMortise: true},
 	}
@@ -177,7 +177,7 @@ func TestNestErrors(t *testing.T) {
 	if _, err := Nest(dommfg.CutList{}, mustSheets(t)); err == nil {
 		t.Fatal("empty cut list must be rejected")
 	}
-	if _, err := Nest(rectCut(t, "STEEL-S235", 40, 800, 270, 1), nil); err == nil {
+	if _, err := Nest(rectCut(t, "STEEL-C245", 40, 800, 270, 1), nil); err == nil {
 		t.Fatal("nil registry must be rejected")
 	}
 	// материал без листов в каталоге.
@@ -187,11 +187,11 @@ func TestNestErrors(t *testing.T) {
 	// Деталь крупнее рабочего ПОЛЯ СТОЛА: даже после разбиения на куски её
 	// нечем резать. Проверяется именно поле 3000×1500, а не купленный лист
 	// 6000×1500 — по листу деталь 3200 мм «влезала» бы.
-	if _, err := Nest(rectCut(t, "STEEL-S235", 40, 3200, 2000, 1), mustSheets(t)); err == nil {
+	if _, err := Nest(rectCut(t, "STEEL-C245", 40, 3200, 2000, 1), mustSheets(t)); err == nil {
 		t.Fatal("part longer than the laser field must be rejected")
 	}
 	// Деталь в поле стола принимается.
-	if _, err := Nest(rectCut(t, "STEEL-S235", 40, 2644, 300, 1), mustSheets(t)); err != nil {
+	if _, err := Nest(rectCut(t, "STEEL-C245", 40, 2644, 300, 1), mustSheets(t)); err != nil {
 		t.Fatalf("part inside the laser field must be accepted: %v", err)
 	}
 }
@@ -199,7 +199,7 @@ func TestNestErrors(t *testing.T) {
 // Деталь шире поля лазерного стола не влезает даже после разбиения на куски:
 // по длине стык «шип-паз» возможен, по ширине — нет.
 func TestNestFeasibilityError(t *testing.T) {
-	cut := rectCut(t, "STEEL-S235", 8, 12000, 9000, 1)
+	cut := rectCut(t, "STEEL-C245", 8, 12000, 9000, 1)
 	_, err := Nest(cut, mustSheets(t))
 	var feas *FeasibilityError
 	if !errors.As(err, &feas) {
@@ -246,7 +246,7 @@ func TestLargestStockSheet(t *testing.T) {
 	// Сталь: единственный типоразмер 6000×1500 (сводная шпатка технолога
 	// 2026-10-05). Раньше в каталоге были листы до 10400×6200, и «максимальный
 	// лист» показывался пользователю в сообщениях.
-	l, w, ok := LargestStockSheet(mustSheets(t), "STEEL-S235")
+	l, w, ok := LargestStockSheet(mustSheets(t), "STEEL-C245")
 	if !ok || l != 6000 || w != 1500 {
 		t.Fatalf("largest steel sheet = %v×%v ok=%v, want 6000×1500", l, w, ok)
 	}
@@ -343,7 +343,7 @@ func TestNestSteelUsesBlanksThenSheets(t *testing.T) {
 	usableL := dommfg.BlankLengthMM - 2*off
 	// Косоур-кусок 2644 мм: в ряд влезает один, рядов по ширине 300 мм столько,
 	// сколько помещается в заготовку.
-	res, err := Nest(rectCut(t, "STEEL-S235", 8, 2644, 300, 4), mustSheets(t))
+	res, err := Nest(rectCut(t, "STEEL-C245", 8, 2644, 300, 4), mustSheets(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,7 +381,7 @@ func TestNestSteelUsesBlanksThenSheets(t *testing.T) {
 }
 
 func TestNestAreaMetrics(t *testing.T) {
-	cut := rectCut(t, "STEEL-S235", 40, 800, 270, 12)
+	cut := rectCut(t, "STEEL-C245", 40, 800, 270, 12)
 	res, err := Nest(cut, mustSheets(t))
 	if err != nil {
 		t.Fatal(err)

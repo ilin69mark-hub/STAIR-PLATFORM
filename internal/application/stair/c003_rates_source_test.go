@@ -169,7 +169,7 @@ func TestCRIT003_StoreRatesMaterialPriceIsApplied(t *testing.T) {
 	cfg := referenceConfig()
 	material := cfg.Material
 	if material == "" {
-		material = dommfg.MaterialCode("STEEL-S235")
+		material = dommfg.MaterialCode("STEEL-C245")
 	}
 	rs := engprc.DefaultRates()
 	rs.Material[material] = domprc.NewMoney(90000) // 900 ₽/кг

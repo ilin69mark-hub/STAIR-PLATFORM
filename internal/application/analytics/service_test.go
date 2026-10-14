@@ -225,7 +225,7 @@ func TestManufacturing(t *testing.T) {
 		mfgTotals: ManufacturingTotals{
 			Calculations: 2, Parts: 10, BomLines: 3, CutItems: 2, Sheets: 1,
 			PartArea: 1000, SheetArea: 2000, WasteArea: 1000, Utilization: 0.5,
-			Materials: map[string]int{"STEEL-S235": 10},
+			Materials: map[string]int{"STEEL-C245": 10},
 		},
 		mfgSeries: []ManufacturingPoint{
 			{Bucket: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Calculations: 2, Parts: 10, Sheets: 1, Utilization: 0.5},
@@ -238,7 +238,7 @@ func TestManufacturing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Manufacturing: %v", err)
 	}
-	if rep.Totals.Parts != 10 || rep.Totals.Materials["STEEL-S235"] != 10 {
+	if rep.Totals.Parts != 10 || rep.Totals.Materials["STEEL-C245"] != 10 {
 		t.Fatalf("unexpected totals: %+v", rep.Totals)
 	}
 	if len(rep.Series) != 1 || rep.Series[0].Sheets != 1 {

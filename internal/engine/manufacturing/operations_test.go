@@ -159,7 +159,7 @@ func TestMachineRatesValidate(t *testing.T) {
 		t.Fatal("empty cut speeds must be rejected")
 	}
 	rates = DefaultMachineRates()
-	rates.CutSpeed["STEEL-S235"] = 0
+	rates.CutSpeed["STEEL-C245"] = 0
 	if err := rates.Validate(); err == nil {
 		t.Fatal("non-positive cut speed must be rejected")
 	}
@@ -215,7 +215,7 @@ func TestPlanOperationsAddsMillingForChamferedPart(t *testing.T) {
 func TestPlanOperationsSkipsMillingWithoutChamfer(t *testing.T) {
 	// Металлическая ступень: фасок нет, маршрут прежний — две операции.
 	part := dommfg.Part{
-		Number: "P1", Kind: dommfg.PartTread, Material: "STEEL-S235",
+		Number: "P1", Kind: dommfg.PartTread, Material: "STEEL-C245",
 		Thickness: engineering.Length(6), Length: engineering.Length(310),
 		Width: engineering.Length(900),
 	}
@@ -253,7 +253,7 @@ func TestPlanOperationsRejectsMillingWithoutFeed(t *testing.T) {
 
 func TestMillFeedZeroOnlyForSteel(t *testing.T) {
 	rates := DefaultMachineRates()
-	if rates.MillFeed["STEEL-S235"] != 0 {
+	if rates.MillFeed["STEEL-C245"] != 0 {
 		t.Fatal("steel must have no milling feed: no chamfers on metal")
 	}
 	for _, code := range []dommfg.MaterialCode{"WOOD-OAK", "WOOD-WALNUT", "WOOD-ASH", "WOOD-SOFT"} {

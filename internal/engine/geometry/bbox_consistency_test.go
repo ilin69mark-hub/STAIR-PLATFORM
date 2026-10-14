@@ -17,10 +17,10 @@ func TestModelBoundingBoxMatchesGenerate(t *testing.T) {
 		flight engineering.FlightType
 		mat    string
 	}{
-		{"steel straight", engineering.FlightStraight, "STEEL-S235"},
+		{"steel straight", engineering.FlightStraight, "STEEL-C245"},
 		{"wood straight", engineering.FlightStraight, "WOOD-OAK"},
-		{"steel l", engineering.FlightLShape, "STEEL-S235"},
-		{"steel u", engineering.FlightUShape, "STEEL-S235"},
+		{"steel l", engineering.FlightLShape, "STEEL-C245"},
+		{"steel u", engineering.FlightUShape, "STEEL-C245"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

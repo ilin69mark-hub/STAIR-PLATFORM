@@ -32,7 +32,7 @@ test.describe('boundary — 20 кейсов', () => {
       step_thickness_mm: 40,
       clearance_mm: 2500,
       railing_height_mm: 1000,
-      material: 'STEEL-S235' as const,
+      material: 'STEEL-C245' as const,
     }
 
     const cases: Array<{ name: string; body: any; expectValid: boolean; expectBlocked?: boolean }> = [

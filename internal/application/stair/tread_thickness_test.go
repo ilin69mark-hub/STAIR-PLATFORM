@@ -23,7 +23,7 @@ import (
 func woodStairWithThickness(t *testing.T, stringer, step float64) Config {
 	t.Helper()
 	cfg := referenceConfig()
-	cfg.Material = "STEEL-S235" // каркас стальной, чтобы косоур проверялся отдельно
+	cfg.Material = "STEEL-C245" // каркас стальной, чтобы косоур проверялся отдельно
 	cfg.TreadMaterial = "WOOD-OAK"
 	cfg.StringerThickness = engineering.Length(stringer)
 	cfg.StepThickness = engineering.Length(step)
@@ -93,8 +93,8 @@ func TestWoodStringerStaysThinWhileTreadIs40(t *testing.T) {
 func TestSteelTreadThicknessUnaffectedByWoodRule(t *testing.T) {
 	s := NewService()
 	cfg := referenceConfig()
-	cfg.Material = "STEEL-S235"
-	cfg.TreadMaterial = "STEEL-S235"
+	cfg.Material = "STEEL-C245"
+	cfg.TreadMaterial = "STEEL-C245"
 	cfg.StringerThickness = engineering.Length(8)
 	cfg.StepThickness = engineering.Length(6)
 	res, err := s.Calculate(context.Background(), cfg, Options{})
@@ -248,7 +248,7 @@ func TestTimberStringerNormWarning(t *testing.T) {
 func TestTimberStringerNormIgnoresMetalFrame(t *testing.T) {
 	s := NewService()
 	cfg := referenceConfig()
-	cfg.Material = "STEEL-S235"
+	cfg.Material = "STEEL-C245"
 	cfg.TreadMaterial = "WOOD-OAK"
 	cfg.Height = engineering.Length(4500)
 	cfg.Width = engineering.Length(900)
@@ -273,8 +273,8 @@ func TestMetalTreadThicknessIsAlwaysFive(t *testing.T) {
 	s := NewService()
 	metal := func(step float64) Config {
 		cfg := referenceConfig()
-		cfg.Material = "STEEL-S235"
-		cfg.TreadMaterial = "STEEL-S235"
+		cfg.Material = "STEEL-C245"
+		cfg.TreadMaterial = "STEEL-C245"
 		cfg.StringerThickness = engineering.Length(8)
 		cfg.StepThickness = engineering.Length(step)
 		return cfg
@@ -301,8 +301,8 @@ func TestMetalTreadThicknessIsAlwaysFive(t *testing.T) {
 func TestMetalRiserFollowsFixedTreadThickness(t *testing.T) {
 	s := NewService()
 	cfg := referenceConfig()
-	cfg.Material = "STEEL-S235"
-	cfg.TreadMaterial = "STEEL-S235"
+	cfg.Material = "STEEL-C245"
+	cfg.TreadMaterial = "STEEL-C245"
 	cfg.StringerThickness = engineering.Length(8)
 	cfg.StepThickness = engineering.Length(8) // было в форме до решения
 	cfg.RiserThickness = engineering.Length(8)
@@ -328,7 +328,7 @@ func TestWoodTreadThicknessStillUserChosen(t *testing.T) {
 	s := NewService()
 	for _, in := range []float64{40, 60, 80} {
 		cfg := referenceConfig()
-		cfg.Material = "STEEL-S235"
+		cfg.Material = "STEEL-C245"
 		cfg.TreadMaterial = "WOOD-OAK"
 		cfg.StringerThickness = engineering.Length(8)
 		cfg.StepThickness = engineering.Length(in)

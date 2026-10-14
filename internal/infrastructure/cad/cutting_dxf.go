@@ -182,7 +182,7 @@ func pointInContour(p kerngeo.Point2D, contour []kerngeo.Point2D) bool {
 // дерева на место стального.
 func layerFor(material string) string {
 	switch material {
-	case "", "STEEL-S235", "STEEL-304":
+	case "", "STEEL-C245", "STEEL-304":
 		return "СТАЛЬ"
 	case "WOOD-OAK":
 		return "ДУБ"

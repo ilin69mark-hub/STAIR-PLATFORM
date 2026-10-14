@@ -23,7 +23,7 @@ func chamferFinalPrice(t *testing.T, cfg *engineering.StairConfiguration, radius
 	cp := *cfg
 	cp.TreadNoseRadiusMM = engineering.Length(radius)
 	// TreadMaterial: ступени из дуба — фаска положена по материалу ступеней.
-	cp.Material = "STEEL-S235"
+	cp.Material = "STEEL-C245"
 	cp.TreadMaterial = "WOOD-OAK"
 	cp.Riser = true
 
@@ -114,7 +114,7 @@ func TestLandingChamferAddsOneMoreMillingPass(t *testing.T) {
 	cp.LowerStepCount = 6
 	cp.LandingWidth = mustLength(t, 900)
 	cp.Riser = true
-	cp.Material = "STEEL-S235"
+	cp.Material = "STEEL-C245"
 	cp.TreadMaterial = "WOOD-OAK"
 	// Радиус — производная величина, её вычисляет прикладной слой из материала
 	// ступеней. Здесь движок зовётся напрямую, поэтому поле задаётся вручную —

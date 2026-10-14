@@ -17,7 +17,7 @@ import (
 func labelsPackage() *dommfg.ManufacturingPackage {
 	return &dommfg.ManufacturingPackage{
 		Parts: []dommfg.Part{
-			{Number: "STR-01", Kind: "stringer", Material: "STEEL-S235",
+			{Number: "STR-01", Kind: "stringer", Material: "STEEL-C245",
 				Thickness: 8, Length: 2428, Width: 300, Where: "косоур А, кусок 1 из 2"},
 			{Number: "PST-01", Kind: "post", Material: "STAINLESS-304",
 				Thickness: 1.5, Length: 806, Width: 42, Purchased: true},
