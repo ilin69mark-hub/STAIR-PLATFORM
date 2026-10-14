@@ -1,0 +1,52 @@
+name: Manifest check
+
+# S-201: манифест обязан перегенерироваться из модели байт-в-байт
+# (кроме версии FreeCAD — см. hack/gen_part_manifest.py).
+#
+# Отдельный workflow, а не джоба в ci.yml: установка FreeCAD тяжёлая
+# (~1 ГБ через conda), поэтому запуск только при изменении модели,
+# её описания, генератора или этого файла. Остальные изменения
+# манифест затронуть не могут — гонять FreeCAD на каждый коммит
+# было бы расточительством.
+#
+# Учтено: GitHub Actions billing сломан (BLOCKED_INFRA) — workflow
+# заработает, когда починят оплату. Локально то же самое делает
+# STAIR_MANIFEST_CHECK=1 ... freecadcmd hack/gen_part_manifest.py.
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'models/**'
+      - 'hack/gen_part_manifest.py'
+      - '.github/workflows/manifest-check.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'models/**'
+      - 'hack/gen_part_manifest.py'
+      - '.github/workflows/manifest-check.yml'
+
+jobs:
+  manifest:
+    name: FreeCAD manifest in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
+
+      - name: Install FreeCAD (conda-forge)
+        uses: mamba-org/setup-micromamba@7e097c4e001c04b7ea0b4d7fd0a51c061a7533e # v2
+        with:
+          micromamba-version: latest
+          environment-name: freecad-check
+          create-args: freecad
+          channels: conda-forge
+
+      - name: Regenerate manifest and compare
+        shell: micromamba-shell {0}
+        env:
+          STAIR_MANIFEST_CHECK: '1'
+          PYTHONUNBUFFERED: '1'
+        run: freecadcmd hack/gen_part_manifest.py

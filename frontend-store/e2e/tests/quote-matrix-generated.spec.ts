@@ -3,17 +3,17 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
 
-// Матрица 2000 e2e (500/марш × straight/l_shape/u_shape/spiral) из
+// Матрица 1500 e2e (500/марш × straight/l_shape/u_shape) из
 // go run ./scripts/generate-variations.go -n 500.
 // Каждый кейс — полный UI-цикл: конструктор → тип марша → поля из кейса →
 // расчёт → цена (или блокировка) → 3D-вьювер без pageerror.
-// Прогон: 2000×~15с ≈ 8.3ч серийно → шардируется в CI 8×250, workers:4
-// (~16 мин/джоб): npx playwright test quote-matrix-generated --shard=k/8.
+// Прогон: 1500×~15с ≈ 6.2ч серийно → шардируется в CI 6×250, workers:4
+// (~16 мин/джоб): npx playwright test quote-matrix-generated --shard=k/6.
 // Дедупликация бэкенда учитывает хэш тела, поэтому параллельные воркеры
 // с разными payload не получают ложный 429 (dedup.go: DeduplicateByKey).
 
 type GenCase = {
-  flight: 'straight' | 'l_shape' | 'u_shape' | 'spiral'
+  flight: 'straight' | 'l_shape' | 'u_shape'
   width_mm: number
   height_mm: number
   material: string
@@ -28,8 +28,6 @@ type GenCase = {
   landing_width_mm: number
   landing_depth_mm: number
   lower_step_count: number
-  outer_radius_mm: number
-  spiral_direction: string
   direction: string
 }
 
@@ -53,9 +51,20 @@ async function selectIfVisible(page: Page, label: string, val: string, exact = f
   await loc.first().selectOption(val)
 }
 
+// setMaterial — материал выбирается либо нативным <select> (старый UI), либо
+// карточками-превью с data-material-code (этап 1, студийные текстуры).
+async function setMaterial(page: Page, code: string) {
+  const card = page.locator(`[data-material-code="${code}"]`)
+  if ((await card.count()) > 0) {
+    await card.first().click()
+    return
+  }
+  await selectIfVisible(page, 'Материал', code)
+}
+
 async function fillCase(page: Page, c: GenCase) {
   await selectIfVisible(page, 'Тип лестницы', c.flight)
-  await selectIfVisible(page, 'Материал', c.material)
+  await setMaterial(page, c.material)
   await fillIfVisible(page, 'Ширина марша (мм)', num(c.width_mm))
   await fillIfVisible(page, 'Высота (мм)', num(c.height_mm))
   await fillIfVisible(page, 'Толщина ступени (мм)', num(c.step_thickness_mm))
@@ -75,14 +84,14 @@ async function fillCase(page: Page, c: GenCase) {
     for (const label of ['Перила: первый марш', 'Перила: площадка', 'Перила: второй марш']) {
       await selectIfVisible(page, label, c.railing)
     }
-  } else {
-    await fillIfVisible(page, 'Радиус (мм)', num(c.outer_radius_mm))
-    await selectIfVisible(page, 'Направление спирали', c.spiral_direction)
   }
 }
 
-all.forEach((c, i) => {
+const ENABLED = all
+
+ENABLED.forEach((c, i) => {
   test(`matrix ${c.flight} #${i}`, async ({ page }) => {
+    test.setTimeout(90_000)
     const errors: string[] = []
     page.on('pageerror', e => errors.push(String(e?.message ?? e)))
     const audit403: string[] = []

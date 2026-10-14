@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { EVENTS, track } from '@shared/analytics'
+import { useConsentGranted } from '@shared/consentReact'
 import './App.css'
 import { useAuth } from './auth/context'
 import { Landing } from './components/Landing'
@@ -42,6 +44,15 @@ function App() {
     return () => window.removeEventListener('hashchange', sync)
   }, [])
 
+  // Экран витрины: лендинг, конструктор, кабинет, страницы документов.
+  // Отвечает на вопрос «куда идёт трафик» — без этого в воронке видно только
+  // «дошёл до конструктора», а откуда пришёл человек — нет.
+  const consentGranted = useConsentGranted()
+  useEffect(() => {
+    if (!consentGranted) return
+    track(EVENTS.pageView, { screen: legal ?? route })
+  }, [route, legal, consentGranted])
+
   const syncHash = (r: Route, l: LegalRoute | null) => {
     const target = l ? `#${l}` : r === 'landing' ? window.location.pathname : `#${r}`
     history.replaceState(null, '', target)
@@ -64,8 +75,10 @@ function App() {
     })
   }
 
+  const isCalc = route === 'constructor' && legal === null
+
   return (
-    <div className="store">
+    <div className={`store${isCalc ? ' store--calc' : ''}`}>
       <header className="store-header">
         <div className="store-brand" onClick={() => open('landing')} role="button">
           STAIR PLATFORM <small>лестницы на заказ</small>
@@ -97,7 +110,7 @@ function App() {
         </nav>
       </header>
 
-      <main className="store-main">
+      <main className={`store-main${isCalc ? ' store-main--calc' : ''}`}>
         {legal !== null ? (
           <InfoPage kind={legal} onBack={closeLegal} />
         ) : (

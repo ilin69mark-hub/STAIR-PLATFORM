@@ -11,6 +11,7 @@ import (
 	"stairplatform/internal/application/project"
 	appstorage "stairplatform/internal/application/storage"
 	"stairplatform/internal/infrastructure/cad"
+	storageinfra "stairplatform/internal/infrastructure/storage"
 )
 
 // StorageService — прикладной интерфейс объектного хранилища (EDR-0026
@@ -47,7 +48,8 @@ func handleStoreExportCAD(projects ProjectService, svc StorageService) http.Hand
 		user := userID(ctx)
 		tenant := tenantID(ctx)
 
-		mesh, err := projects.ExportCAD(ctx, tenant, user, projectID)
+		// DOM-003: сохранённый в Storage экспорт тоже включает перила.
+		mesh, railings, err := projects.ExportCADWithRailings(ctx, tenant, user, projectID)
 		if errors.Is(err, project.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "Для проекта нет конфигурации")
 			return
@@ -57,17 +59,68 @@ func handleStoreExportCAD(projects ProjectService, svc StorageService) http.Hand
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
+		mesh = cad.Merge(mesh, railings)
 		var buf bytes.Buffer
 		if err := cad.Write(&buf, mesh, format); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Не удалось выполнить экспорт чертежа")
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Не удалось выполнить экспорт чертежа")
 			return
 		}
 		ref, err := svc.SaveExport(ctx, tenant, "cad", "project-"+projectID+format.Extension(), buf.Bytes(), format.MIME())
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
+			return
+		}
+		writeJSON(w, http.StatusCreated, exportRefDTO{Key: ref.Key, ContentType: ref.ContentType, Size: ref.Size})
+	}
+}
+
+// handleStoreExportCutting — POST /api/v1/projects/{id}/export/cutting/store
+// (auth, член проекта). Экспорт документа реза и сохранение в Storage
+// (EDR-0026 §3.5). 201 — сохранён; 403 — нет прав; 404 — нет
+// проекта/конфигурации; 422 — ошибка хранилища.
+//
+// Категория хранилища отдельная — "cutting", а не "cad": документ реза это не
+// картинка изделия, и лежать рядом с мешем ему нечем. Оператор на участке
+// ищет по категории то, что резать, а не то, что смотреть.
+func handleStoreExportCutting(projects ProjectService, svc StorageService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		projectID := r.PathValue("id")
+		ctx := r.Context()
+		user := userID(ctx)
+		tenant := tenantID(ctx)
+
+		pkg, err := projects.ExportCutting(ctx, tenant, user, projectID)
+		if errors.Is(err, project.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "Для проекта нет конфигурации")
+			return
+		}
+		if errors.Is(err, project.ErrForbidden) {
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
+			return
+		}
+		if err != nil {
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
+			return
+		}
+		var buf bytes.Buffer
+		if err := cad.WriteCutting(&buf, pkg); err != nil {
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Не удалось выполнить экспорт документа реза")
+			return
+		}
+		ref, err := svc.SaveExport(ctx, tenant, "cutting", "project-"+projectID+"-cutting.dxf", buf.Bytes(), cad.CuttingMIME())
+		if err != nil {
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusCreated, exportRefDTO{Key: ref.Key, ContentType: ref.ContentType, Size: ref.Size})
@@ -83,16 +136,27 @@ func handleGetObject(svc StorageService) http.HandlerFunc {
 		ctx := r.Context()
 		tenant := tenantID(ctx)
 
-		data, _, err := svc.Load(ctx, tenant, key)
+		data, contentType, err := svc.Load(ctx, tenant, key)
 		if err != nil {
-			if strings.HasPrefix(key, tenant+"/") {
+			// DOM-006 (2026-09-26): раньше ЛЮБАЯ ошибка хранилища (S3 500/403,
+			// таймаут, отказ прав ФС) отдавала 404 «объект не найден» и не
+			// логировалась — инцидент был неотличим от отсутствия объекта.
+			// Теперь 404 только для storage.ErrNotFound, сбои → 500 с логом.
+			if errors.Is(err, storageinfra.ErrNotFound) {
 				writeError(w, http.StatusNotFound, "not_found", "Объект не найден.")
 				return
 			}
-			writeError(w, http.StatusForbidden, "forbidden", "Объект вне области доступа.")
+			if !strings.HasPrefix(key, tenant+"/") {
+				writeError(w, http.StatusForbidden, "forbidden", "Объект вне области доступа.")
+				return
+			}
+			writeServiceError(w, r, err, "Не удалось получить объект из хранилища")
 			return
 		}
-		w.Header().Set("Content-Type", "application/octet-stream")
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		w.Header().Set("Content-Type", contentType)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.WriteHeader(http.StatusOK)
 		// G705: произвольные байты из object storage; octet-stream + nosniff
@@ -106,7 +170,7 @@ func handleGetObject(svc StorageService) http.HandlerFunc {
 // 404 — нет объекта.
 func handleDeleteObject(svc StorageService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionIntegrationsManage) {
+		if !hasCapability(r, auth.CapStorageDelete, auth.LevelAction) {
 			writeError(w, http.StatusForbidden, "forbidden", "Требуется право integrations.manage.")
 			return
 		}

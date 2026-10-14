@@ -2,13 +2,13 @@ package manufacturing
 
 import (
 	"fmt"
-	"math"
 	"runtime"
 
 	"golang.org/x/sync/errgroup"
 
 	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
+	enggeo "stairplatform/internal/engine/geometry"
 	kerngeo "stairplatform/internal/geometry"
 )
 
@@ -20,11 +20,6 @@ import (
 // Семантическая метка обязательна для повёрнутых маршей (L-образная
 // лестница), где ориентация тел зависит от марша. SolidIndex трассирует
 // деталь к телу модели (BC-007).
-//
-// Центральная колонна спиральной лестницы (role "column", EDR-0007)
-// обрабатывается особым образом: её диаметр превышает максимальную
-// толщину материалов каталога, поэтому деталь представляется развёрткой
-// цилиндра — толщиной косоура, длиной H и шириной 2πr (периметр).
 func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]dommfg.Part, error) {
 	if model == nil {
 		return nil, fmt.Errorf("manufacturing: model is required")
@@ -32,6 +27,47 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 	solids := model.Solids()
 	if len(solids) == 0 {
 		return nil, fmt.Errorf("manufacturing: model has no solids")
+	}
+
+	// Материал нужен ДО параллельного разбора: от него зависит, считается ли
+	// деталь как лист лазерного раскроя (metal) или как монолит (дерево).
+	//
+	// Порядок здесь важен. Материал обычно назначается ПОСЛЕ разбора, и даже
+	// выводится из толщины (assignMaterial по SupportsThickness) — но тогда
+	// круг замыкается: 40 мм подходит стали (2–60), сталь получает
+	// 40-миллиметровый «лист», и ступень обходится как стальной блок. Материал
+	// берём из конфигурации явно; если он не задан, откатываемся на тот же
+	// подбор по толщине, что и раньше, — поведение для таких конфигураций не
+	// меняется.
+	registry, err := DefaultMaterialRegistry()
+	if err != nil {
+		return nil, fmt.Errorf("manufacturing: default registry: %w", err)
+	}
+	// Рама (косоуры, колонна) идёт по материалу каркаса, ступени и
+	// подступенки — по материалу ступеней: тот же выбор, что и в engine.go.
+	// Если материал не задан, металлом считаем деталь по её модельной
+	// толщине: под неё и подбиралась толщина.
+	isMetal := func(role string, design float64) bool {
+		code := dommfg.MaterialCode(cfg.Material)
+		switch role {
+		case "tread", "landing", "winder", "riser":
+			code = dommfg.MaterialCode(cfg.TreadMaterial)
+		}
+		if code != "" {
+			if m, ok := registry.Find(code); ok {
+				return m.Category == "Steel"
+			}
+		}
+		// Материал не задан в конфигурации — подбираем его по толщине, как
+		// это делает engine.go при назначении Material деталям.
+		guess, err := assignMaterial(registry, design)
+		if err != nil {
+			return false
+		}
+		if m, ok := registry.Find(guess); ok {
+			return m.Category == "Steel"
+		}
+		return false
 	}
 
 	parts := make([]dommfg.Part, 0, len(solids))
@@ -44,6 +80,35 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 	type spec struct {
 		kind                     dommfg.PartKind
 		thickness, length, width float64
+		// cutPerimeter — длина лазерного реза детали: контур плюс отверстия
+		// (CutLengthMM считает её прямо по геометрии тела).
+		cutPerimeter float64
+		// holes — число отверстий в теле. Приходит из геометрии вместе с
+		// телом (Solid.Holes) и по одному отверстию даёт один комплект
+		// крепежа в смете (MNT-0001).
+		holes int
+		// profile — точный плоский контур детали (S-163). Пустой, если
+		// крышки тела не распознались: тогда деталь описывается
+		// прямоугольником, и это осознанный отказ от лучшего, а не недосмотр.
+		profile []dommfg.Point2D
+		// holeRings — контуры отверстий в координатах профиля детали.
+		// Имя с уточнением: выше есть holes (число отверстий, int), и путать
+		// количество с геометрией здесь нельзя — одно в смету, другое в рез.
+		holeRings [][]dommfg.Point2D
+		// where — куда ставится деталь («ступень 7», «косоур А»).
+		where string
+		// placement — положение детали в сборке. Берётся из ТОЙ ЖЕ рамки,
+		// что и профиль: одна рамка на оба значения, иначе контур на раскрое
+		// и деталь на сборочном чертеже встали бы в разные стороны.
+		placement dommfg.Placement
+		// pieces — сколько деталей выходит из одного тела: длинная
+		// пластина косоура режется на части со сварным стыком.
+		pieces int
+		// split — план разбиения: длина куска и суммарная длина заготовок с
+		// припуском на шипы. Нулевое значение, если деталь цельная.
+		split dommfg.SplitPlan
+		// role — роль тела в модели: по ней пишется «куда ставить» (Where).
+		role string
 	}
 	specs := make([]spec, len(solids))
 	limit := runtime.GOMAXPROCS(0)
@@ -61,12 +126,84 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 				bb.Max.Y - bb.Min.Y,
 				bb.Max.Z - bb.Min.Z,
 			}
-			var s spec
-			if solid.Role() == "column" {
-				// EDR-0007: развёртка колонны (толщина косоура, H×2πr).
-				s.kind, s.thickness, s.length, s.width = columnPart(cfg, ext)
-			} else {
+			s := spec{cutPerimeter: kerngeo.CutLengthMM(solid), holes: solid.Holes(), role: solid.Role()}
+			// Точный плоский контур детали (S-163). Берётся из крышек тела,
+			// как и CutLengthMM, и в тех же осях, что и габарит заготовки.
+			// Не нашлось — остаётся прямоугольник: выдуманный многоугольник
+			// хуже описывающего прямоугольника.
+
+			switch {
+			case solid.Role() == "stringer":
+				// Косоур — боковая пластина (металл) или пила (дерево):
+				// заготовка это габарит самой детали в осях раскроя,
+				// а не блок по габаритам марша.
+				s.kind = dommfg.PartStringer
+				s.thickness, s.length, s.width = stringerBlank(cfg, ext, solid)
+				s.pieces = 1
+			default:
 				s.kind, s.thickness, s.length, s.width = classify(ext, solid.Role())
+			}
+			// ЛИСТ лазерного раскроя для металла: модельная толщина —
+			// конструктивный габарит, а не толщина материала. Единое правило
+			// для всех металлических деталей: косоур, ступень, подступенок.
+			// Материал определяем ПОСЛЕ расчёта заготовки, подсказывая
+			// толщиной детали: если материал не задан в конфигурации, он и
+			// раньше выводился из толщины — пусть выводится из той же.
+			// Раньше 40-миллиметровая стальная ступень считалась как
+			// 40-миллиметровая стальная ступень, то есть 1,3 тонны только на
+			// проступи.
+			// Точный плоский контур детали (S-163), из крышек тела — в тех же
+			// осях, что и габарит заготовки.
+			//
+			// Проверка соответствия габаритов здесь НЕ нужна: у косоура тело
+			// охватывает весь марш (контур 4845 мм), а заготовка — одну
+			// пластину (2428 мм). Такие контуры отсекаются в buildBOM, в самой
+			// точке выхода в документ, где габариты позиции уже окончательные.
+			// Контур И отверстия одной операцией: они приводятся в одну
+			// систему координат, и раздельный вызов с разными сдвигами
+			// развёл бы отверстие по краю детали.
+			if prof, holes, ok := kerngeo.SolidProfileWithHoles2D(solid); ok {
+				s.profile = convertProfile(prof)
+				s.holeRings = convertHoles(holes)
+			}
+			// Положение детали в сборке. Берётся из той же профильной
+			// рамки, что и контур выше, — иначе «куда ставить» и «что
+			// вырезается» оказались бы в разных системах координат.
+			if pl, ok := kerngeo.SolidPlacement(solid); ok {
+				s.placement = convertPlacement(pl)
+				// «Куда» выводится из центра тела модели — того же тела, из
+				// которого взят контур. Поэтому строка и чертёж не расходятся:
+				// оба указывают на одну и ту же деталь в одном и том же месте.
+				s.where = whereLabel(cfg, s.role, dommfg.Vec3{
+					X: (bb.Min.X + bb.Max.X) / 2,
+					Y: (bb.Min.Y + bb.Max.Y) / 2,
+					Z: (bb.Min.Z + bb.Max.Z) / 2,
+				})
+			}
+
+			metal := isMetal(solid.Role(), s.thickness)
+			if metal {
+				s.thickness = laserPlateMM(s.thickness)
+			}
+			if s.pieces < 1 {
+				s.pieces = 1
+			}
+			// Разбиение на куски со сварным стыком — ПОСЛЕ того, как известна
+			// толщина ЛИСТА: и предел поля стола, и припуск на шип зависят от
+			// неё. Раньше предел брался из MaxHeightMm материала (6000 мм у
+			// стали), то есть деталь длиной до 6 м считалась цельной — но
+			// стол лазерной резки 3000×1500, и длиннее поля не режется.
+			//
+			// Режется ОБЕ оси: длинный косоур — вдоль длины, широкая деталь
+			// вроде развёртки обечайки — вдоль ширины.
+			//
+			// Дерево не делится: оно режется на другом станке.
+			if metal {
+				plan := dommfg.SplitToField(s.length, s.width, s.thickness)
+				if plan.HasJoints {
+					s.pieces = plan.Pieces
+					s.split = plan
+				}
 			}
 			specs[i] = s
 			return nil
@@ -77,69 +214,360 @@ func decompose(cfg *engineering.StairConfiguration, model *kerngeo.Compound) ([]
 	}
 
 	for i, s := range specs {
-		seq[s.kind]++
-
 		mk := func(v float64) (engineering.Length, error) {
 			return engineering.NewLength(v)
 		}
-		thick, err := mk(s.thickness)
-		if err != nil {
-			return nil, fmt.Errorf("manufacturing: part %d: %w", i, err)
+		for k := 0; k < s.pieces; k++ {
+			seq[s.kind]++
+			// Длинная пластина режется на равные куски: каждый влезает в поле
+			// лазерного стола, сварной стык — на объекте.
+			pieceLength := s.length
+			if s.pieces > 1 && s.split.PieceLengthMM > 0 {
+				pieceLength = s.split.PieceLengthMM
+			}
+			thick, err := mk(s.thickness)
+			if err != nil {
+				return nil, fmt.Errorf("manufacturing: part %d: %w", i, err)
+			}
+			lng, err := mk(pieceLength)
+			if err != nil {
+				return nil, fmt.Errorf("manufacturing: part %d: %w", i, err)
+			}
+			pieceWidth := s.width
+			if s.pieces > 1 && s.split.PieceWidthMM > 0 {
+				pieceWidth = s.split.PieceWidthMM
+			}
+			wid, err := mk(pieceWidth)
+			if err != nil {
+				return nil, fmt.Errorf("manufacturing: part %d: %w", i, err)
+			}
+			// Длина реза куска: контур детали плюс контур СВАРНОГО СТЫКА.
+			// Стык добавляет работу: выемка-паз режется по периметру, шип —
+			// по трём сторонам. Раньше при делении на куски контур просто
+			// делился, и лазерное время на стыке не учитывалось вовсе.
+			cut := s.cutPerimeter
+			if s.pieces > 1 {
+				cut = s.cutPerimeter + jointCutMM(s.thickness)
+			}
+			// Отверстия достаются первому куску: отверстия есть только у
+			// пяток обоймы выреза, а это плоские детали 50×270 мм, которые
+			// никогда не режутся на куски со сварным стыком. Поле остаётся
+			// верным и для будущих деталей с отверстиями, если разбиение
+			// придётся распространить и на них: сумма по кускам остаётся
+			// равной числу отверстий детали.
+			holes := 0
+			if k == 0 {
+				holes = s.holes
+			}
+			// Место с номером куска: разрезанная на части деталь ставит
+			// несколько наклеек с одним префиксом, и без номера куска две
+			// наклейки «косоур А» неотличимы. Куски ставятся подряд снизу
+			// вверх (JointIndex растёт вдоль сборки), и номер куска в строке
+			// читается как порядок: «кусок 1 из 2» — нижний.
+			where := s.where
+			if s.pieces > 1 {
+				where += fmt.Sprintf(", кусок %d из %d", k+1, s.pieces)
+			}
+			parts = append(parts, dommfg.Part{
+				Number:         partNumber(s.kind, seq[s.kind]),
+				Kind:           s.kind,
+				Thickness:      thick,
+				Length:         lng,
+				Width:          wid,
+				SolidIndex:     i,
+				CutPerimeterMM: cut,
+				Profile:        s.profile,
+				HoleCount:      holes,
+				JointIndex:     k,
+				JointCount:     s.pieces,
+				Where:          where,
+				// Стык «шип-паз»: паз выпиливается в куске, который стоит
+				// НИЖЕ по сборке, шип приваривается к куску выше. Крайние
+				// куски несут по одному признаку, внутренние — оба.
+				HasMortise:   s.pieces > 1,
+				HasTongue:    s.pieces > 1 && k > 0,
+				JointOnWidth: s.pieces > 1 && s.split.PiecesAlongWidth > 1,
+				Placement:    s.placement,
+				Holes:        s.holeRings,
+			})
 		}
-		lng, err := mk(s.length)
-		if err != nil {
-			return nil, fmt.Errorf("manufacturing: part %d: %w", i, err)
-		}
-		wid, err := mk(s.width)
-		if err != nil {
-			return nil, fmt.Errorf("manufacturing: part %d: %w", i, err)
-		}
-		parts = append(parts, dommfg.Part{
-			Number:     partNumber(s.kind, seq[s.kind]),
-			Kind:       s.kind,
-			Thickness:  thick,
-			Length:     lng,
-			Width:      wid,
-			SolidIndex: i,
-		})
 	}
 	return parts, nil
 }
 
-// columnPart вычисляет габариты развёртки центральной колонны спиральной
-// лестницы (EDR-0007): толщина — толщина косоура t, длина — высота подъёма
-// H (из bbox: тонкая ось колонны — диаметр, большая — высота), ширина —
-// периметр 2πr, где r — радиус колонны (R − W). Длина ≥ ширина инвариант
-// Part сохраняется: периметр развёртки не превышает высоты для разумных
-// радиусов; если это не так, длина/ширина нормализуются.
-func columnPart(cfg *engineering.StairConfiguration, ext [3]float64) (dommfg.PartKind, float64, float64, float64) {
-	t := cfg.StringerThickness.Millimeters()
-	if t <= 0 {
-		t = 30 // безопасный минимум косоура (GEO-STRINGER-THICKNESS)
+// Лазерный раскрой металла: диапазон толщины листа 3–12 мм, тот же, что в
+// каталоге STEEL-C245 (MinThickness 3, MaxThickness engineering.PlateMaxThicknessMM).
+//
+// Верхняя граница именно 12 мм, а не 8: норматив на листовой косоур
+// (решение владельца 2026-10-05) содержит строки 8 / 10 / 12 мм, и заготовка
+// толщиной 10 или 12 мм изготовляется из листа своей толщины. Со сжатием до
+// 8 мм такой косоур тарифицировался бы как более тонкий.
+const (
+	laserPlateMinMM = 3.0
+	laserPlateMaxMM = engineering.PlateMaxThicknessMM
+)
+
+// jointCutMM — дополнительная длина лазерного реза на сварной стык
+// «шип-паз» (шпатка технолога 2026-10-05), мм.
+//
+// Считается по геометрии шва:
+//   - ПАЗ — выемка на торце, режется по периметру: две боковые стенки на всю
+//     глубину плюс дно. Это самый дорогой участок: лазер уходит в толщину
+//     листа на длине глубины.
+//   - ШИП — выступ на торце, режется по трём сторонам (в корне он не
+//     отрезается, там сварной шов).
+//
+// Кромки разделаны на 45° с притуплением, но это фрезеровка/шлифовка, а не
+// рез: в тариф она пойдёт вместе с каталогом работ позже.
+func jointCutMM(thicknessMM float64) float64 {
+	j := dommfg.JointSpecFor(thicknessMM)
+	// Паз: две стенки (ширина × глубина) + дно (ширина).
+	paz := 2*j.SlotDepthMM + j.SlotWidthMM
+	// Шип: две боковые стороны (длина × толщина) + торец (ширина × толщина).
+	ship := 2 * (j.TongueLengthMM + j.TongueWidthMM) * thicknessMM
+	return paz + ship
+}
+
+// laserPlateMM приводит модельную толщину детали к толщине ЛИСТА для
+// лазерного раскроя металла.
+//
+// Зачем. В модели толщина детали — это КОНСТРУКТИВНЫЙ габарит, а не толщина
+// материала: у стального косоура StringerThickness = 50 мм означает ширину
+// сечения, а не 50 мм листа. Если такую цифру отдать в расход материала,
+// деталь обходится как стальной блок 50 мм толщиной — и цена металла
+// взлетает на порядки (см. TestSteelMassIsPlateNotBlock).
+//
+// Для металла берётся та же величина, но ограниченная диапазоном выпуска
+// листа: пользовательские 3 мм остаются 3 мм, штатные 6 мм остаются 6 мм, а
+// конструктивные 50 мм схлопываются в 12 мм — верх выпуска, чтобы цена не
+// оказалась занижена. Для неметаллических материалов функция не вызывается:
+// доска/плита пилится по всей толщине, там модельная толщина и есть толщина
+// материала.
+func laserPlateMM(design float64) float64 {
+	switch {
+	case design < laserPlateMinMM:
+		return laserPlateMinMM
+	case design > laserPlateMaxMM:
+		return laserPlateMaxMM
+	default:
+		return design
 	}
-	h := ext[2] // высота колонны = H
-	r := cfg.OuterRadius.Millimeters() - cfg.Width.Millimeters()
-	circ := 2 * math.Pi * r
-	length, width := h, circ
+}
+
+// convertProfile переводит контур ядра в доменный тип: слой домена не зависит
+// от internal/geometry (ADR-0006), поэтому типы не общие.
+func convertProfile(p []kerngeo.Point2D) []dommfg.Point2D {
+	out := make([]dommfg.Point2D, 0, len(p))
+	for _, v := range p {
+		out = append(out, dommfg.Point2D{X: v.X, Y: v.Y})
+	}
+	return out
+}
+
+// convertPlacement переносит положение детали из геометрического ядра в
+// домен. Known ставится true: вызывающий зовёт эту функцию только когда
+// рамка построилась, а Known = false означал бы «деталь неизвестно где».
+func convertHoles(in [][]kerngeo.Point2D) [][]dommfg.Point2D {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([][]dommfg.Point2D, 0, len(in))
+	for _, ring := range in {
+		c := make([]dommfg.Point2D, 0, len(ring))
+		for _, v := range ring {
+			c = append(c, dommfg.Point2D{X: v.X, Y: v.Y})
+		}
+		if len(c) >= 3 {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// whereLabel — человеческое место детали в сборке: «ступень 7»,
+// «косоур А», «пол, сторона Б».
+//
+// Выводится из ЦЕНТРА тела модели — того же тела, из которого взяты контур
+// и положение. Поэтому строка, чертёж и положение не расходятся: все три
+// указывают на одну деталь.
+//
+// Номер ступени считается по ВЫСОТЕ, а не по горизонтали. Центр ступени k
+// стоит на высоте (k+1)·h − st (builder.go: построение проступей), и высота
+// однозначна: ступени строго друг над другом. Горизонталь для этого не
+// годится — начало марша по X съезжает (подход, позиция в помещении), и
+// формула «ступень = X / проступь» из детали 1 делает деталь 4. Это уже
+// случалось при отладке.
+//
+// Сторона — по половине ширины марша: деталь у нулевой координаты —
+// сторона «А», у дальней грани — «Б».
+//
+// Формулы привязаны к соглашениям геометрии прямого марша (построение по
+// высоте и ширине из конфигурации), поэтому для Г/П-маршей и площадок строки
+// получаются грубыми, но не пустыми: лучше грубое «куда», чем пропуск.
+func whereLabel(cfg *engineering.StairConfiguration, role string, center dommfg.Vec3) string {
+	w := cfg.Width.Millimeters()
+	side := "А"
+	if w > 0 && center.Y*2 >= w {
+		side = "Б"
+	}
+	h := cfg.StepHeight.Millimeters()
+	st := cfg.StepThickness.Millimeters()
+	step := 0
+	if h > 0 && center.Z >= 0 {
+		step = int((center.Z+st)/h + 0.5)
+		if step < 1 {
+			step = 1
+		}
+		if step > cfg.StepCount {
+			step = cfg.StepCount
+		}
+	}
+	switch role {
+	case "tread", "riser", "web":
+		return fmt.Sprintf("ступень %d", step)
+	case "landing":
+		return "площадка"
+	case "heel":
+		return fmt.Sprintf("ступень %d, сторона %s", step, side)
+	case "first_web":
+		return fmt.Sprintf("ступень 1, сторона %s", side)
+	case "anchor":
+		return fmt.Sprintf("пол, сторона %s", side)
+	case "top_anchor":
+		return fmt.Sprintf("перекрытие, сторона %s", side)
+	case "stringer":
+		return fmt.Sprintf("косоур %s", side)
+	}
+	return role
+}
+
+func convertPlacement(p kerngeo.Placement) dommfg.Placement {
+	return dommfg.Placement{
+		Origin: dommfg.Vec3{X: p.Origin.X, Y: p.Origin.Y, Z: p.Origin.Z},
+		U:      dommfg.Vec3{X: p.U.X, Y: p.U.Y, Z: p.U.Z},
+		V:      dommfg.Vec3{X: p.V.X, Y: p.V.Y, Z: p.V.Z},
+		N:      dommfg.Vec3{X: p.N.X, Y: p.N.Y, Z: p.N.Z},
+		Known:  true,
+	}
+}
+
+// stringerBlank возвращает габариты ЗАГОТОВКИ косоура.
+//
+// Косоур — пилообразная пластина. Её bbox по высоте равен высоте марша
+// (например 2660 мм), но материала в заготовке столько не нужно: пила
+// распиливает полосу, и зубья треугольниками уходят в обрез. Развёртка
+// пластины — длинная полоса шириной в ШАГ СТУПЕНИ, поэтому заготовка это
+// длина марша × высота ступени, а не длина × высота марша.
+//
+// Раньше здесь брался bbox целиком: для прямого марша 16 ступеней это
+// давало заготовку 4050×2660×50 мм на косоур, то есть 1,08 м³ и 8,5 тонны
+// стали на марш при ставке 100 ₽/кг. Цена лестницы расходилась с ценой
+// цельного дуба в 9,4 раза, и витрина по умолчанию (стальной каркас)
+// показывала завышенную в десять раз сумму.
+// stringerBlank возвращает толщину листа, длину и ширину заготовки косоура и
+// число кусков: длинная пластина режется на части со сварным стыком, потому
+// что одна деталь длиннее предела материала не проходит MFG-0012.
+// pieces не возвращается: тело косоура режется на одну деталь, это было
+// единственное значение, которое функция когда-либо отдавала.
+func stringerBlank(cfg *engineering.StairConfiguration, ext [3]float64, solid *kerngeo.Solid) (thickness, length, width float64) {
+	// Тонкая ось — это ширина сечения косоура в плане; по ней и определяем
+	// «длину марша»: у прямого и L-образного марша ось подъёма может быть
+	// любой из двух горизонтальных.
+	thin, run := ext[1], ext[0]
+	if ext[0] < ext[1] {
+		thin, run = ext[0], ext[1]
+	}
+	// Толщина листа для металла ставится общим правилом ниже (у всех
+	// металлических деталей одинаково), здесь — модельная толщина секции.
+	thickness = thin
+	// Ширина заготовки. Два случая:
+	//
+	// 	• Пластина (металлокаркас): сбоку это глухая стенка, а не пила, и
+	//      развёртка — габарит самой пластины в осях «вдоль склона» и
+	//      «по нормали». Длина и ширина берутся из ТОГО ЖЕ профиля, что и
+	//      геометрия (geometry.PlateBlankMM), поэтому деталь в раскрое
+	//      совпадает с телом в меше. Раньше здесь стоял горизонтальный
+	//      габарит марша (run) и «глубина + толщина» — для марша
+	//      4480×2800 это было 4480×308 против фактических 5024×300, то
+	//      есть деталь короче геометрии на 544 мм; объём в цене считался
+	//      по ней, и CAD-деталь не совпадала с моделью.
+	// 	• Гребёнка (дерево): полоса шириной в шаг ступени — зубья уходят в
+	//      обрез, как и раньше.
+	//
+	// Толщина листа в ширину заготовки НЕ входит: у плоской детали толщина
+	// и есть толщина листа, а прибавка «глубина + толщина» раздувала
+	// заготовку на лишние миллиметры по всей длине.
+	if enggeo.PlateStringerFrame(cfg) {
+		thickness = thin
+		// Габарит заготовки — из САМОГО тела: длина вдоль длиннейшего
+		// ребра (посадочной линии) и ширина по нормали к нему (глубина
+		// пластины). Так одна и та же формула работает и для прямого
+		// марша, и для сегментов Г- и П-образных лестниц, у которых
+		// сегментные параметры отличаются от общих по конфигурации.
+		//
+		// Раньше здесь стоял горизонтальный габарит марша (run) и
+		// «глубина + толщина»: для марша 4480×2800 выходило 4480×308
+		// против фактических 5024×300 — деталь короче геометрии на 544 мм
+		// и шире её на 8 мм, объём в цене считался по ней, и CAD-деталь
+		// не совпадала с моделью.
+		length, width = plateBlankOf(solid)
+		if length <= 0 || width <= 0 {
+			// Вырожденная конфигурация (тесты, пустой марш) — прежнее
+			// поведение, чтобы не получить нулевую площадь детали.
+			length, width = run, enggeo.StringerPlateDepthMM
+		}
+		if width > length {
+			length, width = width, length
+		}
+		// Разбиение решается позже, когда известна толщина ЛИСТА: предел поля
+		// стола и припуск на шип зависят от неё (см. SplitToField).
+		return thickness, length, width
+	}
+	width = cfg.StepHeight.Millimeters()
+	if width <= 0 {
+		// Шаг не задан (тестовая/вырожденная конфигурация) — берём высоту
+		// марша, то есть прежнее поведение, чтобы не получить нулевую
+		// площадь детали.
+		width = ext[2]
+	}
+	length = run
 	if width > length {
 		length, width = width, length
 	}
-	return dommfg.PartColumn, t, length, width
+	return thickness, length, width
 }
 
+// plateBlankOf — габарит заготовки боковой пластины по её телу.
+func plateBlankOf(solid *kerngeo.Solid) (length, width float64) {
+	if solid == nil {
+		return 0, 0
+	}
+	return kerngeo.SolidPlateBlank(solid)
+}
+
+// defaultSteelCode — сталь по умолчанию: ею заполняется каркас, когда
 // roleKind сопоставляет семантическую метку тела типу детали.
-// Площадка (landing) — горизонтальная плита, обрабатывается как проступь
-// (PartTread), но получает уникальный номер (TRD).
+// Площадка (landing) — горизонтальная плита со своим видом (PartLanding,
+// S-204): раньше сводилась к проступи, и в спецификации их было
+// не различить. Номер — свой (LND).
 func roleKind(role string) (dommfg.PartKind, bool) {
 	switch role {
 	case "stringer":
 		return dommfg.PartStringer, true
-	case "tread", "landing", "winder":
+	case "tread", "winder":
 		return dommfg.PartTread, true
+	case "landing":
+		return dommfg.PartLanding, true
 	case "riser":
 		return dommfg.PartRiser, true
-	case "column":
-		return dommfg.PartColumn, true
+	case "heel":
+		return dommfg.PartHeel, true
+	case "web":
+		return dommfg.PartWeb, true
+	case "anchor", "top_anchor":
+		return dommfg.PartAnchor, true
+	case "first_web":
+		return dommfg.PartFirstWeb, true
 	default:
 		return "", false
 	}
@@ -197,10 +625,35 @@ func partNumber(kind dommfg.PartKind, seq int) dommfg.PartNumber {
 		prefix = "STR"
 	case dommfg.PartTread:
 		prefix = "TRD"
+	case dommfg.PartLanding:
+		prefix = "LND"
 	case dommfg.PartRiser:
 		prefix = "RSR"
-	case dommfg.PartColumn:
-		prefix = "CLM"
+	case dommfg.PartHeel:
+		prefix = "HLT"
+	case dommfg.PartWeb:
+		prefix = "WEB"
+	case dommfg.PartAnchor:
+		prefix = "ANC"
+	case dommfg.PartFirstWeb:
+		prefix = "FPW"
+	// ---- Ограждение (покупные позиции) ----
+	case dommfg.PartRailTop:
+		prefix = "RAL"
+	case dommfg.PartPost:
+		prefix = "PST"
+	case dommfg.PartRigel:
+		prefix = "RGL"
+	case dommfg.PartTip:
+		prefix = "TIP"
+	case dommfg.PartFlange:
+		prefix = "FLG"
+	case dommfg.PartSlip:
+		prefix = "SLP"
+	case dommfg.PartDeco:
+		prefix = "DEC"
+	case dommfg.PartEndCap:
+		prefix = "ENC"
 	}
 	return dommfg.PartNumber(fmt.Sprintf("%s-%02d", prefix, seq))
 }

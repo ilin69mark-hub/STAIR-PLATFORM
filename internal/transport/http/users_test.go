@@ -13,6 +13,7 @@ import (
 
 // roleErrAuth — admin-аутентификация с управляемой ошибкой UpdateUser.
 type roleErrAuth struct {
+	grantStubs
 	adminAuth
 	updateErr error
 }
@@ -126,4 +127,14 @@ func TestUpdateUserRoleInternalError(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
 	}
+}
+
+// EffectiveGrants отдаёт шаблон роли — ровно то поведение, которое было до
+// перехода на точечные выдачи. Так тесты на отказ по правам остаются
+// осмысленными: у admin все метрики, у user — ни одной.
+func (f roleErrAuth) EffectiveGrants(_ context.Context, u *auth.User) (*auth.GrantSet, error) {
+	if u == nil {
+		return auth.RoleTemplate(auth.RoleUser), nil
+	}
+	return auth.RoleTemplate(u.Role), nil
 }

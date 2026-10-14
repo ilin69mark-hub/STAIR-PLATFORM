@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/order"
 	"stairplatform/internal/application/stair"
 )
@@ -145,6 +146,7 @@ func TestCreateConsultationPublic(t *testing.T) {
 	body := `{"contact":{"name":"Мария","email":"m@ex.ru","phone":"+7 000 000-00-00"},` +
 		`"question":"Сколько стоит лестница на 3 метра?"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/orders", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -171,6 +173,7 @@ func TestCreateConsultationMissingQuestion(t *testing.T) {
 	router := ordersRouter(fake)
 	body := `{"contact":{"name":"М","email":"m@ex.ru"},"question":"   "}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/orders", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -269,9 +272,13 @@ func TestAdminUpdateOrderStatusInvalid(t *testing.T) {
 
 func TestAdminOrdersRequireAdmin(t *testing.T) {
 	fake := &fakeOrderService{}
-	// Обычный пользователь (testAuth, role=user) не видит admin-список и
-	// не меняет статусы заказов.
-	userRouter := ordersRouter(fake)
+	// Сотрудник, которому не выдана метрика «Заказы и продажи»: ни список,
+	// ни смена статуса. Раньше для этого хватало роли user, но теперь роль
+	// manager в шаблоне включает заказы на чтение — поэтому проверяем именно
+	// отсутствие выдачи.
+	cfg := DefaultConfig()
+	cfg.Orders = fake
+	userRouter := NewRouter(stair.NewService(), nil, noGrantsAuth{}, cfg)
 	for _, tc := range []struct {
 		method, path, body string
 	}{
@@ -398,6 +405,7 @@ func TestCreateConsultationInvalidJSON(t *testing.T) {
 	fake := &fakeOrderService{}
 	router := ordersRouter(fake)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/orders", strings.NewReader("NOT-JSON"))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -411,6 +419,7 @@ func TestCreateConsultationTenantError(t *testing.T) {
 	router := ordersPublicRouterWithTenant(fake, failingTenantAuth{})
 	body := `{"contact":{"name":"М","email":"m@ex.ru"},"question":"Какой срок?"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/orders", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -424,10 +433,30 @@ func TestCreateConsultationServiceError(t *testing.T) {
 	router := ordersRouter(fake)
 	body := `{"contact":{"name":"М","email":"m@ex.ru"},"question":"Какой срок?"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/orders", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
 	}
+}
+
+// noGrantsAuth — сотрудник без единой выданной метрики. Моделирует человека,
+// которому владелец ничего не выдал: он есть в системе, но не видит ничего.
+type noGrantsAuth struct{ testAuth }
+
+func (noGrantsAuth) Authenticate(ctx context.Context, token string) (*auth.User, string, error) {
+	if token == "" {
+		return nil, "", auth.ErrSessionExpired
+	}
+	return &auth.User{
+		ID: "u-none", Email: "none@example.com",
+		Role: auth.RoleUser, TenantID: "t-1",
+		GrantsInitialized: true,
+	}, "", nil
+}
+
+func (f noGrantsAuth) EffectiveGrants(_ context.Context, _ *auth.User) (*auth.GrantSet, error) {
+	return auth.NewGrantSet(), nil
 }

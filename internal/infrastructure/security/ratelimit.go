@@ -29,6 +29,25 @@ var (
 
 	// ActiveKeys — количество уникальных ключей в rate limiter.
 	ActiveKeys = RateLimitRegistry.Gauge("rate_limit_active_keys", "Unique keys in rate limiter")
+
+	// RateLimitFailOpen — fail-open распределённого лимитера: Redis
+	// недоступен, запрос пропущен без проверки (S-141 №5, CWE-307).
+	// Fail-open оставлен осознанно (инвариант EDR-0014 §4.2: лимитер не
+	// должен ронять аутентификацию), но теперь виден в метриках+алертах.
+	// reason: redis_unavailable.
+	RateLimitFailOpen = RateLimitRegistry.Counter(
+		"rate_limit_fail_open_total",
+		"Total rate limiter fail-open allows",
+		"reason",
+	)
+
+	// RateLimitExpireCleanup — ключи, удалённые после сбоя EXPIRE (S-141
+	// №5, CWE-399): ключ без TTL давал бы вечный 429 для IP — удаляем,
+	// окно начинается заново следующим запросом.
+	RateLimitExpireCleanup = RateLimitRegistry.Counter(
+		"rate_limit_expire_cleanup_total",
+		"Total rate limit keys deleted after EXPIRE failure",
+	)
 )
 
 // RateLimiter — in-memory rate limiter с sliding window и метриками.

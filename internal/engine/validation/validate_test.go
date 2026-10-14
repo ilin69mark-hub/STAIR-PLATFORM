@@ -160,6 +160,8 @@ func TestValidateInactiveVersionSkipped(t *testing.T) {
 		Severity: constraint.SeverityError,
 		Range:    constraint.Range{Min: 150, Max: 200, HasMin: true, HasMax: true, Tolerance: 0.1},
 		Message:  "step height 150-200", Fix: "fix",
+		// S-235: правилу обязательно объяснять, откуда число.
+		Source: &constraint.Source{Doc: "тест", Basis: constraint.BasisErgonomics},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -168,6 +170,7 @@ func TestValidateInactiveVersionSkipped(t *testing.T) {
 		Severity: constraint.SeverityError,
 		Range:    constraint.Range{Min: 150, Max: 160, HasMin: true, HasMax: true, Tolerance: 0.1},
 		Message:  "step height 150-160", Fix: "fix",
+		Source: &constraint.Source{Doc: "тест", Basis: constraint.BasisErgonomics},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -208,5 +211,36 @@ func TestValidateAdviceFilled(t *testing.T) {
 	}
 	if !strings.Contains(cl.Guide, "1500") {
 		t.Errorf("Guide должен содержать значение {value}=1500: %q", cl.Guide)
+	}
+}
+
+// Толщина косоура — норматив зависит от материала: лист 3–8 мм у металлокаркаса
+// и 30–60 мм у пиломатериала. Раньше правило было одно (30 мм), и на
+// стальном изделии с листом 8 мм покупатель видел ложное «нужно не менее
+// 30 мм».
+func TestStringerThicknessNormDependsOnMaterial(t *testing.T) {
+	set := constraint.StandardProfile("standard")
+
+	sheet := validConfig(t)
+	sheet.Material = "STEEL-C245"
+	sheet.StringerThickness = mustLength(t, 8)
+	if res := Validate(sheet, set); len(res.Issues) != 0 {
+		t.Fatalf("стальной лист 8 мм должен проходить без замечаний, получено %+v", res.Issues)
+	}
+
+	timber := validConfig(t)
+	timber.Material = "WOOD-OAK"
+	timber.StringerThickness = mustLength(t, 50)
+	if res := Validate(timber, set); len(res.Issues) != 0 {
+		t.Fatalf("дуб 50 мм должен проходить без замечаний, получено %+v", res.Issues)
+	}
+
+	// Лист 50 мм у стали — как раз то, чего не бывает.
+	thick := validConfig(t)
+	thick.Material = "STEEL-C245"
+	thick.StringerThickness = mustLength(t, 50)
+	res := Validate(thick, set)
+	if len(res.Issues) != 1 || res.Issues[0].Code != constraint.GEO_STRINGER_THICKNESS_SHEET {
+		t.Fatalf("стальной лист 50 мм должен ругаться листовым диапазоном, получено %+v", res.Issues)
 	}
 }

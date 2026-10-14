@@ -30,3 +30,33 @@ data:
   {{- if .Values.debug.logging }}
   STAIR_DEBUG_LOGGING: "true"
   {{- end }}
+  {{- /* INF (2026-09-26): лимиты запросов и доверенные прокси не попадали в
+       ConfigMap вообще. Последствия: за ingress-nginx заголовок X-Forwarded-For
+       не доверялся, поэтому ВСЕ запросы ключевались по IP ingress-пода и
+       login-эндпоинт (10/мин) отдавал 429 всему кластеру. Кроме того,
+       оператор не мог поднять лимиты без правки шаблона. */}}
+  {{- with .Values.rateLimits }}
+  STAIR_LOGIN_RATE_LIMIT: {{ .login | quote }}
+  STAIR_REGISTER_RATE_LIMIT: {{ .register | quote }}
+  STAIR_QUOTE_RATE_LIMIT: {{ .quote | quote }}
+  STAIR_VALIDATE_RATE_LIMIT: {{ .validate | quote }}
+  STAIR_AUTH_RATE_LIMIT: {{ .auth | default 0 | quote }}
+  STAIR_SSO_RATE_LIMIT: {{ .sso | default 0 | quote }}
+  {{- end }}
+  {{- with .Values.trustedProxies }}
+  STAIR_TRUSTED_PROXIES: {{ join "," . | quote }}
+  {{- end }}
+  {{- /* OIDC: ключи в values были мёртвой конфигурацией — ConfigMap их не
+       рендерил, а имена не совпадали с читаемым кодом (STAIR_SSO_ISSUER). */}}
+  {{- with .Values.sso }}
+  {{- if .issuerUrl }}
+  STAIR_SSO_ISSUER: {{ .issuerUrl | quote }}
+  {{- end }}
+  {{- if .clientId }}
+  STAIR_SSO_CLIENT_ID: {{ .clientId | quote }}
+  {{- end }}
+  {{- /* INF-12 (forensic 2026-09-27): clientSecret сюда НЕ кладём. OAuth-секрет
+       в ConfigMap — это его чтение любым, у кого есть право `get configmaps`
+       в namespace, и открытым текстом в kubectl describe. В том же релизе
+       рядом создаётся настоящий Secret; секрет переехал туда. */}}
+  {{- end }}

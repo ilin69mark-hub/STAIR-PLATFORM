@@ -11,6 +11,7 @@ type SecurityConfig struct {
 	// AllowedOrigins — список разрешенных origins для CORS.
 	AllowedOrigins []string
 	// EnableHSTS — включить HSTS.
+	// AUDIT-EXCEPTION(E10): в проде включает человек, см. docs/SECURITY_EXCEPTIONS.yml
 	EnableHSTS bool
 	// CSPPolicy — Content Security Policy policy string.
 	CSPPolicy string

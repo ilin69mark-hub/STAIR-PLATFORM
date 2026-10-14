@@ -5,7 +5,45 @@ replicaCount: 2
 # Background worker (separate Deployment; same image, /bin/worker entrypoint)
 worker:
   replicaCount: 1
-  resources:
+  # INF-10 (forensic 2026-09-27): resources для воркера. До этого ключа не
+  # было вовсе, а шаблон подставлял `null` из-за того, что `toYaml nil`
+  # возвращает непустую строку "null" и `default` не срабатывал. Воркер
+  # оказывался BestEffort без limits — первым вытеснялся при давлении на ноду.
+  #
+  # Если оставить пустым, применяются общие `resources` ниже (поведение,
+  # ожидаемое от шаблона). Задавать имеет смысл отдельно: воркер держит
+  # конвейер расчёта в памяти, и его профиль нагрузки отличается от api.
+  resources: {}
+  # resources:
+  #   limits:
+  #     cpu: 1000m
+  #     memory: 1Gi
+  #   requests:
+  #     cpu: 250m
+  #     memory: 256Mi
+# NetworkPolicy (S-149, S-141 №12, CIS Benchmark 5.3): сегментация трафика.
+# По умолчанию ВЫКЛЮЧЕНА: корректные CIDR знает только оператор среды, а
+# default-deny с пустыми CIDR сломает прод на первом upgrade. Включение:
+# staging (helm template --set networkPolicy.enabled=true ... → сверка) → прод.
+# При enabled databaseCIDRs/redisCIDRs ОБЯЗАТЕЛЬНЫ (fail-fast в шаблоне).
+networkPolicy:
+  enabled: false
+  # CIDR ingress-контроллера/LB, которым разрешён вход на :service.port
+  # (пример: pod-CIDR кластера "10.42.0.0/16").
+  ingressCIDRs: []
+  # CIDR внешней PostgreSQL (RDS/Cloud SQL), порт databasePort.
+  databaseCIDRs: []
+  databasePort: 5432
+  # CIDR внешнего Redis (ElastiCache/Memorystore), порт redisPort.
+  redisCIDRs: []
+  redisPort: 6379
+  # HTTPS наружу (Stripe API + OpenRouter). Выключать только если внешний
+  # PSP/LLM не используется.
+  egressInternet: true
+  # Дополнительные egress-CIDR (мониторинг, SMTP и т.п.).
+  extraEgressCIDRs: []
+
+resources:
     limits:
       cpu: 500m
       memory: 512Mi
@@ -129,6 +167,16 @@ redis:
 # --set secretsKey=... или values-файл.
 secretsKey: ""
 
+# Воронка витрины (миграция 000035).
+funnel:
+  # Соль HMAC для псевдонима посетителя: по ней отчёт считает УНИКАЛЬНЫХ
+  # посетителей (COUNT DISTINCT по хешу ip+ua). Соль обязательна в проде:
+  # без неё api пишет предупреждение в лог, а панель показывает, что
+  # посетителей посчитать нечем. Значение — секрет, в репозитории его быть
+  # не должно: по известной соли хеш посетителя перебирается.
+  # Generate: openssl rand -hex 32
+  visitorSalt: ""
+
 # Webhook SSRF allowlist (S1-1): хосты, которым разрешено резолвиться в
 # private/loopback (внутренние сервисы). Пустая строка = блок по умолчанию.
 webhookAllowHosts: ""
@@ -160,8 +208,44 @@ monitoring:
     #   release: kube-prometheus-stack
 
 # Debug (NEVER enable in production)
+# Сколько ждать завершения graceful shutdown (WS-комнаты, S-121).
+terminationGracePeriodSeconds: 45
+
+# Раскладка реплик API по узлам: без этого обе реплики могут сесть на один
+# узел, и дренаж убирает весь API одновременно.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: stair-platform
+        app.kubernetes.io/component: api
+
 debug:
   logging: false
+
+# Лимиты запросов (INF, 2026-09-26): до правки не рендерились в ConfigMap,
+# поэтому оператор не мог их поднять, а за ingress-nginx все запросы
+# ключевались по IP пода (см. configmap.yaml и middleware_auth.go).
+rateLimits:
+  login: 10
+  register: 5
+  quote: 30
+  validate: 120
+  auth: 120
+  sso: 30
+
+# Доверенные прокси (CIDR ingress-контроллера/LB). Пусто = не доверять
+# заголовкам X-Forwarded-* (rate-limit ключуется по IP соединения).
+trustedProxies: []
+
+# SSO (OIDC). До правки блок был мёртвой конфигурацией: ConfigMap не
+# рендерил эти значения, а имена не совпадали с читаемым кодом.
+sso:
+  issuerUrl: ""
+  clientId: ""
+  clientSecret: ""
   pprofEnabled: false
 
 # Payments

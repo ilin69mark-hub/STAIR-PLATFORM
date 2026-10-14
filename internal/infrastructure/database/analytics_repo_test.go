@@ -344,7 +344,7 @@ func TestProjectTotalsIsolation(t *testing.T) {
 }
 
 // mfgSnapshot строит снапшот с производственным пакетом: 2 детали
-// STEEL-S235 (тред + стрингер), BOM на 2 строки, карта раскроя и
+// STEEL-C245 (тред + стрингер), BOM на 2 строки, карта раскроя и
 // раскрой (PartCount=2, Sheets=1, Utilization=0.5).
 func mfgSnapshot(projectID string) project.Snapshot {
 	return project.Snapshot{
@@ -352,29 +352,29 @@ func mfgSnapshot(projectID string) project.Snapshot {
 		Validation: validation.Result{Valid: true, Blocking: false},
 		Manufacturing: &manufacturing.ManufacturingPackage{
 			Parts: []manufacturing.Part{
-				{Number: "P-1", Kind: manufacturing.PartTread, Material: "STEEL-S235",
+				{Number: "P-1", Kind: manufacturing.PartTread, Material: "STEEL-C245",
 					Thickness: engineering.Length(40), Length: engineering.Length(800),
 					Width: engineering.Length(270), SolidIndex: 0},
-				{Number: "P-2", Kind: manufacturing.PartStringer, Material: "STEEL-S235",
+				{Number: "P-2", Kind: manufacturing.PartStringer, Material: "STEEL-C245",
 					Thickness: engineering.Length(40), Length: engineering.Length(3000),
 					Width: engineering.Length(270), SolidIndex: 1},
 			},
 			BOM: manufacturing.BOM{Lines: []manufacturing.BOMLine{
-				{Number: 1, PartNumber: "P-1", Description: "tread", MaterialCode: "STEEL-S235",
+				{Number: 1, PartNumber: "P-1", Description: "tread", MaterialCode: "STEEL-C245",
 					Thickness: engineering.Length(40), Quantity: 1,
 					Length: engineering.Length(800), Width: engineering.Length(270)},
-				{Number: 2, PartNumber: "P-2", Description: "stringer", MaterialCode: "STEEL-S235",
+				{Number: 2, PartNumber: "P-2", Description: "stringer", MaterialCode: "STEEL-C245",
 					Thickness: engineering.Length(40), Quantity: 1,
 					Length: engineering.Length(3000), Width: engineering.Length(270)},
 			}},
 			CutList: manufacturing.CutList{Items: []manufacturing.CutItem{{
-				PartNumber: "P-1", MaterialCode: "STEEL-S235",
+				PartNumber: "P-1", MaterialCode: "STEEL-C245",
 				Thickness: engineering.Length(40), Length: engineering.Length(800),
 				Width: engineering.Length(270), Quantity: 1,
 			}}},
 			Nesting: &manufacturing.NestingResult{
 				Sheets: []manufacturing.SheetLayout{{
-					MaterialCode: "STEEL-S235", Thickness: engineering.Length(40),
+					MaterialCode: "STEEL-C245", Thickness: engineering.Length(40),
 					Length: engineering.Length(2500), Width: engineering.Length(1250),
 				}},
 				PartCount: 2, PartArea: 1000, SheetArea: 2000, WasteArea: 1000, Utilization: 0.5,
@@ -384,7 +384,7 @@ func mfgSnapshot(projectID string) project.Snapshot {
 }
 
 // seedManufacturing создаёт tenant с двумя расчётами, имеющими
-// производственный пакет (по 2 детали STEEL-S235 каждый). Возвращает tenant.
+// производственный пакет (по 2 детали STEEL-C245 каждый). Возвращает tenant.
 func seedManufacturing(t *testing.T, ctx context.Context, pr *ProjectRepository) string {
 	t.Helper()
 	tenant := createTestTenant(t, pr, fmt.Sprintf("mfg-%d", time.Now().UnixNano()))
@@ -429,8 +429,8 @@ func TestManufacturingTotals(t *testing.T) {
 	if totals.Sheets != 2 {
 		t.Fatalf("expected 2 sheets, got %d", totals.Sheets)
 	}
-	if totals.Materials["STEEL-S235"] != 4 {
-		t.Fatalf("expected 4 STEEL-S235 parts, got %+v", totals.Materials)
+	if totals.Materials["STEEL-C245"] != 4 {
+		t.Fatalf("expected 4 STEEL-C245 parts, got %+v", totals.Materials)
 	}
 	if totals.Utilization != 0.5 {
 		t.Fatalf("expected utilization 0.5, got %v", totals.Utilization)

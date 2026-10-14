@@ -4,7 +4,7 @@
 // в теле передаём только действие и контекст. Отправка best-effort:
 // сбой журнала не должен ломать UX пользователя.
 
-import { csrfHeaders } from './csrf'
+import { csrfHeaders, csrfToken, type AppOrigin } from './csrf'
 
 export interface LogActionInput {
   action: string
@@ -13,22 +13,34 @@ export interface LogActionInput {
   detail?: string
 }
 
-export function logAction(input: LogActionInput): void {
-  // Анонимный store (public quote) не имеет сессии — не спамим 403 в консоль.
-  // Отправляем аудит только при наличии любого признака аутентификации
-  // (session / session_admin cookie или токен в localStorage).
+const APP_ORIGIN_HEADER = 'X-App-Origin'
+
+// logAction отправляет клиентское событие в журнал аудита.
+//
+// origin обязателен: приложения различаются не только именем session-cookie,
+// но и CSRF-токеном (store: «csrf», admin: «csrf_admin»), поэтому без
+// origin-параметра админка слала бы запрос со store-токеном и получала 403,
+// а сервер искал бы не ту session-cookie.
+export function logAction(input: LogActionInput, origin: AppOrigin = 'store'): void {
+  // Признак аутентификации — CSRF-cookie нужного origin: session-cookie
+  // HttpOnly и из JS не видна (SEC-0003), а csrf-cookie выставляется вместе
+  // с сессией и читается. Анонимный store (public quote) не отправляет аудит.
+  let token = ''
   try {
-    const hasSession = typeof document !== 'undefined' && /(?:^|;\s*)(?:session|session_admin)=/.test(document.cookie)
+    token = csrfToken(origin)
     const hasToken = typeof localStorage !== 'undefined' && !!localStorage.getItem('token')
-    if (!hasSession && !hasToken) return
-  } catch {}
+    if (!token && !hasToken) return
+  } catch {
+    return
+  }
   try {
     void fetch('/api/v1/audit', {
       method: 'POST',
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
-        ...csrfHeaders(),
+        [APP_ORIGIN_HEADER]: origin,
+        ...(token ? csrfHeaders(origin) : {}),
       },
       body: JSON.stringify(input),
     }).catch(() => {

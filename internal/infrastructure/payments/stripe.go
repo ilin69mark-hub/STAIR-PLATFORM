@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -154,18 +155,102 @@ func (p *StripeProvider) GetSession(ctx context.Context, sessionID string) (*Che
 	}, nil
 }
 
+// Refund создаёт полный возврат для checkout session. Checkout sessions в
+// Stripe ссылаются на PaymentIntent, поэтому сначала разрешаем его ID, затем
+// вызываем Refunds API с Idempotency-Key: повтор после сетевой ошибки не списывает
+// возврат второй раз.
+func (p *StripeProvider) Refund(ctx context.Context, providerCheckoutID, idempotencyKey string) (string, error) {
+	if ctx == nil {
+		return "", errors.New("stripe: nil context")
+	}
+	if providerCheckoutID == "" {
+		return "", errors.New("stripe: checkout session id is required")
+	}
+	if idempotencyKey == "" {
+		return "", errors.New("stripe: idempotency key is required")
+	}
+
+	resp, err := p.makeRequest(ctx, http.MethodGet, "/checkout/sessions/"+providerCheckoutID, nil)
+	if err != nil {
+		return "", fmt.Errorf("stripe: resolve payment for refund: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("stripe: resolve payment for refund: %s", string(body))
+	}
+	var session struct {
+		PaymentIntent json.RawMessage `json:"payment_intent"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&session); err != nil {
+		return "", fmt.Errorf("stripe: decode checkout session for refund: %w", err)
+	}
+	paymentIntentID, err := stripeReferenceID(session.PaymentIntent)
+	if err != nil {
+		return "", fmt.Errorf("stripe: resolve payment for refund: %w", err)
+	}
+
+	refundResp, err := p.makeRequestWithHeaders(ctx, http.MethodPost, "/refunds",
+		map[string]string{"payment_intent": paymentIntentID},
+		http.Header{"Idempotency-Key": []string{idempotencyKey}})
+	if err != nil {
+		return "", fmt.Errorf("stripe: create refund: %w", err)
+	}
+	defer func() { _ = refundResp.Body.Close() }()
+	if refundResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(refundResp.Body)
+		return "", fmt.Errorf("stripe: create refund: %s", string(body))
+	}
+	var result struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(refundResp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("stripe: decode refund: %w", err)
+	}
+	if result.ID == "" {
+		return "", errors.New("stripe: refund response has no id")
+	}
+	return result.ID, nil
+}
+
+// stripeReferenceID принимает как строковый ID, так и раскрытый объект Stripe.
+func stripeReferenceID(raw json.RawMessage) (string, error) {
+	var id string
+	if err := json.Unmarshal(raw, &id); err == nil && id != "" {
+		return id, nil
+	}
+	var object struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return "", fmt.Errorf("invalid reference: %w", err)
+	}
+	if object.ID == "" {
+		return "", errors.New("empty reference")
+	}
+	return object.ID, nil
+}
+
 // VerifyWebhookSignature проверяет подпись Stripe webhook: HMAC-SHA256
 // payload вместе с timestamp (Stripe-формат Signature t=ts,v1=sig) И окно
 // времени (P1-1): подпись старше webhookTolerance отклоняется — это защита
-// от replay перехваченного запроса.
+// от replay перехваченного запроса. Заголовок может содержать НЕСКОЛЬКО
+// v1= (ротация ключей Stripe: подписи старым и новым секретом, CWE-754) —
+// принимаем, если ЛЮБАЯ v1 совпадает с настроенным webhookSecret (S-141 №9);
+// timestamp берём из первого t=. Пустой/битый заголовок, отсутствие t или
+// v1, несовпадение всех v1 и просрочка tolerance по-прежнему отклоняются
+// (поведение не ослабляется).
 func (p *StripeProvider) VerifyWebhookSignature(payload []byte, signature string) error {
-	// Stripe использует формат: t=timestamp,v1=signature
+	// Stripe использует формат: t=timestamp,v1=signature. Пар может быть
+	// несколько (ротация ключей): t=<ts>,v1=<подпись-старым>,v1=<подпись-новым>.
 	parts := strings.Split(signature, ",")
-	if len(parts) != 2 {
+	if len(parts) < 2 {
 		return fmt.Errorf("stripe: invalid signature format")
 	}
 
-	var timestamp, sig string
+	var timestamp string
+	sigs := make([]string, 0, len(parts))
+	tSeen := false
 	for _, part := range parts {
 		kv := strings.SplitN(part, "=", 2)
 		if len(kv) != 2 {
@@ -173,13 +258,17 @@ func (p *StripeProvider) VerifyWebhookSignature(payload []byte, signature string
 		}
 		switch kv[0] {
 		case "t":
-			timestamp = kv[1]
+			// Timestamp — первый t в заголовке.
+			if !tSeen {
+				timestamp = kv[1]
+				tSeen = true
+			}
 		case "v1":
-			sig = kv[1]
+			sigs = append(sigs, kv[1])
 		}
 	}
 
-	if timestamp == "" || sig == "" {
+	if timestamp == "" || len(sigs) == 0 {
 		return fmt.Errorf("stripe: missing timestamp or signature")
 	}
 
@@ -191,7 +280,16 @@ func (p *StripeProvider) VerifyWebhookSignature(payload []byte, signature string
 	mac.Write([]byte(signedPayload))
 	expectedSig := hex.EncodeToString(mac.Sum(nil))
 
-	if !hmac.Equal([]byte(sig), []byte(expectedSig)) {
+	// При ротации ключей Stripe присылает подписи старым и новым секретом —
+	// достаточно совпадения ЛЮБОЙ v1 с настроенным webhookSecret.
+	matched := false
+	for _, sig := range sigs {
+		if hmac.Equal([]byte(sig), []byte(expectedSig)) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
 		return fmt.Errorf("stripe: invalid signature")
 	}
 
@@ -266,6 +364,12 @@ func (p *StripeProvider) ParseWebhookEvent(payload []byte) (*StripeWebhookEvent,
 
 // makeRequest выполняет HTTP запрос к Stripe API с trace context propagation.
 func (p *StripeProvider) makeRequest(ctx context.Context, method, path string, data map[string]string) (*http.Response, error) {
+	return p.makeRequestWithHeaders(ctx, method, path, data, nil)
+}
+
+// makeRequestWithHeaders — единая точка HTTP-вызовов Stripe; headers нужны
+// для Idempotency-Key операций возврата.
+func (p *StripeProvider) makeRequestWithHeaders(ctx context.Context, method, path string, data map[string]string, headers http.Header) (*http.Response, error) {
 	var body io.Reader
 	if data != nil {
 		// Формируем form-urlencoded data с правильным URL-кодированием
@@ -284,6 +388,11 @@ func (p *StripeProvider) makeRequest(ctx context.Context, method, path string, d
 	req.Header.Set("Authorization", "Bearer "+p.secretKey)
 	if data != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	for name, values := range headers {
+		for _, value := range values {
+			req.Header.Add(name, value)
+		}
 	}
 
 	// Inject trace context into outgoing headers (W3C Trace Context)

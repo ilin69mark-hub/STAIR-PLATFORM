@@ -2,6 +2,11 @@
 // документе с PascalCase-ключами (сериализация domain-типов); метаданные
 // расчёта и проекты — snake_case (API-0015).
 
+// DOM-001 (forensic 2026-09-24): тип марша — закрытый набор на бэкенде
+// (engineering.FlightType.Valid()). Строковый тип позволял отправить
+// «diagonal» и получить 500; union отражает контракт на границе.
+export type FlightType = 'straight' | 'l_shape' | 'u_shape'
+
 export interface Project {
   id: string
   name: string
@@ -22,6 +27,9 @@ export interface ProjectMember {
   user_id: string
   role: ProjectRole
   created_at: string
+  /** Человек, а не UUID: без них «передать владение» нечем выбрать. */
+  email?: string
+  name?: string
 }
 
 export interface MemberRequest {
@@ -90,9 +98,15 @@ export interface Configuration {
   id: string
   project_id: string
   revision: number
+  // Герметик (CONF-SEALANT): толщина слоя, мм, и доп. картриджи по объекту.
+  sealant_layer_mm?: number
+  extra_sealant_cartridges?: number
+  // is_measurement — ревизия снята по факту на объекте, а не по телефону
+  // (решение владельца 2026-10-08). Информационная метка.
+  is_measurement?: boolean
   width_mm: number
   height_mm: number
-  flight: string
+  flight: FlightType
   step_height_mm: number
   stringer_thickness_mm: number
   step_thickness_mm: number
@@ -102,7 +116,6 @@ export interface Configuration {
   comfort_step_mm: number
   landing_width_mm: number
   lower_step_count: number
-  outer_radius_mm: number
   current: boolean
   created_at: string
 }
@@ -113,6 +126,35 @@ export interface User {
   name: string
   role: string
   tenant_id: string
+  /**
+   * Действующие права по метрикам (`GET /auth/me`, поле `grants`).
+   * Приходят, чтобы не дублировать матрицу ролей на клиенте: плитка и
+   * раздел показываются по наличию метрики, а кнопка внутри раздела — по
+   * уровню. Пустой массив = «ничего не выдано» — это законное состояние.
+   */
+  grants?: UserGrant[]
+  /**
+   * Имена метрик, выданных в любом уровне. Совместимость с прежним гейтом:
+   * ему хватало «есть ли метрика». Убирается вместе с приветственным
+   * экраном, который переедет на grants.
+   */
+  permissions?: string[]
+}
+
+/**
+ * Выданная метрика и её уровень.
+ *
+ * Уровни повторяют серверную модель (internal/application/auth):
+ *  - `read` — видеть данные метрики;
+ *  - `write` — видеть и менять;
+ *  - `action` — выполнить действие (возврат платежа, выдача ключа).
+ *
+ * Действие — не «видеть» и не «менять»: его нельзя получить уровнем выше и
+ * нельзя выдать вместе с чтением. Поэтому на переключателе это один флажок.
+ */
+export interface UserGrant {
+  capability: string
+  level: 'read' | 'write' | 'action'
 }
 
 // ---- Enterprise admin (Phase G, EDR-0016) ----
@@ -300,9 +342,11 @@ export interface CreateProjectRequest {
 
 export interface Rates {
   material_per_kg_rub?: {
-    'STEEL-S235'?: number
-    'ALUM-5083'?: number
+    'STEEL-C245'?: number
     'WOOD-OAK'?: number
+    'WOOD-WALNUT'?: number
+    'WOOD-ASH'?: number
+    'WOOD-SOFT'?: number
   }
   machine_per_hour_rub?: number
   labor_per_hour_rub?: number
@@ -368,6 +412,10 @@ export interface FlightResult {
   RailingHeight?: number
   Riser?: boolean
   StringerThickness?: number
+  // Ширина спинки косоура-гребёнки металлокаркаса ПО НОРМАЛИ к линии посадок
+  // (чертеж 2026-10-05: 300 мм). Боковой профиль гребёнки рисуется этой
+  // глубиной; для дерева поле равно толщине косоура.
+  StringerSpine?: number
   // Габариты помещения для прижима лестницы к стене (EDR-0023, room_fit).
   // Для прямого марша задаются явно (как у L-образной), чтобы при визуализации
   // ребро 1В можно было прижать к дальней стене В.
@@ -414,22 +462,6 @@ export interface UShapeResult {
   direction?: 'left' | 'right'
 }
 
-export interface SpiralResult {
-  StepCount: number
-  StepHeight: number
-  OuterRadius: number
-  ColumnRadius: number
-  WalkRadius: number
-  InnerTread: number
-  WalkTread: number
-  OuterTread: number
-  Angle: number
-  AngularStep: number
-  ArcLength: number
-  ComfortStep: number
-  AngularTotal: number
-}
-
 export interface BBox {
   Min: { X: number; Y: number; Z: number }
   Max: { X: number; Y: number; Z: number }
@@ -448,9 +480,31 @@ export interface MeshVertex {
   Z: number
 }
 
+// Текстурная координата: по одной на вершину, в метрах (не 0..1).
+export interface MeshUV {
+  U: number
+  V: number
+}
+
 export interface Mesh {
   Vertices: MeshVertex[]
   Triangles: Array<[number, number, number]>
+  // UV — текстурные координаты. Без них все вершины получают uv=(0,0),
+  // текстура семплит один пиксель, и материал выглядит плоским цветом.
+  // Необязателен: старый API их не слал, тогда вьювер рисует процедурный
+  // материал — прежнее поведение.
+  UV?: MeshUV[]
+  // PartRanges — диапазоны треугольников по телам с ролями (этап 1:
+  // tread/stringer/landing/railing_*). Позволяет назначить деталям разные
+  // PBR-материалы в 3D. Необязателен (старый API мог не слать).
+  PartRanges?: MeshPartRange[]
+}
+
+export interface MeshPartRange {
+  Solid: number
+  Role: string
+  Start: number
+  End: number
 }
 
 export interface Part {
@@ -461,6 +515,11 @@ export interface Part {
   Length: number
   Width: number
   SolidIndex: number
+  // Куда ставится деталь («ступень 7», «косоур А»). Для наклейки и
+  // сборочного чертежа.
+  Where?: string
+  // Покупается готовой, не режется. В документ реза не входит.
+  Purchased?: boolean
 }
 
 export interface BomLine {
@@ -468,6 +527,9 @@ export interface BomLine {
   PartNumber: string
   Description: string
   Material: string
+  // Стикеры всех экземпляров позиции. Спецификация отвечает «какой стикер
+  // куда» только если знает полный перечень наклеек.
+  Numbers?: string[]
   Thickness: number
   Quantity: number
   Length: number
@@ -481,6 +543,14 @@ export interface CutItem {
   Length: number
   Width: number
   Quantity: number
+  /** Сварной стык «шип-паз»: шип выпиливается на торце детали. */
+  HasTongue?: boolean
+  /** Сквозной паз под стык. */
+  HasMortise?: boolean
+  /** Стык поперёк детали (половинки оболочки колонны), иначе вдоль. */
+  JointOnWidth?: boolean
+  /** Стыков на детали, 0 — деталь цельная. */
+  JointCount?: number
 }
 
 export interface PlacedPart {
@@ -489,6 +559,10 @@ export interface PlacedPart {
   Width: number
   X: number
   Y: number
+  HasTongue?: boolean
+  HasMortise?: boolean
+  JointOnWidth?: boolean
+  JointCount?: number
 }
 
 export interface SheetLayout {
@@ -523,6 +597,34 @@ export interface Manufacturing {
   Nesting: Nesting
 }
 
+// Технологический маршрут детали (MFG-0009). Нужен админке, чтобы показать,
+// из чего складывается цена: без него сводная строка «труд» не объясняет, что
+// добавилась фрезеровка фасок.
+export interface Operation {
+  ID: number
+  PartNumber: string
+  Type: string
+  Sequence: number
+  Machine: string
+  EstimatedTime: number // минуты
+  OperatorRequired: boolean
+}
+
+export interface PartOperationPlan {
+  PartNumber: string
+  Operations: Operation[]
+}
+
+export interface Cost {
+  OperationCount?: number
+  FastenerCount?: number
+  PartCount?: number
+  EstimatedMachineTime?: number
+  EstimatedLaborTime?: number
+  EstimatedProductionTime?: number
+  OperationPlan?: { Parts: PartOperationPlan[] }
+}
+
 export interface CostComponent {
   Name: string
   Category: string
@@ -535,6 +637,10 @@ export interface Pricing {
   Material: number
   Machine: number
   Labor: number
+  /** Крепёж (MNT-0001), ₽. */
+  Fastener: number
+  /** Герметик (CONF-SEALANT), ₽. */
+  Sealant: number
   Overhead: number
   ProductionCost: number
   Margin: number
@@ -551,13 +657,18 @@ export interface Snapshot {
   flight?: FlightResult
   lshape?: LShapeResult
   ushape?: UShapeResult
-  spiral?: SpiralResult
   step_thickness?: number
   railing_height?: number
+  // width — ширина марша для 2D-чертежей (DOM-005). До этого поля не было,
+  // и схемы рисовались при зашитых 900 мм независимо от фактической ширины,
+  // по которой посчитаны объём, масса и цена.
+  width?: number
   riser?: boolean
   stringer_thickness?: number
+  // Ширина спинки косоура-гребёнки по нормали к линии посадок (300 мм).
+  stringer_spine?: number
   // Стороны перил из конфигурации (CONF-RAILING) — для 2D-рендера:
-  // прямой/спираль — railing; L/U — по сегментам.
+  // прямой — railing; L/U — по сегментам.
   railing?: string
   railing_lower?: string
   railing_landing?: string
@@ -569,7 +680,7 @@ export interface Snapshot {
   issue_count: number
   manufacturing?: Manufacturing
   pricing?: Pricing
-  cost?: Record<string, unknown>
+  cost?: Cost
 }
 
 export interface Calculation {
@@ -674,8 +785,7 @@ export interface QuoteSuggestion {
   step_height_mm: number
   tread_depth_mm: number
   angle_deg: number
-  // Для спирали (EDR-0007): наружный радиус и ширина марша варианта.
-  outer_radius_mm?: number
+  // Ширина марша варианта (EDR-0007).
   width_mm?: number
 }
 
@@ -709,6 +819,8 @@ export interface QuoteFlight {
   railing_height_mm: number
   riser: boolean
   stringer_thickness_mm: number
+  // Ширина спинки косоура-гребёнки по нормали к линии посадок (300 мм).
+  stringer_spine_mm?: number
   // Сторона перил (CONF-RAILING): none|left|right|both.
   railing?: string
   // Габариты помещения для прижима лестницы к стене (EDR-0023).
@@ -739,6 +851,8 @@ export interface QuoteLShape {
   railing_height_mm: number
   riser: boolean
   stringer_thickness_mm: number
+  // Ширина спинки косоура-гребёнки по нормали к линии посадок (300 мм).
+  stringer_spine_mm?: number
   // Перила по сегментам (CONF-RAILING) и поворот площадки (CONF-DIRECTION).
   railing_lower?: string
   railing_landing?: string
@@ -765,35 +879,13 @@ export interface QuoteUShape {
   railing_height_mm: number
   riser: boolean
   stringer_thickness_mm: number
+  // Ширина спинки косоура-гребёнки по нормали к линии посадок (300 мм).
+  stringer_spine_mm?: number
   // Перила по сегментам (CONF-RAILING) и поворот площадки (CONF-DIRECTION).
   railing_lower?: string
   railing_landing?: string
   railing_upper?: string
   direction?: string
-}
-
-export interface QuoteSpiral {
-  step_count: number
-  step_height_mm: number
-  outer_radius_mm: number
-  column_radius_mm: number
-  walk_radius_mm: number
-  inner_tread_mm: number
-  walk_tread_mm: number
-  outer_tread_mm: number
-  angle_deg: number
-  angular_step_deg: number
-  arc_length_mm: number
-  comfort_step_mm: number
-  angular_total_deg: number
-  width_mm: number
-  step_thickness_mm: number
-  railing_height_mm: number
-  riser: boolean
-  stringer_thickness_mm: number
-  // Перила (авто из направления, CONF-SPIRAL-RAILING) и направление закрутки.
-  railing?: string
-  spiral_direction?: string
 }
 
 export interface QuotePoint {
@@ -826,6 +918,10 @@ export interface QuotePricing {
   material_rub: number
   machine_rub: number
   labor_rub: number
+  // fastener_rub (крепёж, MNT-0001) здесь НЕТ намеренно: QuotePricing — тип
+  // публичного расчёта, а витрина отдаёт только валюту и итог (см.
+  // publicPricingDTO). Разбивка по статьям — внутренняя, она живёт в
+  // Pricing (снапшот расчёта админки).
   overhead_rub: number
   production_cost_rub: number
   margin_rub: number
@@ -841,7 +937,6 @@ export interface QuoteResult {
   flight?: QuoteFlight
   lshape?: QuoteLShape
   ushape?: QuoteUShape
-  spiral?: QuoteSpiral
   geometry?: QuoteGeometry
   pricing?: QuotePricing
   mesh?: Mesh
@@ -907,4 +1002,46 @@ export interface CreateTestimonialRequest {
 export interface CreateConsultationRequest {
   contact: OrderContact
   question: string
+}
+
+// ---- Воронка витрины (миграция 000035) ----
+//
+// Отдельный набор от *Report: те отвечают на вопрос «что делают
+// сотрудники» (проекты, производство, деньги), этот — на вопрос «что делают
+// посетители и где уходят».
+export interface FunnelStep {
+  name: string
+  sessions: number
+  /** Уникальные посетители, дошедшие до шага. 0, если соль не задана. */
+  visitors: number
+  share: number
+  step_share: number
+}
+
+export interface FunnelBlocker {
+  event: string
+  reason: string
+  count: number
+}
+
+export interface FunnelAbandonPoint {
+  last_event: string
+  sessions: number
+  share: number
+  avg_seconds: number
+}
+
+export interface FunnelReport {
+  from: string
+  to: string
+  /** Уникальные посетители окна. */
+  visitors: number
+  /** Считается ли вообще идентификация (задана ли STAIR_ANALYTICS_SALT). */
+  visitor_identity_enabled: boolean
+  sessions: number
+  events: number
+  steps: FunnelStep[]
+  blockers: FunnelBlocker[]
+  abandons: FunnelAbandonPoint[]
+  avg_seconds: number
 }

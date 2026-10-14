@@ -81,6 +81,22 @@ type PlacedPart struct {
 	Width      engineering.Length
 	X          float64 // мм — вдоль длины листа
 	Y          float64 // мм — вдоль ширины листа
+
+	// Profile — ТОЧНЫЙ плоский контур детали в её собственных осях (S-163),
+	// то есть многоугольник, который вырезается лазером. X/Y выше — левый
+	// нижний угол этого многоугольника на листе.
+	//
+	// Пустой контур означает «описать прямоугольником Length×Width»: так
+	// честнее, чем рисовать выдуманный многоугольник.
+	Profile []Point2D
+
+	// Сварной стык «шип-паз» (см. CutItem): HasTongue рисуется как шип на
+	// торце детали, HasMortise — как сквозной паз на её кромке.
+	HasTongue    bool
+	HasMortise   bool
+	JointOnWidth bool
+	JointIndex   int
+	JointCount   int
 }
 
 // SheetLayout — заполненный лист: размещённые детали.

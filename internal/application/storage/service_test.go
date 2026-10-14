@@ -31,14 +31,14 @@ func (f *fakeStore) Put(_ context.Context, key string, data []byte, contentType 
 	return nil
 }
 
-func (f *fakeStore) Get(_ context.Context, key string) ([]byte, error) {
+func (f *fakeStore) Get(_ context.Context, key string) ([]byte, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	d, ok := f.objs[key]
 	if !ok {
-		return nil, infra.ErrNotFound
+		return nil, "", infra.ErrNotFound
 	}
-	return d, nil
+	return d, f.types[key], nil
 }
 
 func (f *fakeStore) Delete(_ context.Context, key string) error {

@@ -251,8 +251,6 @@ func buildEngineeringIntent(a AnalysisRequest, res *stair.Result, resp *Response
 // angleDegOf возвращает угол наклона результата в градусах (0 — не найден).
 func angleDegOf(res *stair.Result) float64 {
 	switch {
-	case res.Spiral != nil:
-		return res.Spiral.Angle.Degrees()
 	case res.LShape != nil:
 		return res.LShape.Angle.Degrees()
 	case res.UShape != nil:

@@ -135,6 +135,10 @@ type MemoryStore interface {
 	RecentMessages(ctx context.Context, tenantID, projectID string, limit int) ([]MemoryMessage, error)
 	// PruneMessages удаляет сообщения старше cutoff; возвращает число удалённых.
 	PruneMessages(ctx context.Context, cutoff time.Time) (int64, error)
+	// DeleteMessages удаляет ВСЕ сообщения проекта в tenant (право на
+	// забвение, S-141 №13, GDPR Art.17/152-ФЗ): self-service purge через
+	// DELETE /api/v1/assistant/memory. Возвращает число удалённых.
+	DeleteMessages(ctx context.Context, tenantID, projectID string) (int64, error)
 }
 
 // Лимиты истории диалога (S-135): default 10 последних сообщений, cap 50.
@@ -142,6 +146,17 @@ const (
 	DefaultHistoryLimit = 10
 	MaxHistoryLimit     = 50
 )
+
+// ProjectAuthorizer — порт проверки членства в проекте (S-142, IDOR-фикс
+// S-141 №1). Conversation-memory скоупится по projectID, который приходит
+// из тела запроса, поэтому перед чтением (RecentMessages) и записью
+// (AppendMessages) сервис обязан убедиться, что вызывающий — член проекта
+// (EDR-0008); иначе — ErrForbidden. Реализует application/project.Service
+// (инверсия зависимостей: assistant не импортирует project).
+// Чужой/несуществующий проект — (false, nil); сбой проверки — (false, err).
+type ProjectAuthorizer interface {
+	IsMember(ctx context.Context, tenantID, userID, projectID string) (bool, error)
+}
 
 // clampHistoryLimit нормализует запрошенный history_limit:
 // 0 → DefaultHistoryLimit; > Max → Max; отрицательные → 0 (без истории).

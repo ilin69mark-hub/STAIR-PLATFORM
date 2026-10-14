@@ -306,3 +306,180 @@ func TestValidateNGon(t *testing.T) {
 		t.Fatalf("expected 0 issues, got %d", len(issues))
 	}
 }
+
+func u3(x, y, z float64) Vector3 { return Vector3{X: x, Y: y, Z: z} }
+
+// Регрессия: Fillet.Tessellate игнорировал переданный Radius (брал половину
+// длины ребра) и строил дугу в плоскости, ПЕРПЕНДИКУЛЯРНОЙ ребру. Тест раньше
+// проверял только количество точек, поэтому дефект и жил. Теперь проверяем
+// геометрию: центр дуги, радиус и то, что дуга касается ребра.
+func TestFilletTessellateUsesGivenRadius(t *testing.T) {
+	f, err := NewFillet(
+		Point3{X: 0, Y: 0, Z: 0},
+		Point3{X: 100, Y: 0, Z: 0},
+		10,
+		Vector3{X: 0, Y: 0, Z: 1},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	points := f.Tessellate(10)
+	if len(points) != 11 {
+		t.Fatalf("expected 11 points, got %d", len(points))
+	}
+
+	// Центр: середина ребра (50,0,0), смещённая на радиус по нормали.
+	center := Point3{X: 50, Y: 0, Z: 10}
+	for i, p := range points {
+		if d := p.Distance(center); math.Abs(d-10) > 1e-6 {
+			t.Fatalf("point %d: distance to center = %v, want 10", i, d)
+		}
+	}
+	// Концы дуги — на ребре (z=0) и на его зеркале (z=20): полуокружность
+	// радиусом 10, а не 50 (как было раньше).
+	if z := points[0].Z; math.Abs(z) > 1e-6 {
+		t.Fatalf("arc start should touch the edge (z=0), got z=%v", z)
+	}
+	if z := points[len(points)-1].Z; math.Abs(z-20) > 1e-6 {
+		t.Fatalf("arc end should mirror across the edge (z=20), got z=%v", z)
+	}
+	// Дуга лежит в плоскости, содержащей ребро: все точки имеют y=0.
+	for i, p := range points {
+		if math.Abs(p.Y) > 1e-6 {
+			t.Fatalf("point %d: y = %v, arc plane must contain the edge (y=0)", i, p.Y)
+		}
+	}
+}
+
+func TestFilletTessellateRadiusTooBigFallsBackToEdge(t *testing.T) {
+	// Полуокружность радиусом 60 не помещается на ребро длиной 100.
+	f, _ := NewFillet(
+		Point3{X: 0, Y: 0, Z: 0},
+		Point3{X: 100, Y: 0, Z: 0},
+		60,
+		Vector3{X: 0, Y: 0, Z: 1},
+	)
+	points := f.Tessellate(10)
+	if len(points) != 2 || points[0].X != 0 || points[1].X != 100 {
+		t.Fatalf("expected the bare edge as fallback, got %v", points)
+	}
+}
+
+// RoundCorner — скругление угла профиля (нос проступи). Проверяем геометрию:
+// все точки на заданном расстоянии от центра, дуга касается обоих рёбер, и
+// профиль с дугой короче ломаной.
+func TestRoundCornerGeometry(t *testing.T) {
+	// Угол 90°: лучи из угла в минус-X и в плюс-Z.
+	corner := Point3{X: 0, Y: 0, Z: 0}
+	prev := Point3{X: -50, Y: 0, Z: 0}
+	next := Point3{X: 0, Y: 0, Z: 50}
+	const radius = 10.0
+
+	arc, err := RoundCorner(prev, corner, next, radius, 8)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Концы не дублируются: точек на сегмент минус один.
+	if len(arc) != 7 {
+		t.Fatalf("expected 7 interior points, got %d", len(arc))
+	}
+
+	// Для угла 90° центр дуги — на биссектрисе на расстоянии r/sin(45°).
+	centerDist := radius / math.Sin(math.Pi/4)
+	center := Point3{X: -centerDist * math.Cos(math.Pi/4), Y: 0, Z: centerDist * math.Sin(math.Pi/4)}
+	for i, p := range arc {
+		if d := p.Distance(center); math.Abs(d-radius) > 1e-6 {
+			t.Fatalf("point %d: distance to center = %v, want %v", i, d, radius)
+		}
+	}
+
+	// Касание доказываем точками касания: они лежат на окружности (значит дуга
+	// к ним касается), лежат на своих рёбрах и на расстоянии r/tan(α/2) от угла.
+	// Сами точки касания функция не возвращает — они остаются в профиле.
+	tangent := radius / math.Tan(math.Pi/4)
+	t1 := corner.Add(u3(-1, 0, 0).Scale(tangent))
+	t2 := corner.Add(u3(0, 0, 1).Scale(tangent))
+	for i, tp := range []Point3{t1, t2} {
+		if d := tp.Distance(center); math.Abs(d-radius) > 1e-6 {
+			t.Fatalf("tangent point %d must lie on the arc: distance = %v, want %v", i, d, radius)
+		}
+	}
+
+	// Дуга должна снимать материал: её точки лежат ВНУТРИ острого угла
+	// (треугольника prev-corner-next), то есть профиль становится короче.
+	for i, p := range arc {
+		inside := p.X < 0+1e-9 && p.Z > 0-1e-9 && (p.Z-p.X)/50 < 1-1e-9
+		if !inside {
+			t.Fatalf("arc point %d %v is outside the sharp corner: rounding must cut material", i, p)
+		}
+	}
+	// Путь по дуге короче пути через острый угол: дуга касается рёбер там, где
+	// угол срезан. Для угла 90° это четверть окружности πR/2 ≈ 15.71 против
+	// двух касательных по 10 (в сумме 20).
+	arcChain := append([]Point3{t1}, arc...)
+	arcChain = append(arcChain, t2)
+	var arcLen float64
+	for i := 1; i < len(arcChain); i++ {
+		arcLen += arcChain[i-1].Distance(arcChain[i])
+	}
+	sharp := t1.Distance(corner) + corner.Distance(t2)
+	if arcLen >= sharp {
+		t.Fatalf("rounded path (%v) must be shorter than the sharp corner (%v)", arcLen, sharp)
+	}
+	// И сходится к четверти окружности с точностью до огрубления сегментов.
+	if math.Abs(arcLen-radius*math.Pi/2) > radius*0.1 {
+		t.Fatalf("rounded path = %v, want about a quarter circle (%v)", arcLen, radius*math.Pi/2)
+	}
+}
+
+func TestRoundCornerRejectsRadiusThatDoesNotFit(t *testing.T) {
+	corner := Point3{}
+	prev := Point3{X: -5, Y: 0, Z: 0} // короткое ребро
+	next := Point3{X: 0, Y: 0, Z: 50} // длинное
+	if _, err := RoundCorner(prev, corner, next, 10, 8); err == nil {
+		t.Fatal("expected error: radius 10 does not fit an edge of length 5")
+	}
+}
+
+func TestRoundCornerRejectsStraightAngle(t *testing.T) {
+	corner := Point3{}
+	// Коллинеарные лучи — угла нет, скруглять нечего.
+	if _, err := RoundCorner(Point3{X: -50}, corner, Point3{X: -100}, 10, 8); err == nil {
+		t.Fatal("expected error for collinear edges")
+	}
+}
+
+// Регрессия: NGon.Area считал площадь в XY, поэтому для профиля в плоскости XZ
+// (вертикальная грань, наклонный косоур) возвращал произвольное число.
+func TestNGonAreaInProfilePlane(t *testing.T) {
+	// Квадрат 100×50 в плоскости XZ, нормаль (0,-1,0).
+	n, err := NewNGon(
+		[]Point3{
+			{X: 0, Y: 0, Z: 0},
+			{X: 100, Y: 0, Z: 0},
+			{X: 100, Y: 0, Z: 50},
+			{X: 0, Y: 0, Z: 50},
+		},
+		Vector3{X: 0, Y: -1, Z: 0},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if area := n.Area(); math.Abs(area-5000) > 1e-6 {
+		t.Fatalf("area = %v, want 5000", area)
+	}
+
+	// Тот же квадрат в XY — контроль, что базис не сломан.
+	flat, _ := NewNGon(
+		[]Point3{
+			{X: 0, Y: 0, Z: 0},
+			{X: 100, Y: 0, Z: 0},
+			{X: 100, Y: 50, Z: 0},
+			{X: 0, Y: 50, Z: 0},
+		},
+		Vector3{X: 0, Y: 0, Z: 1},
+	)
+	if area := flat.Area(); math.Abs(area-5000) > 1e-6 {
+		t.Fatalf("area = %v, want 5000", area)
+	}
+}

@@ -1,11 +1,22 @@
 // Преобразование снапшота результата (admin Snapshot) в вид для чертёжных
-// схем: вид сверху (StairPlan). Ширина марша не входит в результаты Solver,
-// для схемы используется типовое значение по умолчанию (900 мм).
+// схем: вид сверху (StairPlan) и профиль (StairProfile).
+//
+// DOM-005 (2026-09-26): ширина марша берётся из снапшота (Snapshot.width,
+// который заполняется из res.Width). Раньше здесь стояла константа 900 мм:
+// один и тот же расчёт на витрине рисовался с фактической шириной, а в
+// админке — всегда с 900 мм, хотя объём, масса, BOM и цена считались для
+// фактической. Отсутствие поля у legacy-снапшотов — единственный повод
+// оставить запасной вариант.
 
 import type { Snapshot } from '@shared/types'
 import type { PlanExtras, PlanFlight, PlanKind } from '@shared/schemes/StairPlan'
 
-const DEFAULT_WIDTH = 900
+// Ширина марша для 2D-схем. Берётся из снапшота; 900 — запасной вариант
+// для legacy-снапшотов, сохранённых до появления поля width.
+const FALLBACK_WIDTH = 900
+// effectiveWidth — ширина из снапшота, если она задана и положительна.
+const effectiveWidth = (s: Snapshot): number =>
+  typeof s.width === 'number' && s.width > 0 ? s.width : FALLBACK_WIDTH
 
 export interface SolverSchematic {
   kind: PlanKind
@@ -29,40 +40,11 @@ export function schematicOf(s: Snapshot, approachMM?: number): SolverSchematic |
     RailingHeight: s.railing_height,
     Riser: s.riser,
     StringerThickness: s.stringer_thickness,
+    StringerSpine: s.stringer_spine ?? s.stringer_thickness,
   }
-  // Сначала более конкретные типы: бэкенд всегда шлёт поле flight (для
-  // L/U/спирали оно нулевое), поэтому проверка flight первой съедала бы
-  // все не-прямые типы (их план не отрисовывался).
-  if (s.spiral) {
-    const sp = s.spiral
-    return {
-      kind: 'spiral',
-      flight: {
-        StepCount: sp.StepCount,
-        StepHeight: sp.StepHeight,
-        TreadDepth: sp.WalkTread,
-        Run: sp.ArcLength,
-        Stringer: 0,
-        Angle: sp.Angle,
-        Width: DEFAULT_WIDTH,
-        ...extras,
-      },
-      solver: {
-        outerRadius: sp.OuterRadius,
-        columnRadius: sp.ColumnRadius,
-        walkRadius: sp.WalkRadius,
-        innerTread: sp.InnerTread,
-        outerTread: sp.OuterTread,
-        angularStep: (sp.AngularStep * 180) / Math.PI,
-        angularTotal: (sp.AngularTotal * 180) / Math.PI,
-        arcLength: sp.ArcLength,
-        // Свободное пространство перед первой ступенью равно сдвигу модели
-        // от стены (BoundingBox.Min.X), задаваемому approachSpace (EDR-0023).
-        approachSpace: approachOf(),
-      },
-      railing: s.railing,
-    }
-  }
+  // Сначала более конкретные типы: бэкенд всегда шлёт поле flight (для L/U
+  // оно нулевое), поэтому проверка flight первой съедала бы оба не-прямых
+  // типа (их план не отрисовывался).
   if (s.ushape) {
     const u = s.ushape
     return {
@@ -74,7 +56,7 @@ export function schematicOf(s: Snapshot, approachMM?: number): SolverSchematic |
         Run: (u.LowerRun + u.UpperRun + u.LandingWidth) * 2,
         Stringer: u.LowerStringer,
         Angle: u.Angle,
-        Width: DEFAULT_WIDTH,
+        Width: effectiveWidth(s),
         ...extras,
       },
       solver: {
@@ -105,7 +87,7 @@ export function schematicOf(s: Snapshot, approachMM?: number): SolverSchematic |
         Run: l.LowerRun + l.UpperRun + l.LandingWidth,
         Stringer: l.LowerStringer,
         Angle: l.Angle,
-        Width: DEFAULT_WIDTH,
+        Width: effectiveWidth(s),
         ...extras,
       },
       solver: {
@@ -147,7 +129,7 @@ export function schematicOf(s: Snapshot, approachMM?: number): SolverSchematic |
         Run: f.Run,
         Stringer: f.Stringer,
         Angle: f.Angle,
-        Width: DEFAULT_WIDTH,
+        Width: effectiveWidth(s),
         ...extras,
       },
       solver: {

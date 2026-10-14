@@ -5,3 +5,63 @@ body,
 #root {
   min-height: 100%;
 }
+
+/* Лист наклеек (Фаза 0.4) и печать.
+ *
+ * На экране — сетка карточек для просмотра. При печати — только лист:
+ * всё остальное скрывается, наклейки идут сеткой 4 в ряд с разрывом
+ * страницы, не разрезающим наклейку пополам.
+ */
+.stickers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.sticker {
+  border: 1.5px solid #111;
+  border-radius: 4px;
+  padding: 6px 8px;
+  background: #fff;
+  break-inside: avoid;
+}
+
+.sticker__number {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.sticker__where {
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.sticker__meta {
+  font-size: 11px;
+  color: #444;
+  margin-top: 2px;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-sheet,
+  .print-sheet * {
+    visibility: visible;
+  }
+  .print-sheet {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+  }
+  .print-screen {
+    display: none;
+  }
+  .stickers {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@shared/types'
 import type { QuoteResult } from '@shared/types'
-import * as client from './client'
-import { quoteApi } from './store'
+import * as client from '@shared/storefront/api/client'
+import { quoteApi } from '@shared/storefront/api/store'
 
 afterEach(() => {
   vi.restoreAllMocks()

@@ -36,6 +36,9 @@ func bindings() []binding {
 		{constraint.GEO_STRINGER_THICKNESS, "stringer_thickness", func(c *engineering.StairConfiguration) float64 {
 			return c.StringerThickness.Millimeters()
 		}},
+		{constraint.GEO_STRINGER_THICKNESS_SHEET, "stringer_thickness", func(c *engineering.StairConfiguration) float64 {
+			return c.StringerThickness.Millimeters()
+		}},
 		{constraint.SAF_RAILING_HEIGHT, "railing_height", func(c *engineering.StairConfiguration) float64 {
 			return c.RailingHeight.Millimeters()
 		}},
@@ -47,9 +50,15 @@ func bindings() []binding {
 // по Code, ID нумеруются после сортировки (ADR-0001). Валидация не изменяет модель.
 func Validate(cfg *engineering.StairConfiguration, set *constraint.ConstraintSet) Result {
 	var issues []Issue
+	// Класс материала каркаса: правила с чужим классом не проверяются. Если
+	// материал не задан, класс выводится из толщины косоура (лист — металл).
+	materialClass := constraint.MaterialClassFor(cfg.Material, cfg.StringerThickness.Millimeters())
 	for _, b := range bindings() {
 		rule, ok := set.Resolve(b.code, b.value(cfg))
 		if ok {
+			continue
+		}
+		if rule.MaterialClass != "" && rule.MaterialClass != materialClass {
 			continue
 		}
 		issue := Issue{
@@ -63,6 +72,10 @@ func Validate(cfg *engineering.StairConfiguration, set *constraint.ConstraintSet
 			HasMin:   rule.Range.HasMin,
 			HasMax:   rule.Range.HasMax,
 			Fix:      rule.Fix,
+			// Происхождение числа — в каждое нарушение (S-235): пустой
+			// источник у правила невозможен (Add его отвергнет), значит и
+			// здесь строка не поднимет вопрос «а откуда 900?».
+			Source: rule.Source.String(),
 		}
 		// Подсказка правила (Advice) применяется здесь же, на этапе валидации:
 		// Param и Guide (отрендеренный) доступны каждому issue сразу — в т.ч.

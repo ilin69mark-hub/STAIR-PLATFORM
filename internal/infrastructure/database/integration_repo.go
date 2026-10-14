@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"stairplatform/internal/application/integrations"
@@ -26,6 +27,14 @@ func NewIntegrationRepository(pool *pgxpool.Pool) *IntegrationRepository {
 var _ integrations.Repository = (*IntegrationRepository)(nil)
 
 // CreateEndpoint сохраняет новый webhook-эндпоинт.
+// CreateEndpoint создаёт эндпоинт интеграции.
+//
+// DB-001 (2026-09-26): добавлено UNIQUE (tenant_id, kind) — сервис работает по
+// правилу «один активный эндпоинт на вид» (FindEndpointByKind берёт
+// `ORDER BY created_at LIMIT 1`), а БД это правило не проверяла. Второй ERP
+// создавался без ошибки, и доставка webhook молча уходила в более старый.
+// Нарушение уникальности переводим в integrations.ErrConflict, чтобы клиент
+// получил 409 conflict, а не 500.
 func (r *IntegrationRepository) CreateEndpoint(ctx context.Context, e *integrations.Endpoint) error {
 	err := r.pool.QueryRow(ctx,
 		`INSERT INTO integration_endpoints (tenant_id, name, kind, url, secret_enc)
@@ -34,6 +43,11 @@ func (r *IntegrationRepository) CreateEndpoint(ctx context.Context, e *integrati
 		e.TenantID, e.Name, string(e.Kind), e.URL, e.SecretEnc,
 	).Scan(&e.ID, &e.CreatedAt, &e.UpdatedAt)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique_violation
+			return fmt.Errorf("%w: эндпоинт вида %q уже существует в tenant %s",
+				integrations.ErrConflict, e.Kind, e.TenantID)
+		}
 		return fmt.Errorf("integrations: create endpoint: %w", err)
 	}
 	return nil

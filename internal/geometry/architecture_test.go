@@ -22,6 +22,12 @@ func TestLayerIsolation(t *testing.T) {
 		"os/exec",
 		"grpc",
 		"stairplatform/internal/domain",
+		// ADR-0013: Geometry ничего не знает, кроме геометрии. Раньше
+		// internal/geometry импортировал internal/engine/graph ради
+		// ParametricModel — это был нарушенный запрет, который этот тест
+		// НЕ ловил, потому что internal/engine в списке не значился.
+		// Мёртвый код удалён (S-176), запрет записан.
+		"stairplatform/internal/engine",
 	}
 
 	fset := token.NewFileSet()
@@ -47,6 +53,60 @@ func TestLayerIsolation(t *testing.T) {
 			for _, f := range forbidden {
 				if strings.HasPrefix(path, f) {
 					t.Errorf("%s: forbidden import %q (violates ADR-0006 / invariant 6)", file, path)
+				}
+			}
+		}
+	}
+}
+
+// TestNoPresentationDependency — ADR-0016: расчёт не зависит от средств
+// отображения.
+//
+// Проверка выглядит формальной: three.js в Go не существует, импортировать
+// его физически нельзя. Ценность в другом — правило зафиксировано в тесте,
+// и когда кто-то захочет «протащить» рендеринг в расчёт (например, через
+// cgo-обёртку или новый пакет с рендер-логикой), запрет будет стоять перед
+// ним, а не только в документе.
+//
+// Отдельно проверяем, что расчётный пакет не тянет ничего из frontend —
+// единственная честная точка обмена это kerngeo.Mesh через JSON.
+func TestNoPresentationDependency(t *testing.T) {
+	// Идентификаторы рендереров, которые не должны встречаться в импортах
+	// расчётного пакета. Пустой список не означает, что правило не нужно:
+	// смысл в том, чтобы список был назван и проверялся.
+	forbidden := []string{
+		"three",
+		"babylonjs",
+		"babylon",
+		"@react-three",
+		"webgl",
+		"webgpu",
+		"canvas",
+		"glfw",
+		"gl",
+		"vulkan",
+		"playwright",
+		"chromedp",
+	}
+
+	fset := token.NewFileSet()
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatalf("glob: %v", err)
+	}
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, f, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatalf("parse %s: %v", f, err)
+		}
+		for _, imp := range file.Imports {
+			path := imp.Path.Value
+			for _, bad := range forbidden {
+				if strings.Contains(strings.ToLower(path), bad) {
+					t.Errorf("ADR-0016: %s импортирует %s — расчёт не зависит от представления", f, path)
 				}
 			}
 		}

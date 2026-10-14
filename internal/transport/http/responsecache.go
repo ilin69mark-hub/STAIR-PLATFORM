@@ -42,7 +42,25 @@ type ResponseCacheConfig struct {
 
 // ResponseCacheMiddleware кеширует GET-ответы в памяти.
 // Подходит для статических данных (материалы, профили, ассортимент).
+// Вызывающему нужен сброс кэша — берётся NewResponseCacheWithInvalidation.
 func ResponseCacheMiddleware(cfg ResponseCacheConfig) func(http.Handler) http.Handler {
+	mw, _ := NewResponseCacheWithInvalidation(cfg)
+	return mw
+}
+
+// CacheInvalidator — сброс записей кэша по префиксу ключа. Нужен там, где
+// мутация меняет публичный ответ: иначе витрина до 5 минут показывала бы
+// старый прайс после правки в админке (волна 0).
+type CacheInvalidator interface {
+	// InvalidatePrefix удаляет записи кэша по префиксу ключа; возвращает
+	// число удалённых записей.
+	InvalidatePrefix(prefix string) int
+}
+
+// NewResponseCacheWithInvalidation строит кэш ответов и отдаёт middleware
+// вместе с инвалидатором: мутации (смена прайса/настроек магазина) сбрасывают
+// публичные записи, чтобы цена на сайте менялась сразу, а не через TTL.
+func NewResponseCacheWithInvalidation(cfg ResponseCacheConfig) (func(http.Handler) http.Handler, CacheInvalidator) {
 	if cfg.MaxEntries <= 0 {
 		cfg.MaxEntries = 256
 	}
@@ -116,7 +134,7 @@ func ResponseCacheMiddleware(cfg ResponseCacheConfig) func(http.Handler) http.Ha
 			w.Header().Set("X-Cache", "MISS")
 			cacheMisses.With().Inc()
 		})
-	}
+	}, cache
 }
 
 // isIdentityBearerRequest определяет, несёт ли запрос признаки аутентификации:

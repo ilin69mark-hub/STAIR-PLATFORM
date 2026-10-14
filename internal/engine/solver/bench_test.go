@@ -42,30 +42,6 @@ func BenchmarkSolveLShape(b *testing.B) {
 	_ = last
 }
 
-func BenchmarkSolveSpiral(b *testing.B) {
-	c := &engineering.StairConfiguration{
-		Width:       mustLengthB(500),
-		Height:      mustLengthB(2700),
-		Flight:      engineering.FlightSpiral,
-		StepCount:   15,
-		StepHeight:  mustLengthB(180),
-		OuterRadius: mustLengthB(800),
-	}
-	c.TreadDepth = mustLengthB(265.291)
-	c.StringerThickness = mustLengthB(50)
-	c.StepThickness = mustLengthB(40)
-	b.ReportAllocs()
-	var last *SpiralResult
-	for i := 0; i < b.N; i++ {
-		r, _, err := SolveCheckedSpiral(c, constraint.StandardProfile("STANDARD"))
-		if err != nil {
-			b.Fatal(err)
-		}
-		last = &r
-	}
-	_ = last
-}
-
 func benchConfig() *engineering.StairConfiguration {
 	c, _ := engineering.NewStairConfiguration(
 		mustLengthB(900), mustLengthB(2700), engineering.FlightStraight)

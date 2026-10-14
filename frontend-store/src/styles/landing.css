@@ -1,0 +1,100 @@
+/* ---- Hero (landing) ---- */
+
+.hero {
+  /* уютная «деревянная» палитра — переопределяем переменные только в hero,
+     чтобы не перекрашивать Конструктор/Кабинет. */
+  --sp-bg: #fbf3e7;
+  --sp-card: #fffaf2;
+  --sp-text: #3a2c20;
+  --sp-muted: #8a7560;
+  --sp-primary: #9c6b3f;
+  --sp-primary-dark: #7c5230;
+  --sp-accent: #e0a458;
+  --sp-border: #ecd9c2;
+  --sp-shadow: 0 10px 30px rgba(120, 80, 40, 0.12);
+  text-align: center;
+  padding: 56px 20px 48px;
+}
+
+.hero h1 {
+  font-size: 40px;
+  line-height: 1.15;
+  margin: 0 0 14px;
+  color: var(--sp-text);
+}
+
+.hero p {
+  max-width: 640px;
+  margin: 0 auto;
+  color: var(--sp-muted);
+  font-size: 17px;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 26px;
+}
+
+.sp-btn {
+  display: inline-block;
+  padding: 12px 22px;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 600;
+  border: 1px solid var(--sp-border);
+  background: var(--sp-card);
+  color: var(--sp-primary);
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.06s ease;
+}
+
+.sp-btn:hover {
+  transform: translateY(-1px);
+}
+
+.sp-btn--primary {
+  background: var(--sp-primary);
+  border-color: var(--sp-primary);
+  color: #fff;
+}
+
+.sp-btn--primary:hover {
+  background: var(--sp-primary-dark);
+}
+
+.sp-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 16px;
+  margin-top: 44px;
+}
+
+.feature {
+  background: var(--sp-card);
+  border: 1px solid var(--sp-border);
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: var(--sp-shadow);
+}
+
+.feature h3 {
+  margin: 0 0 8px;
+  color: var(--sp-primary);
+}
+
+.feature p {
+  margin: 0;
+  color: var(--sp-muted);
+  font-size: 14px;
+}
+

@@ -30,10 +30,6 @@ Material Engine управляет всеми материалами, испол
 
 Steel
 
-Stainless Steel
-
-Aluminum
-
 Wood
 
 Glass

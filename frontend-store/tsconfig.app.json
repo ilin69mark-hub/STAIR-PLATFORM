@@ -4,7 +4,10 @@
     "target": "es2023",
     "lib": ["ES2023", "DOM"],
     "module": "esnext",
-    "types": ["vite/client"],
+    /* node нужен для node:fs/node:path в тестах компоновки панели
+       (Constructor.layout.test.tsx читает CSS-файлы, чтобы проверить
+       min-width: 0 и overflow-x: hidden). */
+    "types": ["vite/client", "node"],
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,
     "strict": true,

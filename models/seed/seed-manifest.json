@@ -1,0 +1,1664 @@
+{
+  "freecad_version": [
+    "1",
+    "1",
+    "1",
+    "20260414 (Git shallow)",
+    "Unknown",
+    "2026/04/14 22:09:59",
+    "(HEAD detached at 0108fd4b4)",
+    "0108fd4b4850cc46e625b60e53cea7a7bbe69f8d"
+  ],
+  "generated_by": "hack/gen_part_manifest.py (S-198)",
+  "parts": [
+    {
+      "bbox": {
+        "h": 1040.0,
+        "l": 1620.0,
+        "w": 8.0
+      },
+      "count": 2,
+      "form": "sheet",
+      "group": "cutting",
+      "id": "COS-001",
+      "instances": 2,
+      "material": "steel",
+      "name": "Косоур",
+      "note": "Гребёнка combStringerProfile(6,270,180,40,300), пластина 8 мм",
+      "role": "stringer",
+      "solids": [
+        {
+          "bbox": {
+            "h": 1040.0,
+            "l": 1620.0,
+            "w": 8.0
+          },
+          "object": "Stringer_A",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 1040.0,
+                "l": 1620.0,
+                "w": 8.0
+              },
+              "volume": 3214527.1
+            }
+          ],
+          "volume": 3214527.1
+        },
+        {
+          "bbox": {
+            "h": 1040.0,
+            "l": 1620.0,
+            "w": 8.0
+          },
+          "object": "Stringer_B",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 1040.0,
+                "l": 1620.0,
+                "w": 8.0
+              },
+              "volume": 3214527.1
+            }
+          ],
+          "volume": 3214527.1
+        }
+      ],
+      "source_object": "Stringer_A",
+      "volume": 3214527.1
+    },
+    {
+      "bbox": {
+        "h": 166.0,
+        "l": 4.0,
+        "w": 50.0
+      },
+      "count": 10,
+      "form": "sheet",
+      "group": "cutting",
+      "id": "WEB-001",
+      "instances": 10,
+      "material": "steel",
+      "name": "Перемычка",
+      "note": "Пятка 2, 3 отверстия Ø10",
+      "role": "web",
+      "solids": [
+        {
+          "bbox": {
+            "h": 166.0,
+            "l": 4.0,
+            "w": 50.0
+          },
+          "object": "Web_A_01",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 166.0,
+                "l": 4.0,
+                "w": 50.0
+              },
+              "volume": 32257.5
+            }
+          ],
+          "volume": 32257.5
+        },
+        {
+          "bbox": {
+            "h": 166.0,
+            "l": 4.0,
+            "w": 50.0
+          },
+          "object": "Web_A_02",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 166.0,
+                "l": 4.0,
+                "w": 50.0
+              },
+              "volume": 32257.5
+            }
+          ],
+          "volume": 32257.5
+        },
+        {
+          "bbox": {
+            "h": 166.0,
+            "l": 4.0,
+            "w": 50.0
+          },
+          "object": "Web_A_03",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 166.0,
+                "l": 4.0,
+                "w": 50.0
+              },
+              "volume": 32257.5
+            }
+          ],
+          "volume": 32257.5
+        },
+        {
+          "bbox": {
+            "h": 166.0,
+            "l": 4.0,
+            "w": 50.0
+          },
+          "object": "Web_A_04",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 166.0,
+                "l": 4.0,
+                "w": 50.0
+              },
+              "volume": 32257.5
+            }
+          ],
+          "volume": 32257.5
+        },
+        {
+          "bbox": {
+            "h": 166.0,
+            "l": 4.0,
+            "w": 50.0
+          },
+          "object": "Web_A_05",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 166.0,
+                "l": 4.0,
+                "w": 50.0
+              },
+              "volume": 32257.5
+            }
+          ],
+          "volume": 32257.5
+        },
+        {
+          "bbox": {
+            "h": 166.0,
+            "l": 4.0,
+            "w": 50.0
+          },
+          "object": "Web_B_01",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 166.0,
+                "l": 4.0,
+                "w": 50.0
+              },
+              "volume": 32257.5
+            }
+          ],
+          "volume": 32257.5
+        },
+        {
+          "bbox": {
+            "h": 166.0,
+            "l": 4.0,
+            "w": 50.0
+          },
+          "object": "Web_B_02",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 166.0,
+                "l": 4.0,
+                "w": 50.0
+              },
+              "volume": 32257.5
+            }
+          ],
+          "volume": 32257.5
+        },
+        {
+          "bbox": {
+            "h": 166.0,
+            "l": 4.0,
+            "w": 50.0
+          },
+          "object": "Web_B_03",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 166.0,
+                "l": 4.0,
+                "w": 50.0
+              },
+              "volume": 32257.5
+            }
+          ],
+          "volume": 32257.5
+        },
+        {
+          "bbox": {
+            "h": 166.0,
+            "l": 4.0,
+            "w": 50.0
+          },
+          "object": "Web_B_04",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 166.0,
+                "l": 4.0,
+                "w": 50.0
+              },
+              "volume": 32257.5
+            }
+          ],
+          "volume": 32257.5
+        },
+        {
+          "bbox": {
+            "h": 166.0,
+            "l": 4.0,
+            "w": 50.0
+          },
+          "object": "Web_B_05",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 166.0,
+                "l": 4.0,
+                "w": 50.0
+              },
+              "volume": 32257.5
+            }
+          ],
+          "volume": 32257.5
+        }
+      ],
+      "source_object": "Web_A_01",
+      "volume": 32257.5
+    },
+    {
+      "bbox": {
+        "h": 4.0,
+        "l": 260.0,
+        "w": 50.0
+      },
+      "count": 12,
+      "form": "sheet",
+      "group": "cutting",
+      "id": "HEEL-001",
+      "instances": 12,
+      "material": "steel",
+      "name": "Пятка",
+      "note": "Пятка 1, 4 отверстия Ø10",
+      "role": "heel",
+      "solids": [
+        {
+          "bbox": {
+            "h": 4.0,
+            "l": 260.0,
+            "w": 50.0
+          },
+          "object": "Heel_A_01",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 4.0,
+                "l": 260.0,
+                "w": 50.0
+              },
+              "volume": 50743.4
+            }
+          ],
+          "volume": 50743.4
+        },
+        {
+          "bbox": {
+            "h": 4.0,
+            "l": 260.0,
+            "w": 50.0
+          },
+          "object": "Heel_A_02",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 4.0,
+                "l": 260.0,
+                "w": 50.0
+              },
+              "volume": 50743.4
+            }
+          ],
+          "volume": 50743.4
+        },
+        {
+          "bbox": {
+            "h": 4.0,
+            "l": 260.0,
+            "w": 50.0
+          },
+          "object": "Heel_A_03",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 4.0,
+                "l": 260.0,
+                "w": 50.0
+              },
+              "volume": 50743.4
+            }
+          ],
+          "volume": 50743.4
+        },
+        {
+          "bbox": {
+            "h": 4.0,
+            "l": 260.0,
+            "w": 50.0
+          },
+          "object": "Heel_A_04",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 4.0,
+                "l": 260.0,
+                "w": 50.0
+              },
+              "volume": 50743.4
+            }
+          ],
+          "volume": 50743.4
+        },
+        {
+          "bbox": {
+            "h": 4.0,
+            "l": 260.0,
+            "w": 50.0
+          },
+          "object": "Heel_A_05",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 4.0,
+                "l": 260.0,
+                "w": 50.0
+              },
+              "volume": 50743.4
+            }
+          ],
+          "volume": 50743.4
+        },
+        {
+          "bbox": {
+            "h": 4.0,
+            "l": 260.0,
+            "w": 50.0
+          },
+          "object": "Heel_A_06",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 4.0,
+                "l": 260.0,
+                "w": 50.0
+              },
+              "volume": 50743.4
+            }
+          ],
+          "volume": 50743.4
+        },
+        {
+          "bbox": {
+            "h": 4.0,
+            "l": 260.0,
+            "w": 50.0
+          },
+          "object": "Heel_B_01",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 4.0,
+                "l": 260.0,
+                "w": 50.0
+              },
+              "volume": 50743.4
+            }
+          ],
+          "volume": 50743.4
+        },
+        {
+          "bbox": {
+            "h": 4.0,
+            "l": 260.0,
+            "w": 50.0
+          },
+          "object": "Heel_B_02",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 4.0,
+                "l": 260.0,
+                "w": 50.0
+              },
+              "volume": 50743.4
+            }
+          ],
+          "volume": 50743.4
+        },
+        {
+          "bbox": {
+            "h": 4.0,
+            "l": 260.0,
+            "w": 50.0
+          },
+          "object": "Heel_B_03",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 4.0,
+                "l": 260.0,
+                "w": 50.0
+              },
+              "volume": 50743.4
+            }
+          ],
+          "volume": 50743.4
+        },
+        {
+          "bbox": {
+            "h": 4.0,
+            "l": 260.0,
+            "w": 50.0
+          },
+          "object": "Heel_B_04",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 4.0,
+                "l": 260.0,
+                "w": 50.0
+              },
+              "volume": 50743.4
+            }
+          ],
+          "volume": 50743.4
+        },
+        {
+          "bbox": {
+            "h": 4.0,
+            "l": 260.0,
+            "w": 50.0
+          },
+          "object": "Heel_B_05",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 4.0,
+                "l": 260.0,
+                "w": 50.0
+              },
+              "volume": 50743.4
+            }
+          ],
+          "volume": 50743.4
+        },
+        {
+          "bbox": {
+            "h": 4.0,
+            "l": 260.0,
+            "w": 50.0
+          },
+          "object": "Heel_B_06",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 4.0,
+                "l": 260.0,
+                "w": 50.0
+              },
+              "volume": 50743.4
+            }
+          ],
+          "volume": 50743.4
+        }
+      ],
+      "source_object": "Heel_A_01",
+      "volume": 50743.4
+    },
+    {
+      "bbox": {
+        "h": 4.0,
+        "l": 270.0,
+        "w": 50.0
+      },
+      "count": 2,
+      "form": "sheet",
+      "group": "cutting",
+      "id": "ANCR-001",
+      "instances": 2,
+      "material": "steel",
+      "name": "Анкер-пластина",
+      "note": "Пятка пола, паз 30×12 + 2×Ø12 + паз 30×12",
+      "role": "anchor",
+      "solids": [
+        {
+          "bbox": {
+            "h": 4.0,
+            "l": 270.0,
+            "w": 50.0
+          },
+          "object": "Anchor_A",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 4.0,
+                "l": 270.0,
+                "w": 50.0
+              },
+              "volume": 50462.4
+            }
+          ],
+          "volume": 50462.4
+        },
+        {
+          "bbox": {
+            "h": 4.0,
+            "l": 270.0,
+            "w": 50.0
+          },
+          "object": "Anchor_B",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 4.0,
+                "l": 270.0,
+                "w": 50.0
+              },
+              "volume": 50462.4
+            }
+          ],
+          "volume": 50462.4
+        }
+      ],
+      "source_object": "Anchor_A",
+      "volume": 50462.4
+    },
+    {
+      "bbox": {
+        "h": 122.0,
+        "l": 4.0,
+        "w": 40.0
+      },
+      "count": 2,
+      "form": "sheet",
+      "group": "cutting",
+      "id": "FWEB-001",
+      "instances": 2,
+      "material": "steel",
+      "name": "Первая перемычка",
+      "note": "Пластина 1-й ступени, 3 отверстия Ø10",
+      "role": "first_web",
+      "solids": [
+        {
+          "bbox": {
+            "h": 122.0,
+            "l": 4.0,
+            "w": 40.0
+          },
+          "object": "FirstWeb_A",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 122.0,
+                "l": 4.0,
+                "w": 40.0
+              },
+              "volume": 18577.5
+            }
+          ],
+          "volume": 18577.5
+        },
+        {
+          "bbox": {
+            "h": 122.0,
+            "l": 4.0,
+            "w": 40.0
+          },
+          "object": "FirstWeb_B",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 122.0,
+                "l": 4.0,
+                "w": 40.0
+              },
+              "volume": 18577.5
+            }
+          ],
+          "volume": 18577.5
+        }
+      ],
+      "source_object": "FirstWeb_A",
+      "volume": 18577.5
+    },
+    {
+      "bbox": {
+        "h": 166.0,
+        "l": 4.0,
+        "w": 50.0
+      },
+      "count": 2,
+      "form": "sheet",
+      "group": "cutting",
+      "id": "TANC-001",
+      "instances": 2,
+      "material": "steel",
+      "name": "Верхняя распорка",
+      "note": "Пятка выхода, паз + Ø12 + паз",
+      "role": "anchor",
+      "solids": [
+        {
+          "bbox": {
+            "h": 166.0,
+            "l": 4.0,
+            "w": 50.0
+          },
+          "object": "TopAnchor_A",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 166.0,
+                "l": 4.0,
+                "w": 50.0
+              },
+              "volume": 30114.8
+            }
+          ],
+          "volume": 30114.8
+        },
+        {
+          "bbox": {
+            "h": 166.0,
+            "l": 4.0,
+            "w": 50.0
+          },
+          "object": "TopAnchor_B",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 166.0,
+                "l": 4.0,
+                "w": 50.0
+              },
+              "volume": 30114.8
+            }
+          ],
+          "volume": 30114.8
+        }
+      ],
+      "source_object": "TopAnchor_A",
+      "volume": 30114.8
+    },
+    {
+      "bbox": {
+        "h": 40.0,
+        "l": 290.0,
+        "w": 900.0
+      },
+      "count": 6,
+      "form": "sheet",
+      "group": "cutting",
+      "id": "TRED-001",
+      "instances": 6,
+      "material": "wood",
+      "name": "Проступь",
+      "note": "Дуб, филёнка R10 на носу (как в движке)",
+      "role": "tread",
+      "solids": [
+        {
+          "bbox": {
+            "h": 40.0,
+            "l": 290.0,
+            "w": 900.0
+          },
+          "object": "Tread_01",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 40.0,
+                "l": 290.0,
+                "w": 900.0
+              },
+              "volume": 10420685.8
+            }
+          ],
+          "volume": 10420685.8
+        },
+        {
+          "bbox": {
+            "h": 40.0,
+            "l": 290.0,
+            "w": 900.0
+          },
+          "object": "Tread_02",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 40.0,
+                "l": 290.0,
+                "w": 900.0
+              },
+              "volume": 10420685.8
+            }
+          ],
+          "volume": 10420685.8
+        },
+        {
+          "bbox": {
+            "h": 40.0,
+            "l": 290.0,
+            "w": 900.0
+          },
+          "object": "Tread_03",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 40.0,
+                "l": 290.0,
+                "w": 900.0
+              },
+              "volume": 10420685.8
+            }
+          ],
+          "volume": 10420685.8
+        },
+        {
+          "bbox": {
+            "h": 40.0,
+            "l": 290.0,
+            "w": 900.0
+          },
+          "object": "Tread_04",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 40.0,
+                "l": 290.0,
+                "w": 900.0
+              },
+              "volume": 10420685.8
+            }
+          ],
+          "volume": 10420685.8
+        },
+        {
+          "bbox": {
+            "h": 40.0,
+            "l": 290.0,
+            "w": 900.0
+          },
+          "object": "Tread_05",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 40.0,
+                "l": 290.0,
+                "w": 900.0
+              },
+              "volume": 10420685.8
+            }
+          ],
+          "volume": 10420685.8
+        },
+        {
+          "bbox": {
+            "h": 40.0,
+            "l": 330.0,
+            "w": 900.0
+          },
+          "object": "Tread_06",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 40.0,
+                "l": 330.0,
+                "w": 900.0
+              },
+              "volume": 11860685.8
+            }
+          ],
+          "volume": 11860685.8
+        }
+      ],
+      "source_object": "Tread_01",
+      "volume": 10420685.8
+    },
+    {
+      "bbox": {
+        "h": 140.0,
+        "l": 40.0,
+        "w": 900.0
+      },
+      "count": 6,
+      "form": "sheet",
+      "group": "cutting",
+      "id": "RISR-001",
+      "instances": 6,
+      "material": "wood",
+      "name": "Подступенок",
+      "role": "riser",
+      "solids": [
+        {
+          "bbox": {
+            "h": 140.0,
+            "l": 40.0,
+            "w": 900.0
+          },
+          "object": "Riser_01",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 140.0,
+                "l": 40.0,
+                "w": 900.0
+              },
+              "volume": 5040000.0
+            }
+          ],
+          "volume": 5040000.0
+        },
+        {
+          "bbox": {
+            "h": 180.0,
+            "l": 40.0,
+            "w": 900.0
+          },
+          "object": "Riser_02",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 180.0,
+                "l": 40.0,
+                "w": 900.0
+              },
+              "volume": 6480000.0
+            }
+          ],
+          "volume": 6480000.0
+        },
+        {
+          "bbox": {
+            "h": 180.0,
+            "l": 40.0,
+            "w": 900.0
+          },
+          "object": "Riser_03",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 180.0,
+                "l": 40.0,
+                "w": 900.0
+              },
+              "volume": 6480000.0
+            }
+          ],
+          "volume": 6480000.0
+        },
+        {
+          "bbox": {
+            "h": 180.0,
+            "l": 40.0,
+            "w": 900.0
+          },
+          "object": "Riser_04",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 180.0,
+                "l": 40.0,
+                "w": 900.0
+              },
+              "volume": 6480000.0
+            }
+          ],
+          "volume": 6480000.0
+        },
+        {
+          "bbox": {
+            "h": 180.0,
+            "l": 40.0,
+            "w": 900.0
+          },
+          "object": "Riser_05",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 180.0,
+                "l": 40.0,
+                "w": 900.0
+              },
+              "volume": 6480000.0
+            }
+          ],
+          "volume": 6480000.0
+        },
+        {
+          "bbox": {
+            "h": 180.0,
+            "l": 40.0,
+            "w": 900.0
+          },
+          "object": "Riser_06",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 180.0,
+                "l": 40.0,
+                "w": 900.0
+              },
+              "volume": 6480000.0
+            }
+          ],
+          "volume": 6480000.0
+        }
+      ],
+      "source_object": "Riser_01",
+      "volume": 5040000.0
+    },
+    {
+      "axis_len": 1947.0,
+      "bbox": {
+        "h": 1115.28,
+        "l": 1643.52,
+        "w": 42.4
+      },
+      "count": 1,
+      "form": "tube",
+      "group": "purchased",
+      "id": "RAIL-P",
+      "instances": 1,
+      "material": "stainless",
+      "name": "Перила (поручень)",
+      "note": "Труба Ø42,4×1,5 через верхи стоек (лежит на наконечниках, S-208a)",
+      "role": "rail_top",
+      "solids": [
+        {
+          "bbox": {
+            "h": 1115.28,
+            "l": 1643.52,
+            "w": 42.4
+          },
+          "object": "Rail_Portun",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 1115.28,
+                "l": 1643.52,
+                "w": 42.4
+              },
+              "volume": 375257.9
+            }
+          ],
+          "volume": 375257.9
+        }
+      ],
+      "source_object": "Rail_Portun",
+      "tube": {
+        "od": 42.4,
+        "wall": 1.5
+      },
+      "volume": 375257.9
+    },
+    {
+      "axis_len": 805.7,
+      "bbox": {
+        "h": 805.7,
+        "l": 42.4,
+        "w": 42.4
+      },
+      "count": 2,
+      "form": "tube",
+      "group": "purchased",
+      "id": "POST-001",
+      "instances": 2,
+      "material": "stainless",
+      "name": "Стойка",
+      "note": "Труба Ø42,4×1,5 высотой 805,7 (движок приведён к каталогу, S-208a)",
+      "role": "post",
+      "solids": [
+        {
+          "bbox": {
+            "h": 805.7,
+            "l": 42.4,
+            "w": 42.4
+          },
+          "object": "Rail_Post_01",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 805.7,
+                "l": 42.4,
+                "w": 42.4
+              },
+              "volume": 155288.0
+            }
+          ],
+          "volume": 155288.0
+        },
+        {
+          "bbox": {
+            "h": 805.7,
+            "l": 42.4,
+            "w": 42.4
+          },
+          "object": "Rail_Post_02",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 805.7,
+                "l": 42.4,
+                "w": 42.4
+              },
+              "volume": 155288.0
+            }
+          ],
+          "volume": 155288.0
+        }
+      ],
+      "source_object": "Rail_Post_01",
+      "tube": {
+        "od": 42.4,
+        "wall": 1.5
+      },
+      "volume": 155288.0
+    },
+    {
+      "axis_len": 1622.5,
+      "bbox": {
+        "h": 909.98,
+        "l": 1356.66,
+        "w": 12.0
+      },
+      "count": 2,
+      "form": "tube",
+      "group": "purchased",
+      "id": "RIGL-001",
+      "instances": 2,
+      "material": "stainless",
+      "name": "Ригель",
+      "note": "Трубка Ø12×1, два ряда; оба ряда одна позиция",
+      "role": "rigel",
+      "solids": [
+        {
+          "bbox": {
+            "h": 909.98,
+            "l": 1356.66,
+            "w": 12.0
+          },
+          "object": "Rail_Rigel_1_01",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 909.98,
+                "l": 1356.66,
+                "w": 12.0
+              },
+              "volume": 56069.5
+            }
+          ],
+          "volume": 56069.5
+        },
+        {
+          "bbox": {
+            "h": 909.98,
+            "l": 1356.66,
+            "w": 12.0
+          },
+          "object": "Rail_Rigel_2_01",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 909.98,
+                "l": 1356.66,
+                "w": 12.0
+              },
+              "volume": 56069.5
+            }
+          ],
+          "volume": 56069.5
+        }
+      ],
+      "source_object": "Rail_Rigel_1_01",
+      "tube": {
+        "od": 12.0,
+        "wall": 1.0
+      },
+      "volume": 56069.5
+    },
+    {
+      "bbox": {
+        "h": 24.0,
+        "l": 39.4,
+        "w": 39.4
+      },
+      "count": 10,
+      "form": "part",
+      "group": "purchased",
+      "id": "TIP-001",
+      "instances": 2,
+      "material": "stainless",
+      "name": "Наконечник регулируемый",
+      "note": "5 тел на стойку (см. шапку файла; стакан уехал в DECO-001)",
+      "role": "tip",
+      "solids": [
+        {
+          "bbox": {
+            "h": 24.0,
+            "l": 39.4,
+            "w": 39.4
+          },
+          "object": "Rail_Tip_01_Sleeve",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 24.0,
+                "l": 39.4,
+                "w": 39.4
+              },
+              "volume": 4286.4
+            }
+          ],
+          "volume": 4286.4
+        },
+        {
+          "bbox": {
+            "h": 3.0,
+            "l": 42.4,
+            "w": 42.4
+          },
+          "object": "Rail_Tip_01_Cap",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 3.0,
+                "l": 42.4,
+                "w": 42.4
+              },
+              "volume": 4235.9
+            }
+          ],
+          "volume": 4235.9
+        },
+        {
+          "bbox": {
+            "h": 27.7,
+            "l": 12.0,
+            "w": 12.0
+          },
+          "object": "Rail_Tip_01_Stud",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 27.7,
+                "l": 12.0,
+                "w": 12.0
+              },
+              "volume": 957.2
+            }
+          ],
+          "volume": 957.2
+        },
+        {
+          "bbox": {
+            "h": 19.4,
+            "l": 14.0,
+            "w": 14.0
+          },
+          "object": "Rail_Tip_01_Joint",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 19.4,
+                "l": 14.0,
+                "w": 14.0
+              },
+              "volume": 1142.8
+            }
+          ],
+          "volume": 1142.8
+        },
+        {
+          "bbox": {
+            "h": 39.66,
+            "l": 58.8,
+            "w": 50.8
+          },
+          "object": "Rail_Tip_01_Plate",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 39.66,
+                "l": 58.8,
+                "w": 50.8
+              },
+              "volume": 2969.0
+            }
+          ],
+          "volume": 2969.0
+        },
+        {
+          "bbox": {
+            "h": 24.0,
+            "l": 39.4,
+            "w": 39.4
+          },
+          "object": "Rail_Tip_02_Sleeve",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 24.0,
+                "l": 39.4,
+                "w": 39.4
+              },
+              "volume": 4286.4
+            }
+          ],
+          "volume": 4286.4
+        },
+        {
+          "bbox": {
+            "h": 3.0,
+            "l": 42.4,
+            "w": 42.4
+          },
+          "object": "Rail_Tip_02_Cap",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 3.0,
+                "l": 42.4,
+                "w": 42.4
+              },
+              "volume": 4235.9
+            }
+          ],
+          "volume": 4235.9
+        },
+        {
+          "bbox": {
+            "h": 27.7,
+            "l": 12.0,
+            "w": 12.0
+          },
+          "object": "Rail_Tip_02_Stud",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 27.7,
+                "l": 12.0,
+                "w": 12.0
+              },
+              "volume": 957.2
+            }
+          ],
+          "volume": 957.2
+        },
+        {
+          "bbox": {
+            "h": 19.4,
+            "l": 14.0,
+            "w": 14.0
+          },
+          "object": "Rail_Tip_02_Joint",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 19.4,
+                "l": 14.0,
+                "w": 14.0
+              },
+              "volume": 1142.8
+            }
+          ],
+          "volume": 1142.8
+        },
+        {
+          "bbox": {
+            "h": 39.66,
+            "l": 58.8,
+            "w": 50.8
+          },
+          "object": "Rail_Tip_02_Plate",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 39.66,
+                "l": 58.8,
+                "w": 50.8
+              },
+              "volume": 2969.0
+            }
+          ],
+          "volume": 2969.0
+        }
+      ],
+      "source_object": "Rail_Tip_01_Sleeve",
+      "volume": 4286.4
+    },
+    {
+      "bbox": {
+        "h": 8.0,
+        "l": 86.0,
+        "w": 86.0
+      },
+      "count": 2,
+      "form": "part",
+      "group": "purchased",
+      "id": "FLNG-001",
+      "instances": 2,
+      "material": "stainless",
+      "name": "Фланец опоры",
+      "note": "Геометрический диск цанги Ø86×8 с 3 отверстиями Ø9 на R32",
+      "role": "flange",
+      "solids": [
+        {
+          "bbox": {
+            "h": 8.0,
+            "l": 86.0,
+            "w": 86.0
+          },
+          "object": "Rail_Clamp_01_Disc",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 8.0,
+                "l": 86.0,
+                "w": 86.0
+              },
+              "volume": 44943.6
+            }
+          ],
+          "volume": 44943.6
+        },
+        {
+          "bbox": {
+            "h": 8.0,
+            "l": 86.0,
+            "w": 86.0
+          },
+          "object": "Rail_Clamp_02_Disc",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 8.0,
+                "l": 86.0,
+                "w": 86.0
+              },
+              "volume": 44943.6
+            }
+          ],
+          "volume": 44943.6
+        }
+      ],
+      "source_object": "Rail_Clamp_01_Disc",
+      "volume": 44943.6
+    },
+    {
+      "bbox": {
+        "h": 34.0,
+        "l": 43.0,
+        "w": 43.0
+      },
+      "count": 2,
+      "form": "part",
+      "group": "purchased",
+      "id": "SLIP-001",
+      "instances": 2,
+      "material": "stainless",
+      "name": "Накидная часть",
+      "note": "Геометрическая муфта, труба Ø43×0,2 высотой 34",
+      "role": "slip",
+      "solids": [
+        {
+          "bbox": {
+            "h": 34.0,
+            "l": 43.0,
+            "w": 43.0
+          },
+          "object": "Rail_Slip_01_Muff",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 34.0,
+                "l": 43.0,
+                "w": 43.0
+              },
+              "volume": 914.3
+            }
+          ],
+          "volume": 914.3
+        },
+        {
+          "bbox": {
+            "h": 34.0,
+            "l": 43.0,
+            "w": 43.0
+          },
+          "object": "Rail_Slip_02_Muff",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 34.0,
+                "l": 43.0,
+                "w": 43.0
+              },
+              "volume": 914.3
+            }
+          ],
+          "volume": 914.3
+        }
+      ],
+      "source_object": "Rail_Slip_01_Muff",
+      "volume": 914.3
+    },
+    {
+      "bbox": {
+        "h": 16.0,
+        "l": 88.0,
+        "w": 88.0
+      },
+      "count": 4,
+      "form": "part",
+      "group": "purchased",
+      "id": "DECO-001",
+      "instances": 2,
+      "material": "stainless",
+      "name": "Декоративная накладка",
+      "note": "Геометрические стакан Ø88×16 и крышка Ø88×1 (2 тела)",
+      "role": "deco",
+      "solids": [
+        {
+          "bbox": {
+            "h": 16.0,
+            "l": 88.0,
+            "w": 88.0
+          },
+          "object": "Rail_Deco_01_Body",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 16.0,
+                "l": 88.0,
+                "w": 88.0
+              },
+              "volume": 3940.3
+            }
+          ],
+          "volume": 3940.3
+        },
+        {
+          "bbox": {
+            "h": 1.0,
+            "l": 88.0,
+            "w": 88.0
+          },
+          "object": "Rail_Deco_01_Lid",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 1.0,
+                "l": 88.0,
+                "w": 88.0
+              },
+              "volume": 6082.1
+            }
+          ],
+          "volume": 6082.1
+        },
+        {
+          "bbox": {
+            "h": 16.0,
+            "l": 88.0,
+            "w": 88.0
+          },
+          "object": "Rail_Deco_02_Body",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 16.0,
+                "l": 88.0,
+                "w": 88.0
+              },
+              "volume": 3940.3
+            }
+          ],
+          "volume": 3940.3
+        },
+        {
+          "bbox": {
+            "h": 1.0,
+            "l": 88.0,
+            "w": 88.0
+          },
+          "object": "Rail_Deco_02_Lid",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 1.0,
+                "l": 88.0,
+                "w": 88.0
+              },
+              "volume": 6082.1
+            }
+          ],
+          "volume": 6082.1
+        }
+      ],
+      "source_object": "Rail_Deco_01_Body",
+      "volume": 3940.3
+    },
+    {
+      "bbox": {
+        "h": 42.6,
+        "l": 36.72,
+        "w": 39.2
+      },
+      "count": 4,
+      "form": "part",
+      "group": "purchased",
+      "id": "ENDP-001",
+      "instances": 2,
+      "material": "plastic",
+      "name": "Торцевая заглушка",
+      "note": "Стакан Ø39,2 на 18 мм внутрь + глухое дно Ø42,4×1 (S-211); оба торца одна позиция",
+      "role": "end_cap",
+      "solids": [
+        {
+          "bbox": {
+            "h": 42.6,
+            "l": 36.72,
+            "w": 39.2
+          },
+          "object": "Rail_Cap_Start",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 42.6,
+                "l": 36.72,
+                "w": 39.2
+              },
+              "volume": 3197.8
+            }
+          ],
+          "volume": 3197.8
+        },
+        {
+          "bbox": {
+            "h": 42.6,
+            "l": 36.72,
+            "w": 39.2
+          },
+          "object": "Rail_Cap_End",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 42.6,
+                "l": 36.72,
+                "w": 39.2
+              },
+              "volume": 3197.8
+            }
+          ],
+          "volume": 3197.8
+        },
+        {
+          "bbox": {
+            "h": 35.83,
+            "l": 24.35,
+            "w": 42.4
+          },
+          "object": "Rail_Cap_Start_Lid",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 35.83,
+                "l": 24.35,
+                "w": 42.4
+              },
+              "volume": 1412.0
+            }
+          ],
+          "volume": 1412.0
+        },
+        {
+          "bbox": {
+            "h": 35.83,
+            "l": 24.35,
+            "w": 42.4
+          },
+          "object": "Rail_Cap_End_Lid",
+          "subsolids": [
+            {
+              "bbox": {
+                "h": 35.83,
+                "l": 24.35,
+                "w": 42.4
+              },
+              "volume": 1412.0
+            }
+          ],
+          "volume": 1412.0
+        }
+      ],
+      "source_object": "Rail_Cap_Start",
+      "volume": 3197.8
+    }
+  ],
+  "source_model": "seed/minimal-straight.FCStd",
+  "source_sha256": "9d91fa78a20a04e40e2a5a6aaddff86cafe83eb09fdafea232db6102baddb207",
+  "tolerance_mm": 0.3,
+  "tolerance_volume_pct": 3.0
+}

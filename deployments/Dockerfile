@@ -33,6 +33,14 @@ RUN adduser -D -H -u 10001 appuser
 COPY --from=build /bin/api /bin/api
 COPY --from=build /bin/worker /bin/worker
 COPY migrations /migrations
+# PBR-текстуры и студийный HDRI для 3D-сцены. Без этого каталога в финальном
+# образе их не было: сборка копировала assets/ только в build-стадию, рантайм
+# получал WORKDIR / и обработчик /static-assets/ отдавал 404 на все текстуры.
+# Путь задаём явно, потому что WORKDIR — «/», а дефолт «assets» искал бы
+# /assets относительно корня (то есть сработал бы) — но только если каталог
+# действительно скопирован, что и делаем здесь.
+COPY assets /assets
+ENV STAIR_STATIC_ASSETS_DIR=/assets
 WORKDIR /
 USER appuser
 EXPOSE 8080

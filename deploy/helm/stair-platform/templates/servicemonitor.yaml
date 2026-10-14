@@ -14,9 +14,10 @@ metadata:
     {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
+  # INF-11: скрейпить /metrics у api; воркер метрик не отдаёт.
   selector:
     matchLabels:
-      {{- include "stair-platform.selectorLabels" . | nindent 6 }}
+      {{- include "stair-platform.apiSelectorLabels" . | nindent 6 }}
   endpoints:
     - port: http
       path: /metrics

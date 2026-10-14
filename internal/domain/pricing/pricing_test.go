@@ -22,7 +22,7 @@ func validBreakdown() *PriceBreakdown {
 		Tax:            NewMoney(82992), // 20% от 414960
 		FinalPrice:     NewMoney(497952),
 		Lines: []CostComponent{
-			{Name: "Материал", Category: CategoryMaterial, Amount: NewMoney(200000), Source: "material:STEEL-S235"},
+			{Name: "Материал", Category: CategoryMaterial, Amount: NewMoney(200000), Source: "material:STEEL-C245"},
 			{Name: "Оборудование", Category: CategoryMachine, Amount: NewMoney(30000), Source: "machine:laser"},
 			{Name: "Труд", Category: CategoryLabor, Amount: NewMoney(50000), Source: "labor:manual"},
 			{Name: "Накладные", Category: CategoryOverhead, Amount: NewMoney(56000), Source: "overhead:rate"},

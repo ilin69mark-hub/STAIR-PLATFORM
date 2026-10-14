@@ -12,11 +12,13 @@ import (
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
 	appstorage "stairplatform/internal/application/storage"
+	storageinfra "stairplatform/internal/infrastructure/storage"
 )
 
 // fakeStorageService — тестовая реализация StorageService.
 type fakeStorageService struct {
 	objs      map[string][]byte
+	types     map[string]string // content-type по ключу (DOM-006)
 	saveErr   error
 	loadErr   error
 	deleteErr error
@@ -33,6 +35,10 @@ func (f *fakeStorageService) SaveExport(_ context.Context, tenantID, category, f
 	}
 	key := tenantID + "/" + category + "/" + filename
 	f.objs[key] = data
+	if f.types == nil {
+		f.types = map[string]string{}
+	}
+	f.types[key] = contentType
 	ref := &appstorage.ExportRef{Key: key, ContentType: contentType, Size: len(data)}
 	f.saved = ref
 	return ref, nil
@@ -47,9 +53,11 @@ func (f *fakeStorageService) Load(_ context.Context, tenantID, key string) ([]by
 	}
 	data, ok := f.objs[key]
 	if !ok {
-		return nil, "", errors.New("storage: not found")
+		// DOM-006: «не найдено» — это storage.ErrNotFound, а не произвольная
+		// ошибка: транспорт различает 404 (объекта нет) и 500 (сбой хранилища).
+		return nil, "", storageinfra.ErrNotFound
 	}
-	return data, "", nil
+	return data, f.types[key], nil
 }
 
 func (f *fakeStorageService) Delete(_ context.Context, tenantID, key string) error {
@@ -186,5 +194,57 @@ func TestDeleteObjectNotFound(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+// TestDOM006_StorageFailureIsNotNotFound — DOM-006: сбой хранилища не должен
+// выглядеть как отсутствие объекта.
+//
+// Раньше обработчик на ЛЮБУЮ ошибку отдавал 404 «Объект не найден» и ничего
+// не логировал: инцидент S3/ФС был неотличим от пустого ключа, и мониторинг
+// его не видел.
+func TestDOM006_StorageFailureIsNotNotFound(t *testing.T) {
+	s, projects := storageTestSetup()
+	s.loadErr = errors.New("storage: s3 GET https://bucket/x: SlowDown")
+	router := testRouterWithStorage(projects, s)
+	req := authedRequest(http.MethodGet, "/api/v1/storage/t-1/cad/x.dxf", "")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusNotFound {
+		t.Fatalf("DOM-006: сбой хранилища не должен отдавать 404 — это скрывает инцидент: %s",
+			rec.Body.String())
+	}
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "SlowDown") {
+		t.Errorf("внутренняя ошибка хранилища не должна попадать в тело ответа: %s", rec.Body.String())
+	}
+}
+
+// TestDOM006_ContentTypeIsPreserved — DOM-006: content-type объекта обязан
+// доходить до клиента. Раньше Service.Load выбрасывал его и обработчик всегда
+// отдавал application/octet-stream, хотя SaveExport сохранял и возвращал его
+// в DTO.
+func TestDOM006_ContentTypeIsPreserved(t *testing.T) {
+	s, projects := storageTestSetup()
+	if _, err := s.SaveExport(t.Context(), "t-1", "cad", "p.dxf", []byte("x0"), "application/dxf"); err != nil {
+		t.Fatalf("SaveExport: %v", err)
+	}
+	router := testRouterWithStorage(projects, s)
+	req := authedRequest(http.MethodGet, "/api/v1/storage/t-1/cad/p.dxf", "")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/dxf" {
+		t.Errorf("DOM-006: content-type = %q, want application/dxf", ct)
+	}
+	// nosniff остаётся: ответ не должен исполняться как HTML.
+	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Error("X-Content-Type-Options: nosniff обязателен")
 	}
 }

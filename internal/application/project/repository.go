@@ -41,8 +41,20 @@ type Repository interface {
 	// не может быть назначен повторно).
 	UpdateMemberRole(ctx context.Context, tenantID, projectID, userID string, role ProjectRole) error
 	// RemoveMember удаляет члена; владельца удалить нельзя (собственность
-	// проекта остаётся за владельцем; перенос владения — вне скоупа C1).
+	// проекта остаётся за владельцем; передать владение — TransferOwnership).
 	RemoveMember(ctx context.Context, tenantID, projectID, userID string) error
+	// TransferOwnership передаёт владение проектом другому участнику ОДНОЙ
+	// транзакцией: прежний владелец становится редактором, новый — владельцем,
+	// projects.owner_id обновляется.
+	//
+	// Три записи меняются, потому что владение описано в двух местах:
+	// project_members (уникальный индекс «один owner на проект») и
+	// projects.owner_id (денормализация, по которой считаются выборки).
+	// Обновить одно из двух — значит оставить проект без владельца или с двумя.
+	//
+	// ErrNotFound — новый владелец не участник проекта или проект вне tenant;
+	// ErrConflict — прежний владелец не найден.
+	TransferOwnership(ctx context.Context, tenantID, projectID, toUserID string) error
 
 	// AddComment добавляет комментарий к проекту (EDR-0009, member authz
 	// проверяет service). Возвращает созданный комментарий с ID/CreatedAt.
@@ -97,6 +109,10 @@ type Repository interface {
 	// ссылается на восстановленную ревизию. ErrNotFound — ревизия вне
 	// tenant или не существует.
 	RestoreConfiguration(ctx context.Context, tenantID, projectID, configurationID string) error
+	// MarkConfigurationAsMeasurement ставит или снимает метку «замер» на
+	// ревизии: размеры сняты по факту на объекте, а не по телефону.
+	// ErrNotFound — ревизия вне tenant или не существует.
+	MarkConfigurationAsMeasurement(ctx context.Context, tenantID, projectID, configurationID string, mark bool) error
 
 	// SaveCalculationWithConfig атомарно сохраняет конфигурацию и расчёт
 	// (BE-0006 Transaction Management): одна транзакция — один расчёт.

@@ -6,7 +6,7 @@
 //
 // Локальная валидация формы (validateForm) остаётся синхронной и первой
 // линией; живая валидация ловит то, что локально не видно (советы геометрии:
-// R>W спирали, проступь/угол по норме, вписываемость в помещение и т.п.).
+// проступь/угол по норме, вписываемость в помещение и т.п.).
 
 import type { ConfigForm, FieldErrors } from './config'
 
@@ -21,7 +21,6 @@ export interface LiveSuggestion {
   stepHeightMm: number
   treadDepthMm: number
   angleDeg: number
-  outerRadiusMm?: number
   widthMm?: number
 }
 
@@ -52,6 +51,16 @@ export interface LiveValidation {
   issues: LiveIssue[]
   /** Ошибки, привязанные к полям формы (уже нормированные в FieldErrors). */
   fieldErrors: FieldErrors
+  /**
+   * Подсказки по полям от сервера (S-173). Ключ — имя поля ConfigForm.
+   *
+   * Сюда приходит норматив на косоур: полоса по длине марша, толщина,
+   * размеры заготовки. Раньше это считалось в TypeScript копией таблицы
+   * timber_stringer.go (в комментарии там прямо стояло «Зеркало»).
+   * Дублирование инженерных правил запрещено 02_PROJECT_PRINCIPLES P-012,
+   * а отличались витрина и админка в похожих ситуациях со ставками.
+   */
+  hints: Record<string, string>
 }
 
 // ---- Raw-формы ответа :validate (обе сущности, чтобы не дублировать типы) ----
@@ -78,6 +87,8 @@ interface RawIssue {
 }
 
 interface RawValidation {
+  hints?: Record<string, string>
+  Hints?: Record<string, string>
   valid?: boolean
   Valid?: boolean
   blocking?: boolean
@@ -112,7 +123,6 @@ const ELEMENT_TO_KEY: Record<string, keyof ConfigForm> = {
 // InputError'ы приходят с Element=«configuration» и человекочитаемым
 // Param (русское имя поля, см. solver/input.go и errors.go).
 const PARAM_TO_KEY: Record<string, keyof ConfigForm> = {
-  'Радиус спирали': 'outerRadiusMM',
   'Ширина марша': 'widthMM',
   'Ширина площадки': 'landingWidthMM',
   'Высота': 'heightMM',
@@ -126,7 +136,16 @@ const PARAM_TO_KEY: Record<string, keyof ConfigForm> = {
   'Тип лестницы': 'flight',
   'Перила': 'railing',
   'Направление поворота': 'direction',
-  'Направление спирали': 'spiralDirection',
+  // DOM-005 (2026-09-26): метки полей, добавленные при локализации
+  // доменных ошибок (internal/application/stair/errors.go). Без них форма
+  // подсвечивала «Параметры лестницы» целиком и не указывала, что чинить.
+  'Глубина площадки': 'landingDepthMM',
+  'Ширина помещения': 'roomWidthMM',
+  'Длина помещения': 'roomLengthMM',
+  'Свободное пространство': 'approachSpaceMM',
+  'Шаг комфорта': 'comfortStepMM',
+  'Поворот марша': 'turnKind',
+  'Поворотных ступеней': 'winderCountMM',
 }
 
 // Вписываемость в помещение (geometry room_fit) подсвечивает оба габарита.
@@ -151,7 +170,6 @@ function adaptSuggestion(raw?: Record<string, unknown>): LiveSuggestion {
     stepHeightMm: num(raw.step_height_mm, raw.StepHeightMm) ?? 0,
     treadDepthMm: num(raw.tread_depth_mm, raw.TreadDepthMm) ?? 0,
     angleDeg: num(raw.angle_deg, raw.AngleDeg) ?? 0,
-    outerRadiusMm: num(raw.outer_radius_mm, raw.OuterRadiusMm),
     widthMm: num(raw.width_mm, raw.WidthMm),
   }
 }
@@ -202,7 +220,8 @@ export function adaptValidation(raw: RawValidation): LiveValidation {
       if (!fieldErrors[key]) fieldErrors[key] = it.guide ?? it.message
     }
   }
-  return { valid, blocking, issues, fieldErrors }
+  const hints = raw?.hints ?? raw?.Hints ?? {}
+  return { valid, blocking, issues, fieldErrors, hints }
 }
 
 // ---- Ключ идентичности конфига (дедуп запросов) ----
@@ -219,23 +238,22 @@ export function applySuggestion(prev: ConfigForm, s: LiveSuggestion): ConfigForm
   if ((prev.flight === 'l_shape' || prev.flight === 'u_shape') && s.lowerStepCount) {
     next.lowerStepCountMM = String(s.lowerStepCount)
   }
-  if (prev.flight === 'spiral' && s.outerRadiusMm && s.widthMm) {
-    next.widthMM = String(s.widthMm)
-    next.outerRadiusMM = String(s.outerRadiusMm)
-  }
   return next
 }
 
 // applyVariation сливает конфиг варианта в форму. Пустые значения НЕ
 // перезаписывают выбор пользователя (иначе форма становится невалидной,
-// clobbering); шаг комфорта из варианта не применяем — он дефолтный и
-// прокрутку пользователь не редактирует (см. Constructor). Подстраховка:
-// свободное пространство перед первой ступенью обязательно (норма 1000–1200).
+// clobbering). Подстраховка: свободное пространство перед первой ступенью
+// обязательно (норма 1000–1200 мм).
+//
+// DOM-002 (2026-09-26): comfortStepMM применяется. Раньше он отбрасывался с
+// ложным комментарием «он дефолтный», но variation.ForAngle меняет шаг
+// комфорта намеренно (600/620/640) и считает проступь от него, поэтому без
+// него вариация «исправить угол» не снимала блокировку GEO-ANGLE.
 export function applyVariation(prev: ConfigForm, v: LiveVariation): ConfigForm {
   const merged = { ...prev } as unknown as Record<string, string>
   for (const [k, val] of Object.entries(v.config)) {
     if (typeof val !== 'string' || val.trim() === '') continue
-    if (k === 'comfortStepMM') continue
     merged[k] = val
   }
   if (merged.approachSpaceMM?.trim() === '') merged.approachSpaceMM = '1000'

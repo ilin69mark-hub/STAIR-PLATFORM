@@ -17,7 +17,8 @@ vi.mock('@sentry/react', () => ({
 
 // Модуль-под-тест импортируем ПОСЛЕ vi.mock (hoisted).
 import { captureError, getSentryDsn, hashEmail, initSentry, isSentryEnabled, scrubEvent } from './sentry'
-import { resetSentryModule } from './sentry'
+import { resetSentryModule, setSentryRequiresConsent } from './sentry'
+import { CONSENT_KEY, CONSENT_VERSION, grantConsent } from '../consent'
 
 async function flushMicrotasks(): Promise<void> {
   // Дождаться цепочки promise внутри loadAndInit/flushQueue.
@@ -30,6 +31,10 @@ describe('sentry lazy-init (S-140)', () => {
   beforeEach(() => {
     vi.resetModules()
     resetSentryModule()
+    // Модуль по умолчанию требует согласия на отправку (витрина). Тесты про
+    // ленивую загрузку SDK интересуются именно ею, поэтому согласие даём;
+    // поведение без согласия проверяется отдельно (гейт согласия).
+    setSentryRequiresConsent(false)
     initMock.mockClear()
     captureExceptionMock.mockClear()
     vi.unstubAllEnvs()
@@ -165,5 +170,63 @@ describe('sentry PII-scrubbing (S-140)', () => {
     // наш обработчик всегда возвращает событие (не дропает).
     const event = { extra: {} } as Parameters<typeof scrubEvent>[0]
     expect(await scrubEvent(event)).not.toBeNull()
+  })
+})
+// Гейт согласия: даже с заданным DSN SDK не грузится без согласия. Раньше
+// Sentry инициализировался всегда, и стоило только вписать DSN, как мониторинг
+// молча начинал слать IP и стектрейсы анонимных посетителей витрины.
+// Ровно тот же отложенный старт, что и в проде: 3s до принудительной загрузки.
+const IDLE_TIMEOUT_MS_FOR_TEST = 3000
+
+describe('гейт согласия (Sentry)', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    resetSentryModule()
+    setSentryRequiresConsent(true)
+    initMock.mockClear()
+    captureExceptionMock.mockClear()
+    vi.unstubAllEnvs()
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('без согласия SDK не инициализируется даже при заданном DSN', () => {
+    vi.stubEnv('VITE_SENTRY_DSN', 'https://key@example.ingest.sentry.io/1')
+    expect(isSentryEnabled()).toBe(true)
+    initSentry()
+    return vi.waitFor(() => {
+      expect(initMock).not.toHaveBeenCalled()
+    })
+  })
+
+  it('после согласия SDK догружается без перезагрузки страницы', async () => {
+    vi.stubEnv('VITE_SENTRY_DSN', 'https://key@example.ingest.sentry.io/1')
+    // Ленивая загрузка сама по себе отложена на idle/timeout — с настоящими
+    // таймерами она не успела бы произойти за время теста.
+    vi.useFakeTimers()
+    initSentry()
+    await vi.advanceTimersByTimeAsync(IDLE_TIMEOUT_MS_FOR_TEST)
+    expect(initMock).not.toHaveBeenCalled()
+
+    grantConsent()
+    await vi.advanceTimersByTimeAsync(IDLE_TIMEOUT_MS_FOR_TEST)
+    expect(initMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('согласие под старой версией политики SDK не поднимает', async () => {
+    vi.stubEnv('VITE_SENTRY_DSN', 'https://key@example.ingest.sentry.io/1')
+    localStorage.setItem(CONSENT_KEY, JSON.stringify({ v: CONSENT_VERSION + 1, at: '' }))
+    initSentry()
+    await vi.waitFor(() => {
+      expect(initMock).not.toHaveBeenCalled()
+    })
+  })
+
+  it('captureError без согласия не возвращает eventId', async () => {
+    vi.stubEnv('VITE_SENTRY_DSN', 'https://key@example.ingest.sentry.io/1')
+    await expect(captureError(new Error('boom'))).resolves.toBeUndefined()
   })
 })

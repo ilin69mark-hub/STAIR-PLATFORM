@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"stairplatform/internal/application/funnel"
 	"stairplatform/internal/application/integrations"
 	"stairplatform/internal/application/jobs"
 	"stairplatform/internal/infrastructure/database"
@@ -22,7 +23,12 @@ type registry struct {
 	webhook          webhookSender
 	integrationsSvc  *integrations.Service
 	jobsSvc          *jobs.Service
+	funnelRepo       funnel.Repository
 	retentionDays    int
+	// webEventRetentionDays — срок жизни событий воронки. По умолчанию вдвое
+	// меньше retentionDays: отток разбирают по свежим данным, а год событий
+	// витрины — это только деньги на диске.
+	webEventRetentionDays int
 }
 
 // webhookSender — минимальный порт для доставки webhook (EDR-0023 §3.1),
@@ -34,18 +40,21 @@ type webhookSender interface {
 // newRegistry создаёт реестр с обработчиками очистки, доставки webhook и
 // асинхронных расчётов (EDR-0035).
 func newRegistry(authRepo *database.AuthRepository, auditRepo *database.AuditRepository,
-	integrationsRepo integrations.Repository, jobsSvc *jobs.Service, retentionDays int) *registry {
+	integrationsRepo integrations.Repository, jobsSvc *jobs.Service, retentionDays int,
+	funnelRepo funnel.Repository) *registry {
 	if retentionDays <= 0 {
 		retentionDays = 90
 	}
 	return &registry{
-		authRepo:         authRepo,
-		auditRepo:        auditRepo,
-		integrationsRepo: integrationsRepo,
-		webhook:          infintegrations.NewClient(0),
-		integrationsSvc:  integrations.NewService(integrationsRepo, nil),
-		jobsSvc:          jobsSvc,
-		retentionDays:    retentionDays,
+		webEventRetentionDays: retentionDays / 2,
+		funnelRepo:            funnelRepo,
+		authRepo:              authRepo,
+		auditRepo:             auditRepo,
+		integrationsRepo:      integrationsRepo,
+		webhook:               infintegrations.NewClient(0),
+		integrationsSvc:       integrations.NewService(integrationsRepo, nil),
+		jobsSvc:               jobsSvc,
+		retentionDays:         retentionDays,
 	}
 }
 
@@ -58,6 +67,8 @@ func (r *registry) Handle(ctx context.Context, job queue.Job) error {
 		return r.cleanupSsoStates(ctx)
 	case queue.JobCleanupAudit:
 		return r.cleanupAudit(ctx)
+	case queue.JobCleanupWebEvents:
+		return r.cleanupWebEvents(ctx)
 	case queue.JobQuoteSend, queue.JobProjectSync, queue.JobOrderSend:
 		return r.deliverEvent(ctx, job)
 	case queue.JobCalcCalculate:
@@ -173,5 +184,26 @@ func (r *registry) cleanupAudit(ctx context.Context) error {
 		return fmt.Errorf("cleanup audit: %w", err)
 	}
 	slog.Info("worker: cleanup audit", "deleted", n, "before", before.Format(time.RFC3339))
+	return nil
+}
+
+// cleanupWebEvents удаляет события воронки старше срока. Без репозитория
+// (сборка без воронки) — no-op, а не ошибка: задание планируется всегда, и
+// падать из-за отсутствующей подсистемы нельзя.
+func (r *registry) cleanupWebEvents(ctx context.Context) error {
+	if r.funnelRepo == nil {
+		slog.Debug("worker: cleanup web events skipped, repository not configured")
+		return nil
+	}
+	days := r.webEventRetentionDays
+	if days <= 0 {
+		days = 45
+	}
+	before := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour)
+	n, err := r.funnelRepo.Cleanup(ctx, before)
+	if err != nil {
+		return fmt.Errorf("cleanup web events: %w", err)
+	}
+	slog.Info("worker: cleanup web events", "deleted", n, "before", before.Format(time.RFC3339))
 	return nil
 }

@@ -17,14 +17,24 @@ type fakeRepo struct {
 	apiKeys   []*ApiKey
 	oauths    []*OAuthAccount
 	ssoStates []*SsoState
+	// revokedKeyUsers — учёт вызовов отзыва ключей (SEC-007, CRITICAL-05).
+	revokedKeyUsers map[string]bool
+	// disableErr — принудительный сбой атомарной блокировки (CRITICAL-05).
+	disableErr error
+	// ownedProjects — сколько проектов у человека (передача при удалении).
+	ownedProjects map[string]int
+	// transferFrom/transferTo — куда уехали проекты в последней передаче.
+	transferFrom string
+	transferTo   string
 }
 
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{
-		users:    map[string]*User{},
-		byID:     map[string]*User{},
-		sessions: map[string]*Session{},
-		tenant:   &Tenant{ID: "t-1", Slug: "default"},
+		ownedProjects: map[string]int{},
+		users:         map[string]*User{},
+		byID:          map[string]*User{},
+		sessions:      map[string]*Session{},
+		tenant:        &Tenant{ID: "t-1", Slug: "default"},
 	}
 }
 
@@ -84,6 +94,46 @@ func (f *fakeRepo) UpdateUserStatus(ctx context.Context, tenantID, userID string
 	return nil
 }
 
+// Удаление сотрудника (передача проектов + мягкое удаление): фейк повторяет
+// состояние в памяти, чтобы сервисные проверки (последний владелец, запрет
+// удалять себя, передача проектов) проверялись без БД.
+func (f *fakeRepo) SoftDeleteUser(ctx context.Context, tenantID, userID, deletedBy string) error {
+	u, ok := f.byID[userID]
+	if !ok || u.TenantID != tenantID || u.Deleted() {
+		return ErrNotFound
+	}
+	now := time.Now()
+	u.Status = StatusDisabled
+	u.DeletedAt = &now
+	return nil
+}
+
+func (f *fakeRepo) TransferProjects(ctx context.Context, fromUserID, toUserID string) (int, error) {
+	if fromUserID == "" || toUserID == "" || fromUserID == toUserID {
+		return 0, nil
+	}
+	n := f.ownedProjects[fromUserID]
+	f.ownedProjects[fromUserID] = 0
+	f.ownedProjects[toUserID] += n
+	f.transferFrom = fromUserID
+	f.transferTo = toUserID
+	return n, nil
+}
+
+func (f *fakeRepo) CountOwners(ctx context.Context, tenantID string) (int, error) {
+	n := 0
+	for _, u := range f.byID {
+		if u.TenantID == tenantID && u.Role == RoleOwner && !u.Deleted() {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (f *fakeRepo) UserDeletionStats(ctx context.Context, userID string) (UserDeletionStats, error) {
+	return UserDeletionStats{Projects: f.ownedProjects[userID]}, nil
+}
+
 func (f *fakeRepo) DeleteUserSessions(ctx context.Context, userID string) error {
 	for h, s := range f.sessions {
 		if s.UserID == userID {
@@ -139,6 +189,47 @@ func (f *fakeRepo) RevokeApiKey(ctx context.Context, tenantID, keyID string) err
 		if k.ID == keyID && k.TenantID == tenantID {
 			now := time.Now().UTC()
 			k.RevokedAt = &now
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+// RevokeApiKeysByUser — отзыв всех API-ключей пользователя (SEC-007).
+func (f *fakeRepo) RevokeApiKeysByUser(_ context.Context, tenantID, userID string) error {
+	if f.revokedKeyUsers == nil {
+		f.revokedKeyUsers = map[string]bool{}
+	}
+	f.revokedKeyUsers[tenantID+"/"+userID] = true
+	return nil
+}
+
+// DisableUser — атомарная блокировка (CRITICAL-05): статус, сессии и ключи
+// одним шагом. fakeRepo моделирует транзакцию «всё или ничего»: при
+// disableErr статус НЕ меняется, сессии остаются, ключи остаются — то есть
+// ровно то промежуточное состояние, которого фикс обязан не допускать.
+func (f *fakeRepo) DisableUser(_ context.Context, tenantID, userID string) error {
+	if f.disableErr != nil {
+		return f.disableErr
+	}
+	for _, u := range f.users {
+		if u.ID == userID && u.TenantID == tenantID {
+			u.Status = StatusDisabled
+			for h, s := range f.sessions {
+				if s.UserID == userID {
+					delete(f.sessions, h)
+				}
+			}
+			for _, k := range f.apiKeys {
+				if k.CreatedBy == userID && k.TenantID == tenantID && k.RevokedAt == nil {
+					now := time.Now().UTC()
+					k.RevokedAt = &now
+				}
+			}
+			if f.revokedKeyUsers == nil {
+				f.revokedKeyUsers = map[string]bool{}
+			}
+			f.revokedKeyUsers[tenantID+"/"+userID] = true
 			return nil
 		}
 	}
@@ -545,6 +636,7 @@ func TestAdminPermissionsMatrix(t *testing.T) {
 	for _, perm := range []Permission{
 		PermissionUsersManage, PermissionSettingsRead, PermissionSettingsWrite,
 		PermissionDataExport, PermissionApiKeysManage, PermissionOrdersList, PermissionOrdersManage,
+		PermissionPaymentsList, PermissionPaymentsManage,
 	} {
 		if !RoleAdmin.HasPermission(perm) {
 			t.Errorf("admin must have %s", perm)
@@ -618,6 +710,25 @@ func TestUpdateUserNotFoundInTenant(t *testing.T) {
 	err := svc.UpdateUser(context.Background(), "t-other", "admin", u.ID, &admin, nil)
 	if err != ErrNotFound {
 		t.Fatalf("expected ErrNotFound for foreign tenant, got %v", err)
+	}
+}
+
+// TestDisableUserRevokesApiKeysToo — SEC-007: блокировка учётной записи
+// обязана закрывать ОБА способа входа. Раньше отзывались только сессии,
+// поэтому `Authorization: Bearer <ключ>` заблокированного пользователя
+// продолжал работать с полным набором scopes.
+func TestDisableUserRevokesApiKeysToo(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, 0)
+	u, _, _ := svc.Register(context.Background(), "key@example.com", "A", "password123")
+
+	disabled := StatusDisabled
+	if err := svc.UpdateUser(context.Background(), u.TenantID, "admin", u.ID, nil, &disabled); err != nil {
+		t.Fatalf("UpdateUser: %v", err)
+	}
+	if !repo.revokedKeyUsers[u.TenantID+"/"+u.ID] {
+		t.Fatal("SEC-007: API-ключи пользователя не отозваны при блокировке — " +
+			"Bearer-ключ остался рабочим")
 	}
 }
 
@@ -758,6 +869,11 @@ func TestCreateApiKeyReturnsTokenOnce(t *testing.T) {
 func TestAuthenticateApiKey(t *testing.T) {
 	repo := newFakeRepo()
 	svc := NewService(repo, 0)
+	// CRITICAL-05: ключ аутентифицируется только при наличии АКТИВНОГО
+	// владельца, поэтому создатель обязан существовать в репозитории.
+	owner := &User{ID: "u-1", TenantID: "t-1", Email: "ci@example.com", Role: RoleUser, Status: StatusActive}
+	repo.byID[owner.ID] = owner
+	repo.users[owner.TenantID+"/"+owner.ID] = owner
 	_, token, _ := svc.CreateApiKey(context.Background(), "t-1", "u-1", "CI", []Permission{PermissionUsersList})
 
 	key, err := svc.AuthenticateApiKey(context.Background(), token)

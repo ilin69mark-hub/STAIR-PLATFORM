@@ -20,6 +20,9 @@ func Identity() Transform {
 	}
 }
 
+// IsIdentity сообщает, что преобразование ничего не меняет.
+func (t Transform) IsIdentity() bool { return t == Identity() }
+
 // Mul возвращает произведение t * o (сначала применяется o, затем t).
 func (t Transform) Mul(o Transform) Transform {
 	var r Transform
@@ -167,6 +170,12 @@ func Rotate(axis Vector3, angle float64) (Transform, error) {
 // Frame — локальная система координат (ENG-GEO-0101):
 // начало координат + ортонормированный базис осей.
 // Преобразования между системами выполняются только через матрицы.
+//
+// ФАКТ ПРИМЕНЕНИЯ (S-176, проверено 2026-10-12): в продакшене НЕ
+// используется. Сдвиг марша от стены и развороты считаются матрицами
+// Translate/Rotate напрямую. Тип оставлен как часть API Geometry
+// (ADR-0013 перечисляет Transformations среди ответственностей), но
+// наличие типа не означает, что им пользуется код.
 type Frame struct {
 	Origin Point3
 	Basis  [3]Vector3 // [0]=X, [1]=Y, [2]=Z

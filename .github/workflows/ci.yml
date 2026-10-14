@@ -1,5 +1,10 @@
 name: CI
 
+# S-149 (S-141 №15, CIS/CWE-732): least-privilege GITHUB_TOKEN. Дефолт —
+# только чтение; джобы с записями поднимают себе права явно (build ниже).
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main, develop]
@@ -23,6 +28,11 @@ jobs:
 
       - name: Run go vet
         run: go vet ./...
+
+      # Реестр исключений (docs/SECURITY_EXCEPTIONS.yml): каждый маркер
+      # AUDIT-EXCEPTION в коде обязан иметь парный ID в реестре, иначе fail.
+      - name: Check audit-exception registry sync
+        run: python3 hack/check_audit_exceptions.py
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9 (S-123b)
@@ -83,6 +93,15 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+    # Переменная поднята на уровень джобы, а не продублирована по шагам.
+    # Раньше STAIR_TEST_DATABASE_URL стояла только у части шагов: шаг
+    # «Coverage gate» её не видел, а scripts/coverage-check.sh специально
+    # отказывается считать покрытие без БД — иначе integration-пакет тихо
+    # исключается и гейт показывает завышенный процент. Джоба падала с
+    # ошибкой про переменную, а не про покрытие, и это выглядело как
+    # «85% не набрано», хотя тесты были зелёные.
+    env:
+      STAIR_TEST_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_test?sslmode=disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
 
@@ -96,15 +115,19 @@ jobs:
       # golang-migrate ловит «Dirty database version» при параллельных пакетах.
       - name: Run tests (unit + DB integration, -race)
         run: go test -race -p 1 -coverprofile=coverage.out ./... -timeout 25m
-        env:
-          STAIR_TEST_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_test?sslmode=disable
 
       # Покрытие-гейт (TEST-0028): порог 85%, повторный прогон не нужен —
       # переиспользуем coverage.out. Если регресс ниже порога — джоба падает.
       - name: Coverage gate (>=85%)
         run: ./scripts/coverage-check.sh 85
+
+      # OpenAPI-гейт (API-003/DOC-001): обе копии спеки обязаны совпадать с
+      # выводом hack/gen_swagger.py. Без этого шага дрейф спеки копился
+      # молча: `gen_swagger.py --write` удалял добавленные вручную схемы, а
+      # клиенты получали 404, потому что в servers не было /api/v1.
+      - name: OpenAPI spec in sync with generator
+        run: python3 hack/gen_swagger.py
         env:
-          STAIR_TEST_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_test?sslmode=disable
           COVERAGE_PROFILE: coverage.out
 
       - name: Upload coverage
@@ -112,6 +135,37 @@ jobs:
         with:
           name: coverage
           path: coverage.out
+
+      # Гейт «БД-интеграция действительно выполнялась» (CRITICAL-01/04/05).
+      #
+      # env выше делает интеграцию ВОЗМОЖНОЙ, но не гарантирует, что она
+      # ПРОИЗОШЛА: тесты скипаются через t.Skip, и `go test ./...` остаётся
+      # зелёным. Ровно так в репозитории проскочили три дефекта, найденные
+      # 2026-09-27, включая сломанный CHECK геометрии, из-за которого падал
+      # `make seed` и любое сохранение конфигурации без необязательных полей.
+      #
+      # Скрипт требует выполнения конкретных тестов-маяков. Случай «переменная
+      # задана, но сервис postgres не поднялся» тоже валит джобу.
+      # Гейт дефектов Helm-чарта (INF-10/11/12, forensic 2026-09-27).
+      #
+      # `helm lint` эти дефекты НЕ ловит — все три рендерились и применялись
+      # без ошибок:
+      #   * `resources: null` у воркера (`toYaml nil` → непустая строка "null",
+      #     поэтому `default` не срабатывал) — воркер BestEffort без limits;
+      #   * Service селектил и api, и worker, а воркер HTTP не слушает;
+      #   * OAuth-секрет в ConfigMap открытым текстом.
+      - name: Helm templates gate (INF-10/11/12)
+        run: ./scripts/check-helm-templates.sh
+
+      - name: Verify DB integration tests actually ran
+        run: ./scripts/check-db-integration-ran.sh
+
+      # Тот же гейт локально/в Makefile — чтобы падение воспроизводилось одной
+      # командой, а не только в CI.
+      - name: Apply migrations and seeds (schema must accept demo data)
+        run: |
+          go run ./cmd/migrate -dir migrations -database "$STAIR_TEST_DATABASE_URL"
+          go run ./cmd/migrate -dir migrations/seeds -table schema_migrations_seeds -database "$STAIR_TEST_DATABASE_URL"
 
   test-frontend-store:
     name: Test Store Frontend
@@ -206,6 +260,7 @@ jobs:
           sleep 5
         env:
           STAIR_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_platform_test?sslmode=disable
+          STAIR_ENVIRONMENT: development
           STAIR_HTTP_ADDR: :8080
           STAIR_SESSION_TTL: 86400
           # Дефолты логина/регистрации (10/5 в минуту на IP) малы: тесты
@@ -278,6 +333,7 @@ jobs:
           sleep 5
         env:
           STAIR_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_platform_test?sslmode=disable
+          STAIR_ENVIRONMENT: development
           STAIR_HTTP_ADDR: :8080
           STAIR_SESSION_TTL: 86400
           # Матрица шлёт 2000 quote-расчётов параллельно (4 воркера/шард):
@@ -305,7 +361,9 @@ jobs:
     name: E2E Admin (Playwright)
     runs-on: ubuntu-latest
     needs: [test-backend, test-frontend-admin]
-    timeout-minutes: 45
+    # 1 worker + 2 retries на длинных спеках (ui-20 до 10 мин) — 45 мин
+    # не хватало; лимит держим с запасом на retries.
+    timeout-minutes: 60
     services:
       postgres:
         image: postgres:16
@@ -322,7 +380,7 @@ jobs:
           --health-retries 5
     env:
       STAIR_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_platform_test?sslmode=disable
-      # admin-panel.spec повышает роль через psql к postgres service
+      # admin-panel и store-tab повышают роль через psql к postgres service
       STAIR_E2E_PSQL: PGPASSWORD=testpassword psql -h localhost -U stair -d stair_platform_test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
@@ -350,8 +408,8 @@ jobs:
       - name: Run migrations
         run: go run ./cmd/migrate up
 
-      - name: Run Admin E2E tests
-        run: npx playwright test e2e/tests/admin-panel.spec.ts e2e/tests/assistant.spec.ts e2e/tests/boundary.spec.ts e2e/tests/lshape.spec.ts e2e/tests/project-lifecycle.spec.ts e2e/tests/roles-parallel.spec.ts e2e/tests/room-fit-variants.spec.ts e2e/tests/session-expired.spec.ts e2e/tests/spiral.spec.ts e2e/tests/ui-20.spec.ts e2e/tests/ushape.spec.ts e2e/tests/validation.spec.ts
+      - name: Run Admin + Store Tab E2E tests
+        run: npx playwright test e2e/tests/admin-panel.spec.ts e2e/tests/assistant.spec.ts e2e/tests/boundary.spec.ts e2e/tests/lshape.spec.ts e2e/tests/project-lifecycle.spec.ts e2e/tests/roles-parallel.spec.ts e2e/tests/room-fit-variants.spec.ts e2e/tests/session-expired.spec.ts e2e/tests/store-tab.spec.ts e2e/tests/ui-20.spec.ts e2e/tests/ushape.spec.ts e2e/tests/validation.spec.ts
         working-directory: frontend
         env:
           CI: 'true'
@@ -416,6 +474,7 @@ jobs:
           sleep 5
         env:
           STAIR_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_platform_test?sslmode=disable
+          STAIR_ENVIRONMENT: development
           STAIR_HTTP_ADDR: :8080
           STAIR_SESSION_TTL: 86400
           STAIR_LOGIN_RATE_LIMIT: 100
@@ -530,6 +589,7 @@ jobs:
           sleep 5
         env:
           STAIR_DATABASE_URL: postgres://stair:testpassword@localhost:5432/stair_platform_test?sslmode=disable
+          STAIR_ENVIRONMENT: development
           STAIR_HTTP_ADDR: :8080
           STAIR_SESSION_TTL: 86400
           STAIR_LOGIN_RATE_LIMIT: 100
@@ -594,6 +654,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [lint, test-backend, test-frontend-store, test-frontend-admin]
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    # S-149: GHCR-пуш + gha build-кеш требуют записи сверх contents:read.
+    permissions:
+      contents: read
+      packages: write # пуш образов в GHCR
+      actions: write # build-кеш type=gha (cache-to)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7 (S-123b)
 

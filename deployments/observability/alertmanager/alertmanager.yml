@@ -23,5 +23,6 @@ receivers:
     webhook_configs:
       # alert-sink — см. docker-compose.observability.yml (dev/CI-канал).
       # Для продакшена заменить на реальный endpoint (email/telegram/slack).
+      # AUDIT-EXCEPTION(E02): TG-канал заводит человек, см. docs/SECURITY_EXCEPTIONS.yml
       - url: "http://alert-sink:8099/hooks/stair-alerts"
         send_resolved: true

@@ -13,11 +13,15 @@ describe('VariationPicker', () => {
     expect(container.innerHTML).toBe('')
   })
 
-  it('renders main and thumbs', () => {
-    render(<VariationPicker variations={[v1, v2, v3]} onApply={vi.fn()} />)
-    expect(screen.getByText('Выберите вариант — применится как превью:')).toBeInTheDocument()
-    expect(screen.getByText('A')).toBeInTheDocument()
-    expect(screen.getByText('B')).toBeInTheDocument()
+  // Список строк вместо галереи «главная + миниатюры»: в панели 460px
+  // главная карточка сжималась до ~250px, и подписи наезжали и обрезались.
+  it('renders a plain list of rows without the gallery hint', () => {
+    const { container } = render(<VariationPicker variations={[v1, v2, v3]} onApply={vi.fn()} />)
+    expect(screen.queryByText('Выберите вариант — применится как превью:')).not.toBeInTheDocument()
+    for (const t of ['A', 'B', 'C']) expect(screen.getByText(t)).toBeInTheDocument()
+    // Ровно одна строка на вариант и никаких «миниатюр».
+    expect(container.querySelectorAll('.variation-picker__row')).toHaveLength(3)
+    expect(container.querySelector('.variation-gallery')).toBeNull()
   })
 
   it('applies on click', () => {
@@ -27,13 +31,31 @@ describe('VariationPicker', () => {
     expect(fn).toHaveBeenCalledWith(v2)
   })
 
-  it('activeId marks Выбран', () => {
-    render(<VariationPicker variations={[v1, v2]} onApply={vi.fn()} activeId="a" />)
-    expect(screen.getByText('Выбран')).toBeInTheDocument()
+  // Подтверждение выбора: применённый вариант остаётся ОДНОЙ строкой, а
+  // остальные скрыты (владелец: «а как мне подтвердить этот выбор? Чтобы
+  // все остальное скрылось»).
+  it('после применения остаётся одна строка, остальные скрыты', () => {
+    const { container } = render(
+      <VariationPicker variations={[v1, v2]} onApply={vi.fn()} activeId="a" onReset={vi.fn()} />,
+    )
+    expect(container.querySelectorAll('.variation-picker__row')).toHaveLength(1)
+    expect(screen.getByText('A')).toBeInTheDocument()
+    expect(screen.queryByText('B')).not.toBeInTheDocument()
+    // Метки «Выбран» больше нет — состояние и так видно по одной строке.
+    expect(screen.queryByText('Выбран')).not.toBeInTheDocument()
   })
 
-  it('no Выбран when no activeId matches', () => {
-    render(<VariationPicker variations={[v1, v2]} onApply={vi.fn()} activeId="x" />)
-    expect(screen.queryByText('Выбран')).not.toBeInTheDocument()
+  it('«Изменить» возвращает список вариантов', () => {
+    const onReset = vi.fn()
+    render(
+      <VariationPicker variations={[v1, v2]} onApply={vi.fn()} activeId="a" onReset={onReset} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Изменить' }))
+    expect(onReset).toHaveBeenCalled()
+  })
+
+  it('неизвестный activeId — остаётся списком', () => {
+    const { container } = render(<VariationPicker variations={[v1, v2]} onApply={vi.fn()} activeId="x" />)
+    expect(container.querySelectorAll('.variation-picker__row')).toHaveLength(2)
   })
 })

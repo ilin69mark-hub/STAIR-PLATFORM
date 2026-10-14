@@ -10,7 +10,7 @@ import type {
   AssistantResult,
 } from '@shared/types'
 import { ApiError } from '@shared/types'
-import { toRequest, toRatesRequest, type ConfigForm, type RatesForm } from '@shared/config'
+import { toRequest, toRatesRequest, validateForm, type ConfigForm, type RatesForm } from '@shared/config'
 import { fmt } from '@shared/format'
 
 interface Props {
@@ -44,6 +44,14 @@ export function AssistantPanel({ config, rates }: Props) {
     setError(null)
     setResult(null)
     try {
+      // DOM-005 (2026-09-26): ассистент отправлял toRequest без проверки формы,
+      // поэтому пустая ширина уходила как width_mm: 0 и приходил 422
+      // «Ширина марша должна быть положительной».
+      const localErrors = validateForm(config)
+      if (Object.keys(localErrors).length > 0) {
+        setError('Исправьте поля формы перед запросом к ассистенту')
+        return
+      }
       const body: Record<string, unknown> = toRequest(config)
       const ratesReq = toRatesRequest(rates)
       if (ratesReq) body.rates = ratesReq

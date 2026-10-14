@@ -212,6 +212,48 @@ describe('StairProfile', () => {
     expect(back.y).toBeGreaterThan(head.y)
   })
 
+  it('металлокаркас: спина гребёнки = 300 мм по нормали, а не толщина листа', () => {
+    // Чертеж 2026-10-05: косоур-гребёнка металлокаркаса имеет спину 300 мм,
+    // отмеренную ПО НОРМАЛИ к линии посадок. Раньше схема брала толщину
+    // листа (8 мм) и рисовала гребёнку глубиной 8 мм.
+    const spine = 300
+    const read = (f: FlightResult) => {
+      const { container } = render(<StairProfile flight={f} />)
+      const pts = (container.querySelector('.scheme__stringer')!.getAttribute('points') ?? '')
+        .trim()
+        .split(/\s+/)
+        .map((p) => {
+          const [x, y] = p.split(',').map(Number)
+          return { x, y }
+        })
+      // Масштаб берём из самого полигона: первое посадочное место заканчивается
+      // ровно на TreadDepth от головы пилы. Так тест не дублирует константы
+      // компоновки (W, H, PAD) схемы.
+      const head = pts[0]
+      const seatEnd = pts.find((p) => p.x > head.x)!
+      const scale = (seatEnd.x - head.x) / base.TreadDepth
+      const back = pts[pts.length - 2]
+      const H = base.StepCount * base.StepHeight
+      const l = Math.hypot(base.Run, H)
+      // В миллиметры: ось Y в SVG перевёрнута (py = oy + (top−mm)·scale),
+      // поэтому миллиметровая разница по Y — со знаком минус.
+      const dx = (back.x - head.x) / scale
+      const dy = -(back.y - head.y) / scale
+      // Линия посадок на схеме НИСХОДЯЩАЯ: её направление (Run, −H), поэтому
+      // нормаль — (−H, −Run).
+      return Math.abs(-H * dx - base.Run * dy) / l
+    }
+
+    // Металл: ровно ширина спинки, а НЕ толщина листа.
+    expect(read({ ...base, StringerThickness: 8, StringerSpine: spine })).toBeCloseTo(spine, 6)
+    // Дерево: гребёнки нет, спина равна толщине косоура.
+    expect(read({ ...base, StringerThickness: 50 })).toBeCloseTo(50, 6)
+    // Без поля StringerSpine поведение прежнее.
+    expect(read({ ...base, StringerThickness: 50, StringerSpine: undefined })).toBeCloseTo(50, 6)
+    // Регрессия: до правки металл давал толщину листа (8 мм).
+    expect(read({ ...base, StringerThickness: 8, StringerSpine: spine })).not.toBeCloseTo(8, 3)
+  })
+
   it('перила и косоур целиком помещаются в viewBox', () => {
     const tall: FlightResult = { ...base, RailingHeight: 1500, StringerThickness: 50 }
     const { container } = render(<StairProfile flight={tall} />)

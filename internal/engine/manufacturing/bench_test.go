@@ -38,7 +38,7 @@ func BenchmarkManufacture(b *testing.B) {
 	b.ResetTimer()
 	var last *dommfg.ManufacturingPackage
 	for i := 0; i < b.N; i++ {
-		pkg, err := Manufacture(cfg, gen)
+		pkg, err := Manufacture(cfg, gen, nil)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -55,7 +55,7 @@ func BenchmarkNest(b *testing.B) {
 	for i := 0; i < 60; i++ {
 		cut.Items = append(cut.Items, dommfg.CutItem{
 			PartNumber:   dommfg.PartNumber("P-" + strconv.Itoa(i)),
-			MaterialCode: "STEEL-S235",
+			MaterialCode: "STEEL-C245",
 			Thickness:    mfgMustLength(b, 40),
 			Length:       mfgMustLength(b, 800),
 			Width:        mfgMustLength(b, 270),
@@ -65,7 +65,7 @@ func BenchmarkNest(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := Nest(cut, mustSheets(b), DefaultKerf); err != nil {
+		if _, err := Nest(cut, mustSheets(b)); err != nil {
 			b.Fatal(err)
 		}
 	}

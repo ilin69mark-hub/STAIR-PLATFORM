@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -136,16 +137,49 @@ func (r *OrderRepository) scanOrders(rows pgx.Rows) ([]*order.Order, error) {
 	return out, nil
 }
 
+// terminalStatusGuardSQL — SQL-литерал терминальных статусов заказа.
+//
+// DB-8 (forensic 2026-09-27): список собран из констант application-уровня
+// (order.TerminalStatuses), чтобы строки не дублировались. Гард повторяет
+// подход payment_repo.terminalStatusGuardSQL: событие не может вывести заказ
+// из терминального статуса, но повтор того же статуса (идемпотентная
+// повторная доставка) разрешён.
+var orderTerminalStatusGuardSQL = func() string {
+	q := make([]string, len(order.TerminalStatuses))
+	for i, s := range order.TerminalStatuses {
+		q[i] = "'" + string(s) + "'"
+	}
+	return strings.Join(q, ", ")
+}()
+
 // UpdateStatus меняет статус заказа (tenant-скоуп).
+//
+// DB-8: терминальный статус не перезаписывается другим статусом. Раньше
+// UPDATE шёл без гарда, и `completed → new` проходил — выполненный заказ
+// возвращался в «новый», агрегаты по воронке считали его активным.
 func (r *OrderRepository) UpdateStatus(ctx context.Context, tenantID, id string, s order.Status) error {
 	tag, err := r.pool.Exec(ctx,
-		`UPDATE orders SET status = $1, updated_at = now() WHERE tenant_id = $2 AND id = $3`,
+		`UPDATE orders SET status = $1, updated_at = now()
+		 WHERE tenant_id = $2 AND id = $3
+		   AND NOT (status IN (`+orderTerminalStatusGuardSQL+`) AND status <> $1)`,
 		s, tenantID, id)
 	if err != nil {
 		return fmt.Errorf("order: update status: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return order.ErrNotFound
+		// Ноль строк — либо заказа нет, либо переход запрещён. Различаем:
+		// «заказа нет» это 404, «статус терминальный» — 409.
+		var from string
+		e := r.pool.QueryRow(ctx,
+			`SELECT status FROM orders WHERE tenant_id = $1 AND id = $2`, tenantID, id).Scan(&from)
+		switch {
+		case errors.Is(e, pgx.ErrNoRows):
+			return order.ErrNotFound
+		case e != nil:
+			return fmt.Errorf("order: read status after rejected transition: %w", e)
+		}
+		return fmt.Errorf("%w: заказ %s в статусе %q не может перейти в %q",
+			order.ErrTerminalStatus, id, from, s)
 	}
 	return nil
 }

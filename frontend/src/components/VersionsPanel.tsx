@@ -12,7 +12,6 @@ const flightLabels: Record<string, string> = {
   straight: 'Прямой',
   l_shape: 'L-образный',
   u_shape: 'П-образный',
-  spiral: 'Спиральный',
 }
 
 export function VersionsPanel({ projectId }: Props) {
@@ -24,6 +23,7 @@ export function VersionsPanel({ projectId }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [marked, setMarked] = useState(false)
 
   // Восстановление доступно владельцу или редактору проекта. Контролируем
   // самого пользователя: anonymous (user == null) права на восстановление
@@ -46,6 +46,23 @@ export function VersionsPanel({ projectId }: Props) {
 
   useEffect(load, [projectId])
 
+  // Метка «замер» (решение владельца 2026-10-08). Право то же, что у
+  // восстановления ревизии: owner/editor — те, кто вносит размеры.
+  const handleMark = async (configurationID: string, mark: boolean) => {
+    setBusy(true)
+    setError(null)
+    setSaved(false)
+    try {
+      await projectsApi.markMeasurement(projectId, configurationID, mark)
+      setMarked(true)
+      load()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Не удалось обновить метку «замер»')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const handleRestore = async (configurationID: string) => {
     setBusy(true)
     setError(null)
@@ -67,6 +84,7 @@ export function VersionsPanel({ projectId }: Props) {
       <p className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Каждая калькуляция/оптимизация создаёт новую версию. Текущая — активная, остальные можно восстановить.</p>
       {error && <div className="alert alert--error">{error}</div>}
       {saved && <div className="alert alert--ok">Версия восстановлена.</div>}
+      {marked && <div className="alert alert--ok">Метка «замер» обновлена.</div>}
       {loading ? (
         <p className="muted">Загрузка…</p>
       ) : (
@@ -78,6 +96,7 @@ export function VersionsPanel({ projectId }: Props) {
                 <span className="comment__author">
                   Версия {c.revision} · {flightLabels[c.flight] ?? c.flight}
                   {c.current ? ' · текущая' : ''}
+                  {c.is_measurement ? ' · замер' : ''}
                 </span>
                 <span className="comment__date">
                   {new Date(c.created_at).toLocaleString('ru-RU')}
@@ -93,6 +112,15 @@ export function VersionsPanel({ projectId }: Props) {
                   disabled={busy}
                 >
                   Восстановить
+                </button>
+              )}
+              {canRestore && (
+                <button
+                  className="btn btn--sm"
+                  onClick={() => handleMark(c.id, !c.is_measurement)}
+                  disabled={busy}
+                >
+                  {c.is_measurement ? 'Снять метку «замер»' : 'Отметить как замер'}
                 </button>
               )}
             </li>

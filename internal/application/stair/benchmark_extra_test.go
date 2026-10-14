@@ -16,7 +16,6 @@ func BenchmarkCalculateFlights(b *testing.B) {
 		{"straight", referenceConfig()},
 		{"lshape", referenceLShapeConfig()},
 		{"ushape", referenceUShapeConfig()},
-		{"spiral", referenceSpiralConfig()},
 	}
 	for _, c := range cases {
 		b.Run(c.name, func(b *testing.B) {

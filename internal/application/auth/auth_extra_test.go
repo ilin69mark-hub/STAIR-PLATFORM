@@ -148,10 +148,10 @@ func (a *auditRecorder) Insert(_ context.Context, e *audit.Event) error {
 	a.events = append(a.events, e)
 	return nil
 }
-func (a *auditRecorder) ListByProject(context.Context, string, string) ([]*audit.Event, error) {
+func (a *auditRecorder) ListByProject(context.Context, string, string, int) ([]*audit.Event, error) {
 	return nil, nil
 }
-func (a *auditRecorder) ListByTenant(context.Context, string) ([]*audit.Event, error) {
+func (a *auditRecorder) ListByTenant(context.Context, string, int) ([]*audit.Event, error) {
 	return nil, nil
 }
 

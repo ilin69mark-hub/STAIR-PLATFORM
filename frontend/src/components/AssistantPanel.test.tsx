@@ -14,7 +14,7 @@ const makeResult = (overrides: Partial<AssistantResult> = {}): AssistantResult =
     findings: [{ severity: 'warning', element: 'clearance_mm', message: 'Малый зазор' }],
     suggestions: [{ message: 'Уменьшить шаг', rationale: 'лучше комфорт' }],
     tradeoffs: ['Цена против комфорта'],
-    notes: ['Спираль без радиуса приведена к R=2W'],
+    notes: ['Проверена толщина листового косоура по нормативу'],
   },
   commentary: 'Локальная модель: рекомендация сформирована.',
   ...overrides,
@@ -100,7 +100,7 @@ describe('AssistantPanel', () => {
     const body = ask.mock.calls[0][1] as {
       rates?: { material_per_kg_rub?: Record<string, number> }
     }
-    expect(body.rates?.material_per_kg_rub?.['STEEL-S235']).toBe(200)
+    expect(body.rates?.material_per_kg_rub?.['STEEL-C245']).toBe(200)
   })
 
   it('показывает пустое состояние без альтернатив', async () => {

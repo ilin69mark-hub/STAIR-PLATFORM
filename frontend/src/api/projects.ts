@@ -56,6 +56,13 @@ export const projectsApi = {
 
   exportUrl: (id: string) => `/api/v1/projects/${id}/export`,
 
+  // Документы производства (Фаза 0). Скачиваются тем же способом, что и
+  // JSON-снапшот (fetch + Blob), поэтому здесь только URL.
+  cuttingUrl: (id: string) => `/api/v1/projects/${id}/export/cutting`,
+  labelsUrl: (id: string) => `/api/v1/projects/${id}/export/labels`,
+  specUrl: (id: string) => `/api/v1/projects/${id}/export/spec`,
+  assemblyUrl: (id: string) => `/api/v1/projects/${id}/export/assembly`,
+
   // ---- Участники (EDR-0008) ----
   listMembers: (id: string) => get<ProjectMember[]>(`/api/v1/projects/${id}/members`),
 
@@ -68,6 +75,11 @@ export const projectsApi = {
   removeMember: (id: string, userID: string) =>
     del(`/api/v1/projects/${id}/members/${userID}`),
 
+  // Передать владение проектом другому участнику: прежний владелец станет
+  // редактором, новый — владельцем (EDR-0008, S-158).
+  transferOwnership: (id: string, toUserID: string) =>
+    post<{ status: string }>(`/api/v1/projects/${id}/transfer`, { to_user_id: toUserID }),
+
   // ---- Комментарии (EDR-0009) ----
   listComments: (id: string) =>
     get<PaginatedResponse<ProjectComment>>(`/api/v1/projects/${id}/comments`).then((r) => r.data),
@@ -75,6 +87,10 @@ export const projectsApi = {
   addComment: (id: string, body: CommentRequest) =>
     post<ProjectComment>(`/api/v1/projects/${id}/comments`, body),
 
+  // Пометить ревизию как замер / снять метку (решение владельца
+  // 2026-10-08). mark=false снимает метку; без тела — ставит.
+  markMeasurement: (id: string, configurationID: string, mark = true) =>
+    post<Configuration>(`/api/v1/projects/${id}/configurations/${configurationID}/measurement`, { mark }),
   deleteComment: (id: string, commentID: string) =>
     del(`/api/v1/projects/${id}/comments/${commentID}`),
 

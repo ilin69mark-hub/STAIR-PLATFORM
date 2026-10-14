@@ -21,7 +21,7 @@ func (f *fakeRepo) Insert(_ context.Context, e *Event) error {
 	return nil
 }
 
-func (f *fakeRepo) ListByProject(_ context.Context, _, projectID string) ([]*Event, error) {
+func (f *fakeRepo) ListByProject(_ context.Context, _, projectID string, _ int) ([]*Event, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -34,7 +34,7 @@ func (f *fakeRepo) ListByProject(_ context.Context, _, projectID string) ([]*Eve
 	return out, nil
 }
 
-func (f *fakeRepo) ListByTenant(_ context.Context, tenantID string) ([]*Event, error) {
+func (f *fakeRepo) ListByTenant(_ context.Context, tenantID string, limit int) ([]*Event, error) {
 	if f.err != nil {
 		return nil, f.err
 	}

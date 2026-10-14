@@ -11,11 +11,19 @@ import (
 	"stairplatform/internal/engine/constraint"
 )
 
+// publicQuoteRequest — POST /api/v1/public/stairs:quote с JSON-телом и
+// Content-Type application/json (S-144: decodeJSON требует его для
+// непустых тел).
+func publicQuoteRequest(body string) *http.Request {
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	return r
+}
+
 // TestPublicQuoteSuccess — публичный расчёт работает БЕЗ аутентификации
 // и возвращает цену/геометрию, но НЕ производственный пакет.
 func TestPublicQuoteSuccess(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote",
-		strings.NewReader(referenceJSON))
+	req := publicQuoteRequest(referenceJSON)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -36,8 +44,23 @@ func TestPublicQuoteSuccess(t *testing.T) {
 	if resp.Pricing == nil {
 		t.Fatal("pricing must be present for non-blocking result")
 	}
-	if resp.Pricing.FinalPriceRub != 3271385.47 {
-		t.Fatalf("final price = %v, want 3271385.47", resp.Pricing.FinalPriceRub)
+	// Стальной марш 15 ступеней: см. service_test на происхождение значения.
+	// Заготовка деталей — лист лазерного раскроя, а не габаритный блок, и
+	// раскрой идёт по полю стола 3000×1500: косоур длиннее поля режется на
+	// 2 куска со сварным стыком, лист стали 6000×1500 (шпатка технолога
+	// 2026-10-05).
+	// Плюс крепёж по отверстиям пяток (MNT-0001, 2026-10-08): 210 глухарей
+	// 6х35 на обойму выреза + 14 глухарей и 14 дюбелей 10х60 на пол и
+	// перекрытие = 238 шт × 15 ₽, и накрутка на них в базе цены.
+	// Плюс крепёж (238 шт × 15 ₽) и герметик (3 картриджа × 500 ₽) с
+	// накруткой: 341 030,20 + 2 667,60 = 343 697,80 ₽.
+	// +12893.4 ₽: ограждение перестало стоить ноль (S-179) — 29 покупных
+	// позиций × 250 ₽ с наценкой, накладными, скидкой и НДС.
+	// +533.52 ₽: крепёж ограждения (решение владельца 2026-10-13) — 12
+	// глухарей 6х35 на анкерные отверстия четырёх фланцев и 8 саморезов
+	// 5х32 на четыре стойки, 20 шт × 15 ₽ с той же накруткой.
+	if resp.Pricing.FinalPriceRub != 357124.72 {
+		t.Fatalf("final price = %v, want 357124.72", resp.Pricing.FinalPriceRub)
 	}
 
 	// Габаритная ширина марша приходит из конфигурации.
@@ -46,7 +69,8 @@ func TestPublicQuoteSuccess(t *testing.T) {
 	}
 
 	// Эхо производственных параметров для 2D-рендера (BC-002).
-	if resp.Flight.StepThicknessMm != 40 || resp.Flight.RailingHeightMm != 1000 || !resp.Flight.Riser || resp.Flight.StringerThicknessMm != 50 {
+	// Сталь: обе детали — лист лазерного раскроя 3–8 мм.
+	if resp.Flight.StepThicknessMm != 6 || resp.Flight.RailingHeightMm != 1000 || !resp.Flight.Riser || resp.Flight.StringerThicknessMm != 8 {
 		t.Fatalf("flight echo mismatch: %+v", resp.Flight)
 	}
 
@@ -69,8 +93,7 @@ func TestPublicQuoteSuccess(t *testing.T) {
 
 // TestPublicQuoteNoAuthRequired — маршрут публичный: без cookie/токена — 200.
 func TestPublicQuoteNoAuthRequired(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote",
-		strings.NewReader(referenceJSON))
+	req := publicQuoteRequest(referenceJSON)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -92,8 +115,7 @@ func TestCalculateRequiresAuth(t *testing.T) {
 }
 
 func TestPublicQuoteInvalidJSON(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote",
-		strings.NewReader("{not json"))
+	req := publicQuoteRequest("{not json")
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -109,7 +131,7 @@ func TestPublicQuoteInvalidInput(t *testing.T) {
 		"flight": "straight",
 		"step_height_mm": 180
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(b))
+	req := publicQuoteRequest(b)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -140,12 +162,12 @@ func TestPublicQuoteBlocking(t *testing.T) {
 		"height_mm": 2700,
 		"flight": "straight",
 		"step_height_mm": 10,
-		"stringer_thickness_mm": 50,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(b))
+	req := publicQuoteRequest(b)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -170,12 +192,12 @@ func TestPublicQuoteBlockingCarriesAdvice(t *testing.T) {
 		"height_mm": 2700,
 		"flight": "straight",
 		"step_height_mm": 10,
-		"stringer_thickness_mm": 50,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(b))
+	req := publicQuoteRequest(b)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -230,12 +252,12 @@ func TestPublicQuoteAngleCarriesVariations(t *testing.T) {
 		"height_mm": 2700,
 		"flight": "straight",
 		"step_height_mm": 10,
-		"stringer_thickness_mm": 50,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(b))
+	req := publicQuoteRequest(b)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -279,12 +301,12 @@ func TestPublicQuoteLShapeLandingNarrowAdvisory(t *testing.T) {
 		"landing_width_mm": 1200,
 		"lower_step_count": 6,
 		"step_height_mm": 180,
-		"stringer_thickness_mm": 50,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(b))
+	req := publicQuoteRequest(b)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -315,22 +337,21 @@ func TestPublicQuoteLShapeLandingNarrowAdvisory(t *testing.T) {
 	}
 }
 
-// TestPublicQuoteTallFlightSucceeds — прямая лестница на пределе энвелопа
-// H=6000: косоур помещается на лист 10400×6200, поэтому публичный quote
-// должен вернуть 200 с валидным расчётом и ценой (регресс: раньше такой
-// ввод падал сырой 422 из-за невместимости на лист).
+// TestPublicQuoteTallFlightSucceeds — прямая лестница на пределе границы
+// изделия H=5000 (S-169): публичный quote должен вернуть 200 с валидным
+// расчётом и ценой. Значение снижено с 6000 решением владельца 2026-10-12.
 func TestPublicQuoteTallFlightSucceeds(t *testing.T) {
 	b := `{
 		"width_mm": 900,
-		"height_mm": 6000,
+		"height_mm": 5000,
 		"flight": "straight",
 		"step_height_mm": 180,
-		"stringer_thickness_mm": 50,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(b))
+	req := publicQuoteRequest(b)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 
@@ -349,65 +370,47 @@ func TestPublicQuoteTallFlightSucceeds(t *testing.T) {
 	}
 }
 
-// TestPublicQuoteSpiralBlockingCarriesRadiusSuggestion — винтовая лестница
-// с несовместимой шириной (W=3000, H=6000) возвращает блокирующую подсказку
-// с готовыми вариантами, уменьшающими ширину и несущими наружный радиус.
-func TestPublicQuoteSpiralBlockingCarriesRadiusSuggestion(t *testing.T) {
+// TestPublicQuoteSpiralIsUnknownType — винтовой марш удалён из проекта
+// (решение владельца 2026-10-06), и публичный расчёт отвечает на «spiral»
+// блокирующей валидацией «Неизвестный тип лестницы», а не 422 с отдельным кодом
+// отключения: типа марша просто больше нет в перечне.
+func TestPublicQuoteSpiralIsUnknownType(t *testing.T) {
 	b := `{
 		"width_mm": 3000,
-		"height_mm": 6000,
+		"height_mm": 2700,
 		"flight": "spiral",
-		"outer_radius_mm": 3100,
 		"step_height_mm": 190,
-		"stringer_thickness_mm": 50,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2300,
 		"railing_height_mm": 1100
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(b))
 	rec := httptest.NewRecorder()
-	testRouter().ServeHTTP(rec, req)
-
+	testRouter().ServeHTTP(rec, publicQuoteRequest(b))
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status 200 with advisory result, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("want 200 с валидацией, got %d: %s", rec.Code, rec.Body.String())
 	}
-	var resp publicQuoteDTO
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid response: %v", err)
-	}
-	if !resp.Validation.Blocking || len(resp.Validation.Issues) == 0 {
-		t.Fatalf("expected blocking advisory, got %+v", resp.Validation)
-	}
-	var spiral validationIssueDTO
-	found := false
-	for _, it := range resp.Validation.Issues {
-		if it.Code == string(constraint.GEO_SPIRAL_TREAD) {
-			spiral = it
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("expected GEO_SPIRAL_TREAD issue, got %+v", resp.Validation.Issues)
-	}
-	if len(spiral.Suggestions) == 0 {
-		t.Fatalf("spiral issue must carry suggestions, got %+v", spiral)
-	}
-	for _, s := range spiral.Suggestions {
-		if s.OuterRadiusMm <= 0 || s.WidthMm <= 0 || s.WidthMm >= 3000 {
-			t.Fatalf("spiral suggestion %+v must reduce width and carry radius", s)
-		}
+	if !strings.Contains(rec.Body.String(), "Неизвестный тип лестницы") {
+		t.Fatalf("want «Неизвестный тип лестницы», got %s", rec.Body.String())
 	}
 }
 
 func woodJSON(material string) string {
+	// Толщины деталей зависят от материала: сталь режется листом 3–8 мм, дерево
+	// пилится из доски 20–60 мм. Один набор на оба материала давал 422
+	// MFG-MATERIAL на дубе (40 мм ступени при стали / 8 мм косоура при дубе).
+	stringerT, stepT := 8, 6
+	if material != "STEEL-C245" {
+		stringerT, stepT = 50, 40
+	}
 	return `{
 		"width_mm": 900,
 		"height_mm": 2700,
 		"flight": "straight",
 		"material": "` + material + `",
 		"step_height_mm": 180,
-		"stringer_thickness_mm": 50,
-		"step_thickness_mm": 40,
+		"stringer_thickness_mm": ` + strconv.Itoa(stringerT) + `,
+		"step_thickness_mm": ` + strconv.Itoa(stepT) + `,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
 	}`
@@ -421,11 +424,10 @@ func TestPublicQuoteMaterialChoice(t *testing.T) {
 		material string
 		prices   *float64
 	}{
-		{"STEEL-S235", &steelPrice},
+		{"STEEL-C245", &steelPrice},
 		{"WOOD-OAK", &woodPrice},
 	} {
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote",
-			strings.NewReader(woodJSON(tc.material)))
+		req := publicQuoteRequest(woodJSON(tc.material))
 		rec := httptest.NewRecorder()
 		testRouter().ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
@@ -457,12 +459,12 @@ func TestPublicQuoteMaterialThicknessBlocked(t *testing.T) {
 		"flight": "straight",
 		"material": "WOOD-OAK",
 		"step_height_mm": 180,
-		"stringer_thickness_mm": 150,
+		"stringer_thickness_mm": 8,
 		"step_thickness_mm": 40,
 		"clearance_mm": 2500,
 		"railing_height_mm": 1000
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(b))
+	req := publicQuoteRequest(b)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -506,7 +508,7 @@ func TestPublicQuoteAngle_UserScenario(t *testing.T) {
 			name: "straight",
 			body: `{
 				"width_mm": 1000, "height_mm": 3000, "flight": "straight",
-				"step_height_mm": 158, "stringer_thickness_mm": 50,
+				"step_height_mm": 158, "stringer_thickness_mm": 8,
 				"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 900
 			}`,
 		},
@@ -515,7 +517,7 @@ func TestPublicQuoteAngle_UserScenario(t *testing.T) {
 			body: `{
 				"width_mm": 1000, "height_mm": 3000, "flight": "l_shape",
 				"landing_width_mm": 1200, "landing_depth_mm": 1500, "lower_step_count": 6,
-				"step_height_mm": 158, "stringer_thickness_mm": 50,
+				"step_height_mm": 158, "stringer_thickness_mm": 8,
 				"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 900
 			}`,
 		},
@@ -524,7 +526,7 @@ func TestPublicQuoteAngle_UserScenario(t *testing.T) {
 			body: `{
 				"width_mm": 1000, "height_mm": 3000, "flight": "u_shape",
 				"landing_width_mm": 1200, "landing_depth_mm": 1500, "lower_step_count": 6,
-				"step_height_mm": 158, "stringer_thickness_mm": 50,
+				"step_height_mm": 158, "stringer_thickness_mm": 8,
 				"step_thickness_mm": 40, "clearance_mm": 2500, "railing_height_mm": 900
 			}`,
 		},
@@ -537,12 +539,11 @@ func TestPublicQuoteAngle_UserScenario(t *testing.T) {
 		"landingWidthMM": "landing_width_mm", "landingDepthMM": "landing_depth_mm",
 		"lowerStepCountMM": "lower_step_count", "roomWidthMM": "room_width_mm",
 		"roomLengthMM": "room_length_mm", "approachSpaceMM": "approach_space_mm",
-		"outerRadiusMM": "outer_radius_mm",
-		"clearanceMm":   "clearance_mm", "railingMm": "railing_height_mm",
+		"clearanceMm": "clearance_mm", "railingMm": "railing_height_mm",
 		"stringerThicknessMm": "stringer_thickness_mm", "stepThicknessMm": "step_thickness_mm",
 		"direction": "direction", "railingLower": "railing_lower",
 		"railingLanding": "railing_landing", "railingUpper": "railing_upper",
-		"railing": "railing", "spiralDirection": "spiral_direction",
+		"railing":  "railing",
 		"turnKind": "turn_kind", "winderCount": "winder_count",
 	}
 
@@ -600,7 +601,7 @@ func TestPublicQuoteAngle_UserScenario(t *testing.T) {
 // postQuote шлёт тело расчёта на публичный эндпоинт и возвращает DTO.
 func postQuote(t *testing.T, body string) publicQuoteDTO {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:quote", strings.NewReader(body))
+	req := publicQuoteRequest(body)
 	rec := httptest.NewRecorder()
 	testRouter().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

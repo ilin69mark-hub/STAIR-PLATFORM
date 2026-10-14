@@ -5,7 +5,6 @@ import {
   lshapeFixture,
   makeSnapshot,
   makeUShapeSnapshot,
-  spiralFixture,
   ushapeFixture,
   zeroFlightFixture,
 } from '../test/fixtures'
@@ -108,24 +107,6 @@ describe('ResultPanel', () => {
     expect(screen.queryByText('Марш (Solver)')).not.toBeInTheDocument()
   })
 
-  it('рендерит панель спирального марша, когда есть spiral', () => {
-    render(
-      <ResultPanel
-        snapshot={makeSnapshot({
-          flight: zeroFlightFixture,
-          lshape: undefined,
-          ushape: undefined,
-          spiral: spiralFixture,
-        })}
-      />,
-    )
-
-    expect(screen.getByText('Спиральный марш (Solver)')).toBeInTheDocument()
-    expect(screen.getByText('800 мм')).toBeInTheDocument()
-    expect(screen.getByText('Радиус колонны r')).toBeInTheDocument()
-    expect(screen.getByText('125,664 мм / 265,29 мм / 335,103 мм')).toBeInTheDocument()
-    expect(screen.queryByText('Марш (Solver)')).not.toBeInTheDocument()
-  })
 
   it('без issues показывает «Нарушений не обнаружено»', () => {
     render(<ResultPanel snapshot={makeSnapshot()} />)
@@ -191,22 +172,6 @@ describe('ResultPanel', () => {
     expect(screen.getByText('Модель 3D недоступна для этого снапшота.')).toBeInTheDocument()
   })
 
-  it('рендерит вкладки чертежей для спирального марша', () => {
-    render(
-      <ResultPanel
-        snapshot={makeSnapshot({
-          flight: zeroFlightFixture,
-          lshape: undefined,
-          ushape: undefined,
-          spiral: spiralFixture,
-        })}
-      />,
-    )
-
-    fireEvent.click(screen.getByRole('tab', { name: 'План' }))
-    expect(screen.getByText('План: вид сверху, размеры в мм.')).toBeInTheDocument()
-    expect(screen.getByText(/ступ\./)).toBeInTheDocument()
-  })
 })
 
 describe('ResultPanel: проброс параметров в 3D-вьювер', () => {
@@ -304,5 +269,59 @@ describe('ResultPanel: проброс параметров в 3D-вьювер', 
     fireEvent.click(screen.getByRole('tab', { name: '3D' }))
     await waitFor(() => expect(viewerProps.current.flight).toBe('straight'))
     expect(viewerProps.current.heightMM).toBeUndefined()
+  })
+
+  it('без drag вьювер неинтерактивен (S-205)', async () => {
+    render(<ResultPanel snapshot={makeSnapshot({ mesh: mesh3d })} />)
+    fireEvent.click(screen.getByRole('tab', { name: 'Геометрия' }))
+    await waitFor(() => expect(viewerProps.current.mesh).toBe(mesh3d))
+    expect(viewerProps.current.interactive).toBeFalsy()
+    expect(viewerProps.current.onDragHeight).toBeUndefined()
+    // Выбор детали — локальный осмотр, доступен всегда (сервер не вызывается).
+    expect(viewerProps.current.onSelectPart).toBeTypeOf('function')
+  })
+
+  it('с drag вьювер интерактивен, выбор детали показывает строку спецификации (S-205)', async () => {
+    const onHeight = () => {}
+    render(
+      <ResultPanel
+        snapshot={makeSnapshot({ mesh: mesh3d })}
+        drag={{ onHeight, onComfort: () => {}, onLandingWidth: () => {}, onLandingDepth: () => {} }}
+        comfortStepMM={630}
+      />,
+    )
+    fireEvent.click(screen.getByRole('tab', { name: 'Геометрия' }))
+    await waitFor(() => expect(viewerProps.current.onDragHeight).toBe(onHeight))
+    expect(viewerProps.current.interactive).toBe(true)
+    expect(viewerProps.current.comfortStepMM).toBe(630)
+
+    // Клик по детали (SolidIndex 1 = P1 из фикстуры) — строка без сервера.
+    const { onSelectPart } = viewerProps.current as {
+      onSelectPart: (p: { solid: number; role: string }) => void
+    }
+    const { act } = await import('@testing-library/react')
+    await act(async () => {
+      onSelectPart({ solid: 1, role: 'stringer' })
+    })
+    expect(screen.getByText(/Деталь P1/)).toBeInTheDocument()
+  })
+
+  it('превью жеста показывает текст без сервера (S-205)', async () => {
+    render(
+      <ResultPanel
+        snapshot={makeSnapshot({ mesh: mesh3d })}
+        drag={{ onHeight: () => {}, onComfort: () => {}, onLandingWidth: () => {}, onLandingDepth: () => {} }}
+      />,
+    )
+    fireEvent.click(screen.getByRole('tab', { name: 'Геометрия' }))
+    await waitFor(() => expect(viewerProps.current.onDragPreview).toBeTypeOf('function'))
+    const { act } = await import('@testing-library/react')
+    const { onDragPreview } = viewerProps.current as {
+      onDragPreview: (v: unknown) => void
+    }
+    await act(async () => {
+      onDragPreview({ heightMM: 2750, comfortStepMM: 630 })
+    })
+    expect(screen.getByText(/нажмите «Рассчитать»/)).toBeInTheDocument()
   })
 })

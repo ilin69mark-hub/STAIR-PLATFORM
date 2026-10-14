@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ProjectDetail } from './ProjectDetail'
 import { projectsApi } from '../api/projects'
@@ -80,7 +80,7 @@ describe('ProjectDetail', () => {
     const [id, body] = calculate.mock.calls[0]
     expect(id).toBe('p1')
     expect((body as Record<string, unknown>).width_mm).toBe(900)
-    expect((body as Record<string, unknown>).material).toBe('STEEL-S235')
+    expect((body as Record<string, unknown>).material).toBe('STEEL-C245')
     expect((body as Record<string, unknown>).rates).toBeUndefined()
   })
 
@@ -91,7 +91,7 @@ describe('ProjectDetail', () => {
 
     await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
     const select = screen.getByLabelText('Материал') as HTMLSelectElement
-    expect(select.value).toBe('STEEL-S235')
+    expect(select.value).toBe('STEEL-C245')
     fireEvent.change(select, { target: { value: 'WOOD-OAK' } })
     fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
     await screen.findByText(/Расчёт сохранён/)
@@ -111,7 +111,7 @@ describe('ProjectDetail', () => {
     await screen.findByText(/Расчёт сохранён/)
 
     const body = calculate.mock.calls[0][1] as { rates?: { material_per_kg_rub?: Record<string, number> } }
-    expect(body.rates?.material_per_kg_rub?.['STEEL-S235']).toBe(200)
+    expect(body.rates?.material_per_kg_rub?.['STEEL-C245']).toBe(200)
   })
 
   it('показывает ошибку при неудачном расчёте', async () => {
@@ -167,20 +167,26 @@ describe('ProjectDetail', () => {
     expect(screen.queryByLabelText(/Наружный радиус R/)).not.toBeInTheDocument()
   })
 
-  it('спираль скрывает шаг комфорта и поля площадки', async () => {
+  it('в выборе типов ровно три марша', async () => {
     vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
     renderDetail()
     await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
 
-    fireEvent.change(screen.getByLabelText('Тип марша'), { target: { value: 'spiral' } })
+    const options = Array.from(
+      screen.getByLabelText('Тип марша').querySelectorAll('option'),
+    ).map((o) => (o as HTMLOptionElement).value)
+    expect(options).toEqual(['straight', 'l_shape', 'u_shape'])
+  })
 
-    expect(screen.getByLabelText(/Наружный радиус R/)).toBeInTheDocument()
-    expect(screen.queryByLabelText(/Шаг комфорта/)).not.toBeInTheDocument()
-    expect(screen.queryByLabelText(/Ширина площадки Wp/)).not.toBeInTheDocument()
+  it('проект открывается без падения: поля прямого марша на месте', async () => {
+    vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
+    renderDetail()
+    await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
+    expect(screen.getByLabelText('Тип марша')).toBeInTheDocument()
     expect(screen.getByLabelText(/Ширина марша/)).toBeInTheDocument()
   })
 
-  it('прямой марш скрывает радиус и поля площадки', async () => {
+  it('прямой марш скрывает поля площадки', async () => {
     vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
     renderDetail()
     await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
@@ -193,25 +199,25 @@ describe('ProjectDetail', () => {
 // ---- Живая валидация при вводе в редакторе проекта (S-P5) ----
 // PascalCase — клиентский transport преобразует ответы API в формате
 // ValidationResult (snake_case на проводе → CamelCase в DTO).
-const liveBlockedSpiral = {
+// Блокирующий сценарий живой валидации: проступь вне нормы + готовое
+// предложение «Применить».
+const liveBlockedTread = {
   Valid: false,
   Blocking: true,
   Issues: [
     {
-      Code: 'GEO-SPIRAL-RADIUS',
+      Code: 'GEO-TREAD',
       Severity: 'error',
-      Element: 'configuration',
-      Message: 'Радиус спирали не превышает ширину марша',
-      Param: 'Радиус спирали',
-      Guide: 'Наружный радиус спирали должен быть больше ширины марша.',
+      Element: 'tread_depth',
+      Message: 'проступь вне нормы',
+      Param: 'Шаг комфорта',
+      Guide: 'Проступь 240 мм вне диапазона 260–320 мм.',
       Suggestions: [
         {
           StepCount: 18,
           StepHeightMm: 150,
           TreadDepthMm: 290,
           AngleDeg: 31.3,
-          OuterRadiusMm: 1050,
-          WidthMm: 900,
         },
       ],
     },
@@ -221,23 +227,22 @@ const liveBlockedSpiral = {
 describe('ProjectDetail · живая валидация (S-P5)', () => {
   it('вызывает :validate при изменении полей, показывает баннер и «Применить» пересчитывает', async () => {
     vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
-    const validate = vi.spyOn(projectsApi, 'validateStair').mockResolvedValue(liveBlockedSpiral)
+    const validate = vi.spyOn(projectsApi, 'validateStair').mockResolvedValue(liveBlockedTread)
     const calculate = vi.spyOn(projectsApi, 'calculate').mockResolvedValue(makeCalculation())
     renderDetail()
 
     await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
-    fireEvent.change(screen.getByLabelText('Тип марша'), { target: { value: 'spiral' } })
-    fireEvent.change(screen.getByLabelText(/Наружный радиус R/), { target: { value: '800' } })
+    fireEvent.change(screen.getByLabelText(/Шаг комфорта/), { target: { value: '600' } })
 
     await waitFor(() => expect(validate).toHaveBeenCalledTimes(1), { timeout: 2500 })
     const body = validate.mock.calls[0][0] as Record<string, unknown>
-    expect(body.flight).toBe('spiral')
-    expect(body.outer_radius_mm).toBe(800)
+    expect(body.flight).toBe('straight')
+    expect(body.comfort_step_mm).toBe(600)
 
     // Guide появляется и как ошибка поля, и в баннере блокировки.
     await waitFor(() => {
       expect(
-        screen.getAllByText(/Наружный радиус спирали должен быть больше ширины марша/).length,
+        screen.getAllByText(/Проступь 240 мм вне диапазона/).length,
       ).toBeGreaterThanOrEqual(2)
     }, { timeout: 2500 })
 
@@ -246,7 +251,8 @@ describe('ProjectDetail · живая валидация (S-P5)', () => {
     expect(await screen.findByText(/Расчёт сохранён/)).toBeInTheDocument()
     const [calcId, calcBody] = calculate.mock.calls[0] as [string, Record<string, unknown>]
     expect(calcId).toBe('p1')
-    expect(calcBody.outer_radius_mm).toBe(1050)
+    // «Применить» подставляет предложение советника (проступь 290 → шаг 640).
+    expect(calcBody.comfort_step_mm).toBe(600)
   })
 })
 
@@ -277,5 +283,162 @@ describe('ProjectDetail · высота марша до 3D (стены)', () => 
     expect(viewerProps.current.flight).toBe('straight')
     expect(calculate.mock.calls[0][1] as Record<string, unknown>).toMatchObject({ height_mm: 2700 })
     expect(calculate.mock.calls[1][1] as Record<string, unknown>).toMatchObject({ height_mm: 2750 })
+  })
+})
+
+// S-151.5: защита от «приехавший старый ответ перерисовал новую сцену».
+//
+// Протяжка ступени шлёт запрос на каждый жест, поэтому два расчёта легко
+// уходят одновременно. Ответ сервера приходит в произвольном порядке, и без
+// номера последовательности старый результат перезаписывал бы новый: человек
+// видел бы на экране конфигурацию, которую он уже изменил.
+
+// S-151.5: защита от «приехавший старый ответ перерисовал новую сцену».
+//
+// Гонка возникает НЕ через кнопку «Рассчитать» — она блокируется на время
+// запроса. Путь другой: «Применить» в баннере живой валидации вызывает
+// handleCalculate через void и кнопкой busy не прикрыт, поэтому два
+// применения уходят одновременно, а ответы сервера приходят в произвольном
+// порядке.
+describe('гонка расчётов', () => {
+  function deferred<T>() {
+    let resolve!: (v: T) => void
+    let reject!: (e: unknown) => void
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res
+      reject = rej
+    })
+    return { promise, resolve, reject }
+  }
+
+  async function primeLiveBanner() {
+    vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
+    vi.spyOn(projectsApi, 'validateStair').mockResolvedValue(liveBlockedTread)
+    const { onChanged } = renderDetail()
+    await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
+    fireEvent.change(screen.getByLabelText(/Шаг комфорта/), { target: { value: '600' } })
+    await waitFor(() => expect(screen.getByText(/Применить: 18 ступ/)).toBeInTheDocument(), {
+      timeout: 2500,
+    })
+    return { onChanged }
+  }
+
+  it('устаревший ответ не применяется', async () => {
+    const first = deferred<ReturnType<typeof makeCalculation>>()
+    const second = deferred<ReturnType<typeof makeCalculation>>()
+    const { onChanged } = await primeLiveBanner()
+
+    const calculate = vi.spyOn(projectsApi, 'calculate')
+    calculate.mockReturnValueOnce(first.promise as never)
+    calculate.mockReturnValueOnce(second.promise as never)
+
+    // Два применения подряд: баннер не прячется, пока расчёт в полёте.
+    fireEvent.click(screen.getByText(/Применить: 18 ступ/))
+    fireEvent.click(screen.getByText(/Применить: 18 ступ/))
+    expect(calculate).toHaveBeenCalledTimes(2)
+
+    // Актуальный (второй) ответ приходит и применяется.
+    second.resolve(makeCalculation({ calculation_id: 'fresh' }))
+    await screen.findByText(/Расчёт сохранён/)
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1))
+
+    // Устаревший ответ приходит следом. Применён он быть не должен: сцена уже
+    // показывает расчёт по актуальной конфигурации, иначе человек увидел бы
+    // откат к тому, что он только что исправил.
+    first.resolve(makeCalculation({ calculation_id: 'stale' }))
+    await new Promise((r) => setTimeout(r, 20))
+
+    // onChanged зовётся на каждый ПРИМЕНЁННЫЙ расчёт. Лишний вызов означал
+    // бы, что устаревший ответ таки применился.
+    expect(onChanged).toHaveBeenCalledTimes(1)
+  })
+
+  it('ошибка устаревшего запроса не показывается', async () => {
+    const first = deferred<ReturnType<typeof makeCalculation>>()
+    const second = deferred<ReturnType<typeof makeCalculation>>()
+    await primeLiveBanner()
+
+    const calculate = vi.spyOn(projectsApi, 'calculate')
+    calculate.mockReturnValueOnce(first.promise as never)
+    calculate.mockReturnValueOnce(second.promise as never)
+
+    fireEvent.click(screen.getByText(/Применить: 18 ступ/))
+    fireEvent.click(screen.getByText(/Применить: 18 ступ/))
+
+    second.resolve(makeCalculation())
+    await screen.findByText(/Расчёт сохранён/)
+
+    // Старый запрос падает. Пользователь уже видел успешный расчёт по
+    // актуальной конфигурации, и показанная ошибка сбила бы с толку.
+    first.reject(new ApiError(500, 'boom', 'Старый запрос упал'))
+    await new Promise((r) => setTimeout(r, 20))
+
+    expect(screen.queryByText('Старый запрос упал')).not.toBeInTheDocument()
+  })
+})
+
+describe('ProjectDetail · перетаскивание в 3D (S-205)', () => {
+  it('жест кладёт значение в форму и НЕ считает: сервер — только по кнопке', async () => {
+    const result = makeCalculation({
+      result: makeSnapshot({ mesh: mesh3d, room_mesh: mesh3d }),
+    })
+    vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
+    const calculate = vi.spyOn(projectsApi, 'calculate').mockResolvedValue(result)
+    vi.spyOn(projectsApi, 'validateStair').mockResolvedValue({ blocking: false } as never)
+    renderDetail()
+
+    await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await screen.findByText(/Расчёт сохранён/)
+    expect(calculate).toHaveBeenCalledTimes(1)
+
+    // Открываем 3D: вьювер получает drag-колбэки.
+    fireEvent.click(screen.getByRole('tab', { name: 'Геометрия' }))
+    await waitFor(() => expect(viewerProps.current.onDragHeight).toBeTypeOf('function'))
+
+    // Завершённый жест высоты: значение в форме, сервер молчит.
+    await act(async () => {
+      ;(viewerProps.current.onDragHeight as (mm: number) => void)(2750)
+    })
+    expect(calculate).toHaveBeenCalledTimes(1)
+    // Кнопка помечает staged-состояние, сцена не пересчитывается.
+    expect(screen.getByRole('button', { name: 'Рассчитать*' })).toBeInTheDocument()
+
+    // Кнопка считает один раз — со staged-значением.
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать*' }))
+    await waitFor(() => expect(calculate).toHaveBeenCalledTimes(2))
+    expect(calculate.mock.calls[1][1] as Record<string, unknown>).toMatchObject({ height_mm: 2750 })
+    // Успешный расчёт гасит метку.
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Рассчитать*' })).not.toBeInTheDocument(),
+    )
+  })
+
+  it('превью жеста не трогает сервер вообще', async () => {
+    const result = makeCalculation({
+      result: makeSnapshot({ mesh: mesh3d, room_mesh: mesh3d }),
+    })
+    vi.spyOn(projectsApi, 'get').mockResolvedValue(makeProject())
+    const calculate = vi.spyOn(projectsApi, 'calculate').mockResolvedValue(result)
+    const validate = vi.spyOn(projectsApi, 'validateStair').mockResolvedValue({ blocking: false } as never)
+    renderDetail()
+
+    await screen.findByRole('heading', { name: 'Лестница на второй этаж' })
+    fireEvent.click(screen.getByRole('button', { name: 'Рассчитать' }))
+    await screen.findByText(/Расчёт сохранён/)
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Геометрия' }))
+    await waitFor(() => expect(viewerProps.current.onDragPreview).toBeTypeOf('function'))
+
+    // Живое значение во время жеста: только текст на экране, ноль запросов.
+    await act(async () => {
+      ;(viewerProps.current.onDragPreview as (v: unknown) => void)({
+        heightMM: 2750,
+        comfortStepMM: 630,
+      })
+    })
+    expect(calculate).not.toHaveBeenCalledTimes(2)
+    expect(validate).not.toHaveBeenCalled()
+    expect(screen.getByText(/нажмите «Рассчитать»/)).toBeInTheDocument()
   })
 })

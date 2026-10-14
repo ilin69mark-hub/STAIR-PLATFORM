@@ -21,7 +21,13 @@ import (
 // пересчитывается. Предусловия: валидная конфигурация и геометрия без
 // ошибок валидации (производство выполняется только по валидной ревизии).
 // Результат детерминирован.
-func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResult) (*dommfg.ManufacturingPackage, error) {
+//
+// fastenerReg — каталог позиций крепежа, по которому считается потребность.
+// nil → встроенный dommfg.DefaultFastenerRegistry(). Сюда передаётся каталог
+// tenant'а (встроенные позиции плюс добавленные магазином, 000048): позиция,
+// добавленная в админке, обязана доходить до сметы, а не оседать в справочнике.
+func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResult,
+	fastenerReg *dommfg.FastenerRegistry) (*dommfg.ManufacturingPackage, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("manufacturing: configuration is required")
 	}
@@ -41,16 +47,53 @@ func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResu
 	if err != nil {
 		return nil, err
 	}
+	// Фрезеровка: длина кромки берётся из геометрии (MillingFeatures), а не
+	// пересчитывается здесь — иначе расчёт работы разошёлся бы с моделью при
+	// первом же изменении геометрии детали. Признак ставится по роли детали:
+	// скругление носа есть у ступеней, у косоуров и подступенков — нет.
+	for _, f := range gen.MillingFeatures {
+		if f.EdgeLengthMM <= 0 {
+			continue
+		}
+		for i := range parts {
+			if string(parts[i].Kind) != f.Role {
+				continue
+			}
+			parts[i].MillEdgeLengthMM = f.EdgeLengthMM
+			parts[i].MillRadiusMM = f.RadiusMM
+		}
+	}
 	registry, err := DefaultMaterialRegistry()
 	if err != nil {
 		return nil, fmt.Errorf("manufacturing: default registry: %w", err)
 	}
 	for i := range parts {
-		// Выбранный материал (MFG-0005, конструктор): применяется ко всем
-		// деталям, пока поддерживает их толщину; иначе — автоназначение по
-		// толщине (первый материал каталога, поддерживающий толщину).
-		if cfg.Material != "" {
-			if m, ok := registry.Find(dommfg.MaterialCode(cfg.Material)); ok && m.SupportsThickness(parts[i].Thickness.Millimeters()) {
+		// Материал детали берётся из материала ЕЁ РОЛИ, а не «один материал
+		// на всю лестницу». Каркас (косоуры, колонна) идёт по cfg.Material,
+		// ступени (проступи, площадки, поворотные ступени) — по
+		// cfg.TreadMaterial. decompose сводит поворотные ступени к PartTread,
+		// а площадка идёт своим видом PartLanding — но материал у неё тот же,
+		// что у ступеней: это ходовая поверхность, а не каркас.
+		//
+		// Подступенок идёт по cfg.TreadMaterial ВМЕСТЕ со ступенями: он
+		// примыкает к проступи и виден вместе с ней, поэтому «деревянные
+		// ступени на стальном каркасе» означают деревянные подступенки, а не
+		// стальные. Раньше подступенок попадал в ветку каркаса и резался из
+		// cfg.Material — это давало деревянные ступени со стальными
+		// подступенками и не совпадало с тем, что человек выбирает в
+		// конструкторе.
+		preferred := dommfg.MaterialCode(cfg.Material)
+		// Случай перечислен целиком, а не через default: линтер exhaustive
+		// требует видеть все PartKind, иначе добавление нового вида детали
+		// молча оставит её на материале каркаса.
+		switch parts[i].Kind {
+		case dommfg.PartTread, dommfg.PartRiser, dommfg.PartLanding:
+			preferred = dommfg.MaterialCode(cfg.TreadMaterial)
+		case dommfg.PartStringer, dommfg.PartHeel, dommfg.PartWeb, dommfg.PartAnchor, dommfg.PartFirstWeb, dommfg.PartRailTop, dommfg.PartPost, dommfg.PartRigel, dommfg.PartTip, dommfg.PartFlange, dommfg.PartSlip, dommfg.PartDeco, dommfg.PartEndCap:
+			// остальные детали — материал каркаса
+		}
+		if preferred != "" {
+			if m, ok := registry.Find(preferred); ok && m.SupportsThickness(parts[i].Thickness.Millimeters()) {
 				parts[i].Material = m.Code
 				continue
 			}
@@ -62,16 +105,46 @@ func Manufacture(cfg *engineering.StairConfiguration, gen *enggeo.GenerationResu
 		parts[i].Material = code
 	}
 
+	// Ограждение: покупные детали. Они приходят готовыми, поэтому в карту
+	// раскроя не идут, но в спецификацию и прайс обязаны попасть. Раньше их
+	// не было в пакете вообще — геометрия ограждения строится как декорация,
+	// а decompose() разбирает только тело модели.
+	parts = append(parts, purchasedRailingParts(cfg, len(parts)+1)...)
+
 	bom, cut := buildBOM(parts)
 	sheets, err := DefaultStockSheetRegistry()
 	if err != nil {
 		return nil, fmt.Errorf("manufacturing: default stock sheet registry: %w", err)
 	}
-	nesting, err := Nest(cut, sheets, DefaultKerf)
+	nesting, err := Nest(cut, sheets)
 	if err != nil {
 		return nil, err
 	}
-	pkg := &dommfg.ManufacturingPackage{Parts: parts, BOM: bom, CutList: cut, Nesting: nesting}
+	// Крепёж (MNT-0001). Считается по телам модели, а не по деталям:
+	// пятка пола и пятка выхода на перекрытие в спецификации неразличимы
+	// (обе ANC-nn), и развести их по основанию крепления можно только по
+	// роли тела. Неизвестные коды доп. крепежа не роняют расчёт — они
+	// просто не попадут в смету, а заменяются встроенными.
+	fasteners, err := FastenerDemandFor(cfg, gen.Model.Solids(), fastenerReg, nil)
+	if err != nil {
+		return nil, fmt.Errorf("manufacturing: fasteners: %w", err)
+	}
+	areas := enggeo.SealantContactAreas(cfg)
+	// Герметик (CONF-SEALANT). Площади швов берутся из геометрии обоймы
+	// выреза — те же размеры, по которым построены пятки, поэтому шов
+	// совпадает с деталью. Без подступенков площади пяток 2 и пластины 1-й
+	// ступени не считаются: герметик по несуществующему шву не нужен.
+	zones := dommfg.SealantZonesFrom(
+		areas.TreadHeelsMM2, areas.RiserWebsMM2, areas.RiserFirstWebsMM2, areas.StringerEndsMM2)
+	sealant, err := dommfg.SealantDemandFor(&areas, dommfg.DefaultSealantRegistry(),
+		cfg.SealantLayerMM, cfg.ExtraSealantCartridges)
+	if err != nil {
+		return nil, fmt.Errorf("manufacturing: sealant: %w", err)
+	}
+	pkg := &dommfg.ManufacturingPackage{
+		Parts: parts, BOM: bom, CutList: cut, Nesting: nesting, Fasteners: fasteners,
+		Sealant: sealant, SealantZones: zones,
+	}
 	if err := pkg.Validate(); err != nil {
 		return nil, err
 	}

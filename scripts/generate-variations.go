@@ -1,7 +1,7 @@
 //go:build ignore
 // +build ignore
 
-// Генератор 500 валидных конфигураций на каждый flight (2000 total).
+// Генератор 500 валидных конфигураций на каждый flight (1500 total).
 // Запуск: go run ./scripts/generate-variations.go -n 500
 package main
 
@@ -40,8 +40,6 @@ type Case struct {
 	LandingWidthMM      float64 `json:"landing_width_mm"`
 	LandingDepthMM      float64 `json:"landing_depth_mm"`
 	LowerStepCount      int     `json:"lower_step_count"`
-	OuterRadiusMM       float64 `json:"outer_radius_mm"`
-	SpiralDirection     string  `json:"spiral_direction"`
 	Direction           string  `json:"direction"`
 	ComfortStepMM       float64 `json:"comfort_step_mm"`
 }
@@ -54,10 +52,8 @@ func mustLength(v float64) engineering.Length {
 	return l
 }
 
-var attemptsDebug int
-
 func randomValid(flight string) (*Case, bool) {
-	mats := []string{"STEEL-S235", "ALUM-5083", "WOOD-OAK"}
+	mats := []string{"STEEL-C245", "WOOD-OAK"}
 	mat := mats[rand.Intn(len(mats))]
 	// width 300-1200 stratified
 	W := 300 + rand.Float64()*900
@@ -65,7 +61,7 @@ func randomValid(flight string) (*Case, bool) {
 		W = 1500 + rand.Float64()*1500
 	}
 	Hmax := 6000.0
-	if mat != "STEEL-S235" {
+	if mat != "STEEL-C245" {
 		Hmax = 4550
 	}
 	H := 1800 + rand.Float64()*(Hmax-1800)
@@ -75,13 +71,8 @@ func randomValid(flight string) (*Case, bool) {
 	// step thickness per material
 	var stepTh float64
 	switch mat {
-	case "STEEL-S235":
+	case "STEEL-C245":
 		stepTh = 3 + rand.Float64()*5
-	case "ALUM-5083":
-		stepTh = 2 + rand.Float64()*10
-		if stepTh > 20 {
-			stepTh = 2 + rand.Float64()*8
-		}
 	default:
 		stepTh = 20 + rand.Float64()*20
 	}
@@ -105,8 +96,6 @@ func randomValid(flight string) (*Case, bool) {
 	railing := railings[rand.Intn(len(railings))]
 	directions := []string{"left", "right"}
 	dir := directions[rand.Intn(len(directions))]
-	spiralDirs := []string{"cw", "ccw"}
-	spiralDir := spiralDirs[rand.Intn(len(spiralDirs))]
 
 	// quick solver check
 	n := int(math.Round(H / h0))
@@ -117,7 +106,6 @@ func randomValid(flight string) (*Case, bool) {
 	// flight specific
 	var Wp, Ld float64
 	var n1 int
-	var R float64
 	switch flight {
 	case "straight", "l_shape", "u_shape":
 		b := S - 2*h
@@ -142,20 +130,6 @@ func randomValid(flight string) (*Case, bool) {
 				return nil, false
 			}
 		}
-	case "spiral":
-		// Для спирали фиксируем H 2700 и подбираем R чтобы попасть в коридор
-		H = 2700
-		n = 15
-		h = H / float64(n) // 180
-		if W < 500 || W > 700 {
-			W = 500 + rand.Float64()*200
-		}
-		desiredBWalk := 270 + rand.Float64()*10 // 270-280 -> S2 630-640
-		R = desiredBWalk*float64(n)/(2*math.Pi) + W/3
-		if R > 5000 || R <= W {
-			return nil, false
-		}
-		comfortToStore = 2*h + desiredBWalk
 	default:
 		return nil, false
 	}
@@ -172,15 +146,10 @@ func randomValid(flight string) (*Case, bool) {
 		flightType = engineering.FlightLShape
 	case "u_shape":
 		flightType = engineering.FlightUShape
-	case "spiral":
-		flightType = engineering.FlightSpiral
 	}
 	var err error
 	var stairCfg *engineering.StairConfiguration
-	if flight == "spiral" {
-		stairCfg = &engineering.StairConfiguration{Width: wL, Height: hL, Flight: flightType}
-		err = nil
-	} else {
+	{
 		var err2 error
 		stairCfg, err2 = engineering.NewStairConfiguration(wL, hL, flightType)
 		if err2 != nil {
@@ -238,14 +207,6 @@ func randomValid(flight string) (*Case, bool) {
 		stairCfg.RailingLanding = rs
 		stairCfg.RailingUpper = rs
 	}
-	if flight == "spiral" {
-		stairCfg.OuterRadius = mustLength(R)
-		if spiralDir == "cw" {
-			stairCfg.SpiralDirection = engineering.SpiralCW
-		} else {
-			stairCfg.SpiralDirection = engineering.SpiralCCW
-		}
-	}
 	stairCfg.Material = mat
 
 	// SolveChecked + validation + geometry
@@ -258,17 +219,8 @@ func randomValid(flight string) (*Case, bool) {
 		_, vr, err = solver.SolveCheckedLShape(stairCfg, prof, S)
 	case "u_shape":
 		_, vr, err = solver.SolveCheckedUShape(stairCfg, prof, S)
-	case "spiral":
-		_, vr, err = solver.SolveCheckedSpiral(stairCfg, prof)
 	}
 	if err != nil || vr.Blocking {
-		if flight == "spiral" {
-			// debug first few
-			if attemptsDebug < 5 {
-				fmt.Printf("spiral fail err=%v blocking=%v issues=%v W=%.0f R=%.0f n=%d h=%.0f\n", err, vr.Blocking, vr.Issues, W, R, n, h)
-				attemptsDebug++
-			}
-		}
 		return nil, false
 	}
 	// geometry
@@ -284,7 +236,6 @@ func randomValid(flight string) (*Case, bool) {
 	_ = Wp
 	_ = Ld
 	_ = n1
-	_ = R
 
 	cs := &Case{
 		Flight:              flight,
@@ -303,8 +254,6 @@ func randomValid(flight string) (*Case, bool) {
 		LandingWidthMM:      Wp,
 		LandingDepthMM:      Ld,
 		LowerStepCount:      n1,
-		OuterRadiusMM:       R,
-		SpiralDirection:     spiralDir,
 		Direction:           dir,
 		ComfortStepMM:       comfortToStore,
 	}
@@ -317,7 +266,7 @@ func main() {
 	outJS := flag.String("out-js", "frontend-store/src/test/generated-cases-500.json", "js cases output")
 	flag.Parse()
 
-	flights := []string{"straight", "l_shape", "u_shape", "spiral"}
+	flights := []string{"straight", "l_shape", "u_shape"}
 	all := make([]Case, 0, (*n)*len(flights))
 	for _, fl := range flights {
 		cnt := 0

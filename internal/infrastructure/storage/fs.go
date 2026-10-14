@@ -42,8 +42,16 @@ func (f *FileStore) keyPath(key string) (string, error) {
 	return p, nil
 }
 
+// contentTypePath — путь к файлу с content-type объекта (DOM-006).
+//
+// Раньше FileStore игнорировал content-type, поэтому GET /storage/{key}
+// всегда отдавал application/octet-stream, хотя SaveExport сохранял
+// content-type и возвращал его в DTO. Метаданные лежат рядом с объектом
+// под именем <key>.content-type и не попадают в выдачу List.
+func contentTypePath(p string) string { return p + ".content-type" }
+
 // Put сохраняет объект (EDR-0026 §3.2).
-func (f *FileStore) Put(_ context.Context, key string, data []byte, _ string) error {
+func (f *FileStore) Put(_ context.Context, key string, data []byte, contentType string) error {
 	p, err := f.keyPath(key)
 	if err != nil {
 		return err
@@ -54,24 +62,33 @@ func (f *FileStore) Put(_ context.Context, key string, data []byte, _ string) er
 	if err := os.WriteFile(p, data, 0o600); err != nil {
 		return fmt.Errorf("storage: write: %w", err)
 	}
+	if contentType != "" {
+		if err := os.WriteFile(contentTypePath(p), []byte(contentType), 0o600); err != nil {
+			return fmt.Errorf("storage: write content-type: %w", err)
+		}
+	}
 	return nil
 }
 
-// Get возвращает данные объекта (EDR-0026 §3.2).
-func (f *FileStore) Get(_ context.Context, key string) ([]byte, error) {
+// Get возвращает данные объекта и его content-type (EDR-0026 §3.2).
+func (f *FileStore) Get(_ context.Context, key string) ([]byte, string, error) {
 	p, err := f.keyPath(key)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	// #nosec G304 -- file store reads objects by validated key under root.
 	data, err := os.ReadFile(p)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, ErrNotFound
+		return nil, "", ErrNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("storage: read: %w", err)
+		return nil, "", fmt.Errorf("storage: read: %w", err)
 	}
-	return data, nil
+	ct, err := os.ReadFile(contentTypePath(p)) //nolint:gosec // путь выведен из проверенного ключа
+	if err != nil {
+		return data, "", nil // метаданных нет (legacy-объект) — не ошибка
+	}
+	return data, string(ct), nil
 }
 
 // Delete удаляет объект (EDR-0026 §3.2).

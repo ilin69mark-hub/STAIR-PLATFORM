@@ -29,7 +29,7 @@ Assistant**: экономическая экспертиза конфигура�
 - EDR-0036/0037/0038 (каркас AI Layer: Service/ModelRouter/Tools/audit,
   `AnalysisRequest` — переиспользуются)
 - PRC-0004 (PriceBreakdown, Cost Categories), PRC-0002 (конвейер цены),
-  EDR-0010/BC-007 (производственный пакет: PartArea/Mass)
+  EDR-0010/BC-005 (производственный пакет: PartArea/Mass)
 - ADR-0003 (детерминизм), AI-0000 (истина в конвейере)
 - `internal/domain/pricing/pricing.go`,
   `internal/application/assistant/pricing.go`

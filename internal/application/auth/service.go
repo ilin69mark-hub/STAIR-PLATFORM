@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
@@ -34,6 +36,14 @@ var (
 	ErrSsoState         = errors.New("auth: sso state invalid or expired")
 	ErrSsoDenied        = errors.New("auth: sso login denied")
 	ErrSsoNotConfigured = errors.New("auth: sso not configured")
+	// ErrLastOwner — удаление последнего владельца компании. Возвращается
+	// отдельной ошибкой, а не ErrForbidden: это не запрет по правам, а
+	// защита самой компании, и интерфейс должен сказать об этом понятно.
+	ErrLastOwner = errors.New("auth: cannot delete the last owner")
+	// ErrInvalidRecipient — получатель проектов не подходит (чужой тенант,
+	// удалён или заблокирован). Отдельная ошибка, потому что выбор
+	// получателя — обязательный шаг, и молчаливый отказ его не заменит.
+	ErrInvalidRecipient = errors.New("auth: projects recipient is not an active user of the tenant")
 )
 
 // Service — прикладной сервис auth (BE-0002 Use Cases). Не зависит от
@@ -43,6 +53,9 @@ type Service struct {
 	sessionTTL time.Duration
 	audit      *audit.Service
 	sso        OIDCProvider
+	// grants — репозиторий точечных выдач прав (EDR-0041). Необязателен:
+	// пока не подключён, права определяются шаблоном роли.
+	grants GrantsRepository
 
 	// dummyHash — фиксированный bcrypt-хеш для выравнивания времени ответа
 	// при неизвестном email (S-113: LOGIN-TIMING-ENUMERATION). Генерируется
@@ -96,8 +109,21 @@ func (s *Service) record(ctx context.Context, actorID, tenantID string, action a
 	if s.audit == nil {
 		return
 	}
+	// tenant_id в БД NOT NULL (migrations/000011). События, tenant которых
+	// неизвестен (например «вход с несуществующим email» — email принадлежит
+	// ни одному пользователю, tenant определить нельзя), раньше уходили в
+	// INSERT с пустым tenant, БД отклоняла их по NOT NULL, а ошибка
+	// проглатывалась здесь — то есть запись об отказе входа ТЕРЯЛАСЬ, а
+	// именно такие события нужнее всего для безопасности.
+	//
+	// Фикс (2026-09-26): подставляем дефолтный tenant — регистрация всегда
+	// идёт в него (auth.Service.Register), поэтому событие попадает в
+	// правильный журнал, а не исчезает.
+	if tenantID == "" {
+		tenantID = s.auditTenantOrDefault(ctx)
+	}
 	m := audit.MetaFrom(ctx)
-	_ = s.audit.Record(ctx, &audit.Event{
+	if err := s.audit.Record(ctx, &audit.Event{
 		ActorID:   actorID,
 		TenantID:  tenantID,
 		Action:    action,
@@ -105,7 +131,27 @@ func (s *Service) record(ctx context.Context, actorID, tenantID string, action a
 		Detail:    detail,
 		RequestID: m.RequestID,
 		IP:        m.IP,
-	})
+	}); err != nil {
+		// OBS-001: ошибка записи аудита больше не проглатывается молча.
+		// Лог, чтобы потеря события безопасности была видна.
+		slog.Error("auth: audit record failed",
+			"action", string(action), "result", string(result), "err", err.Error())
+	}
+}
+
+// auditTenantOrDefault возвращает дефолтный tenant для системных событий.
+// Если и он недоступен (БД недоступна) — возвращает пустую строку; тогда
+// запись отклонит доменная валидация, и потеря события будет залогирована
+// вызывающим (см. выше), а не произойдёт молча.
+func (s *Service) auditTenantOrDefault(ctx context.Context) string {
+	if s.repo == nil {
+		return ""
+	}
+	t, err := s.repo.DefaultTenant(ctx)
+	if err != nil || t == nil {
+		return ""
+	}
+	return t.ID
 }
 
 // sessionTTLFor возвращает TTL сессии по политике tenant (EDR-0016 §3.2).
@@ -224,7 +270,14 @@ func (s *Service) Login(ctx context.Context, email, password string) (*User, str
 			// тайминг-энумерации: раньше неизвестный email отвечал за ~0.16 мкс
 			// против ~50 мс у известного).
 			s.dummyBcryptCompare(password)
-			s.record(ctx, "", "", audit.ActionAuthLoginDenied, audit.ResultDenied, "unknown email: "+email)
+			// OBS (2026-09-26): в audit detail больше не пишется email —
+			// журнал читается админом и выгружается в CSV, то есть это
+			// долговременный экспортируемый PII. Детали — в slog оператора.
+			// OBS (2026-09-26): в audit detail больше не пишется email —
+			// журнал читается админом и выгружается в CSV, то есть это
+			// долговременный экспортируемый PII. Детали — в slog оператора.
+			slog.Warn("login denied: unknown email", "event", "auth.login_denied")
+			s.record(ctx, "", "", audit.ActionAuthLoginDenied, audit.ResultDenied, "unknown email")
 			return nil, "", ErrInvalidCreds
 		}
 		return nil, "", err
@@ -384,14 +437,147 @@ func (s *Service) UpdateUser(ctx context.Context, tenantID, actorID, userID stri
 		s.record(ctx, actorID, tenantID, audit.ActionUserRoleChanged, audit.ResultOK, "user role changed to "+string(*role))
 	}
 	if status != nil {
-		if err := s.repo.UpdateUserStatus(ctx, tenantID, userID, *status); err != nil {
-			return err
-		}
+		// CRITICAL-05 (2026-09-27): блокировка — ОДИН атомарный шаг
+		// (DisableUser: статус + сессии + API-ключи в одной транзакции).
+		// Раньше это были три вызова с проглоченными ошибками, из-за чего
+		// сбой отзыва ключей оставлял «заблокированного» пользователя с
+		// работающим Bearer-ключом, и это было видно только по логам.
+		//
+		// Ошибка отзыва теперь пробрасывается: вызывающий получает отказ и
+		// может повторить, а не считает блокировку выполненной.
 		if *status == StatusDisabled {
-			_ = s.repo.DeleteUserSessions(ctx, userID)
+			if err := s.repo.DisableUser(ctx, tenantID, userID); err != nil {
+				s.record(ctx, actorID, tenantID, audit.ActionUserStatusChanged, audit.ResultDenied,
+					"disable user failed: "+err.Error())
+				return err
+			}
+		} else if err := s.repo.UpdateUserStatus(ctx, tenantID, userID, *status); err != nil {
+			return err
 		}
 		s.record(ctx, actorID, tenantID, audit.ActionUserStatusChanged, audit.ResultOK, "user status changed to "+string(*status))
 	}
+	return nil
+}
+
+// DeletionPreview — цифры для подтверждения удаления. Считаются заранее,
+// чтобы человек увидел «3 проекта, 12 расчётов» до того, как нажал кнопку,
+// а не после.
+type DeletionPreview struct {
+	Projects     int `json:"projects"`
+	Calculations int `json:"calculations"`
+	Comments     int `json:"comments"`
+	Orders       int `json:"orders"`
+	ProjectRoles int `json:"project_roles"`
+}
+
+// UserDeletionPreview собирает цифры по сотруднику. Требуется право
+// staff.delete (проверка в транспорте).
+func (s *Service) UserDeletionPreview(ctx context.Context, tenantID, userID string) (DeletionPreview, error) {
+	u, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return DeletionPreview{}, err
+	}
+	if u.TenantID != tenantID || u.Deleted() {
+		return DeletionPreview{}, ErrNotFound
+	}
+	st, err := s.repo.UserDeletionStats(ctx, userID)
+	if err != nil {
+		return DeletionPreview{}, err
+	}
+	// Преобразование, а не поэлементный литерал: типы идентичны, и если в
+	// UserDeletionStats добавят счётчик, компилятор потребует решить, попадает
+	// ли он в предпросмотр. Литерал молча выбросил бы новое поле.
+	return DeletionPreview(st), nil
+}
+
+// DeleteUser удаляет сотрудника: передаёт его проекты другому человеку и
+// закрывает ему вход. Требуется право staff.delete (проверка в транспорте).
+//
+// Правила, каждое — по конкретной причине:
+//
+//   - нельзя удалить себя: иначе можно остаться без прав и без возможности
+//     вернуться (у removed человека нет ни роли, ни прав);
+//   - нельзя удалить последнего владельца: у компании не осталось бы того,
+//     кто может выдать права и завести нового сотрудника;
+//   - удалять владельца может только владелец: смена роли не должна
+//     превращаться в способ убрать конкурента;
+//   - получатель проектов обязан быть живым сотрудником того же тенанта.
+//
+// Передача проектов и удаление — одна транзакция в репозитории: если
+// передача прошла, а удаление нет, проект не остался бы ни у кого.
+func (s *Service) DeleteUser(ctx context.Context, tenantID, actorID, userID, transferTo string) error {
+	if actorID == userID {
+		s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied, "delete self")
+		return ErrForbidden
+	}
+	target, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied, "delete: user not found in tenant")
+		}
+		return err
+	}
+	if target.TenantID != tenantID || target.Deleted() {
+		s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied, "delete: user not found in tenant")
+		return ErrNotFound
+	}
+
+	recipient, err := s.repo.GetUserByID(ctx, transferTo)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied, "delete: recipient not found")
+		}
+		return err
+	}
+	if recipient.TenantID != tenantID || recipient.Deleted() {
+		s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied, "delete: recipient not in tenant")
+		return ErrNotFound
+	}
+	if recipient.Status != StatusActive {
+		s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied, "delete: recipient not active")
+		return ErrInvalidRecipient
+	}
+
+	// Последнего владельца оставляем всегда: компания без владельца не
+	// управляется (некому выдать права), а удаление — необратимо.
+	//
+	// Проверка идёт ПЕРЕД правилом «владельца удаляет только владелец».
+	// Иначе она была бы недостижимой: делегированный сотрудник с правом
+	// staff.delete получил бы безликое «нельзя», и не понял бы, что
+	// мешает именно последний владелец. Так ошибка говорит правду.
+	if target.Role == RoleOwner {
+		owners, err := s.repo.CountOwners(ctx, tenantID)
+		if err != nil {
+			return err
+		}
+		if owners <= 1 {
+			s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied, "delete last owner")
+			return ErrLastOwner
+		}
+		actor, err := s.repo.GetUserByID(ctx, actorID)
+		if err != nil {
+			return err
+		}
+		if actor.Role != RoleOwner {
+			s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied,
+				"delete owner by non-owner "+string(actor.Role))
+			return ErrForbidden
+		}
+	}
+
+	moved, err := s.repo.TransferProjects(ctx, userID, transferTo)
+	if err != nil {
+		s.record(ctx, actorID, tenantID, audit.ActionUserDeleted, audit.ResultFailed, "transfer projects: "+err.Error())
+		return err
+	}
+	if err := s.repo.SoftDeleteUser(ctx, tenantID, userID, actorID); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			s.record(ctx, actorID, tenantID, audit.ActionAuthzDenied, audit.ResultDenied, "delete: user not found in tenant")
+		}
+		return err
+	}
+	s.record(ctx, actorID, tenantID, audit.ActionUserDeleted, audit.ResultOK,
+		"user deleted, projects moved to "+transferTo+" ("+strconv.Itoa(moved)+")")
 	return nil
 }
 
@@ -465,9 +651,22 @@ func (s *Service) RevokeApiKey(ctx context.Context, tenantID, actorID, keyID str
 	return nil
 }
 
-// AuthenticateApiKey проверяет service-токен: хеширует, ищет ключ,
-// проверяет отзыв. Возвращает ключ (без token_hash). Используется
+// AuthenticateApiKey проверяет service-токен: хеширует, ищет ключ, проверяет
+// отзыв и статус владельца. Возвращает ключ (без token_hash). Используется
 // транспортом для Bearer-аутентификации (EDR-0016 §7).
+//
+// CRITICAL-05 (2026-09-27): добавлена проверка статуса владельца, ровно как в
+// Authenticate (строка 326). Раньше Bearer-ключ заблокированного пользователя
+// продолжал работать с полным набором scopes: disable учётной записи закрывал
+// только сессии, а ключ — второй, независимый способ входа. Для внешнего
+// наблюдателя это выглядело как «пользователь заблокирован, а доступ есть».
+//
+// Ключ без владельца (created_by IS NULL) не аутентифицирует: колонка
+// nullable, NULL означает удалённого создателя (ON DELETE SET NULL) либо
+// ключ, созданный вне user-аккаунта. Проверить статус некого, а доверять
+// без проверки — значит оставить «мёртвый» доступ работающим (fail-closed).
+// Ошибка та же, что у отозванного ключа, иначе ответ аутентификации сам
+// становится источником информации о внутреннем состоянии ключей.
 func (s *Service) AuthenticateApiKey(ctx context.Context, token string) (*ApiKey, error) {
 	if token == "" {
 		return nil, ErrSessionExpired
@@ -478,6 +677,21 @@ func (s *Service) AuthenticateApiKey(ctx context.Context, token string) (*ApiKey
 	}
 	if !key.Active() {
 		return nil, ErrKeyRevoked
+	}
+	if key.CreatedBy == "" {
+		return nil, ErrKeyRevoked
+	}
+	owner, err := s.repo.GetUserByID(ctx, key.CreatedBy)
+	if err != nil {
+		// Владелец не найден (удалён) — ключ осиротел, доступ не даём.
+		if errors.Is(err, ErrNotFound) {
+			return nil, ErrKeyRevoked
+		}
+		// Сбой БД — не повод пропустить ключ.
+		return nil, err
+	}
+	if owner.Status != StatusActive {
+		return nil, ErrUserDisabled
 	}
 	_ = s.repo.TouchApiKey(ctx, key.ID)
 	return key, nil

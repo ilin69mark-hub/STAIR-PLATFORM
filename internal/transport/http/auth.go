@@ -26,6 +26,19 @@ type AuthService interface {
 	UpdateUserRole(ctx context.Context, tenantID, actorID, userID string, role auth.Role) error
 	// UpdateUser меняет роль и/или статус пользователя (EDR-0016 §3.1).
 	UpdateUser(ctx context.Context, tenantID, actorID, userID string, role *auth.Role, status *auth.Status) error
+	// EffectiveGrants возвращает права сотрудника «как есть»: точечные
+	// выдачи или шаблон роли (EDR-0041). Транспорт кладёт их в контекст
+	// запроса один раз, а hasCapability проверяет без похода в БД.
+	EffectiveGrants(ctx context.Context, u *auth.User) (*auth.GrantSet, error)
+	// GetUserGrants / SetUserGrants — чтение и замена точечных выдач прав
+	// сотруднику (EDR-0041). Правила целостности живут в auth.GrantsService;
+	// здесь только порт для транспорта.
+	GetUserGrants(ctx context.Context, tenantID, userID string) (*auth.GrantSet, error)
+	SetUserGrants(ctx context.Context, tenantID string, actor *auth.User, userID string, next *auth.GrantSet) error
+	// UserDeletionPreview — цифры «что будет с сотрудником» перед удалением;
+	// DeleteUser — передать его проекты и мягко удалить (staff.delete).
+	UserDeletionPreview(ctx context.Context, tenantID, userID string) (auth.DeletionPreview, error)
+	DeleteUser(ctx context.Context, tenantID, actorID, userID, transferTo string) error
 	// GetPolicy возвращает политику безопасности tenant (EDR-0016 §3.2).
 	GetPolicy(ctx context.Context, tenantID string) (auth.Policy, error)
 	// UpdatePolicy сохраняет политику безопасности tenant.
@@ -97,16 +110,41 @@ func apiKey(ctx context.Context) *auth.ApiKey {
 	return k
 }
 
-// hasPermission проверяет право субъекта запроса (EDR-0015/0016):
-// пользователя по его роли или API-ключа по его scopes.
-func hasPermission(r *http.Request, p auth.Permission) bool {
+// ---- контекст прав ----
+
+type grantsCtxKey struct{}
+
+// withGrants кладёт эффективные права субъекта в контекст запроса.
+// Кладёт их один раз — при аутентификации — чтобы обработчик не ходил в БД
+// за правами на каждый вызов: в матрице 33 метрики, и 26 проверок на один
+// запрос дали бы лишние походы.
+func withGrants(ctx context.Context, g *auth.GrantSet) context.Context {
+	return context.WithValue(ctx, grantsCtxKey{}, g)
+}
+
+// requestGrants возвращает права из контекста (nil — аноним или вызов мимо
+// requireAuth, например в тестах).
+func requestGrants(ctx context.Context) *auth.GrantSet {
+	g, _ := ctx.Value(grantsCtxKey{}).(*auth.GrantSet)
+	return g
+}
+
+// hasCapability проверяет, хватает ли субъекту запроса метрики на нужном
+// уровне (EDR-0041): «видеть» для чтения, «менять» для записи, «можно» для
+// действий вроде возврата платежа.
+//
+// Права берутся из контекста — их положил requireAuth после аутентификации.
+// Если прав в контексте нет (тест собрал запрос руками) — отказ: проверка
+// не должна молча разрешать доступ при неполных данных.
+func hasCapability(r *http.Request, c auth.Capability, level auth.Level) bool {
 	if k := apiKey(r.Context()); k != nil {
-		return k.HasScope(p)
+		return k.HasScope(auth.Permission(c))
 	}
-	if u := authUser(r.Context()); u != nil {
-		return u.Role.HasPermission(p)
+	g := requestGrants(r.Context())
+	if g == nil {
+		return false
 	}
-	return false
+	return g.Has(c, level)
 }
 
 // tenantID возвращает tenant аутентифицированного субъекта (пользователя
@@ -149,6 +187,16 @@ type userDTO struct {
 	Name     string `json:"name"`
 	Role     string `json:"role"`
 	TenantID string `json:"tenant_id"`
+	// Grants — действующие права по метрикам (EDR-0041): список пар
+	// «метрика — уровень». По нему клиент решает, какую плитку и какой
+	// раздел показать, а кнопку внутри раздела — по уровню.
+	Grants []grantItem `json:"grants"`
+	// Permissions — имена метрик, выданные в любом уровне. Оставлено для
+	// совместимости с текущим фронтом и старыми сессиями: гейт спрашивает
+	// «есть ли метрика вообще». Переедом на grants занимается задача с
+	// приветственным экраном; здесь важно, чтобы старый код продолжал
+	// работать, а не чтобы он был красивым.
+	Permissions []string `json:"permissions"`
 }
 
 // authResponse — ответ при register/login (содержит токен в body для e2e клиентов).
@@ -157,8 +205,24 @@ type authResponse struct {
 	Token string  `json:"token"`
 }
 
-func toUserDTO(u *auth.User) userDTO {
-	return userDTO{ID: u.ID, Email: u.Email, Name: u.Name, Role: string(u.Role), TenantID: u.TenantID}
+// toUserDTO собирает DTO сессии. Права берём из EffectiveGrants: пока у
+// сотрудника нет точечных выдач, это шаблон роли — то есть поведение
+// прежнее.
+func toUserDTO(u *auth.User, grants *auth.GrantSet) userDTO {
+	items := grantItemsOf(grants)
+	perms := make([]string, 0, len(items))
+	for _, it := range items {
+		perms = append(perms, it.Capability)
+	}
+	return userDTO{
+		ID:          u.ID,
+		Email:       u.Email,
+		Name:        u.Name,
+		Role:        string(u.Role),
+		TenantID:    u.TenantID,
+		Grants:      items,
+		Permissions: perms,
+	}
 }
 
 // ---- handlers ----
@@ -181,12 +245,13 @@ func handleRegister(svc AuthService, secure bool) http.HandlerFunc {
 			case errors.Is(err, auth.ErrInvalidEmail), errors.Is(err, auth.ErrWeakPassword):
 				writeInputError(w, "invalid_input", err)
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+				writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			}
 			return
 		}
 		setSessionCookies(w, appOrigin(r), token, secure)
-		writeJSON(w, http.StatusCreated, authResponse{User: toUserDTO(u), Token: token})
+		grants, _ := svc.EffectiveGrants(r.Context(), u)
+		writeJSON(w, http.StatusCreated, authResponse{User: toUserDTO(u, grants), Token: token})
 	}
 }
 
@@ -211,12 +276,13 @@ func handleLogin(svc AuthService, secure bool) http.HandlerFunc {
 			// «Аккаунт отключён» сообщается только аутентифицированным
 			// пользователям (Authenticate → middleware).
 			default:
-				writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+				writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			}
 			return
 		}
 		setSessionCookies(w, appOrigin(r), token, secure)
-		writeJSON(w, http.StatusOK, authResponse{User: toUserDTO(u), Token: token})
+		grants, _ := svc.EffectiveGrants(r.Context(), u)
+		writeJSON(w, http.StatusOK, authResponse{User: toUserDTO(u, grants), Token: token})
 	}
 }
 
@@ -225,7 +291,7 @@ func handleLogout(svc AuthService, secure bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := sessionToken(r)
 		if err := svc.Logout(r.Context(), token); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		clearSessionCookies(w, appOrigin(r), secure)
@@ -233,10 +299,44 @@ func handleLogout(svc AuthService, secure bool) http.HandlerFunc {
 	}
 }
 
-// handleMe — GET /api/v1/auth/me (auth). 200 — текущий пользователь.
+// handleMe — GET /api/v1/auth/me (auth).
+// 200 — текущий субъект: пользователь (сессия) или API-ключ (Bearer).
+//
+// SEC-005 (2026-09-26): обработчик вызывался как toUserDTO(authUser(ctx)),
+// а requireAuth в ветке Bearer кладёт в контекст ТОЛЬКО ключ, не пользователя
+// (middleware_auth.go:173). Поэтому запрос с валидным API-ключом приводил к
+// nil-pointer разыменованию в toUserDTO -> паника -> 500. Воспроизведено:
+//
+//	GET /api/v1/auth/me  Authorization: Bearer <валидный ключ>
+//	-> 500 {"error":{"code":"internal",...,"request_id":""}}
+//
+// Теперь оба вида субъекта обрабатываются: сессия -> userDTO,
+// API-ключ -> apiKeyDTO (переиспользуется каноническое представление из
+// admin.go, в нём намеренно нет token_hash). Ответ помечен subject_type,
+// чтобы клиент однозначно различал форму ответа.
 func handleMe() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, toUserDTO(authUser(r.Context())))
+		ctx := r.Context()
+		if k := apiKey(ctx); k != nil {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"subject_type": "api_key",
+				"api_key":      toApiKeyDTO(k),
+			})
+			return
+		}
+		u := authUser(ctx)
+		if u == nil {
+			// Обязательно fail-closed: раньше здесь был nil-pointer (SEC-005).
+			// requireAuth гарантирует одного из двух субъектов, но если
+			// будущий middleware изменит правила — лучше 401, чем паника.
+			writeError(w, http.StatusUnauthorized, "unauthorized", "Требуется авторизация")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"subject_type": "user",
+			// Права из контекста: requireAuth уже разрешил их один раз.
+			"user": toUserDTO(u, requestGrants(ctx)),
+		})
 	}
 }
 

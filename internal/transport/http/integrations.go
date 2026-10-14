@@ -67,13 +67,15 @@ func toDeliveryDTO(d *integrations.Delivery) deliveryDTO {
 // 200 — список эндпоинтов tenant; 403 — нет права integrations.manage.
 func handleListEndpoints(svc IntegrationService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionIntegrationsManage) {
-			writeError(w, http.StatusForbidden, "forbidden", "Требуется право integrations.manage.")
+		if !hasCapability(r, auth.CapIntegrationEndpoints, auth.LevelRead) {
+			writeError(w, http.StatusForbidden, "forbidden", "Требуется право видеть интеграционные подключения.")
 			return
 		}
 		eps, err := svc.ListEndpoints(r.Context(), tenantID(r.Context()))
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		out := make([]endpointDTO, 0, len(eps))
@@ -89,8 +91,8 @@ func handleListEndpoints(svc IntegrationService) http.HandlerFunc {
 // 422 — невалидные данные эндпоинта.
 func handleCreateEndpoint(svc IntegrationService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionIntegrationsManage) {
-			writeError(w, http.StatusForbidden, "forbidden", "Требуется право integrations.manage.")
+		if !hasCapability(r, auth.CapIntegrationEndpointsIssue, auth.LevelAction) {
+			writeError(w, http.StatusForbidden, "forbidden", "Требуется право изменять интеграционные подключения.")
 			return
 		}
 		var req createEndpointRequest
@@ -104,7 +106,9 @@ func handleCreateEndpoint(svc IntegrationService) http.HandlerFunc {
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusCreated, toEndpointDTO(ep))
@@ -115,8 +119,8 @@ func handleCreateEndpoint(svc IntegrationService) http.HandlerFunc {
 // 204 — удалено; 403 — нет права; 404 — нет эндпоинта.
 func handleDeleteEndpoint(svc IntegrationService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !hasPermission(r, auth.PermissionIntegrationsManage) {
-			writeError(w, http.StatusForbidden, "forbidden", "Требуется право integrations.manage.")
+		if !hasCapability(r, auth.CapIntegrationEndpointsIssue, auth.LevelAction) {
+			writeError(w, http.StatusForbidden, "forbidden", "Требуется право изменять интеграционные подключения.")
 			return
 		}
 		err := svc.DeleteEndpoint(r.Context(), tenantID(r.Context()), r.PathValue("id"))
@@ -125,7 +129,9 @@ func handleDeleteEndpoint(svc IntegrationService) http.HandlerFunc {
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -154,7 +160,9 @@ func handleQuoteSend(projects ProjectService, svc IntegrationService) http.Handl
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 
@@ -164,7 +172,9 @@ func handleQuoteSend(projects ProjectService, svc IntegrationService) http.Handl
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusAccepted, toDeliveryDTO(d))
@@ -203,7 +213,9 @@ func handleProjectSync(projects ProjectService, svc IntegrationService) http.Han
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 
@@ -213,7 +225,9 @@ func handleProjectSync(projects ProjectService, svc IntegrationService) http.Han
 			UpdatedAt: p.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z")}
 		payload, err := json.Marshal(doc)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 
@@ -223,7 +237,9 @@ func handleProjectSync(projects ProjectService, svc IntegrationService) http.Han
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusAccepted, toDeliveryDTO(d))
@@ -297,13 +313,15 @@ func handleOrderSend(projects ProjectService, svc IntegrationService) http.Handl
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 
 		var snap project.Snapshot
 		if err := json.Unmarshal(calc.Result, &snap); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		if snap.Manufacturing == nil {
@@ -338,7 +356,9 @@ func handleOrderSend(projects ProjectService, svc IntegrationService) http.Handl
 
 		payload, err := json.Marshal(doc)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 
@@ -348,7 +368,9 @@ func handleOrderSend(projects ProjectService, svc IntegrationService) http.Handl
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusAccepted, toDeliveryDTO(d))

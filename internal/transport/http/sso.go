@@ -35,7 +35,7 @@ func handleSsoBegin(svc AuthService) http.HandlerFunc {
 				writeError(w, http.StatusServiceUnavailable, "sso_disabled", "Единый вход не настроен.")
 				return
 			}
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
 			return
 		}
 		w.Header().Set("Location", authURL)

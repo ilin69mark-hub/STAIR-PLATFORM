@@ -24,13 +24,25 @@ func testDataset(t *testing.T) *dommfg.ManufacturingCostDataset {
 	cfg.StepHeight = mustLength(t, 180)
 	cfg.TreadDepth = mustLength(t, 270)
 	cfg.StringerThickness = mustLength(t, 50)
+	// Материал задаём ЯВНО. Раньше он выводился из толщины: 50 мм подходили
+	// стали (диапазон 2–60), и тесты молча проверяли стальной марш на
+	// конфигурации без материала. С выходом стали на выпуск 3–8 мм такой
+	// вывод стал давать дуб, и тесты проверяли бы не то.
+	cfg.Material = "STEEL-C245"
+	cfg.TreadMaterial = "STEEL-C245"
 	cfg.StepThickness = mustLength(t, 40)
+	// Ограждение задано явно (сторона и высота). Спецификация читает их
+	// наравне с геометрией: неназванная сторона означает «перил нет», и
+	// набор данных потерял бы все покупные позиции ограждения, на которых
+	// проверяется, что они доходят до сметы (S-162).
+	cfg.Railing = engineering.RailingLeft
+	cfg.RailingHeight = mustLength(t, 900)
 
 	gen, err := enggeo.Generate(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := engmfg.Manufacture(cfg, gen)
+	pkg, err := engmfg.Manufacture(cfg, gen, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,6 +76,34 @@ func TestDefaultRates(t *testing.T) {
 	}
 }
 
+// TestEveryCatalogMaterialHasPrice (этап 1, вариант Б) — инвариант:
+// каждый материал встроенного каталога обязан иметь цену в DefaultRates.
+// Без этого новый материал проходит каталог, а расчёт падает в рантайме
+// (nil/0 ₽ за кг) — цена становится фиктивной.
+func TestEveryCatalogMaterialHasPrice(t *testing.T) {
+	reg, err := engmfg.DefaultMaterialRegistry()
+	if err != nil {
+		t.Fatalf("material registry: %v", err)
+	}
+	rates := DefaultRates()
+	for _, m := range reg.Materials() {
+		price, ok := rates.Material[m.Code]
+		if !ok {
+			t.Errorf("material %q has no price in DefaultRates", m.Code)
+			continue
+		}
+		if price.Minor() <= 0 {
+			t.Errorf("material %q has non-positive price %v", m.Code, price)
+		}
+	}
+	// Все цены строго положительны и в разумном диапазоне (₽/кг).
+	for code, price := range rates.Material {
+		if perKg := price.Minor(); perKg < 1000 || perKg > 200000 {
+			t.Errorf("material %q price %d minor units looks implausible", code, perKg)
+		}
+	}
+}
+
 func TestPriceChainConsistency(t *testing.T) {
 	ds := testDataset(t)
 	b, err := Price(ds, DefaultRates())
@@ -71,7 +111,10 @@ func TestPriceChainConsistency(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if b.ProductionCost.Minor() != b.Material.Minor()+b.Machine.Minor()+b.Labor.Minor()+b.Overhead.Minor() {
+	// Крепёж и герметик входят в базу накладных наравне с материалами и
+	// работой: дюбель стоит 15 ₽, картридж герметика 500 ₽, но наценку и
+	// налог на них тоже платят.
+	if b.ProductionCost.Minor() != b.Material.Minor()+b.Machine.Minor()+b.Labor.Minor()+b.Fastener.Minor()+b.Sealant.Minor()+b.Overhead.Minor() {
 		t.Fatal("production cost chain inconsistent")
 	}
 	if b.PreTax.Minor() != b.ProductionCost.Minor()+b.Margin.Minor()-b.Discount.Minor() {
@@ -80,8 +123,22 @@ func TestPriceChainConsistency(t *testing.T) {
 	if b.FinalPrice.Minor() != b.PreTax.Minor()+b.Tax.Minor() {
 		t.Fatal("final price chain inconsistent")
 	}
-	if len(b.Lines) != 7 {
-		t.Fatalf("lines = %d, want 7 (1 material + machine + labor + overhead + margin + discount + tax)", len(b.Lines))
+	// 7 строк крепежа (глухарь и дюбель по полю, по перекрытию, обойма
+	// выреза, анкерные отверстия фланцев ограждения и крепление поручня к
+	// стойкам) + 1 строка герметика + 1 материал + станок + труд + накладные
+	// + маржа + скидка + НДС + по одной строке на покупную позицию (S-162).
+	purchasedLines := 0
+	for _, l := range b.Lines {
+		if l.Source != "" && len(l.Source) >= 9 && l.Source[:9] == "purchased" {
+			purchasedLines++
+		}
+	}
+	want := 15 + purchasedLines
+	if len(b.Lines) != want {
+		t.Fatalf("lines = %d, want %d (15 базовых + %d покупных)", len(b.Lines), want, purchasedLines)
+	}
+	if purchasedLines == 0 {
+		t.Fatal("покупные позиции не попали в смету ни одной строкой — разрыв вернулся")
 	}
 }
 
@@ -116,7 +173,7 @@ func TestPriceErrors(t *testing.T) {
 
 	// материал без цены в ставках.
 	rates := DefaultRates()
-	delete(rates.Material, "STEEL-S235")
+	delete(rates.Material, "STEEL-C245")
 	if _, err := Price(ds, rates); err == nil {
 		t.Fatal("material without price must be rejected")
 	}
@@ -138,21 +195,55 @@ func TestPriceExactValues(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Суммы сдвинуты на 7250 ₽ = 29 покупных деталей × 250 ₽ (S-179).
+	// До этого ограждение стоило 0 ₽, и итог был занижен на всю сумму
+	// закупки: 29 позиций в пакете и ноль в смете.
 	checks := []struct {
 		name string
 		got  domprc.Money
 		want int64
 	}{
-		{"material", b.Material, 181988783},
-		{"machine", b.Machine, 1482267},
-		{"labor", b.Labor, 480000},
-		{"overhead", b.Overhead, 36790210},
-		{"production", b.ProductionCost, 220741260},
-		{"margin", b.Margin, 66222378},
-		{"discount", b.Discount, 14348182},
-		{"pre-tax", b.PreTax, 272615456},
-		{"tax", b.Tax, 54523091},
-		{"final", b.FinalPrice, 327138547},
+		// Эталон — стальной марш: 15 ступеней, косоур-гребёнка и проступи
+		// листом 12 мм, 98 деталей (пятки выреза включены).
+		// Материал 242 807,01 ₽, финал 523 509,14 ₽.
+		//
+		// Значения пересчитаны под раскрой по полю лазерного стола (шпатка
+		// технолога 2026-10-05): косоур длиной 4845 мм длиннее поля 3000 мм и
+		// режется на 2 куска со сварным стыком «шип-паз», отсюда 98 деталей
+		// вместо 96, +2 операции и контур стыка в машинном времени. Лист стали
+		// теперь один типоразмер 6000×1500, и трёх листов хватает на 8/5/4 мм
+		// — площадь закупки выросла с 21,1 до 27,0 млн мм², отсюда и подорожание.
+		//
+		// Материал вырос с 128 150 ₽ (лист 8 мм) и с 163 792 ₽ (раскрой по полю
+		// стола, но всё ещё 8 мм): заготовка стала 12 мм — верх выпуска листа,
+		// выросшего вместе с нормативом на листовой косоур (строки 8 / 10 / 12
+		// мм). Масса эталона 893 кг.
+		//
+		// До починки заготовки деталей те же конфигурации давали 10 364 кг и
+		// 3 271 385 ₽: косоур брался габаритным блоком 4050×2660×50 мм, то
+		// есть 1,08 м³ стали на один косоур. Правдоподобие массы проверяется
+		// в engine/manufacturing (TestPrepareCostMetrics).
+		// Крепёж добавлен 2026-10-08: 238 штук по 15 ₽ = 3 570 ₽. Это немного,
+		// но попадает в базу накладных и маржи, поэтому итог растёт сильнее
+		// самой суммы: overhead +71 400, margin +128 520.
+		{"material", b.Material, 25005701},
+		{"machine", b.Machine, 3686386},
+		{"labor", b.Labor, 1470000},
+		// Крепёж: 238 штук по пяткам + 20 на ограждение = 258 × 15 ₽.
+		// Ограждение добавилось решением владельца 2026-10-13: 12 глухарей
+		// 6х35 на анкерные отверстия четырёх фланцев и 8 саморезов 5х32 на
+		// четыре стойки. Сдвиг 258 − 238 = 20 штук = 300 ₽ = 30 000 копеек.
+		{"fastener", b.Fastener, 387000},
+		// Герметик: площадь швов 0,6922 м² × 1 мм = 0,6922 л, делим на
+		// 0,31 л картриджа и округляем ВВЕРХ → 3 картриджа × 500 ₽.
+		{"sealant", b.Sealant, 150000},
+		{"overhead", b.Overhead, 6139817},
+		{"production", b.ProductionCost, 36838904},
+		{"margin", b.Margin, 11051671},
+		{"discount", b.Discount, 2394529},
+		{"pre-tax", b.PreTax, 45496046},
+		{"tax", b.Tax, 9099209},
+		{"final", b.FinalPrice, 54595255},
 	}
 	for _, c := range checks {
 		if c.got.Minor() != c.want {

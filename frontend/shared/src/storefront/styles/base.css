@@ -1,0 +1,131 @@
+/* STAIR PLATFORM — клиентский сайт (store). Стиль лёгкий, продающий. */
+
+:root {
+  --sp-primary: #0b6e4f;
+  --sp-primary-dark: #084d37;
+  --sp-accent: #e8a33d;
+  --sp-text: #1e2a38;
+  --sp-muted: #5b6b7a;
+  --sp-bg: #f7f9f8;
+  --sp-card: #ffffff;
+  --sp-border: #e3e9e6;
+  --sp-error: #b3261e;
+  --sp-warn: #a3322b;
+  --sp-shadow: 0 8px 28px rgba(11, 110, 79, 0.09);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  color: var(--sp-text);
+  background: var(--sp-bg);
+  line-height: 1.55;
+}
+
+.store {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+}
+
+.store-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 28px;
+  background: var(--sp-card);
+  border-bottom: 1px solid var(--sp-border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.store-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 19px;
+  color: var(--sp-primary);
+}
+
+.store-brand small {
+  font-weight: 400;
+  color: var(--sp-muted);
+  font-size: 13px;
+}
+
+.header-contacts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  margin-right: 16px;
+  white-space: nowrap;
+}
+
+.header-contacts a {
+  color: var(--sp-text);
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.header-contacts a:hover {
+  color: var(--sp-primary);
+}
+
+.store-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.store-nav a,
+.store-nav button {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--sp-text);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.store-nav a:hover,
+.store-nav button:hover {
+  background: #eef4f1;
+}
+
+.store-nav .sp-btn--primary {
+  background: var(--sp-primary);
+  color: #fff;
+  border-color: var(--sp-primary);
+}
+
+.store-nav .sp-btn--primary:hover {
+  background: var(--sp-primary-dark);
+}
+
+.store-main {
+  flex: 1;
+  width: min(1080px, 94%);
+  margin: 0 auto;
+  padding: 28px 0 48px;
+}
+

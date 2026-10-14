@@ -15,6 +15,7 @@ import (
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/domain/engineering"
+	dommfg "stairplatform/internal/domain/manufacturing"
 	kerngeo "stairplatform/internal/geometry"
 	cadexp "stairplatform/internal/infrastructure/cad"
 )
@@ -29,6 +30,8 @@ type fakeProjectService struct {
 	configs          []*project.StairConfiguration
 	calc             *project.Calculation
 	cadMesh          *kerngeo.Mesh
+	cadRailings      *kerngeo.Mesh                // сетка перил (DOM-003)
+	cuttingPkg       *dommfg.ManufacturingPackage // пакет для документа реза
 	createErr        error
 	calculateErr     error
 	getErr           error
@@ -42,6 +45,11 @@ type fakeProjectService struct {
 	addCommentErr    error // AddComment → ошибка
 	commentsListErr  error // ListComments → ошибка
 	deleteCommentErr error // DeleteComment → ошибка
+	// Передача владения: кто стал владельцем, шла ли она через платформенное
+	// право staff.project_transfer и какую ошибку вернул сервис.
+	transferTo           string
+	transferByCapability bool
+	transferErr          error
 }
 
 func newFakeProjectService() *fakeProjectService {
@@ -123,6 +131,14 @@ func (f *fakeProjectService) UpdateMemberRole(ctx context.Context, tenantID, act
 		return f.membershipErr
 	}
 	return nil
+}
+
+// TransferOwnership запоминает вызов: тесты передачи владения проверяют, что
+// новый владелец доехал до сервиса вместе с флагом платформенного права.
+func (f *fakeProjectService) TransferOwnership(ctx context.Context, tenantID, actorID, projectID, toUserID string, byCapability bool) error {
+	f.transferTo = toUserID
+	f.transferByCapability = byCapability
+	return f.transferErr
 }
 
 func (f *fakeProjectService) RemoveMember(ctx context.Context, tenantID, actorID, projectID, userID string) error {
@@ -300,6 +316,53 @@ func (f *fakeProjectService) Preview(ctx context.Context, tenantID, userID, proj
 	return &snap, nil
 }
 
+// ExportCADWithRailings — экспорт с перилами (DOM-003). Перила возвращаются
+// отдельной сеткой, как это делает application-слой (RailingMesh).
+func (f *fakeProjectService) ExportCADWithRailings(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, *kerngeo.Mesh, error) {
+	mesh, err := f.ExportCAD(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return nil, nil, err
+	}
+	railings := f.cadRailings
+	if railings == nil {
+		railings = &kerngeo.Mesh{Vertices: []kerngeo.Point3{}, Triangles: [][3]int{}}
+	}
+	return mesh, railings, nil
+}
+
+// ExportAssembly — геометрия и пакет для сборочного чертежа. Фейк отдаёт
+// пустой меш и минимальный пакет: полной геометрии тестам маршрута не надо.
+func (f *fakeProjectService) ExportAssembly(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, *kerngeo.Mesh, *dommfg.ManufacturingPackage, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, nil, nil, project.ErrNotFound
+	}
+	if f.getErr != nil {
+		return nil, nil, nil, f.getErr
+	}
+	empty := &kerngeo.Mesh{}
+	pkg := &dommfg.ManufacturingPackage{}
+	if f.cuttingPkg != nil {
+		pkg = f.cuttingPkg
+	}
+	return empty, empty, pkg, nil
+}
+
+// ExportCutting — производственный пакет для документов производства.
+// Фейк строит минимальный пакет из своей же карты раскроя: тестам маршрута
+// нужен ответ, а не полный конвейер.
+func (f *fakeProjectService) ExportCutting(ctx context.Context, tenantID, userID, projectID string) (*dommfg.ManufacturingPackage, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, project.ErrNotFound
+	}
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	if f.cuttingPkg == nil {
+		return nil, project.ErrNotFound
+	}
+	return f.cuttingPkg, nil
+}
+
 func (f *fakeProjectService) ExportCAD(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, error) {
 	if _, ok := f.projects[projectID]; !ok {
 		return nil, project.ErrNotFound
@@ -350,9 +413,23 @@ func (f *fakeProjectService) RestoreConfiguration(ctx context.Context, tenantID,
 	return nil, project.ErrNotFound
 }
 
+func (f *fakeProjectService) MarkConfigurationAsMeasurement(ctx context.Context, tenantID, userID, projectID, configurationID string, mark bool) (*project.StairConfiguration, error) {
+	if _, ok := f.projects[projectID]; !ok {
+		return nil, project.ErrNotFound
+	}
+	for _, c := range f.configs {
+		if c.ID != configurationID {
+			continue
+		}
+		c.IsMeasurement = mark
+		return c, nil
+	}
+	return nil, project.ErrNotFound
+}
+
 // testAuth — фиктивный AuthService для тестов: любой токен валиден,
 // пользователь принадлежит tenant'у "t-1".
-type testAuth struct{}
+type testAuth struct{ grantStubs }
 
 func (testAuth) Register(ctx context.Context, email, name, password string) (*auth.User, string, error) {
 	return &auth.User{ID: "u-1", Email: email, Name: name, Role: auth.RoleUser, TenantID: "t-1"}, "token-1", nil
@@ -395,7 +472,7 @@ func (testAuth) AuthenticateApiKey(ctx context.Context, token string) (*auth.Api
 	if token == "" {
 		return nil, auth.ErrSessionExpired
 	}
-	return &auth.ApiKey{TenantID: "t-1", Scopes: []string{string(auth.PermissionUsersList)}}, nil
+	return &auth.ApiKey{TenantID: "t-1", Scopes: []string{string(auth.CapStaffView)}}, nil
 }
 
 func (testAuth) CreateApiKey(ctx context.Context, tenantID, actorID, name string, scopes []auth.Permission) (*auth.ApiKey, string, error) {
@@ -432,12 +509,14 @@ func testRouterWithProjects(p ProjectService) http.Handler {
 	return NewRouter(stair.NewService(), p, testAuth{}, DefaultConfig())
 }
 
-// authedRequest строит запрос с session+csrf cookie и заголовком CSRF.
+// authedRequest строит запрос с session+csrf cookie и заголовком CSRF
+// (S-144: Content-Type application/json — decodeJSON требует его для тел).
 func authedRequest(method, path, body string) *http.Request {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	r.AddCookie(testCookie(sessionCookieName, "token-1"))
 	r.AddCookie(testCookie(csrfCookieName, "csrf-1"))
 	r.Header.Set(csrfHeader, "csrf-1")
+	r.Header.Set("Content-Type", "application/json")
 	return r
 }
 
@@ -1282,4 +1361,14 @@ func TestConfigurationNotFound(t *testing.T) {
 			t.Fatalf("%s: expected 404, got %d", path, rec.Code)
 		}
 	}
+}
+
+// EffectiveGrants отдаёт шаблон роли — ровно то поведение, которое было до
+// перехода на точечные выдачи. Так тесты на отказ по правам остаются
+// осмысленными: у admin все метрики, у user — ни одной.
+func (f testAuth) EffectiveGrants(_ context.Context, u *auth.User) (*auth.GrantSet, error) {
+	if u == nil {
+		return auth.RoleTemplate(auth.RoleUser), nil
+	}
+	return auth.RoleTemplate(u.Role), nil
 }

@@ -327,7 +327,9 @@ func TestBuildUShapeRailingAlignsWithFlight(t *testing.T) {
 		// толщины перил (T/2 = 25 мм): перила центрированы по кромке проступи и
 		// выступают на 25 мм за габарит ступеней.
 		const tol = 30.0
-		if rb.Min.X < fb.Min.X-tol || rb.Max.X > fb.Max.X+tol {
+		bd := cfg.TreadDepth.Millimeters()
+		pad := railOverhangFrac*bd + (cfgProfileNosing(cfg)+bd)/2.0
+		if rb.Min.X < fb.Min.X-tol-pad || rb.Max.X > fb.Max.X+tol+pad {
 			t.Fatalf("%s: railing X bbox [%v,%v] must lie within flight X bbox [%v,%v]±%v",
 				dir, rb.Min.X, rb.Max.X, fb.Min.X, fb.Max.X, tol)
 		}
@@ -415,12 +417,17 @@ func TestBuildUShapeLowerRailingMirrorsTurn(t *testing.T) {
 	}
 	rightY := lowerRailingCenterY(engineering.TurnRight)
 	leftY := lowerRailingCenterY(engineering.TurnLeft)
+	// Центр правого ограждения: внутренний край минус половина диаметра
+	// стойки и отступ 15 мм от кромки ступени.
 	const wEff = 900 - 50
-	if math.Abs(rightY-wEff) > 30 {
-		t.Fatalf("right lower railing center Y = %v, want ~%v (internal edge)", rightY, wEff)
+	wantRight := wEff - balusterD/2 - balusterEdgeInset
+	if math.Abs(rightY-wantRight) > 30 {
+		t.Fatalf("right lower railing center Y = %v, want ~%v (internal edge, %.0f mm from step edge)",
+			rightY, wantRight, balusterEdgeInset)
 	}
-	if math.Abs(leftY-0) > 30 {
-		t.Fatalf("left lower railing center Y = %v, want ~0 (external edge)", leftY)
+	if want := balusterD/2 + balusterEdgeInset; math.Abs(leftY-want) > 30 {
+		t.Fatalf("left lower railing center Y = %v, want ~%v (external edge, %.0f mm from step edge)",
+			leftY, want, balusterEdgeInset)
 	}
 	if rightY <= leftY {
 		t.Fatalf("lower railing must mirror by turn: right=%v should exceed left=%v", rightY, leftY)

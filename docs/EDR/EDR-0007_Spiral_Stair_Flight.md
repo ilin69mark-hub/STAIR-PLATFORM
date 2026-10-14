@@ -4,7 +4,9 @@
 
 **ID:** EDR-0007
 
-**Status:** APPROVED
+**Status:** SUPERSEDED — винтовой марш удалён из проекта (решение владельца
+2026-10-06), см. `migrations/000040_drop_spiral_flight`. Документ сохранён как
+история решения; описываемая модель в коде отсутствует.
 
 **Author:** Project Team
 
@@ -29,7 +31,7 @@
 - ADR-0003 (Single Source of Engineering Formulas)
 - ADR-0008 (Engineering Coordinate and Units System)
 - BC-002 (Constraints Bounded Context)
-- BC-003 (Geometry Bounded Context)
+- BC-002 (Geometry Bounded Context)
 - EDR-0001 (Calculation of Straight Stair Flight)
 - EDR-0002 (Geometry Limits)
 - EDR-0003 (Validation Model)
@@ -235,7 +237,21 @@ L = δ·R·n                   (длина по наружной кромке)
 | Версия | Дата | Изменение |
 |--------|------|-----------|
 | 1.0.0 | 2026-08-14 | Первоначальная редакция |
+| — | 2026-10-06 | Винтовой марш удалён из проекта (решение владельца), статус SUPERSEDED |
 
 ---
 
-APPROVED
+# 10. Статус
+
+Винтовой марш удалён из проекта (решение владельца 2026-10-06), см.
+`migrations/000040_drop_spiral_flight`. Описанная выше модель в коде
+отсутствует: нет `solver/spiral.go`, нет роли `column`, нет
+`GEO-SPIRAL-TREAD`. Документ сохранён как история решения.
+
+Финальный маркер документа раньше гласил `APPROVED` — то есть документ
+одновременно утверждал модель и признавал её отсутствующей. Сверка идёт по
+этим маркерам, и расхождение делало статус документа неопределённым.
+
+---
+
+SUPERSEDED

@@ -1,0 +1,186 @@
+# models/seed/parts.yaml — ручное описание деталей сида-минималки.
+#
+# Тот же формат, что models/parts.yaml (читается тем же генератором
+# через STAIR_PARTS_YAML). Источник — models/seed/minimal-straight.FCStd,
+# авторская модель скрипта hack/build_seed_model.py (S-203).
+#
+# Соответствия, которых нет в эталоне (читать перед этапом 2):
+#   - RAIL-P: поручень-труба Ø42,4 через верхи стоек (S-208a).
+#   - POST-001: геометрическая стойка 805,7 мм = каталог (S-208a).
+#   - TIP-001: 5 тел на стойку (втулка, крышка, шпилька, шарнир, площадка —
+#     объекты Rail_Tip_02_Sleeve/Cap/Stud/Joint/Plate);
+#     плюс 2 тела стакана с крышкой — это уже DECO-001 (Rail_Deco_*).
+#   - FLNG-001 ↔ геометрический диск цанги (Rail_Clamp_*_Disc);
+#     SLIP-001 ↔ муфта (Rail_Slip_*_Muff);
+#     DECO-001 ↔ стакан Ø88×16 и крышка Ø88×1 (Rail_Deco_*_Body/Lid).
+#     Покупная позиция и геометрическое тело — разные разрезы одного узла:
+#     манифест хранит тела, соответствие — здесь.
+
+source_model: seed/minimal-straight.FCStd
+
+# tubes — диаметры труб для замера axis_len (генератор S-198/S-206).
+# Те же номиналы, что в эталоне: сид строится из тех же труб.
+tubes:
+  POST-001: {od: 42.4, wall: 1.5}
+  RAIL-P:   {od: 42.4, wall: 1.5}
+  RIGL-001: {od: 12.0, wall: 1.0}
+
+parts:
+  - id: COS-001
+    name: Косоур
+    role: stringer
+    group: cutting
+    form: sheet
+    material: steel
+    source: Stringer_A
+    count: 2
+    note: Гребёнка combStringerProfile(6,270,180,40,300), пластина 8 мм
+
+  - id: WEB-001
+    name: Перемычка
+    role: web
+    group: cutting
+    form: sheet
+    material: steel
+    source: Web_A_01
+    count: 10
+    note: Пятка 2, 3 отверстия Ø10
+
+  - id: HEEL-001
+    name: Пятка
+    role: heel
+    group: cutting
+    form: sheet
+    material: steel
+    source: Heel_A_01
+    count: 12
+    note: Пятка 1, 4 отверстия Ø10
+
+  - id: ANCR-001
+    name: Анкер-пластина
+    role: anchor
+    group: cutting
+    form: sheet
+    material: steel
+    source: Anchor_A
+    count: 2
+    note: Пятка пола, паз 30×12 + 2×Ø12 + паз 30×12
+
+  - id: FWEB-001
+    name: Первая перемычка
+    role: first_web
+    group: cutting
+    form: sheet
+    material: steel
+    source: FirstWeb_A
+    count: 2
+    note: Пластина 1-й ступени, 3 отверстия Ø10
+
+  - id: TANC-001
+    name: Верхняя распорка
+    role: anchor
+    group: cutting
+    form: sheet
+    material: steel
+    source: TopAnchor_A
+    count: 2
+    note: Пятка выхода, паз + Ø12 + паз
+
+  - id: TRED-001
+    name: Проступь
+    role: tread
+    group: cutting
+    form: sheet
+    material: wood
+    source: Tread_01
+    count: 6
+    note: Дуб, филёнка R10 на носу (как в движке)
+
+  - id: RISR-001
+    name: Подступенок
+    role: riser
+    group: cutting
+    form: sheet
+    material: wood
+    source: Riser_01
+    count: 6
+
+  - id: RAIL-P
+    name: Перила (поручень)
+    role: rail_top
+    group: purchased
+    form: tube
+    material: stainless
+    source: Rail_Portun
+    count: 1
+    note: Труба Ø42,4×1,5 через верхи стоек (лежит на наконечниках, S-208a)
+
+  - id: POST-001
+    name: Стойка
+    role: post
+    group: purchased
+    form: tube
+    material: stainless
+    source: Rail_Post_01
+    count: 2
+    note: Труба Ø42,4×1,5 высотой 805,7 (движок приведён к каталогу, S-208a)
+
+  - id: RIGL-001
+    name: Ригель
+    role: rigel
+    group: purchased
+    form: tube
+    material: stainless
+    source: Rail_Rigel_1_01
+    count: 2
+    note: Трубка Ø12×1, два ряда; оба ряда одна позиция
+
+  - id: TIP-001
+    name: Наконечник регулируемый
+    role: tip
+    group: purchased
+    form: part
+    material: stainless
+    source: Rail_Tip_01
+    count: 2
+    note: 5 тел на стойку (см. шапку файла; стакан уехал в DECO-001)
+
+  - id: FLNG-001
+    name: Фланец опоры
+    role: flange
+    group: purchased
+    form: part
+    material: stainless
+    source: Rail_Clamp_01_Disc
+    count: 2
+    note: Геометрический диск цанги Ø86×8 с 3 отверстиями Ø9 на R32
+
+  - id: SLIP-001
+    name: Накидная часть
+    role: slip
+    group: purchased
+    form: part
+    material: stainless
+    source: Rail_Slip_01
+    count: 2
+    note: Геометрическая муфта, труба Ø43×0,2 высотой 34
+
+  - id: DECO-001
+    name: Декоративная накладка
+    role: deco
+    group: purchased
+    form: part
+    material: stainless
+    source: Rail_Deco_01
+    count: 2
+    note: Геометрические стакан Ø88×16 и крышка Ø88×1 (2 тела)
+
+  - id: ENDP-001
+    name: Торцевая заглушка
+    role: end_cap
+    group: purchased
+    form: part
+    material: plastic
+    source: Rail_Cap_Start
+    count: 2
+    note: Стакан Ø39,2 на 18 мм внутрь + глухое дно Ø42,4×1 (S-211); оба торца одна позиция

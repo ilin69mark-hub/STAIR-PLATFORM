@@ -11,5 +11,8 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+  # INF-11 (forensic 2026-09-27): только api. Обычный selectorLabels матчил
+  # ещё и воркер (component: worker), который HTTP не слушает, — часть трафика
+  # на ClusterIP уходила в под без listener'а. Подробности в _helpers.tpl.
   selector:
-    {{- include "stair-platform.selectorLabels" . | nindent 4 }}
+    {{- include "stair-platform.apiSelectorLabels" . | nindent 4 }}

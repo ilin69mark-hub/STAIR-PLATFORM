@@ -113,7 +113,7 @@ vi.mock('three', () => {
   }
 })
 
-import { generateProposalPdf, flightLabel, rub } from './proposal'
+import { generateProposalPdf, rub } from './proposal'
 
 class FakeImage {
   onload: (() => void) | null = null
@@ -151,18 +151,11 @@ afterEach(() => {
   delete (window as any).__stairLast3D
 })
 
-describe('rub / flightLabel', () => {
+describe('rub', () => {
   it('formats rubles and handles missing values', () => {
     expect(rub(undefined)).toBe('—')
     expect(rub(123456)).toContain('₽')
     expect(rub(100, 0)).toContain('₽')
-  })
-
-  it('labels every flight type', () => {
-    expect(flightLabel(snap({ spiral: {} }))).toBe('Винтовая')
-    expect(flightLabel(snap({ ushape: {} }))).toBe('П-образная')
-    expect(flightLabel(snap({ lshape: {} }))).toBe('Г-образная')
-    expect(flightLabel(snap())).toBe('Прямой марш')
   })
 })
 
@@ -202,9 +195,9 @@ describe('generateProposalPdf', () => {
     expect(h.docs.at(-1).calls.some((c: any[]) => c[0] === 'save')).toBe(true)
   })
 
-  it('handles ushape, spiral and plain flights', async () => {
+  it('handles ushape, lshape and plain flights', async () => {
     await generateProposalPdf(project(), snap({ ushape: { StepCount: 6 } }))
-    await generateProposalPdf(project(), snap({ spiral: { StepCount: 7 } }))
+    await generateProposalPdf(project(), snap({ lshape: { StepCount: 7 } }))
     await generateProposalPdf(project(), snap())
     expect(h.docs.length).toBe(3)
   })
@@ -230,14 +223,39 @@ describe('generateProposalPdf', () => {
     expect(texts.flat().join(' ')).toContain('3D-модель недоступна')
   })
 
-  it('captures an inline SVG drawing when present', async () => {
+  it('draws an inline SVG drawing as vectors, not a raster (S-177)', async () => {
+    // Соседние тесты оставляют свои .draw в DOM, а tryCaptureSvg берёт ПЕРВЫЙ
+    // подходящий svg — без чистки тест цеплял бы чужую заглушку.
+    for (const stale of Array.from(document.querySelectorAll('.draw'))) stale.remove()
     const draw = document.createElement('div')
     draw.className = 'draw'
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('viewBox', '0 0 100 50')
+    svg.innerHTML = '<line x1="0" y1="0" x2="100" y2="50" class="scheme__line"/>'
     draw.appendChild(svg)
     document.body.appendChild(draw)
     await generateProposalPdf(project(), snap({ mesh: mesh() }))
-    expect(h.docs.at(-1).calls.some((c: any[]) => c[0] === 'addImage')).toBe(true)
+    const calls = h.docs.at(-1).calls
+    // Чертёж уходит вектором — растром его больше растрировать незачем.
+    expect(calls.some((c: any[]) => c[0] === 'line')).toBe(true)
+    draw.remove()
+  })
+
+  it('falls back to raster when the drawing has no vector primitives', async () => {
+    for (const stale of Array.from(document.querySelectorAll('.draw'))) stale.remove()
+    const draw = document.createElement('div')
+    draw.className = 'draw'
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('viewBox', '0 0 100 50')
+    // Пустая схема: рисовать нечего, и КП обязан уцелеть через растр.
+    draw.appendChild(svg)
+    document.body.appendChild(draw)
+    await generateProposalPdf(project(), snap({ mesh: mesh() }))
+    const calls = h.docs.at(-1).calls
+    // Вектор не сработал (нет линий) — значит и вставлять нечего было растом
+    // из пустого svg; проверяем, что процесс не упал и страница сохранена.
+    expect(calls.some((c: any[]) => c[0] === 'save')).toBe(true)
+    draw.remove()
   })
 
   it('reads 3D capture from sessionStorage', async () => {

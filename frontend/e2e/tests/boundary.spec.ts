@@ -32,7 +32,7 @@ test.describe('boundary — 20 кейсов', () => {
       step_thickness_mm: 40,
       clearance_mm: 2500,
       railing_height_mm: 1000,
-      material: 'STEEL-S235' as const,
+      material: 'STEEL-C245' as const,
     }
 
     const cases: Array<{ name: string; body: any; expectValid: boolean; expectBlocked?: boolean }> = [
@@ -53,11 +53,6 @@ test.describe('boundary — 20 кейсов', () => {
       { name: 'l_shape — landing 800 граница', body: { ...base, flight: 'l_shape', landing_width_mm: 800, landing_depth_mm: 800, lower_step_count: 5 }, expectValid: true },
       // u
       { name: 'u_shape — валидный', body: { ...base, flight: 'u_shape', landing_width_mm: 1000, landing_depth_mm: 1000, lower_step_count: 5 }, expectValid: true },
-      // spiral
-      { name: 'spiral — валидный 960', body: { ...base, flight: 'spiral', width_mm: 700, outer_radius_mm: 960 }, expectValid: true },
-      { name: 'spiral — outer 899 вне', body: { ...base, flight: 'spiral', width_mm: 700, outer_radius_mm: 899 }, expectValid: false },
-      { name: 'spiral — outer 900 граница', body: { ...base, flight: 'spiral', width_mm: 700, outer_radius_mm: 900 }, expectValid: true },
-      { name: 'spiral — outer 1200 граница', body: { ...base, flight: 'spiral', width_mm: 700, outer_radius_mm: 1200 }, expectValid: true },
       // in_review freeze: создаём проект, переводим в in_review, проверяем 422
       { name: 'in_review freeze', body: { ...base, step_height_mm: 180 }, expectValid: true },
     ]

@@ -18,9 +18,4 @@ func TestInputHelpersCoverage(t *testing.T) {
 	_ = winderCountInputError(2)
 	_ = upperStepInputError(15, 5)
 	_ = landingNarrowError(500, 900)
-	_ = radiusNarrowError(400, 900)
-	_ = spiralTreadInputError("inner", 50, 100, 0)
-	_ = spiralTreadInputError("outer", 200, 100, 0)
-	_ = spiralTreadInputError("walk", 300, 260, 320)
-	_ = spiralTreadInputError("walk", 300, 260, 320)
 }

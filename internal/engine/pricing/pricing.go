@@ -21,6 +21,22 @@ type Rates struct {
 
 	// Material — цена материала за килограмм по коду (PRC-0006).
 	Material map[dommfg.MaterialCode]domprc.Money
+	// Fastener — цена крепежа за ШТУКУ по коду позиции каталога (MNT-0001).
+	// Отдельная карта: у крепежа своя единица (шт), и смешать его с ценой за
+	// кг нельзя — иначе 210 глухарей уехали бы в килограммы.
+	Fastener map[string]domprc.Money
+	// Purchased — закупочная цена покупной детали ограждения за ШТУКУ по
+	// ВИДУ детали (S-179). Ключ — PartKind, а не номер экземпляра: у каждой
+	// стойки свой номер (PST-01, PST-02, …), и справочник по нему построить
+	// нельзя.
+	//
+	// Пустая ставка — не ошибка: строка попадёт в смету с нулём, и расхождение
+	// «в пакете 29 позиций, в смете 0 ₽» будет видно.
+	Purchased map[dommfg.PartKind]domprc.Money
+	// Sealant — цена герметика за КАРТРИДЖ по коду позиции (CONF-SEALANT).
+	// Отдельная карта: единица картриджа, и смешивать её с ценой за кг или за
+	// штуку нельзя.
+	Sealant map[string]domprc.Money
 	// MachinePerHour — ставка оборудования за час (PRC-0008).
 	MachinePerHour domprc.Money
 	// LaborPerHour — ставка труда за час (PRC-0007).
@@ -48,6 +64,21 @@ func (r Rates) Validate() error {
 	if r.MachinePerHour < 0 || r.LaborPerHour < 0 {
 		return fmt.Errorf("pricing: hourly rates must not be negative")
 	}
+	for code, price := range r.Fastener {
+		if price < 0 {
+			return fmt.Errorf("pricing: fastener %q has negative price", code)
+		}
+	}
+	for code, price := range r.Sealant {
+		if price < 0 {
+			return fmt.Errorf("pricing: sealant %q has negative price", code)
+		}
+	}
+	for kind, price := range r.Purchased {
+		if price < 0 {
+			return fmt.Errorf("pricing: purchased part %q has negative price", kind)
+		}
+	}
 	for _, rate := range []domprc.Rate{
 		r.OverheadPercent, r.MarginPercent, r.DiscountPercent, r.TaxPercent,
 	} {
@@ -64,10 +95,24 @@ func DefaultRates() Rates {
 	return Rates{
 		Currency: domprc.CurrencyRUB,
 		Material: map[dommfg.MaterialCode]domprc.Money{
-			"STEEL-S235": domprc.NewMoney(10000), // 100 ₽/кг
-			"ALUM-5083":  domprc.NewMoney(50000), // 500 ₽/кг
-			"WOOD-OAK":   domprc.NewMoney(8000),  // 80 ₽/кг
+			"STEEL-C245":  domprc.NewMoney(10000), // 100 ₽/кг
+			"WOOD-OAK":    domprc.NewMoney(8000),  // 80 ₽/кг
+			"WOOD-WALNUT": domprc.NewMoney(22000), // 220 ₽/кг
+			"WOOD-ASH":    domprc.NewMoney(6000),  // 60 ₽/кг
+			"WOOD-SOFT":   domprc.NewMoney(2500),  // 25 ₽/кг
+			// Нержавейка AISI 304 — ограждение (стойки, поручень, ригели,
+			// фитинги). Закупочная цена за кг; конкретные позиции считаются
+			// по спецификации ограждения.
+			"STAINLESS-304": domprc.NewMoney(120000), // 1200 ₽/кг
 		},
+		// Крепёж: 15 ₽ за штуку (решение владельца 2026-10-08). Это
+		// ЗАПАСНАЯ цена на случай пустого прайса магазина — сама цифра
+		// меняется в админке, здесь она только чтобы расчёт не обнулялся.
+		Fastener: DefaultFastenerPrices(),
+		Sealant:  DefaultSealantPrices(),
+		// Ограждение: запасная цена 250 ₽ за штуку на случай пустого прайса
+		// магазина, как и у крепежа с герметиком.
+		Purchased:       DefaultPurchasedPrices(),
 		MachinePerHour:  domprc.NewMoney(800000), // 8 000 ₽/час
 		LaborPerHour:    domprc.NewMoney(300000), // 3 000 ₽/час
 		OverheadPercent: domprc.MustRate(20),
@@ -122,6 +167,114 @@ func Price(ds *dommfg.ManufacturingCostDataset, rates Rates) (*domprc.PriceBreak
 		})
 	}
 
+	// Крепёж (MNT-0001). Считается ПОШТУЧНО по потребности из отверстий
+	// пяток. Сколько отверстий вырезано лазером — столько и штук в смете.
+	// Позиция без цены в прайсе не считается нулём молча: сумма не
+	// увеличивается, но строка в смете остаётся, чтобы в расхождении
+	// «просверлено 210 отверстий, а в смете 0 ₽» было видно.
+	for _, f := range ds.FastenerConsumption {
+		price, ok := rates.Fastener[f.Code]
+		if !ok {
+			// Ставки нет: строка остаётся нулевой, чтобы разрыв был виден.
+			//
+			// Раньше здесь стоял continue, и комментарий выше обещал
+			// обратное. Позиция с ценой в расчёте, но без ставки в прайсе,
+			// просто исчезала из сметы — а её количество было посчитано по
+			// просверленным отверстиям. Именно так молча пропадал бы крепёж,
+			// добавленный магазином в админке (000048): каталог позиций у
+			// тенанта есть, а ставка по коду в Rates.Fastener — нет.
+			b.Lines = append(b.Lines, domprc.CostComponent{
+				Name:     fmt.Sprintf("Крепёж: %s — %s", f.Name, f.Purpose),
+				Category: domprc.CategoryFastener,
+				Amount:   0,
+				Source:   fmt.Sprintf("fastener:%s,qty:%d,purpose:%s", f.Code, f.Quantity, f.Purpose),
+			})
+			continue
+		}
+		amount := moneyFromQuantity(float64(f.Quantity), price)
+		b.Fastener = b.Fastener.Add(amount)
+		b.Lines = append(b.Lines, domprc.CostComponent{
+			Name:     fmt.Sprintf("Крепёж: %s — %s", f.Name, f.Purpose),
+			Category: domprc.CategoryFastener,
+			Amount:   amount,
+			Source:   fmt.Sprintf("fastener:%s,qty:%d,purpose:%s", f.Code, f.Quantity, f.Purpose),
+		})
+	}
+
+	// Покупные детали ограждения (S-162, S-179). Цена за штуку по ВИДУ детали.
+	//
+	// Позиция без ставки не выбрасывается: сумма не увеличивается, но строка
+	// остаётся. Так же устроен крепёж выше — и по той же причине: раньше
+	// покупные детали не доходили до сметы ВООБЩЕ, и менеджер выдавал цену
+	// без ограждения, не подозревая об этом.
+	//
+	// Строки группируются по виду, а не по номеру экземпляра: десять стоек —
+	// это одна строка «стойка, 10 шт», а не десять строк. Номер экземпляра
+	// в Source оставлен для трассировки к спецификации.
+	for _, p := range ds.PurchasedConsumption {
+		price, ok := rates.Purchased[p.Kind]
+		if !ok {
+			// Ставки нет: строка остаётся нулевой, чтобы разрыв был виден.
+			b.Lines = append(b.Lines, domprc.CostComponent{
+				Name:     fmt.Sprintf("Закупка: %s — %s, %d шт", p.Name, p.Material, p.Quantity),
+				Category: domprc.CategoryMaterial,
+				Amount:   0,
+				Source:   fmt.Sprintf("purchased:%s,qty:%d", p.Kind, p.Quantity),
+			})
+			continue
+		}
+		amount := moneyFromQuantity(float64(p.Quantity), price)
+		b.Material = b.Material.Add(amount)
+		b.Lines = append(b.Lines, domprc.CostComponent{
+			Name:     fmt.Sprintf("Закупка: %s — %s, %d шт", p.Name, p.Material, p.Quantity),
+			Category: domprc.CategoryMaterial,
+			Amount:   amount,
+			Source:   fmt.Sprintf("purchased:%s,qty:%d", p.Kind, p.Quantity),
+		})
+	}
+
+	// Герметик (CONF-SEALANT). Количество — картриджи с округлением вверх:
+	// покупают картридж, а не «0,64 литра».
+	// Герметик (CONF-SEALANT) — ДВЕ строки, а не одна:
+	//
+	//   1. автоматический расход по геометрии + запас на брак;
+	//   2. добавленный по объекту.
+	//
+	// Разделено уже сейчас, потому что впереди владелец заведёт строки
+	// перерасхода и недорасхода для контроля склада и финансов. В одной
+	// строке «3 картриджа» нельзя было бы отличить лежащий на швы запас от
+	// докупленного руками, а расхождение с фактом на объекте как раз и есть
+	// вопрос «откуда взялась разница».
+	if sl := ds.SealantConsumption; sl != nil {
+		price, ok := rates.Sealant[sl.Code]
+		if ok {
+			addLine := func(name string, count int, src string) {
+				if count <= 0 {
+					return
+				}
+				amount := moneyFromQuantity(float64(count), price)
+				b.Sealant = b.Sealant.Add(amount)
+				b.Lines = append(b.Lines, domprc.CostComponent{
+					Name:     name,
+					Category: domprc.CategorySealant,
+					Amount:   amount,
+					Source:   src,
+				})
+			}
+			addLine(
+				fmt.Sprintf("Герметик: %s — расход по швам + запас %.0f%%", sl.Name, sl.ReservePercent),
+				sl.AutoCartridges,
+				fmt.Sprintf("sealant:%s,cartridges:%d,area_m2:%.4f,layer_mm:%.1f,volume_l:%.4f,reserve_pct:%.0f",
+					sl.Code, sl.AutoCartridges, sl.AreaM2, sl.LayerMM, sl.VolumeL, sl.ReservePercent),
+			)
+			addLine(
+				fmt.Sprintf("Герметик: %s — добавлено по объекту", sl.Name),
+				sl.ExtraCartridges,
+				fmt.Sprintf("sealant:%s,cartridges:%d,purpose:object", sl.Code, sl.ExtraCartridges),
+			)
+		}
+	}
+
 	machine := moneyFromMinutes(ds.EstimatedMachineTime, rates.MachinePerHour)
 	b.Machine = machine
 	b.Lines = append(b.Lines, domprc.CostComponent{
@@ -136,7 +289,7 @@ func Price(ds *dommfg.ManufacturingCostDataset, rates Rates) (*domprc.PriceBreak
 		Amount: labor, Source: "labor:manual-finishing",
 	})
 
-	base := b.Material.Add(b.Machine).Add(b.Labor)
+	base := b.Material.Add(b.Machine).Add(b.Labor).Add(b.Fastener).Add(b.Sealant)
 	b.Overhead = base.MulRate(rates.OverheadPercent)
 	b.Lines = append(b.Lines, domprc.CostComponent{
 		Name: "Overhead", Category: domprc.CategoryOverhead,

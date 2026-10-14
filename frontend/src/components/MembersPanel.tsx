@@ -14,6 +14,14 @@ const roleLabels: Record<ProjectRole, string> = {
   viewer: 'Наблюдатель',
 }
 
+/** Как показать участника: имя и почта, иначе — идентификатор. */
+function memberLabel(m: ProjectMember): string {
+  if (m.name && m.email) return `${m.name} — ${m.email}`
+  if (m.email) return m.email
+  if (m.name) return m.name
+  return m.user_id
+}
+
 export function MembersPanel({ projectId }: Props) {
   const auth = useContext(AuthContext)
   const user = auth?.user ?? null
@@ -22,9 +30,15 @@ export function MembersPanel({ projectId }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [addEmail, setAddEmail] = useState('')
   const [addRole, setAddRole] = useState<ProjectRole>('viewer')
+  // Передача владения: кому и что подтверждаем.
+  const [transferTo, setTransferTo] = useState('')
+  const [transferring, setTransferring] = useState(false)
 
   const current = members.find((m) => m.user_id === user?.id)
   const canManage = current?.role === 'owner'
+  // Передать можно только участнику проекта: новый владелец появляется здесь
+  // же, в списке участников, а не «откуда-то ещё».
+  const others = members.filter((m) => m.role !== 'owner')
 
   const load = () => {
     setLoading(true)
@@ -60,6 +74,22 @@ export function MembersPanel({ projectId }: Props) {
     }
   }
 
+  const handleTransfer = async (toUserId: string) => {
+    setError(null)
+    setTransferring(true)
+    try {
+      await projectsApi.transferOwnership(projectId, toUserId)
+      setTransferTo('')
+      load()
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : 'Не удалось передать владение проектом',
+      )
+    } finally {
+      setTransferring(false)
+    }
+  }
+
   const handleRemove = async (userId: string) => {
     setError(null)
     try {
@@ -80,7 +110,7 @@ export function MembersPanel({ projectId }: Props) {
         <ul className="member-list">
           {members.map((m) => (
             <li className="member" key={m.user_id}>
-              <span className="member__id">{m.user_id}</span>
+              <span className="member__id">{memberLabel(m)}</span>
               {canManage && m.role !== 'owner' ? (
                 <select
                   className="member__role"
@@ -107,6 +137,36 @@ export function MembersPanel({ projectId }: Props) {
             </li>
           ))}
         </ul>
+      )}
+      {canManage && others.length > 0 && (
+        <div className="member-transfer" role="group" aria-label="Передать владение проектом">
+          <p className="muted">
+            Передать владение: прежний владелец станет редактором и сможет уйти из
+            проекта сам.
+          </p>
+          <div className="member-add">
+            <select
+              className="field__input"
+              aria-label="Новый владелец проекта"
+              value={transferTo}
+              onChange={(e) => setTransferTo(e.target.value)}
+            >
+              <option value="">— выберите участника —</option>
+              {others.map((m) => (
+                <option key={m.user_id} value={m.user_id}>
+                  {memberLabel(m)} ({roleLabels[m.role].toLowerCase()})
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn btn--primary"
+              disabled={!transferTo || transferring}
+              onClick={() => void handleTransfer(transferTo)}
+            >
+              {transferring ? 'Передаём…' : 'Передать'}
+            </button>
+          </div>
+        </div>
       )}
       {canManage && (
         <form className="member-add" onSubmit={handleAdd}>

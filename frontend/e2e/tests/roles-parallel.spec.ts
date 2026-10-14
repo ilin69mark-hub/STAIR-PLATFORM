@@ -59,7 +59,7 @@ test.describe.serial('роли и параллель', () => {
     await api(`/api/v1/projects/${pid}/members`, { method: 'POST', body: JSON.stringify({ email: viewerEmail, role: 'viewer' }) })
 
     // 10 параллельных calculate на одном pid (owner) — стресс FOR UPDATE
-    const baseBody = { width_mm: 900, height_mm: 2700, flight: 'straight', step_height_mm: 180, stringer_thickness_mm: 50, step_thickness_mm: 40, clearance_mm: 2500, railing_height_mm: 1000, material: 'STEEL-S235' }
+    const baseBody = { width_mm: 900, height_mm: 2700, flight: 'straight', step_height_mm: 180, stringer_thickness_mm: 50, step_thickness_mm: 40, clearance_mm: 2500, railing_height_mm: 1000, material: 'STEEL-C245' }
     const parallel = await Promise.all(
       Array.from({ length: 10 }, () =>
         api(`/api/v1/projects/${pid}/calculate`, { method: 'POST', body: JSON.stringify(baseBody) }),

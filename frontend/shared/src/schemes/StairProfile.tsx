@@ -107,8 +107,14 @@ export function StairProfile({ flight, railing }: Props) {
 
   // Косоур-гребенка: пила вплотную под нижним контуром ступеней —
   // посадочное место под проступью + вертикальный сброс на границе
-  // ступеней; спина (низ доски) — прямая, параллельная маршу, на толщину
-  // st ниже посадочных мест.
+  // ступеней; спина (низ доски) — прямая, параллельная маршу, на ширину
+  // спинки ниже посадочных мест.
+  //
+  // Ширина спинки для металлокаркаса — CombFrame.StringerSpine (300 мм по
+  // нормали, чертеж 2026-10-05), а НЕ толщина листа: раньше здесь стояла
+  // толщина st, и профиль показывал гребёнку глубиной 8 мм вместо 300 мм.
+  // Для дерева гребёнки нет — спинка равна толщине косоура.
+  const spine = Math.max(flight.StringerSpine ?? st, 0)
   const ux = len > 0 ? -totalH / len : 0
   const uy = len > 0 ? -runTotal / len : 0
   const tTh = sTh
@@ -119,10 +125,10 @@ export function StairProfile({ flight, railing }: Props) {
     saw.push({ x: x1, y: seatY(i) })
     saw.push({ x: x1, y: i === StepCount - 1 ? 0 : seatY(i + 1) })
   }
-  // Спинка (низ доски): линия посадочных мест, сдвинутая на толщину st
+  // Спинка (низ доски): линия посадочных мест, сдвинутая на ширину спинки
   // перпендикулярно вниз; спереди упирается в пол, сзади — перпендикуляр
   // из головы пилы.
-  const P_top: MM = { x: ux * st, y: seatY(0) + uy * st }
+  const P_top: MM = { x: ux * spine, y: seatY(0) + uy * spine }
   const t = P_top.y / totalH
   const fx = Math.max(0, Math.min(runTotal, P_top.x + t * runTotal))
   const F: MM = { x: fx, y: 0 }

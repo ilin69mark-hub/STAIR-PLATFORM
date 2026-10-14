@@ -38,10 +38,8 @@ type Input struct {
 	// WinderCount — число поворотных ступеней (для U в режиме поворота).
 	WinderCount int
 	LandingMm   float64 // Wp — ширина площадки/просвета (для L/U)
-	// WidthMm — ширина марша W (для спирали: зазор от колонны до кромки).
+	// WidthMm — ширина марша W.
 	WidthMm float64
-	// OuterRadiusMm — наружный радиус спирали R (для спирали).
-	OuterRadiusMm float64
 	// Остальные параметры — чтобы проверять кандидата по всем нормам.
 	ClearanceMm     float64
 	RailingMm       float64
@@ -98,11 +96,7 @@ func Advise(in Input, set *constraint.ConstraintSet, vr validation.Result) valid
 		}
 	}
 	if infeasible && !hasIssue(vr.Issues, constraint.MFG_SHEET) {
-		if in.Flight == engineering.FlightSpiral {
-			vr.Issues = append(vr.Issues, spiralInfeasibleIssue(in))
-		} else {
-			vr.Issues = append(vr.Issues, manufacturingIssue(in, worst))
-		}
+		vr.Issues = append(vr.Issues, manufacturingIssue(in, worst))
 	}
 	return vr
 }
@@ -117,44 +111,61 @@ func hasIssue(issues []validation.Issue, code constraint.RuleCode) bool {
 	return false
 }
 
-// manufacturingIssue — блокирующий issue о невозможности изготовления:
-// косоур не помещается на стандартный лист при текущем каталоге (MFG-0012).
+// manufacturingIssue — блокирующий issue о невозможности изготовления.
+//
+// Подсказка зависит от материала, потому что ограничения разные:
+//
+// Сталь режется лазером по рабочему полю стола 3000×1500. По длине деталь
+// режется кусками со сварным стыком «шип-паз», а вот по ширине не режется:
+// поперечный рез отделил бы зубья гребёнки от спинки.
+//
+// Дерево режется на другом станке и сварным стыком не собирается, поэтому его
+// ограничение — каталог листов, и подсказка ссылается на самый крупный лист
+// материала.
 func manufacturingIssue(in Input, worst [2]float64) validation.Issue {
-	material, err := advisorMaterial(in)
-	if err != nil {
-		material = dommfg.MaterialCode("STEEL-S235")
-	}
-	var maxLen, maxWid float64 = 6000, 3000
-	if sheets, err := engmfg.DefaultStockSheetRegistry(); err == nil {
-		if l, w, ok := engmfg.LargestStockSheet(sheets, material); ok {
-			maxLen, maxWid = l, w
-		}
+	guide := fmt.Sprintf(
+		"Косоур %.0f×%.0f мм не помещается в рабочее поле лазерного стола %.0f×%.0f мм при высоте подъёма %.0f мм. По длине длинный косоур режется кусками со сварным стыком «шип-паз», но ширина превышает поле вместе с отступом от края.",
+		worst[0], worst[1], dommfg.BlankLengthMM, dommfg.BlankWidthMM, in.HeightMm)
+	if length, width, ok := advisorLargestSheet(in); ok {
+		guide = fmt.Sprintf(
+			"Косоур %.0f×%.0f мм не влезает ни в один лист: самый крупный лист материала %.0f×%.0f мм при высоте подъёма %.0f мм. Дерево режется на станке и сварным стыком не собирается — укоротите марш.",
+			worst[0], worst[1], length, width, in.HeightMm)
 	}
 	return validation.Issue{
 		Code:     constraint.MFG_SHEET,
 		Severity: constraint.SeverityError,
 		Element:  "stringer",
-		Message:  "косоур не помещается на стандартный лист",
+		Message:  "косоур не помещается в поле лазерного стола",
 		Param:    "Изготовление",
-		Guide: fmt.Sprintf(
-			"Косоур %.0f×%.0f мм (рез %d мм) не помещается на стандартный лист (макс. %.0f×%.0f мм) при высоте подъёма %.0f мм. Изготовление при текущем каталоге листов невозможно.",
-			worst[0], worst[1], int(engmfg.DefaultKerf), maxLen, maxWid, in.HeightMm),
+		Guide:    guide,
 	}
 }
 
-// spiralInfeasibleIssue — блокирующий issue о невозможности подобрать
-// винтовую лестницу, проходящую нормы, ни при какой ширине/радиусе.
-func spiralInfeasibleIssue(in Input) validation.Issue {
-	return validation.Issue{
-		Code:     constraint.GEO_SPIRAL_TREAD,
-		Severity: constraint.SeverityError,
-		Element:  "configuration",
-		Message:  "винтовая лестница не проходит нормы",
-		Param:    "Ширина марша",
-		Guide: fmt.Sprintf(
-			"При высоте подъёма %.0f мм не удаётся подобрать винтовую лестницу, проходящую нормы (проступь, шаг комфорта, угол 30–45°). Уменьшите высоту подъёма или выберите другой тип лестницы.",
-			in.HeightMm),
+// advisorLargestSheet — самый крупный лист древесного материала, если
+// материал вовсе не металл. ok=false для стали: у неё ограничение не каталог,
+// а поле лазерного стола.
+func advisorLargestSheet(in Input) (length, width float64, ok bool) {
+	material, err := advisorMaterial(in)
+	if err != nil {
+		return 0, 0, false
 	}
+	if engmfg.IsLaserMaterial(material) {
+		return 0, 0, false
+	}
+	registry, err := engmfg.DefaultStockSheetRegistry()
+	if err != nil {
+		return 0, 0, false
+	}
+	sheets := registry.SheetsFor(material)
+	if len(sheets) == 0 {
+		return 0, 0, false
+	}
+	for _, sh := range sheets {
+		if l, w := sh.Length.Millimeters(), sh.Width.Millimeters(); l > length {
+			length, width = l, w
+		}
+	}
+	return length, width, length > 0
 }
 
 // renderGuide перенесён в validation.RenderGuide (SRC: владеет шаблонами
@@ -179,20 +190,16 @@ func geometry(in Input, set *constraint.ConstraintSet) (out []validation.Suggest
 	nStart := mathMax(int(math.Ceil(in.HeightMm/rule.Range.Max))-2, 2)
 	nEnd := int(math.Floor(in.HeightMm/rule.Range.Min)) + 2
 
-	if in.Flight == engineering.FlightSpiral {
-		return spiralGeometry(in, set, nStart, nEnd)
-	}
-
 	anyPass := false
 	firstPass := false
 	id := func(s validation.Suggestion) string {
-		if in.Flight == engineering.FlightStraight || in.Flight == engineering.FlightSpiral {
+		if in.Flight == engineering.FlightStraight {
 			return fmt.Sprintf("s%d", s.StepCount)
 		}
 		return fmt.Sprintf("s%d-%d", s.StepCount, s.LowerStepCount)
 	}
 	seen := map[string]bool{}
-	suggestible := in.Flight != engineering.FlightSpiral
+	suggestible := true
 
 	// Кандидаты числа ступеней — разнесены по всему допустимому окну
 	// (минимальное/максимальное/промежуточные), а не подряд идущие:
@@ -222,8 +229,14 @@ func geometry(in Input, set *constraint.ConstraintSet) (out []validation.Suggest
 					}
 					anyPass = true
 					rects := [][2]float64{
-						{res.LowerRun.Millimeters(), enggeo.StringerExtent(res.LowerHeight.Millimeters(), in.StepThicknessMm)},
-						{res.UpperRun.Millimeters(), enggeo.StringerExtent(res.UpperHeight.Millimeters(), in.StepThicknessMm)},
+						// Заготовка косоура-гребёнки имеет постоянную глубину листа 300 мм
+						// (engine/geometry.StringerPlateDepthMM) и длину по склону. Раньше
+						// здесь стояло StringerExtent(высота подъёма, толщина ступени) —
+						// это высота МАРША, а не размер детали: для подъёма 2700 мм
+						// получался «косоур» 4050×2700, который не влезал в поле
+						// лазерного стола по ширине и отсекал все варианты.
+						{res.LowerRun.Millimeters(), enggeo.StringerPlateDepthMM},
+						{res.UpperRun.Millimeters(), enggeo.StringerPlateDepthMM},
 					}
 					if !firstPass {
 						worst = largestRect(rects)
@@ -264,8 +277,8 @@ func geometry(in Input, set *constraint.ConstraintSet) (out []validation.Suggest
 				}
 				anyPass = true
 				rects := [][2]float64{
-					{res.LowerRun.Millimeters(), enggeo.StringerExtent(res.LowerHeight.Millimeters(), in.StepThicknessMm)},
-					{res.UpperRun.Millimeters(), enggeo.StringerExtent(res.UpperHeight.Millimeters(), in.StepThicknessMm)},
+					{res.LowerRun.Millimeters(), enggeo.StringerPlateDepthMM},
+					{res.UpperRun.Millimeters(), enggeo.StringerPlateDepthMM},
 				}
 				if !firstPass {
 					worst = largestRect(rects)
@@ -296,7 +309,7 @@ func geometry(in Input, set *constraint.ConstraintSet) (out []validation.Suggest
 		}
 		anyPass = true
 		rects := [][2]float64{
-			{res.Run.Millimeters(), enggeo.StringerExtent(in.HeightMm, in.StepThicknessMm)},
+			{res.Run.Millimeters(), enggeo.StringerPlateDepthMM},
 		}
 		if !firstPass {
 			worst = largestRect(rects)
@@ -322,115 +335,6 @@ func geometry(in Input, set *constraint.ConstraintSet) (out []validation.Suggest
 	return out, infeasible, worst
 }
 
-// spiralGeometry подбирает готовые варианты винтовой лестницы (EDR-0007),
-// проходящие нормы: перебирает число ступеней n из окна высоты ступени и
-// для каждого n по замкнутой формуле выводит допустимые ширину W и наружный
-// радиус R. Связи (EDR-0007 §4): δ=2π/n, bWalk=δ·(R−W/3), R=W/3+bWalk/δ.
-// Кандидата верифицирует solver.SolveSpiral (категоричный источник).
-// Возвращает до MaxSuggestions вариантов; infeasible=true — если ни один
-// вариант не проходит нормы ни при какой ширине марша.
-func spiralGeometry(in Input, set *constraint.ConstraintSet, nStart, nEnd int) (out []validation.Suggestion, infeasible bool, worst [2]float64) {
-	if in.WidthMm <= 0 || in.OuterRadiusMm <= 0 {
-		return nil, false, worst
-	}
-	curW := in.WidthMm
-	curR := in.OuterRadiusMm
-	seen := map[string]bool{}
-	anyPass := false
-	for n := nStart; n <= nEnd && len(out) < MaxSuggestions; n++ {
-		h := in.HeightMm / float64(n)
-		delta := 2 * math.Pi / float64(n)
-		// Интервал проступи по линии хода по нормам: проступь 260–320,
-		// шаг комфорта 600–640, угол наклона 30–45° (bWalk ∈ [h, h·tan60°]).
-		blow := mathMax3f(260, 600-2*h, h)
-		bhigh := mathMin3f(320, 640-2*h, h*math.Tan(math.Pi/3))
-		if blow > bhigh {
-			continue
-		}
-		// Диапазон ширины марша, при котором проступи у колонны/кромки в норме:
-		// bIn = bWalk − (2W/3)·δ ≥ 100 → W ≤ 3(bWalk−100)/(2δ);
-		// bOut = bWalk + (W/3)·δ ≥ 250 → W ≥ 3(250−bWalk)/δ.
-		wMin := mathMax3f(1, 3*(250-blow)/delta, 0)
-		wMax := mathMin3f(3*(bhigh-100)/(2*delta), 3*bhigh/(2*delta), 2000)
-		if wMin > wMax {
-			continue
-		}
-		for _, w := range spiralWidthCandidates(curW, wMin, wMax) {
-			// Нижняя граница bWalk с учётом проступей колонны/кромки и радиуса.
-			bLo := mathMax3f(blow, 100+(2.0/3.0)*w*delta, 250-delta*w/3)
-			if bLo > bhigh {
-				continue
-			}
-			// Проступь, дающая радиус ближе всего к текущему у пользователя.
-			target := (curR - w/3) * delta
-			bWalk := clampF(target, bLo, bhigh)
-			R := bWalk/delta + w/3
-			if R <= w {
-				continue
-			}
-			res, err := solver.SolveSpiral(
-				engineering.Length(in.HeightMm),
-				engineering.Length(h),
-				engineering.Length(w),
-				engineering.Length(R),
-			)
-			if err != nil {
-				continue
-			}
-			if !passes(in, set, res.StepCount, res.StepHeight, res.WalkTread, res.Angle) {
-				continue
-			}
-			anyPass = true
-			it := validation.Suggestion{
-				StepCount:     res.StepCount,
-				StepHeightMm:  res.StepHeight.Millimeters(),
-				TreadDepthMm:  res.WalkTread.Millimeters(),
-				AngleDeg:      res.Angle.Degrees(),
-				OuterRadiusMm: res.OuterRadius.Millimeters(),
-				WidthMm:       w,
-			}
-			id := fmt.Sprintf("s%d-r%.0f-w%.0f", it.StepCount, it.OuterRadiusMm, it.WidthMm)
-			if !seen[id] {
-				seen[id] = true
-				out = append(out, it)
-				if len(out) >= MaxSuggestions {
-					break
-				}
-			}
-		}
-	}
-	if anyPass && len(out) == 0 {
-		infeasible = true
-	}
-	return out, infeasible, worst
-}
-
-// spiralWidthCandidates — кандидаты ширины марша для спирали в допустимом
-// диапазоне [wMin, wMax]: прежде всего текущая ширина пользователя, затем
-// середина диапазона и типовые ширины винтовых лестниц (от большей к
-// меньшей), округлённые до 50 мм.
-func spiralWidthCandidates(cur, wMin, wMax float64) []float64 {
-	seen := map[float64]bool{}
-	var seq []float64
-	add := func(v float64) {
-		v = math.Round(v/50) * 50
-		if v < wMin || v > wMax || seen[v] {
-			return
-		}
-		seen[v] = true
-		seq = append(seq, v)
-	}
-	add(cur)
-	add((wMin + wMax) / 2)
-	for _, v := range []float64{1200, 1100, 1000, 900, 800, 700} {
-		add(v)
-	}
-	return seq
-}
-
-func mathMax3f(a, b, c float64) float64 { return math.Max(a, math.Max(b, c)) }
-func mathMin3f(a, b, c float64) float64 { return math.Min(a, math.Min(b, c)) }
-
 // clampF ограничивает значение диапазоном [lo, hi].
 func clampF(v, lo, hi float64) float64 {
 	if v < lo {
@@ -453,27 +357,38 @@ func largestRect(rects [][2]float64) [2]float64 {
 	return best
 }
 
-// manufactureFeasible проверяет, что все прямоугольники кандидата
-// помещаются на стандартный лист материала косоура с учётом kerf.
-// Для спирали проверка не выполняется (советник по ней не предлагает
-// варианты — фронтенд скрывает кнопки).
+// manufactureFeasible проверяет, что прямоугольники кандидата изготовляемы.
+//
+// Для СТАЛИ ограничение — РАБОЧЕЕ ПОЛЕ лазерного стола 3000×1500 с учётом
+// отступа и зазора по толщине листа. Раньше проверка шла против каталога
+// листов (до 10400×6200): деталь 5200 мм считалась вместимой, хотя стол
+// 3000×1500 и её можно только разрезать на куски со сварным стыком. Теперь
+// кандидат, который нельзя разрезать, отсеивается сразу.
+//
+// Для ДЕРЕВА ограничение — каталог листов: дерево режется на другом станке, и
+// поле лазерного стола к нему отношения не имеет.
 func manufactureFeasible(in Input, rects ...[2]float64) bool {
-	if in.Flight == engineering.FlightSpiral {
-		return true
+	// Толщина листа для шпатки зазоров: косоур режется из листа своей
+	// толщины, поэтому берём толщину косоура.
+	thickness := in.StringerThickMm
+	if thickness <= 0 {
+		thickness = in.StepThicknessMm
 	}
+	if thickness <= 0 {
+		return true // данных мало — не блокируем совет
+	}
+	// Материал определяет, чем режут: сталь — лазером по полю стола и длинный
+	// косоур режется кусками, дерево — станком по каталогу листов целиком.
 	material, err := advisorMaterial(in)
 	if err != nil {
-		return true
+		return true // каталог не собрался — не блокируем совет
 	}
-	mfrects := make([]engmfg.Rect, 0, len(rects))
 	for _, r := range rects {
-		mfrects = append(mfrects, engmfg.Rect{Length: r[0], Width: r[1]})
+		if !engmfg.SplittableFeasibleFor(material, thickness, r[0], r[1]) {
+			return false
+		}
 	}
-	sheets, err := engmfg.DefaultStockSheetRegistry()
-	if err != nil {
-		return false
-	}
-	return engmfg.SheetFeasible(sheets, material, engmfg.DefaultKerf, mfrects...)
+	return true
 }
 
 // passes проверяет кандидата по всем активным нормам конфигурации.

@@ -50,6 +50,35 @@ func testCalculateRequest() *http.Request {
 	return authedRequest(http.MethodPost, "/api/v1/stairs:calculate", referenceJSON)
 }
 
+// TestMutatingStairRoutesRequireCSRF — S-144 (S-141 №7): регресс-тест в
+// стиле S-108: calculate/validate/optimize/assistant — мутирующие POST,
+// session-cookie без CSRF-токена → 403 code:"csrf". Атакующая страница не
+// может прочитать csrf-cookie жертвы → браузерная форма не проходит.
+func TestMutatingStairRoutesRequireCSRF(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Assistant = &fakeAssistant{}
+	router := NewRouter(&fakeStairService{}, nil, testAuth{}, cfg)
+	for _, path := range []string{
+		"/api/v1/stairs:calculate",
+		"/api/v1/stairs:validate",
+		"/api/v1/stairs:optimize",
+		"/api/v1/assistant/design",
+	} {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(referenceJSON))
+			req.AddCookie(testCookie(sessionCookieName, "token-1"))
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("expected 403 (csrf) without csrf-token, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), `"code":"csrf"`) {
+				t.Fatalf("body should carry csrf code, got %s", rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestHandleCalculateCancelled(t *testing.T) {
 	f := &fakeStairService{calcErr: context.Canceled}
 	rec := httptest.NewRecorder()
@@ -227,7 +256,9 @@ func TestOptimizeSuccessNoAudit(t *testing.T) {
 }
 
 func validatePublicRequest(body string) *http.Request {
-	return httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:validate", strings.NewReader(body))
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/public/stairs:validate", strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json") // S-144: decodeJSON требует его
+	return r
 }
 
 // TestHandlePublicValidate: анонимный вход store, 200 даже при блокирующем

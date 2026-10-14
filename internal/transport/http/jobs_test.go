@@ -19,6 +19,8 @@ type fakeJobsService struct {
 	job       *jobs.Job
 	fail      bool
 	missing   bool
+
+	owner string // SEC-004: владелец задания
 }
 
 func (f *fakeJobsService) SubmitCalculate(_ context.Context, tenantID, userID string, payload jobs.Payload) (*jobs.Job, error) {
@@ -30,6 +32,19 @@ func (f *fakeJobsService) SubmitCalculate(_ context.Context, tenantID, userID st
 	f.job = &jobs.Job{ID: "job-1", TenantID: tenantID, UserID: userID, Type: "calc.calculate",
 		Status: jobs.StatusPending, Payload: payload}
 	return f.job, nil
+}
+
+// GetJobForUser — user-скоупная выборка (SEC-004). Стаб отдаёт задание
+// только владельцу userA; для userB — ErrNotFound (как в боевом коде).
+func (f *fakeJobsService) GetJobForUser(_ context.Context, tenantID, userID, id string) (*jobs.Job, error) {
+	if f.missing {
+		return nil, jobs.ErrNotFound
+	}
+	if f.owner != "" && userID != f.owner {
+		return nil, jobs.ErrNotFound
+	}
+	return &jobs.Job{ID: id, TenantID: tenantID, UserID: userID, Type: "calc.calculate",
+		Status: jobs.StatusSucceeded, Result: f.jobResult()}, nil
 }
 
 func (f *fakeJobsService) GetJob(_ context.Context, tenantID, id string) (*jobs.Job, error) {

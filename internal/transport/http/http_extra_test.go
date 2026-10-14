@@ -215,13 +215,17 @@ func TestHandleRecordAudit(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		svc := &fakeAuditRecord{}
 		router := NewRouter(stair.NewService(), nil, testAuth{}, DefaultConfig(), svc)
-		req := authedRequest(http.MethodPost, "/api/v1/audit", `{"action":"stair.calculated","detail":"x"}`)
+		// SEC-002: "stair.calculated" — серверная эмиссия, клиент записать
+		// его не может. Успешный кейс использует клиентское событие
+		// интерфейса; отказ на серверном действии проверяется отдельно
+		// (TestSEC002_ForgedServerActionRejected).
+		req := authedRequest(http.MethodPost, "/api/v1/audit", `{"action":"stair.config_changed","detail":"x"}`)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 		}
-		if svc.recorded == nil || svc.recorded.Action != audit.Action("stair.calculated") {
+		if svc.recorded == nil || svc.recorded.Action != audit.ActionStairConfigChanged {
 			t.Fatalf("recorded event mismatch: %+v", svc.recorded)
 		}
 	})
@@ -263,7 +267,7 @@ func TestHandleRecordAudit(t *testing.T) {
 	t.Run("internal_error", func(t *testing.T) {
 		svc := &fakeAuditRecord{recordErr: errors.New("boom")}
 		router := NewRouter(stair.NewService(), nil, testAuth{}, DefaultConfig(), svc)
-		req := authedRequest(http.MethodPost, "/api/v1/audit", `{"action":"stair.calculated"}`)
+		req := authedRequest(http.MethodPost, "/api/v1/audit", `{"action":"stair.config_changed"}`)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 		if rec.Code != http.StatusInternalServerError {

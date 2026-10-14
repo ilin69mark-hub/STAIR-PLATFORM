@@ -5,7 +5,7 @@ import (
 
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/domain/engineering"
-	"stairplatform/internal/domain/manufacturing"
+	dommfg "stairplatform/internal/domain/manufacturing"
 	"stairplatform/internal/domain/pricing"
 	"stairplatform/internal/engine/geometry"
 	"stairplatform/internal/engine/solver"
@@ -24,27 +24,34 @@ type Snapshot struct {
 	Flight     solver.FlightResult  `json:"flight"`
 	LShape     *solver.LShapeResult `json:"lshape,omitempty"`
 	UShape     *solver.UShapeResult `json:"ushape,omitempty"`
-	Spiral     *solver.SpiralResult `json:"spiral,omitempty"`
 	// Производственные параметры конфигурации (эхо, BC-002): толщина
 	// проступи, высота перил, наличие подступенков — для 2D-рендера.
-	StepThickness     float64 `json:"step_thickness"`
-	RailingHeight     float64 `json:"railing_height"`
+	StepThickness float64 `json:"step_thickness"`
+	RailingHeight float64 `json:"railing_height"`
+	// Width — ширина марша для 2D-чертежей (DOM-005). Раньше её не было, и
+	// snapshotView подставлял константу 900 мм: план/профиль показывали
+	// другую геометрию, чем посчитали объём, массу и цену.
+	Width             float64 `json:"width"`
 	Riser             bool    `json:"riser"`
 	StringerThickness float64 `json:"stringer_thickness"`
-	// Стороны перил (CONF-RAILING) — для 2D-рендера: прямой/спираль —
-	// Railing, L/П — по сегментам (RailingLower/Landing/Upper).
-	Railing        string                                  `json:"railing,omitempty"`
-	RailingLower   string                                  `json:"railing_lower,omitempty"`
-	RailingLanding string                                  `json:"railing_landing,omitempty"`
-	RailingUpper   string                                  `json:"railing_upper,omitempty"`
-	Measurement    geometry.Measurement                    `json:"measurement"`
-	Mesh           *kerngeo.Mesh                           `json:"mesh,omitempty"`
-	RailingMesh    *kerngeo.Mesh                           `json:"railing_mesh,omitempty"`
-	RoomMesh       *kerngeo.Mesh                           `json:"room_mesh,omitempty"`
-	IssueCount     int                                     `json:"issue_count"`
-	Manufacturing  *manufacturing.ManufacturingPackage     `json:"manufacturing,omitempty"`
-	Pricing        *pricing.PriceBreakdown                 `json:"pricing,omitempty"`
-	Cost           *manufacturing.ManufacturingCostDataset `json:"cost,omitempty"`
+	// StringerSpine — ширина спинки косоура-гребёнки по нормали к линии
+	// посадок (CombFrame.StringerSpine, 300 мм). 2D-профиль гребёнки рисуется
+	// этой глубиной; без поля схема показывала вместо неё толщину листа.
+	StringerSpine float64 `json:"stringer_spine"`
+	// Стороны перил (CONF-RAILING) — для 2D-рендера: прямой — Railing,
+	// L/П — по сегментам (RailingLower/Landing/Upper).
+	Railing        string                           `json:"railing,omitempty"`
+	RailingLower   string                           `json:"railing_lower,omitempty"`
+	RailingLanding string                           `json:"railing_landing,omitempty"`
+	RailingUpper   string                           `json:"railing_upper,omitempty"`
+	Measurement    geometry.Measurement             `json:"measurement"`
+	Mesh           *kerngeo.Mesh                    `json:"mesh,omitempty"`
+	RailingMesh    *kerngeo.Mesh                    `json:"railing_mesh,omitempty"`
+	RoomMesh       *kerngeo.Mesh                    `json:"room_mesh,omitempty"`
+	IssueCount     int                              `json:"issue_count"`
+	Manufacturing  *dommfg.ManufacturingPackage     `json:"manufacturing,omitempty"`
+	Pricing        *pricing.PriceBreakdown          `json:"pricing,omitempty"`
+	Cost           *dommfg.ManufacturingCostDataset `json:"cost,omitempty"`
 }
 
 // NewSnapshot строит экспортный документ из результата конвейера.
@@ -55,11 +62,12 @@ func NewSnapshot(projectID string, res *stair.Result) Snapshot {
 		Flight:            res.Flight,
 		LShape:            res.LShape,
 		UShape:            res.UShape,
-		Spiral:            res.Spiral,
 		StepThickness:     res.StepThickness.Millimeters(),
 		RailingHeight:     res.RailingHeight.Millimeters(),
+		Width:             res.Width.Millimeters(),
 		Riser:             res.Riser,
 		StringerThickness: res.StringerThickness.Millimeters(),
+		StringerSpine:     res.StringerSpine.Millimeters(),
 		Railing:           string(res.Railing),
 		RailingLower:      string(res.RailingLower),
 		RailingLanding:    string(res.RailingLanding),
@@ -94,8 +102,24 @@ func toConfigEntity(projectID string, cfg stair.Config, opts stair.Options) *Sta
 		RoomWidthMM:         cfg.RoomWidth.Millimeters(),
 		RoomLengthMM:        cfg.RoomLength.Millimeters(),
 		ApproachSpaceMM:     cfg.ApproachSpace.Millimeters(),
+		CeilingHeightMM:     cfg.CeilingHeight.Millimeters(),
 		LowerStepCount:      cfg.LowerStepCount,
-		OuterRadiusMM:       cfg.OuterRadius.Millimeters(),
+		// DOM-003: девять параметров, которые раньше терялись при сохранении.
+		TurnKind:          string(cfg.TurnKind),
+		WinderCount:       cfg.WinderCount,
+		Railing:           string(cfg.Railing),
+		RailingLower:      string(cfg.RailingLower),
+		RailingLanding:    string(cfg.RailingLanding),
+		RailingUpper:      string(cfg.RailingUpper),
+		Direction:         string(cfg.Direction),
+		MaterialCode:      string(cfg.Material),
+		TreadMaterialCode: string(cfg.TreadMaterial),
+		RiserThicknessMM:  cfg.RiserThickness.Millimeters(),
+		FloorFixing:       string(cfg.FloorFixing),
+		CeilingFixing:     string(cfg.CeilingFixing),
+		// Назначение здания (S-236): профиль норм — терять нельзя.
+		Purpose:        string(cfg.Purpose),
+		ExtraFasteners: append([]string(nil), cfg.ExtraFasteners...),
 	}
 }
 
@@ -158,7 +182,7 @@ func fromConfigEntity(e *StairConfiguration) (stair.Config, stair.Options, error
 	if err != nil {
 		return stair.Config{}, stair.Options{}, err
 	}
-	outer, err := mk(e.OuterRadiusMM)
+	ceiling, err := mk(e.CeilingHeightMM)
 	if err != nil {
 		return stair.Config{}, stair.Options{}, err
 	}
@@ -177,8 +201,27 @@ func fromConfigEntity(e *StairConfiguration) (stair.Config, stair.Options, error
 		RoomWidth:         roomWidth,
 		RoomLength:        roomLength,
 		ApproachSpace:     approach,
+		CeilingHeight:     ceiling,
 		LowerStepCount:    e.LowerStepCount,
-		OuterRadius:       outer,
+		// DOM-003: восстановление девяти параметров. Раньше они не
+		// восстанавливались, из-за чего CAD-экспорт отдавал другую
+		// конструкцию, чем рассчитал пользователь.
+		TurnKind:               engineering.TurnKind(e.TurnKind),
+		WinderCount:            e.WinderCount,
+		Railing:                engineering.RailingSide(e.Railing),
+		RailingLower:           engineering.RailingSide(e.RailingLower),
+		RailingLanding:         engineering.RailingSide(e.RailingLanding),
+		RailingUpper:           engineering.RailingSide(e.RailingUpper),
+		Direction:              engineering.TurnDirection(e.Direction),
+		Material:               dommfg.MaterialCode(e.MaterialCode),
+		TreadMaterial:          dommfg.MaterialCode(e.TreadMaterialCode),
+		RiserThickness:         engineering.Length(e.RiserThicknessMM),
+		FloorFixing:            engineering.FixingBase(e.FloorFixing),
+		CeilingFixing:          engineering.FixingBase(e.CeilingFixing),
+		Purpose:                engineering.BuildingPurpose(e.Purpose),
+		ExtraFasteners:         append([]string(nil), e.ExtraFasteners...),
+		SealantLayerMM:         e.SealantLayerMM,
+		ExtraSealantCartridges: e.ExtraSealantCartridges,
 	}
 	return cfg, stair.Options{ComfortStep: e.ComfortStepMM}, nil
 }

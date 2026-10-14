@@ -27,6 +27,21 @@ export const fmt = {
       ? '—'
       : `${v.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽`,
 
+  // Предварительная цена — округлённая (владелец: «предварительную
+  // стоимость округляй»). Копейки в предварительной оценке бессмысленны: точную
+  // сумму подтверждает менеджер после согласования проекта, а «2 602 972,00 ₽»
+  // выглядит как расчёт с точностью до рубля, которой нет. Шаг — тысяча
+  // рублей, обычная практика предварительных смет.
+  rubRough: (v: number | undefined): string => {
+    if (v === undefined) return '—'
+    // Ниже тысячи округлять нечего: 18 ₽ превратилось бы в 0 ₽, и оценка
+    // выглядела бы как «бесплатно». Такие суммы показываем точно.
+    if (v < 1000) {
+      return `${v.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽`
+    }
+    return `${(Math.round(v / 1000) * 1000).toLocaleString('ru-RU', { maximumFractionDigits: 0 })} ₽`
+  },
+
   // Проценты (0..1 → 0..100).
   pct: (v: number | undefined): string =>
     v === undefined ? '—' : `${(v * 100).toFixed(0)}%`,

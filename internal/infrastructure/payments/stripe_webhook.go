@@ -3,8 +3,11 @@ package payments
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+
+	apppayments "stairplatform/internal/application/payments"
 )
 
 // IntentProcessor применяет подтверждённое подписью событие PSP к платёжному
@@ -14,6 +17,16 @@ type IntentProcessor interface {
 	// ApplyVerifiedEvent переводит интент в новый статус по событию провайдера
 	// (provider и checkoutID уже извлечены из подписанного события).
 	ApplyVerifiedEvent(ctx context.Context, provider, checkoutID, status string, amountMinor int64, currency string, raw []byte) error
+}
+
+// IntentReader — опциональное чтение интента для сверки с событием при
+// дубликате (S-141 №3, CWE-367/703): когда CheckAndMark вернул duplicate,
+// сервис сверяет состояние интента с событием и при расхождении применяет
+// событие (reconcile, self-healing crash-window). Реализуется
+// application.Service. Если процессор ридер не реализует — деградация к
+// старому поведению (дубликат игнорируется молча).
+type IntentReader interface {
+	GetIntentByProviderCheckout(ctx context.Context, provider, checkoutID string) (*apppayments.PaymentIntent, error)
 }
 
 // StripeWebhookServiceImpl обрабатывает Stripe webhook events: проверяет
@@ -53,7 +66,7 @@ func (s *StripeWebhookServiceImpl) WithEventDeduper(d EventDeduper) *StripeWebho
 }
 
 // HandleStripeWebhook обрабатывает входящий Stripe webhook.
-func (s *StripeWebhookServiceImpl) HandleStripeWebhook(ctx context.Context, payload []byte, signature string) (err error) {
+func (s *StripeWebhookServiceImpl) HandleStripeWebhook(ctx context.Context, payload []byte, signature string) error {
 	// Верифицируем подпись Stripe
 	if err := s.provider.VerifyWebhookSignature(payload, signature); err != nil {
 		s.logger.Error("stripe webhook signature verification failed", "error", err)
@@ -83,10 +96,82 @@ func (s *StripeWebhookServiceImpl) HandleStripeWebhook(ctx context.Context, payl
 			return fmt.Errorf("stripe webhook: dedup check failed: %w", dedupErr)
 		}
 		if !processed {
-			s.logger.Warn("stripe webhook: duplicate event ignored",
-				"event_id", event.EventID, "checkout_id", event.CheckoutID)
-			return nil
+			// S-141 №3 (CWE-367/703): crash-window — метка проставлена, но
+			// ApplyVerifiedEvent не выполнен (процесс убит между
+			// CheckAndMark и применением), Clear не вызывался. НЕ отбрасываем
+			// молча: сверяем интент с событием и при расхождении применяем.
+			return s.handleDuplicate(ctx, event, payload)
 		}
+	}
+
+	if s.processor == nil {
+		s.logger.Warn("stripe webhook: no intent processor configured, event ignored")
+		return nil
+	}
+
+	return s.applyEvent(ctx, event, payload)
+}
+
+// handleDuplicate — ветка дубликата (S-141 №3): вместо молчаливого игнора
+// сверяем состояние интента с событием. Интент в целевом статусе → чистый
+// дубликат (nil, как раньше). Интент НЕ отражает событие (статус иной или
+// интента нет) → применяем событие (reconcile inline) — self-healing
+// crash-window между CheckAndMark и Apply. Метка на ошибке снимается тем же
+// defer-ом, что и для новых событий (см. applyEvent).
+func (s *StripeWebhookServiceImpl) handleDuplicate(ctx context.Context, event *StripeWebhookEvent, payload []byte) error {
+	if s.processor == nil {
+		s.logger.Warn("stripe webhook: duplicate event ignored (no processor)",
+			"event_id", event.EventID, "checkout_id", event.CheckoutID)
+		return nil
+	}
+
+	reader, ok := s.processor.(IntentReader)
+	if !ok {
+		// Деградация к старому поведению: ридер не реализован — нечем
+		// сверить интент, дубликат игнорируется молча.
+		s.logger.Warn("stripe webhook: duplicate event ignored (intent reader unavailable)",
+			"event_id", event.EventID, "checkout_id", event.CheckoutID)
+		return nil
+	}
+
+	intent, err := reader.GetIntentByProviderCheckout(ctx, event.Provider, event.CheckoutID)
+	if err != nil {
+		if errors.Is(err, apppayments.ErrNotFound) {
+			// Интента нет — событию нечему соответствовать: применяем как
+			// обычно; ApplyVerifiedEvent вернёт ErrNotFound, метка снимется
+			// (defer Clear) и Stripe-retry повторит доставку — событие не
+			// теряется молча.
+			s.logger.Warn("stripe webhook: duplicate event, intent missing — reconcile will surface not-found",
+				"event_id", event.EventID, "checkout_id", event.CheckoutID)
+			return s.applyEvent(ctx, event, payload)
+		}
+		s.logger.Error("stripe webhook: duplicate reconcile: read intent failed",
+			"event_id", event.EventID, "error", err)
+		return fmt.Errorf("stripe webhook: duplicate reconcile: read intent: %w", err)
+	}
+
+	target := reconcileTarget(event)
+	if target != "" && intent.Status == target {
+		// Чистый дубликат: интент уже отражает событие — повторно не применяем.
+		s.logger.Info("stripe webhook: duplicate event ignored (intent in target status)",
+			"event_id", event.EventID, "checkout_id", event.CheckoutID,
+			"intent_status", intent.Status)
+		return nil
+	}
+
+	// Интент не отражает событие (crash-window): применяем повторно.
+	s.logger.Warn("stripe webhook: duplicate event reconciled (intent does not reflect event)",
+		"event_id", event.EventID, "checkout_id", event.CheckoutID,
+		"intent_status", intent.Status, "target_status", target)
+	return s.applyEvent(ctx, event, payload)
+}
+
+// applyEvent применяет событие к интенту (переключатель по типу события).
+// При ошибке метка дедупликации снимается (defer Clear), чтобы Stripe-retry
+// того же события применился (P1-1) — семантика единая для нового события и
+// для reconcile дубликата (S-141 №3).
+func (s *StripeWebhookServiceImpl) applyEvent(ctx context.Context, event *StripeWebhookEvent, payload []byte) (err error) {
+	if s.deduper != nil && event.EventID != "" {
 		defer func() {
 			if err != nil {
 				if cerr := s.deduper.Clear(ctx, event.Provider, event.EventID); cerr != nil {
@@ -94,11 +179,6 @@ func (s *StripeWebhookServiceImpl) HandleStripeWebhook(ctx context.Context, payl
 				}
 			}
 		}()
-	}
-
-	if s.processor == nil {
-		s.logger.Warn("stripe webhook: no intent processor configured, event ignored")
-		return nil
 	}
 
 	// Обрабатываем event в зависимости от типа
@@ -130,6 +210,20 @@ func (s *StripeWebhookServiceImpl) HandleStripeWebhook(ctx context.Context, payl
 	}
 
 	return nil
+}
+
+// reconcileTarget — целевой статус интента для события (тот же маппинг, что
+// в applyEvent): checkout.completed → paid; failed/expired → failed.
+// Пустая строка для необрабатываемых типов — сверка не имеет смысла.
+func reconcileTarget(event *StripeWebhookEvent) apppayments.Status {
+	switch event.EventType {
+	case WebhookEventCheckoutCompleted:
+		return apppayments.StatusPaid
+	case WebhookEventCheckoutFailed, WebhookEventCheckoutExpired:
+		return apppayments.StatusFailed
+	default:
+		return ""
+	}
 }
 
 // stripeWebhookEventInternal — внутренняя структура для парсинга Stripe event.

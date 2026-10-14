@@ -26,3 +26,28 @@ coverage.html
 # зависимости ставит `npm ci` внутри образа, dist собирается там же.
 **/node_modules
 **/dist
+
+# Секреты и локальные env (INF, 2026-09-26): deployments/Dockerfile делает
+# `COPY . .`, поэтому deployments/.env (с POSTGRES_PASSWORD и др.) и
+# .env.production попадали в build-слой образа И в кэш сборки
+# (cache-to: type=gha в ci.yml). Секрет в слое виден через docker history и
+# через восстановление любого промежуточного слоя.
+# Явные пути вместо **: поведение **/ различается между docker и разными
+# реализациями .dockerignore, поэтому секреты исключаем точечно.
+.env
+.env.*
+**/.env
+**/.env.*
+# Порядок важен: include должен идти ПОСЛЕ исключающего правила.
+!.env.example
+!deployments/.env.example
+
+# Тяжёлые каталоги, которые не нужны для сборки Go-образа: showcase (~878 МБ,
+# включая .next на 388 МБ) делал контекст сборки больше гигабайта.
+showcase/
+**/.next
+REPORTS/
+k6/
+benchmarks/
+storage/
+backups/

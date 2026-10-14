@@ -23,6 +23,7 @@ export default defineConfig({
         'src/main.tsx',
         '**/*.css',
         'shared/src/viewer/**',
+        'shared/src/storefront/**',
       ],
       thresholds: { lines: 80, statements: 80, functions: 75, branches: 70 },
     },

@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"time"
 
+	"stairplatform/internal/application/auth"
 	"stairplatform/internal/application/project"
 	"stairplatform/internal/application/stair"
+	dommfg "stairplatform/internal/domain/manufacturing"
 	kerngeo "stairplatform/internal/geometry"
 	"stairplatform/internal/infrastructure/cad"
 )
@@ -30,6 +32,10 @@ type ProjectService interface {
 	AddMemberByEmail(ctx context.Context, tenantID, actorID, projectID, email string, role project.ProjectRole) error
 	UpdateMemberRole(ctx context.Context, tenantID, actorID, projectID, userID string, role project.ProjectRole) error
 	RemoveMember(ctx context.Context, tenantID, actorID, projectID, userID string) error
+	// TransferOwnership передаёт владение проектом другому участнику.
+	// byCapability передаёт проверку платформенного права staff.project_transfer,
+	// выполненную в транспорте (в прикладном уровне метрики неизвестны).
+	TransferOwnership(ctx context.Context, tenantID, actorID, projectID, toUserID string, byCapability bool) error
 	AddComment(ctx context.Context, tenantID, userID, projectID, body string) (*project.Comment, error)
 	ListComments(ctx context.Context, tenantID, userID, projectID string) ([]*project.Comment, error)
 	DeleteComment(ctx context.Context, tenantID, userID, projectID, commentID string) error
@@ -48,9 +54,23 @@ type ProjectService interface {
 	Optimize(ctx context.Context, tenantID, userID, projectID string, cfg stair.Config, opts stair.Options, oreq stair.OptimizeRequest) (*project.OptimizeOutcome, error)
 	GetResult(ctx context.Context, tenantID, userID, projectID string) (*project.Calculation, error)
 	ExportCAD(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, error)
+	// ExportCADWithRailings — экспорт сетки вместе с сеткой перил (DOM-003).
+	// Экспортируемые DXF/STL/SVG раньше не содержали перил вообще.
+	ExportCADWithRailings(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, *kerngeo.Mesh, error)
+	// ExportCutting — производственный пакет для документов производства
+	// (документ реза, сборочный чертёж, наклейки). Отдельный метод от
+	// ExportCAD, потому что документ реза строится по раскрою (карта
+	// раскроя, номера деталей, отверстия), а не по мешу: меш не знает ни
+	// номера детали, ни её места на листе.
+	ExportCutting(ctx context.Context, tenantID, userID, projectID string) (*dommfg.ManufacturingPackage, error)
+	// ExportAssembly — геометрия и пакет для сборочного чертежа одним
+	// расчётом. Метки чертежа должны стоять на геометрии того же расчёта,
+	// что и пакет, поэтому метод один, а не два вызова.
+	ExportAssembly(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, *kerngeo.Mesh, *dommfg.ManufacturingPackage, error)
 	ListConfigurations(ctx context.Context, tenantID, userID, projectID string) ([]*project.StairConfiguration, error)
 	GetConfiguration(ctx context.Context, tenantID, userID, projectID, configurationID string) (*project.StairConfiguration, error)
 	RestoreConfiguration(ctx context.Context, tenantID, userID, projectID, configurationID string) (*project.StairConfiguration, error)
+	MarkConfigurationAsMeasurement(ctx context.Context, tenantID, userID, projectID, configurationID string, mark bool) (*project.StairConfiguration, error)
 }
 
 // ---- DTO ----
@@ -73,12 +93,16 @@ type projectDTO struct {
 	UpdatedAt              time.Time `json:"updated_at"`
 }
 
-// memberDTO — участник проекта (EDR-0008).
+// memberDTO — участник проекта (EDR-0008). Email и Name — чтобы интерфейс
+// показывал человека, а не UUID: выбрать «кому передать владение» по
+// идентификатору невозможно.
 type memberDTO struct {
 	ProjectID string    `json:"project_id"`
 	UserID    string    `json:"user_id"`
 	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"created_at"`
+	Email     string    `json:"email,omitempty"`
+	Name      string    `json:"name,omitempty"`
 }
 
 // memberRequest — тело запроса управления членом (add/update role).
@@ -134,28 +158,45 @@ type approvalDTO struct {
 // конфигурации проекта с монотонным номером Revision.
 // Current — признак текущей (активной) ревизии проекта.
 type configurationDTO struct {
-	ID                  string    `json:"id"`
-	ProjectID           string    `json:"project_id"`
-	Revision            int       `json:"revision"`
-	WidthMM             float64   `json:"width_mm"`
-	HeightMM            float64   `json:"height_mm"`
-	Flight              string    `json:"flight"`
-	StepHeightMM        float64   `json:"step_height_mm"`
-	StringerThicknessMM float64   `json:"stringer_thickness_mm"`
-	StepThicknessMM     float64   `json:"step_thickness_mm"`
-	Riser               bool      `json:"riser"`
-	ClearanceMM         float64   `json:"clearance_mm"`
-	RailingHeightMM     float64   `json:"railing_height_mm"`
-	ComfortStepMM       float64   `json:"comfort_step_mm"`
-	LandingWidthMM      float64   `json:"landing_width_mm"`
-	LandingDepthMM      float64   `json:"landing_depth_mm"`
-	RoomWidthMM         float64   `json:"room_width_mm"`
-	RoomLengthMM        float64   `json:"room_length_mm"`
-	ApproachSpaceMM     float64   `json:"approach_space_mm"`
-	LowerStepCount      int       `json:"lower_step_count"`
-	OuterRadiusMM       float64   `json:"outer_radius_mm"`
-	Current             bool      `json:"current"`
-	CreatedAt           time.Time `json:"created_at"`
+	ID                  string  `json:"id"`
+	ProjectID           string  `json:"project_id"`
+	Revision            int     `json:"revision"`
+	WidthMM             float64 `json:"width_mm"`
+	HeightMM            float64 `json:"height_mm"`
+	Flight              string  `json:"flight"`
+	StepHeightMM        float64 `json:"step_height_mm"`
+	StringerThicknessMM float64 `json:"stringer_thickness_mm"`
+	StepThicknessMM     float64 `json:"step_thickness_mm"`
+	Riser               bool    `json:"riser"`
+	ClearanceMM         float64 `json:"clearance_mm"`
+	RailingHeightMM     float64 `json:"railing_height_mm"`
+	ComfortStepMM       float64 `json:"comfort_step_mm"`
+	LandingWidthMM      float64 `json:"landing_width_mm"`
+	LandingDepthMM      float64 `json:"landing_depth_mm"`
+	RoomWidthMM         float64 `json:"room_width_mm"`
+	RoomLengthMM        float64 `json:"room_length_mm"`
+	ApproachSpaceMM     float64 `json:"approach_space_mm"`
+	LowerStepCount      int     `json:"lower_step_count"`
+	// DOM-003: девять параметров, которые отсутствовали в DTO. Из-за этого
+	// загруженная ревизия не содержала сведений о типе поворота, сторонах
+	// перил, направлениях и материале, и повторная отправка формы их теряла.
+	TurnKind       string `json:"turn_kind,omitempty"`
+	WinderCount    int    `json:"winder_count,omitempty"`
+	Railing        string `json:"railing,omitempty"`
+	RailingLower   string `json:"railing_lower,omitempty"`
+	RailingLanding string `json:"railing_landing,omitempty"`
+	RailingUpper   string `json:"railing_upper,omitempty"`
+	Direction      string `json:"direction,omitempty"`
+	Material       string `json:"material,omitempty"`
+	// TreadMaterial — материал ступеней отдельно от каркаса; пусто = тот же.
+	TreadMaterial string `json:"tread_material,omitempty"`
+	// RiserThicknessMM — толщина подступенка, мм; 0 = как у ступени.
+	RiserThicknessMM float64 `json:"riser_thickness_mm,omitempty"`
+	// IsMeasurement — ревизия снята по факту на объекте (решение владельца
+	// 2026-10-08), а не по телефону. Информационная метка.
+	IsMeasurement bool      `json:"is_measurement"`
+	Current       bool      `json:"current"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // calculationDTO — сохранённый расчёт проекта: метаданные + снапшот.
@@ -208,7 +249,9 @@ func handleGetProject(svc ProjectService) http.HandlerFunc {
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		writeJSON(w, http.StatusOK, toProjectDTO(p))
@@ -222,22 +265,17 @@ func handleListProjects(svc ProjectService) http.HandlerFunc {
 		params := ParsePagination(r)
 		list, err := svc.ListProjects(r.Context(), tenantID(r.Context()), userID(r.Context()))
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 
-		// Применяем пагинацию
+		// Применяем пагинацию.
+		// API-001: через SliceInPage — раньше ручная нарезка list[start:end]
+		// паниковала на отрицательном start из-за переполнения int64 в Offset().
 		total := len(list)
-		start := params.Offset()
-		if start >= total {
-			list = []*project.Project{}
-		} else {
-			end := start + params.PerPage
-			if end > total {
-				end = total
-			}
-			list = list[start:end]
-		}
+		list = SliceInPage(params, list)
 
 		out := make([]projectDTO, 0, len(list))
 		for _, p := range list {
@@ -261,7 +299,9 @@ func handleListMembers(svc ProjectService) http.HandlerFunc {
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		out := make([]memberDTO, 0, len(members))
@@ -339,6 +379,48 @@ func handleUpdateMemberRole(svc ProjectService) http.HandlerFunc {
 	}
 }
 
+// transferRequest — тело передачи владения: кому отдать проект.
+type transferRequest struct {
+	ToUserID string `json:"to_user_id"`
+}
+
+// handleTransferProject — POST /api/v1/projects/{id}/transfer (auth+CSRF).
+//
+// Передать может владелец проекта; владелец компании — любой проект, если у
+// него есть платформенное право staff.project_transfer. Проверка права — здесь,
+// в транспорте: прикладной уровень не знает, что выданные человеку метрики.
+// Владельцу проекта право не требуется — это его проект.
+func handleTransferProject(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req transferRequest
+		if err := decodeJSONStrict(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", jsonErrorMessage(err))
+			return
+		}
+		if req.ToUserID == "" {
+			writeError(w, http.StatusUnprocessableEntity, "invalid_input", "Укажите, кому передать проект.")
+			return
+		}
+		byCapability := hasCapability(r, auth.CapStaffProjectTransfer, auth.LevelAction)
+		err := svc.TransferOwnership(r.Context(), tenantID(r.Context()), userID(r.Context()),
+			r.PathValue("id"), req.ToUserID, byCapability)
+		switch {
+		case errors.Is(err, project.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found",
+				"Проект не найден или новый владелец не участник проекта.")
+		case errors.Is(err, project.ErrForbidden):
+			writeError(w, http.StatusForbidden, "forbidden",
+				"Передать проект может только его владелец.")
+		case errors.Is(err, project.ErrConflict):
+			writeError(w, http.StatusConflict, "conflict", userInputMessage(err))
+		case err != nil:
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
+		default:
+			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		}
+	}
+}
+
 // handleRemoveMember — DELETE /api/v1/projects/{id}/members/{userID}
 // (auth+CSRF, owner). 204 — удалён; 403 — нет прав; 404 — нет проекта.
 func handleRemoveMember(svc ProjectService) http.HandlerFunc {
@@ -410,20 +492,12 @@ func handleListComments(svc ProjectService) http.HandlerFunc {
 		case errors.Is(err, project.ErrForbidden):
 			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 		default:
-			// Применяем пагинацию
+			// Применяем пагинацию (API-001: SliceInPage, безопасно при
+			// любом значении page).
 			total := len(comments)
-			start := params.Offset()
-			if start >= total {
-				comments = []*project.Comment{}
-			} else {
-				end := start + params.PerPage
-				if end > total {
-					end = total
-				}
-				comments = comments[start:end]
-			}
+			comments = SliceInPage(params, comments)
 
 			out := make([]commentDTO, 0, len(comments))
 			for _, c := range comments {
@@ -473,7 +547,7 @@ func handleRequestReview(svc ProjectService) http.HandlerFunc {
 		case errors.Is(err, project.ErrConflict):
 			writeError(w, http.StatusUnprocessableEntity, "invalid_status", userInputMessage(err))
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 		default:
 			writeJSON(w, http.StatusCreated, toReviewDTO(rv))
 		}
@@ -492,7 +566,7 @@ func handleSignOffReview(svc ProjectService) http.HandlerFunc {
 		}
 		rv, err := svc.SignOffReview(r.Context(), tenantID(r.Context()), userID(r.Context()),
 			r.PathValue("id"), r.PathValue("reviewID"), req.Comment)
-		writeReviewDecision(w, rv, err)
+		writeReviewDecision(w, r, rv, err)
 	}
 }
 
@@ -509,7 +583,7 @@ func handleRequestChanges(svc ProjectService) http.HandlerFunc {
 		}
 		rv, err := svc.RequestChanges(r.Context(), tenantID(r.Context()), userID(r.Context()),
 			r.PathValue("id"), r.PathValue("reviewID"), req.Comment)
-		writeReviewDecision(w, rv, err)
+		writeReviewDecision(w, r, rv, err)
 	}
 }
 
@@ -525,20 +599,11 @@ func handleListReviews(svc ProjectService) http.HandlerFunc {
 		case errors.Is(err, project.ErrForbidden):
 			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 		default:
-			// Применяем пагинацию
+			// Применяем пагинацию (API-001: SliceInPage).
 			total := len(reviews)
-			start := params.Offset()
-			if start >= total {
-				reviews = []*project.ProjectReview{}
-			} else {
-				end := start + params.PerPage
-				if end > total {
-					end = total
-				}
-				reviews = reviews[start:end]
-			}
+			reviews = SliceInPage(params, reviews)
 
 			out := make([]reviewDTO, 0, len(reviews))
 			for _, rv := range reviews {
@@ -550,7 +615,7 @@ func handleListReviews(svc ProjectService) http.HandlerFunc {
 }
 
 // writeReviewDecision — общий вывод ответа решения по ревью.
-func writeReviewDecision(w http.ResponseWriter, rv *project.ProjectReview, err error) {
+func writeReviewDecision(w http.ResponseWriter, r *http.Request, rv *project.ProjectReview, err error) {
 	switch {
 	case errors.Is(err, project.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "Отзыв или проект не найден.")
@@ -559,7 +624,7 @@ func writeReviewDecision(w http.ResponseWriter, rv *project.ProjectReview, err e
 	case errors.Is(err, project.ErrConflict):
 		writeError(w, http.StatusUnprocessableEntity, "invalid_status", userInputMessage(err))
 	case err != nil:
-		writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+		writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 	default:
 		writeJSON(w, http.StatusOK, toReviewDTO(rv))
 	}
@@ -585,7 +650,7 @@ func handleApproveConfiguration(svc ProjectService) http.HandlerFunc {
 		case errors.Is(err, project.ErrConflict):
 			writeInputError(w, "already_approved", err)
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 		default:
 			writeJSON(w, http.StatusCreated, toApprovalDTO(a))
 		}
@@ -604,7 +669,7 @@ func handleGetConfigurationApproval(svc ProjectService) http.HandlerFunc {
 		case errors.Is(err, project.ErrForbidden):
 			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 		default:
 			writeJSON(w, http.StatusOK, toApprovalDTO(a))
 		}
@@ -623,20 +688,11 @@ func handleListApprovals(svc ProjectService) http.HandlerFunc {
 		case errors.Is(err, project.ErrForbidden):
 			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 		default:
-			// Применяем пагинацию
+			// Применяем пагинацию (API-001: SliceInPage).
 			total := len(approvals)
-			start := params.Offset()
-			if start >= total {
-				approvals = []*project.ConfigurationApproval{}
-			} else {
-				end := start + params.PerPage
-				if end > total {
-					end = total
-				}
-				approvals = approvals[start:end]
-			}
+			approvals = SliceInPage(params, approvals)
 
 			out := make([]approvalDTO, 0, len(approvals))
 			for _, a := range approvals {
@@ -659,7 +715,7 @@ func handleListConfigurations(svc ProjectService) http.HandlerFunc {
 		case errors.Is(err, project.ErrForbidden):
 			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 		default:
 			current := currentConfigID(r, svc, projectID)
 			out := make([]configurationDTO, 0, len(configs))
@@ -684,7 +740,7 @@ func handleGetConfiguration(svc ProjectService) http.HandlerFunc {
 		case errors.Is(err, project.ErrForbidden):
 			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 		default:
 			writeJSON(w, http.StatusOK, toConfigurationDTO(c, currentConfigID(r, svc, projectID)))
 		}
@@ -704,9 +760,47 @@ func handleRestoreConfiguration(svc ProjectService) http.HandlerFunc {
 		case errors.Is(err, project.ErrForbidden):
 			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
 		case err != nil:
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 		default:
 			writeJSON(w, http.StatusOK, toConfigurationDTO(c, c.ID))
+		}
+	}
+}
+
+// markMeasurementRequest — тело пометки ревизии как замер.
+type markMeasurementRequest struct {
+	Mark *bool `json:"mark"`
+}
+
+// handleMarkConfigurationMeasurement — POST
+// /api/v1/projects/{id}/configurations/{configID}/measurement (auth+CSRF).
+// Помечает ревизию как снятую по факту на объекте либо снимает метку.
+func handleMarkConfigurationMeasurement(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		projectID := r.PathValue("id")
+		// По умолчанию метка СТАВИТСЯ: пустое тело — это «отметить как
+		// замер», потому что это действие вызывают чаще, а снятие метки
+		// передаётся явным {"mark": false}.
+		mark := true
+		var req markMeasurementRequest
+		if err := decodeJSONStrict(w, r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_json", jsonErrorMessage(err))
+			return
+		}
+		if req.Mark != nil {
+			mark = *req.Mark
+		}
+		c, err := svc.MarkConfigurationAsMeasurement(r.Context(), tenantID(r.Context()), userID(r.Context()),
+			projectID, r.PathValue("configID"), mark)
+		switch {
+		case errors.Is(err, project.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "Конфигурация не найдена.")
+		case errors.Is(err, project.ErrForbidden):
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
+		case err != nil:
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
+		default:
+			writeJSON(w, http.StatusOK, toConfigurationDTO(c, currentConfigID(r, svc, projectID)))
 		}
 	}
 }
@@ -733,9 +827,8 @@ func handleCalculateProject(svc ProjectService) http.HandlerFunc {
 			return
 		}
 		cfg := toConfig(req)
-		opts, err := toOptions(req)
-		if err != nil {
-			writeInputError(w, "invalid_rates", err)
+		opts, ok := optionsOrReject(r, w, req)
+		if !ok {
 			return
 		}
 
@@ -770,9 +863,8 @@ func handlePreviewProject(svc ProjectService) http.HandlerFunc {
 			return
 		}
 		cfg := toConfig(req)
-		opts, err := toOptions(req)
-		if err != nil {
-			writeInputError(w, "invalid_rates", err)
+		opts, ok := optionsOrReject(r, w, req)
+		if !ok {
 			return
 		}
 
@@ -807,9 +899,8 @@ func handleOptimizeProject(svc ProjectService) http.HandlerFunc {
 			return
 		}
 		cfg := toConfig(req.calculateRequest)
-		opts, err := toOptions(req.calculateRequest)
-		if err != nil {
-			writeInputError(w, "invalid_rates", err)
+		opts, ok := optionsOrReject(r, w, req.calculateRequest)
+		if !ok {
 			return
 		}
 
@@ -868,7 +959,9 @@ func handleExportProject(svc ProjectService) http.HandlerFunc {
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -892,7 +985,10 @@ func handleExportCAD(svc ProjectService) http.HandlerFunc {
 			writeError(w, http.StatusBadRequest, "invalid_input", userInputMessage(err))
 			return
 		}
-		mesh, err := svc.ExportCAD(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
+		// DOM-003: экспорт включает и перила (CONF-RAILING). Раньше возвращался
+		// только res.Mesh, а перила строятся отдельным телом (RailingMesh),
+		// поэтому в выгружаемых DXF/STL/SVG их не было вообще.
+		mesh, railings, err := svc.ExportCADWithRailings(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
 		if errors.Is(err, project.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "Для проекта нет конфигурации")
 			return
@@ -902,17 +998,171 @@ func handleExportCAD(svc ProjectService) http.HandlerFunc {
 			return
 		}
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Внутренняя ошибка сервера")
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
 			return
 		}
+		mesh = cad.Merge(mesh, railings)
 		var buf bytes.Buffer
 		if err := cad.Write(&buf, mesh, format); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", "Не удалось выполнить экспорт чертежа")
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Не удалось выполнить экспорт чертежа")
 			return
 		}
 		w.Header().Set("Content-Type", format.MIME())
 		w.Header().Set("Content-Disposition",
 			fmt.Sprintf(`attachment; filename="project-%s%s"`, r.PathValue("id"), format.Extension()))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(buf.Bytes())
+	}
+}
+
+// handleExportCutting — GET /api/v1/projects/{id}/export/cutting (auth).
+//
+// Документ реза: контуры деталей на плоскости листа с отверстиями
+// (настоящие CIRCLE там, где многоугольник доказанно круглый) и номерами
+// деталей. Отдаётся сразу файлом, как и handleExportCAD.
+//
+// Отдельный маршрут от /export/cad, а не параметр format: у документа реза
+// другой вход (раскрой, а не меш) и другой смысл координат (место детали на
+// листе, а не в системе координат изделия). Смешивание двух разных
+// документов в один маршрут с флагом привело бы к тому, что оператор не
+// знал бы, режет он картинку или контур.
+func handleExportCutting(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pkg, err := svc.ExportCutting(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
+		if errors.Is(err, project.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "Для проекта нет конфигурации")
+			return
+		}
+		if errors.Is(err, project.ErrForbidden) {
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
+			return
+		}
+		if err != nil {
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
+			return
+		}
+		var buf bytes.Buffer
+		if err := cad.WriteCutting(&buf, pkg); err != nil {
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Не удалось выполнить экспорт документа реза")
+			return
+		}
+		w.Header().Set("Content-Type", cad.CuttingMIME())
+		w.Header().Set("Content-Disposition",
+			fmt.Sprintf(`attachment; filename="project-%s-cutting.dxf"`, r.PathValue("id")))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(buf.Bytes())
+	}
+}
+
+// handleExportLabels — GET /api/v1/projects/{id}/export/labels (auth).
+//
+// Ведомость наклеек в CSV: строка на каждую деталь пакета с номером и
+// местом («куда»). По этому файлу печатаются наклейки на принтере этикеток:
+// одна строка = одна наклейка.
+//
+// Отдельный маршрут от /export/cutting: документ реза идёт на станок, а
+// ведомость — на принтер этикеток. Это два разных рабочих места с разными
+// файлами, и смешивать их в один ответ нельзя.
+func handleExportLabels(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pkg, err := svc.ExportCutting(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
+		if errors.Is(err, project.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "Для проекта нет конфигурации")
+			return
+		}
+		if errors.Is(err, project.ErrForbidden) {
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
+			return
+		}
+		if err != nil {
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
+			return
+		}
+		var buf bytes.Buffer
+		if err := cad.WriteLabels(&buf, pkg); err != nil {
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Не удалось выполнить экспорт ведомости наклеек")
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition",
+			fmt.Sprintf(`attachment; filename="project-%s-labels.csv"`, r.PathValue("id")))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(buf.Bytes())
+	}
+}
+
+// handleExportSpec — GET /api/v1/projects/{id}/export/spec (auth).
+//
+// Спецификация в CSV: строка на позицию с количеством и перечнем стикеров.
+// Вместе с ведомостью наклеек отвечает «какой стикер куда» с двух сторон:
+// наклейка говорит «я — TRD-07», спецификация говорит «TRD-07 — в позиции
+// 4 (проступь, 15 шт)».
+func handleExportSpec(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pkg, err := svc.ExportCutting(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
+		if errors.Is(err, project.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "Для проекта нет конфигурации")
+			return
+		}
+		if errors.Is(err, project.ErrForbidden) {
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
+			return
+		}
+		if err != nil {
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
+			return
+		}
+		var buf bytes.Buffer
+		if err := cad.WriteSpec(&buf, pkg); err != nil {
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Не удалось выполнить экспорт спецификации")
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition",
+			fmt.Sprintf(`attachment; filename="project-%s-spec.csv"`, r.PathValue("id")))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(buf.Bytes())
+	}
+}
+
+// handleExportAssembly — GET /api/v1/projects/{id}/export/assembly (auth).
+//
+// Сборочный чертёж в SVG: вид сверху с номерами деталей на их местах.
+// Метки и геометрия приходят из одного расчёта (ExportAssembly), чтобы номер
+// не встал на геометрию другого пересчёта.
+func handleExportAssembly(svc ProjectService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		mesh, railings, pkg, err := svc.ExportAssembly(r.Context(), tenantID(r.Context()), userID(r.Context()), r.PathValue("id"))
+		if errors.Is(err, project.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "Для проекта нет конфигурации")
+			return
+		}
+		if errors.Is(err, project.ErrForbidden) {
+			writeError(w, http.StatusForbidden, "forbidden", "Недостаточно прав для проекта")
+			return
+		}
+		if err != nil {
+			// API-002: доменные ошибки больше не превращаются в 500 —
+			// статус и код определяет единый контракт (error_contract.go).
+			writeServiceError(w, r, err, "Внутренняя ошибка сервера")
+			return
+		}
+		var buf bytes.Buffer
+		if err := cad.WriteAssembly(&buf, cad.Merge(mesh, railings), pkg.Parts); err != nil {
+			writeErrorWithRequestID(w, r, http.StatusInternalServerError, "internal", "Не удалось выполнить экспорт сборочного чертежа")
+			return
+		}
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Content-Disposition",
+			fmt.Sprintf(`attachment; filename="project-%s-assembly.svg"`, r.PathValue("id")))
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(buf.Bytes())
 	}
@@ -931,6 +1181,7 @@ func toProjectDTO(p *project.Project) projectDTO {
 func toMemberDTO(m *project.ProjectMember) memberDTO {
 	return memberDTO{
 		ProjectID: m.ProjectID, UserID: m.UserID, Role: string(m.Role), CreatedAt: m.CreatedAt,
+		Email: m.Email, Name: m.Name,
 	}
 }
 
@@ -978,9 +1229,20 @@ func toConfigurationDTO(c *project.StairConfiguration, current string) configura
 		RoomLengthMM:        c.RoomLengthMM,
 		ApproachSpaceMM:     c.ApproachSpaceMM,
 		LowerStepCount:      c.LowerStepCount,
-		OuterRadiusMM:       c.OuterRadiusMM,
-		Current:             c.ID == current,
-		CreatedAt:           c.CreatedAt,
+		IsMeasurement:       c.IsMeasurement,
+		// DOM-003: эхо девяти восстановленных параметров.
+		TurnKind:         c.TurnKind,
+		WinderCount:      c.WinderCount,
+		Railing:          c.Railing,
+		RailingLower:     c.RailingLower,
+		RailingLanding:   c.RailingLanding,
+		RailingUpper:     c.RailingUpper,
+		Direction:        c.Direction,
+		Material:         c.MaterialCode,
+		TreadMaterial:    c.TreadMaterialCode,
+		RiserThicknessMM: c.RiserThicknessMM,
+		Current:          c.ID == current,
+		CreatedAt:        c.CreatedAt,
 	}
 }
 

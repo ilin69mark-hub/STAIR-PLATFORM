@@ -44,6 +44,11 @@ func (a *StripeAdapter) CreateCheckout(ctx context.Context, amountMinor int64, c
 	return session.ID, session.CheckoutURL, nil
 }
 
+// Refund подтверждает полный возврат через Stripe API.
+func (a *StripeAdapter) Refund(ctx context.Context, providerCheckoutID, idempotencyKey string) (string, error) {
+	return a.provider.Refund(ctx, providerCheckoutID, idempotencyKey)
+}
+
 // VerifyWebhookSignature проверяет подпись Stripe webhook.
 func (a *StripeAdapter) VerifyWebhookSignature(payload []byte, signature string) error {
 	return a.provider.VerifyWebhookSignature(payload, signature)

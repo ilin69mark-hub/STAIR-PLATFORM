@@ -1,0 +1,442 @@
+package http
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"stairplatform/internal/application/stair"
+	storeapp "stairplatform/internal/application/store"
+	dommfg "stairplatform/internal/domain/manufacturing"
+)
+
+// newHTTPFakeStoreRepo — репозиторий настроек магазина в памяти (tenant "t-1",
+// как у testAuth).
+func newHTTPFakeStoreRepo() storeapp.Repository {
+	return &httpFakeStoreRepo{
+		settings:          map[string]storeapp.Settings{},
+		prices:            map[string]map[string]int64{},
+		fasteners:         map[string]map[string]int64{},
+		fastenerPositions: map[string]map[string]storeapp.FastenerPosition{},
+		sealants:          map[string]map[string]int64{},
+		purchased:         map[string]map[dommfg.PartKind]int64{},
+	}
+}
+
+type httpFakeStoreRepo struct {
+	settings  map[string]storeapp.Settings
+	prices    map[string]map[string]int64
+	fasteners map[string]map[string]int64
+	// fastenerPositions — свои позиции крепежа tenant'а (000048).
+	fastenerPositions map[string]map[string]storeapp.FastenerPosition
+	sealants          map[string]map[string]int64
+	// purchased хранит цены по ВИДУ детали (part_kind), а не по номеру
+	// экземпляра: прайс по PST-01 и PST-02 построить нельзя.
+	purchased map[string]map[dommfg.PartKind]int64
+}
+
+func (f *httpFakeStoreRepo) GetSettings(_ context.Context, tenantID string) (storeapp.Settings, error) {
+	s, ok := f.settings[tenantID]
+	if !ok {
+		return storeapp.Settings{}, storeapp.ErrNotFound
+	}
+	return s, nil
+}
+
+func (f *httpFakeStoreRepo) SaveSettings(_ context.Context, tenantID string, s storeapp.Settings, updatedBy string) error {
+	s.UpdatedBy = updatedBy
+	f.settings[tenantID] = s
+	return nil
+}
+
+func (f *httpFakeStoreRepo) ListMaterialPrices(_ context.Context, tenantID string) ([]storeapp.MaterialPrice, error) {
+	out := make([]storeapp.MaterialPrice, 0, len(f.prices[tenantID]))
+	for code, price := range f.prices[tenantID] {
+		out = append(out, storeapp.MaterialPrice{Code: code, PricePerKgRub: price, Overridden: true})
+	}
+	return out, nil
+}
+
+func (f *httpFakeStoreRepo) SetMaterialPrice(_ context.Context, tenantID, code string, price int64, _ string) error {
+	if f.prices[tenantID] == nil {
+		f.prices[tenantID] = map[string]int64{}
+	}
+	f.prices[tenantID][code] = price
+	return nil
+}
+
+func (f *httpFakeStoreRepo) DeleteMaterialPrice(_ context.Context, tenantID, code string) error {
+	delete(f.prices[tenantID], code)
+	return nil
+}
+
+func (f *httpFakeStoreRepo) ListFastenerPrices(_ context.Context, tenantID string) ([]storeapp.FastenerPrice, error) {
+	byCode := f.fasteners[tenantID]
+	out := make([]storeapp.FastenerPrice, 0, len(byCode))
+	for code, price := range byCode {
+		out = append(out, storeapp.FastenerPrice{Code: code, PricePerPcRub: price, Overridden: true})
+	}
+	return out, nil
+}
+
+func (f *httpFakeStoreRepo) SetFastenerPrice(_ context.Context, tenantID, code string, price int64, _ string) error {
+	if f.fasteners[tenantID] == nil {
+		f.fasteners[tenantID] = map[string]int64{}
+	}
+	f.fasteners[tenantID][code] = price
+	return nil
+}
+
+func (f *httpFakeStoreRepo) DeleteFastenerPrice(_ context.Context, tenantID, code string) error {
+	delete(f.fasteners[tenantID], code)
+	return nil
+}
+
+// ---- свои позиции крепежа (000048) ----
+
+func (f *httpFakeStoreRepo) ListFastenerPositions(_ context.Context, tenantID string) ([]storeapp.FastenerPosition, error) {
+	byCode := f.fastenerPositions[tenantID]
+	out := make([]storeapp.FastenerPosition, 0, len(byCode))
+	for _, p := range byCode {
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+func (f *httpFakeStoreRepo) CreateFastenerPosition(_ context.Context, tenantID string,
+	p storeapp.FastenerPosition, price int64, _ string) error {
+	if f.fastenerPositions[tenantID] == nil {
+		f.fastenerPositions[tenantID] = map[string]storeapp.FastenerPosition{}
+	}
+	f.fastenerPositions[tenantID][p.Code] = p
+	if f.fasteners[tenantID] == nil {
+		f.fasteners[tenantID] = map[string]int64{}
+	}
+	f.fasteners[tenantID][p.Code] = price
+	return nil
+}
+
+func (f *httpFakeStoreRepo) DeleteFastenerPosition(_ context.Context, tenantID, code string) error {
+	delete(f.fastenerPositions[tenantID], code)
+	delete(f.fasteners[tenantID], code)
+	return nil
+}
+
+func (f *httpFakeStoreRepo) ListSealantPrices(_ context.Context, tenantID string) ([]storeapp.SealantPrice, error) {
+	byCode := f.sealants[tenantID]
+	out := make([]storeapp.SealantPrice, 0, len(byCode))
+	for code, price := range byCode {
+		out = append(out, storeapp.SealantPrice{Code: code, PricePerCartridgeRub: price, Overridden: true})
+	}
+	return out, nil
+}
+
+func (f *httpFakeStoreRepo) SetSealantPrice(_ context.Context, tenantID, code string, price int64, _ string) error {
+	if f.sealants[tenantID] == nil {
+		f.sealants[tenantID] = map[string]int64{}
+	}
+	f.sealants[tenantID][code] = price
+	return nil
+}
+
+func (f *httpFakeStoreRepo) DeleteSealantPrice(_ context.Context, tenantID, code string) error {
+	delete(f.sealants[tenantID], code)
+	return nil
+}
+
+func (f *httpFakeStoreRepo) ListPurchasedPrices(_ context.Context, tenantID string) ([]storeapp.PurchasedPrice, error) {
+	byKind := f.purchased[tenantID]
+	out := make([]storeapp.PurchasedPrice, 0, len(byKind))
+	for kind, price := range byKind {
+		out = append(out, storeapp.PurchasedPrice{Kind: kind, PricePerPcRub: price, Overridden: true})
+	}
+	return out, nil
+}
+
+func (f *httpFakeStoreRepo) SetPurchasedPrice(_ context.Context, tenantID, kind string, price int64, _ string) error {
+	if f.purchased[tenantID] == nil {
+		f.purchased[tenantID] = map[dommfg.PartKind]int64{}
+	}
+	f.purchased[tenantID][dommfg.PartKind(kind)] = price
+	return nil
+}
+
+func (f *httpFakeStoreRepo) DeletePurchasedPrice(_ context.Context, tenantID, kind string) error {
+	delete(f.purchased[tenantID], dommfg.PartKind(kind))
+	return nil
+}
+
+// publicJSONRequest — анонимный запрос с JSON-телом: decodeJSON требует
+// Content-Type: application/json (как у витрины).
+func publicJSONRequest(method, path, body string) *http.Request {
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	return r
+}
+
+// jsonHas — проверка наличия фрагмента в JSON-ответе.
+func jsonHas(body []byte, fragment string) bool {
+	return strings.Contains(string(body), fragment)
+}
+
+func testRouterWithStore(s StoreService, admin bool) http.Handler {
+	cfg := DefaultConfig()
+	cfg.Store = s
+	var auth AuthService = testAuth{}
+	if admin {
+		auth = adminAuth{}
+	}
+	// CRITICAL-03: сервис расчёта подключён к магазину через RatesResolver.
+	// Ставки магазина выбирает application-слой (stair.Service.resolveRates),
+	// а не транспорт, поэтому тестовый роутер обязан собираться так же, как
+	// прод (cmd/api/main.go: stair.NewServiceWithRates(storeSvc)).
+	return NewRouter(stair.NewServiceWithRates(s), nil, auth, cfg)
+}
+
+// TestAdminStoreSettingsRequiresAdmin — прайс и настройки магазина доступны
+// только администратору (волна 0).
+func TestAdminStoreSettingsRequiresAdmin(t *testing.T) {
+	svc := storeapp.NewService(newHTTPFakeStoreRepo())
+	for _, path := range []string{"/api/v1/admin/store/settings", "/api/v1/admin/store/prices"} {
+		rec := httptest.NewRecorder()
+		testRouterWithStore(svc, false).ServeHTTP(rec, authedRequest(http.MethodGet, path, ""))
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("%s: want 403 для user, got %d: %s", path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// TestAdminUpdateStoreSettings — PUT сохраняет контакты и параметры расчёта.
+func TestAdminUpdateStoreSettings(t *testing.T) {
+	svc := storeapp.NewService(newHTTPFakeStoreRepo())
+	router := testRouterWithStore(svc, true)
+
+	body := `{"contacts":{"phone":"+7 900 123-45-67","email":"shop@example.com"},
+	          "rates":{"margin_percent":12,"tax_percent":20}}`
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, authedRequest(http.MethodPut, "/api/v1/admin/store/settings", body))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var got storeapp.Settings
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Contacts.Phone != "+7 900 123-45-67" || got.Rates.MarginPercent != 12 {
+		t.Fatalf("настройки не применены: %+v", got)
+	}
+
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, authedRequest(http.MethodGet, "/api/v1/admin/store/settings", ""))
+	if rec.Code != http.StatusOK || !jsonHas(rec.Body.Bytes(), `"margin_percent":12`) {
+		t.Fatalf("GET settings: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestAdminUpdateStoreSettingsRejectsInvalid — недопустимые проценты → 422.
+func TestAdminUpdateStoreSettingsRejectsInvalid(t *testing.T) {
+	svc := storeapp.NewService(newHTTPFakeStoreRepo())
+	rec := httptest.NewRecorder()
+	testRouterWithStore(svc, true).ServeHTTP(rec,
+		authedRequest(http.MethodPut, "/api/v1/admin/store/settings", `{"rates":{"margin_percent":300}}`))
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("want 422, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestAdminMaterialPrices — прайс материалов: сохранение, чтение и сброс к
+// встроенной ставке движка.
+func TestAdminMaterialPrices(t *testing.T) {
+	svc := storeapp.NewService(newHTTPFakeStoreRepo())
+	router := testRouterWithStore(svc, true)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, authedRequest(http.MethodPut, "/api/v1/admin/store/prices", `{"code":"WOOD-OAK","price_per_kg_rub":4200}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("set price: %d %s", rec.Code, rec.Body.String())
+	}
+	if !jsonHas(rec.Body.Bytes(), `"overridden":true`) {
+		t.Fatalf("цена не помечена как заданная магазином: %s", rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, authedRequest(http.MethodGet, "/api/v1/admin/store/prices", ""))
+	if rec.Code != http.StatusOK || !jsonHas(rec.Body.Bytes(), `"price_per_kg_rub":4200`) {
+		t.Fatalf("list prices: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Неизвестный материал нельзя добавить в прайс.
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, authedRequest(http.MethodPut, "/api/v1/admin/store/prices", `{"code":"GOLD-24K","price_per_kg_rub":1}`))
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unknown material: want 422, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, authedRequest(http.MethodDelete, "/api/v1/admin/store/prices/WOOD-OAK", ""))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete price: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, authedRequest(http.MethodGet, "/api/v1/admin/store/prices", ""))
+	if jsonHas(rec.Body.Bytes(), `"overridden":true`) {
+		t.Fatalf("после удаления цена магазина осталась: %s", rec.Body.String())
+	}
+}
+
+// TestPublicStoreSettings — витрина получает контакты/SEO/счётчики без ставок.
+func TestPublicStoreSettings(t *testing.T) {
+	svc := storeapp.NewService(newHTTPFakeStoreRepo())
+	router := testRouterWithStore(svc, true)
+
+	body := `{"contacts":{"phone":"+7 900 000-11-22"},"counters":{"yandex_metrika_id":"12345"}}`
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, authedRequest(http.MethodPut, "/api/v1/admin/store/settings", body))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put settings: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/public/store-settings", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("public settings: %d %s", rec.Code, rec.Body.String())
+	}
+	if !jsonHas(rec.Body.Bytes(), `"yandex_metrika_id":"12345"`) {
+		t.Fatalf("код счётчика не отдан: %s", rec.Body.String())
+	}
+	for _, forbidden := range []string{`"rates"`, "margin_percent", "machine_per_hour_rub"} {
+		if jsonHas(rec.Body.Bytes(), forbidden) {
+			t.Fatalf("в публичных настройках утекла ставка %s: %s", forbidden, rec.Body.String())
+		}
+	}
+}
+
+// TestPublicQuoteRejectsClientRates — анонимный клиент не может задать ставки и
+// занизить предварительную цену (S-150, волна 0).
+func TestPublicQuoteRejectsClientRates(t *testing.T) {
+	svc := storeapp.NewService(newHTTPFakeStoreRepo())
+	router := testRouterWithStore(svc, false)
+
+	body := `{"width_mm":900,"height_mm":2800,"flight":"straight","step_height_mm":175,
+	          "stringer_thickness_mm":40,"step_thickness_mm":40,"riser":true,
+	          "clearance_mm":2200,"railing_height_mm":900,
+	          "rates":{"material_per_kg_rub":{"STEEL-C245":0.01},"margin_percent":0}}`
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, publicJSONRequest(http.MethodPost, "/api/v1/public/stairs:quote", body))
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("want 422, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !jsonHas(rec.Body.Bytes(), `"code":"rates_not_allowed"`) {
+		t.Fatalf("ожидался код rates_not_allowed: %s", rec.Body.String())
+	}
+}
+
+// TestPublicQuoteUsesStoreRates — цена публичного расчёта считается по прайсу
+// магазина, а не по ставкам запроса.
+func TestPublicQuoteUsesStoreRates(t *testing.T) {
+	repo := newHTTPFakeStoreRepo()
+	svc := storeapp.NewService(repo)
+	router := testRouterWithStore(svc, false)
+	quoteBody := `{"width_mm":900,"height_mm":2800,"flight":"straight","step_height_mm":175,
+	                 "stringer_thickness_mm":40,"step_thickness_mm":40,"riser":true,
+	                 "clearance_mm":2200,"railing_height_mm":900,"material":"WOOD-OAK"}`
+
+	// Проба — ИТОГОВАЯ цена, а не material_rub: публичный ответ не содержит
+	// разбивки себестоимости (SEC-PRICING-PUB), и проверять применение прайса
+	// магазина нужно по тому, что реально видит покупатель. Если прайс влияет
+	// на расчёт, он обязан поднять итог.
+	quote := func() float64 {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, publicJSONRequest(http.MethodPost, "/api/v1/public/stairs:quote", quoteBody))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("quote: %d %s", rec.Code, rec.Body.String())
+		}
+		var out publicQuoteDTO
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if out.Pricing == nil {
+			t.Fatal("в ответе нет цены")
+		}
+		return out.Pricing.FinalPriceRub
+	}
+
+	before := quote()
+	if err := svc.SetMaterialPrice(context.Background(), "t-1", "WOOD-OAK", 9000, "u-1"); err != nil {
+		t.Fatalf("SetMaterialPrice: %v", err)
+	}
+	after := quote()
+	if after <= before {
+		t.Fatalf("прайс магазина не поднял итоговую стоимость: было %.2f, стало %.2f", before, after)
+	}
+}
+
+// TestPublicMaterialsUseStorePrices — каталог витрины отдаёт цену магазина, а
+// правка прайса сбрасывает кэш публичных ответов (иначе старая цена держалась
+// бы до TTL 5 минут).
+func TestPublicMaterialsUseStorePrices(t *testing.T) {
+	svc := storeapp.NewService(newHTTPFakeStoreRepo())
+	router := testRouterWithStore(svc, true)
+
+	// Прогреваем кэш каталога.
+	before := materialPriceFromResponse(t, router)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, authedRequest(http.MethodPut, "/api/v1/admin/store/prices", `{"code":"WOOD-OAK","price_per_kg_rub":7777}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("set price: %d %s", rec.Code, rec.Body.String())
+	}
+
+	after, cacheState := materialPriceFromResponseWithCache(t, router)
+	if after != 7777 {
+		t.Fatalf("каталог не отдал цену магазина: было %.0f, стало %.0f", before, after)
+	}
+	if cacheState == "HIT" {
+		t.Fatal("кэш публичного каталога не сброшен после правки прайса")
+	}
+}
+
+func materialPriceFromResponse(t *testing.T, router http.Handler) float64 {
+	t.Helper()
+	price, _ := materialPriceFromResponseWithCache(t, router)
+	return price
+}
+
+func materialPriceFromResponseWithCache(t *testing.T, router http.Handler) (float64, string) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/public/materials", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("materials: %d %s", rec.Code, rec.Body.String())
+	}
+	var out []materialDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, m := range out {
+		if m.Code == "WOOD-OAK" {
+			return m.PricePerKgRub, rec.Header().Get("X-Cache")
+		}
+	}
+	t.Fatal("материал WOOD-OAK не найден в каталоге")
+	return 0, ""
+}
+
+// TestStoreRoutesAbsentWithoutService — без StoreService маршруты не
+// регистрируются, публичный расчёт работает на ставках движка.
+func TestStoreRoutesAbsentWithoutService(t *testing.T) {
+	router := NewRouter(stair.NewService(), nil, adminAuth{}, DefaultConfig())
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, authedRequest(http.MethodGet, "/api/v1/admin/store/settings", ""))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("want 404 без store-сервиса, got %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/public/store-settings", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("public store-settings: want 404, got %d", rec.Code)
+	}
+}

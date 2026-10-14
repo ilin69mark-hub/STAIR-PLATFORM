@@ -20,13 +20,13 @@ function order(over: Partial<OrderDTO> = {}): OrderDTO {
 
 describe('OrdersPanel', () => {
   it('показывает empty-state, когда заказов нет', () => {
-    render(<OrdersPanel orders={[]} onStatusChange={vi.fn()} />)
+    render(<OrdersPanel orders={[]} onStatusChange={vi.fn()} canManage />)
     expect(screen.getByText('Заказов пока нет.')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
   it('рендерит строку заказа: номер, бейдж, контакт, детали, статус, дата', () => {
-    render(<OrdersPanel orders={[order()]} onStatusChange={vi.fn()} />)
+    render(<OrdersPanel orders={[order()]} onStatusChange={vi.fn()} canManage />)
     const row = screen.getByText('order-1').closest('tr') as HTMLTableRowElement
     expect(row).toHaveTextContent('order-1')
     expect(row).toHaveTextContent('Заказ')
@@ -42,6 +42,7 @@ describe('OrdersPanel', () => {
       <OrdersPanel
         orders={[order({ id: 'order-2', kind: 'consultation', config: { question: 'Минимальная ширина лестницы?' } })]}
         onStatusChange={vi.fn()}
+        canManage
       />,
     )
     const row = screen.getByText('order-2').closest('tr') as HTMLTableRowElement
@@ -51,7 +52,7 @@ describe('OrdersPanel', () => {
   })
 
   it('без размеров и цены показывает «—» в деталях', () => {
-    render(<OrdersPanel orders={[order({ config: {}, price: undefined })]} onStatusChange={vi.fn()} />)
+    render(<OrdersPanel orders={[order({ config: {}, price: undefined })]} onStatusChange={vi.fn()} canManage />)
     const row = screen.getByText('order-1').closest('tr') as HTMLTableRowElement
     const cells = Array.from(row.querySelectorAll('td')) as HTMLTableCellElement[]
     const details = cells[cells.length - 3]
@@ -59,30 +60,39 @@ describe('OrdersPanel', () => {
   })
 
   it('только цена без размеров показывает цену', () => {
-    render(<OrdersPanel orders={[order({ config: null })]} onStatusChange={vi.fn()} />)
+    render(<OrdersPanel orders={[order({ config: null })]} onStatusChange={vi.fn()} canManage />)
     const row = screen.getByText('order-1').closest('tr') as HTMLTableRowElement
     expect(row).toHaveTextContent(/180\s*000/)
     expect(row).not.toHaveTextContent(/мм/)
   })
 
   it('только размеры без цены показывают размер', () => {
-    render(<OrdersPanel orders={[order({ price: undefined })]} onStatusChange={vi.fn()} />)
+    render(<OrdersPanel orders={[order({ price: undefined })]} onStatusChange={vi.fn()} canManage />)
     const row = screen.getByText('order-1').closest('tr') as HTMLTableRowElement
     expect(row).toHaveTextContent('900 × 2700 мм')
     expect(row).not.toHaveTextContent(/180\s*000/)
   })
 
   it('консультация без текста вопроса показывает «—»', () => {
-    render(<OrdersPanel orders={[order({ kind: 'consultation', config: null })]} onStatusChange={vi.fn()} />)
+    render(<OrdersPanel orders={[order({ kind: 'consultation', config: null })]} onStatusChange={vi.fn()} canManage />)
     const row = screen.getByText('order-1').closest('tr') as HTMLTableRowElement
     const cells = Array.from(row.querySelectorAll('td')) as HTMLTableCellElement[]
     const details = cells[cells.length - 3]
     expect(details.textContent).toBe('—')
   })
 
+  it('без orders.manage статус только читается, селекта нет', () => {
+    const onStatusChange = vi.fn()
+    render(<OrdersPanel orders={[order()]} onStatusChange={onStatusChange} canManage={false} />)
+    expect(screen.queryByLabelText('Статус заказа order-1')).not.toBeInTheDocument()
+    const row = screen.getByText('order-1').closest('tr') as HTMLTableRowElement
+    expect(row).toHaveTextContent('Новый')
+    expect(onStatusChange).not.toHaveBeenCalled()
+  })
+
   it('смена статуса вызывает onStatusChange(id, status)', () => {
     const onStatusChange = vi.fn()
-    render(<OrdersPanel orders={[order()]} onStatusChange={onStatusChange} />)
+    render(<OrdersPanel orders={[order()]} onStatusChange={onStatusChange} canManage />)
     fireEvent.change(screen.getByLabelText('Статус заказа order-1'), { target: { value: 'completed' } })
     expect(onStatusChange).toHaveBeenCalledWith('order-1', 'completed')
   })

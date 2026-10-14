@@ -21,10 +21,13 @@ FROM (VALUES
      'viewer@demo.local', 'Demo Viewer',
      '$2a$10$YT1plpOWpnZIrgNoPNeOi.eDN13s0/c/C5hRvakg0/LJwfkcjwiJW',
      'user', 'active'),
+    -- Владелец, а не просто админ: право выдавать метрики есть только у
+    -- owner (EDR-0041 §4). Демо-админ и есть владелец компании, поэтому
+    -- именно он настраивает доступ сотрудникам.
     ('00000000-0000-0000-0000-000000000103'::uuid,
-     'admin@admin.ru', 'Platform Admin',
+     'admin@admin.ru', 'Platform Owner',
      '$2a$10$YT1plpOWpnZIrgNoPNeOi.eDN13s0/c/C5hRvakg0/LJwfkcjwiJW',
-     'admin', 'active')
+     'owner', 'active')
 ) AS d(id, email, name, password_hash, role, status)
 CROSS JOIN tenants t
 WHERE t.slug = 'default'

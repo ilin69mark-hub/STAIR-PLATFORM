@@ -1,0 +1,176 @@
+# models/parts.yaml — ручное описание деталей эталона FreeCAD.
+#
+# Это ЕДИНСТВЕННОЕ место, где человек задаёт смысл детали: какой объект
+# модели — какая позиция каталога, из чего она и сколько её. Всё остальное
+# (габариты, объёмы, счётчики) генерируется скриптом S-198 из самой модели.
+# Раньше смысл был размазан между PREFIX_TO_ID в export_catalog.py и
+# internal/domain/engineering/parts.go — две копии, которые расходились.
+#
+# Источник: models/reference/stair-comb-railings.FCStd (см. README рядом).
+#
+# Правила именования объектов (повторяют base_name из export_catalog.py,
+# чтобы генератор S-198 не выводил смысл из имён заново):
+#   - вид + сторона/индекс: Stringer_A, Web_A_01, Heel_A_01, Anchor_A,
+#     FirstWeb_A, TopAnchor_A, Tread_01…Tread_16, Riser_01…Riser_16,
+#     Rail_Post_01…, Rail_Tip_01…, Rail_Lid_01…, Rail_Cap_Start/End;
+#   - Rail_Portun — поручень (один объект на весь марш);
+#   - Rail_Rigel_1_01… и Rail_Rigel_2_01… — оба ряда одна позиция RIGL-001.
+#
+# Известные особенности (не править модель, см. models/reference/README.md):
+#   - фланец сплавлен со стойкой: bbox стойки Ø86, труба на деле Ø42,4×1,5;
+#     диаметры труб — из констант fix_railings.py, поле tube источника tubes;
+#   - наконечник TIP-001 — 7 тел на стойку; роль clamp несёт 2 тела.
+#     Поле solids генератора обязано уметь «одна деталь = несколько тел».
+
+source_model: reference/stair-comb-railings.FCStd
+
+# tubes — диаметры труб, которые нельзя снять с bbox (см. выше).
+# Источник: константы fix_railings.py (PD, WALL, RIGEL_D, RIGEL_WALL).
+# axis_allowance — сколько мм оси трубы спрятано в сплавленном соседе:
+# стойка сплавлена с фланцем 8 мм, поэтому её шов 797,7 при покупной
+# длине 805,7 (S-206). Без этой записи гейт длин сравнивал бы шов
+# с покупной длиной и врал бы на 8 мм.
+tubes:
+  POST-001: {od: 42.4, wall: 1.5, axis_allowance: 8.0}
+  RAIL-P:   {od: 42.4, wall: 1.5}
+  RIGL-001: {od: 12.0, wall: 1.0}
+
+parts:
+  - id: COS-001
+    name: Косоур
+    role: stringer
+    group: cutting
+    form: sheet
+    material: steel
+    source: Stringer_A
+    count: 2
+
+  - id: WEB-001
+    name: Перемычка
+    role: web
+    group: cutting
+    form: sheet
+    material: steel
+    source: Web_A_01
+    count: 30
+    note: Приваривается к косоуру — облегчение/связь
+
+  - id: HEEL-001
+    name: Пятка
+    role: heel
+    group: cutting
+    form: sheet
+    material: steel
+    source: Heel_A_01
+    count: 32
+    note: Приваривается к косоуру — нижний узел
+
+  - id: ANCR-001
+    name: Анкер-пластина
+    role: anchor
+    group: cutting
+    form: sheet
+    material: steel
+    source: Anchor_A
+    count: 2
+    note: Крепление косоура к полу
+
+  - id: FWEB-001
+    name: Первая перемычка
+    role: first_web
+    group: cutting
+    form: sheet
+    material: steel
+    source: FirstWeb_A
+    count: 2
+    note: Пластина 1-й ступени между косоурами
+
+  - id: TANC-001
+    name: Верхняя распорка
+    role: anchor
+    group: cutting
+    form: sheet
+    material: steel
+    source: TopAnchor_A
+    count: 2
+    note: Верхний узел; та же роль anchor, место различает Where («верх»)
+
+  - id: TRED-001
+    name: Проступь
+    role: tread
+    group: cutting
+    form: sheet
+    material: wood
+    source: Tread_01
+    count: 16
+    note: Дуб; в будущей конфигурации — сталь
+
+  - id: RISR-001
+    name: Подступенок
+    role: riser
+    group: cutting
+    form: sheet
+    material: wood
+    source: Riser_01
+    count: 16
+    note: Дуб; в будущей конфигурации — сталь
+
+  - id: RAIL-P
+    name: Перила (поручень)
+    role: rail_top
+    group: purchased
+    form: tube
+    material: stainless
+    source: Rail_Portun
+    count: 1
+    note: Труба нерж. AISI 304, рез по длине; один объект на весь марш
+
+  - id: POST-001
+    name: Стойка
+    role: post
+    group: purchased
+    form: tube
+    material: stainless
+    source: Rail_Post_01
+    count: 4
+    note: Труба нерж. AISI 304 Ø42,4×1,5; в эталоне сплавлена с фланцем Ø86
+
+  - id: RIGL-001
+    name: Ригель
+    role: rigel
+    group: purchased
+    form: tube
+    material: stainless
+    source: Rail_Rigel_1_01
+    count: 6
+    note: Трубка нерж. Ø12×1, два ряда; оба ряда одна позиция
+
+  - id: TIP-001
+    name: Наконечник регулируемый
+    role: tip
+    group: purchased
+    form: part
+    material: stainless
+    source: Rail_Tip_01
+    count: 4
+    note: Покупной фитинг, несёт поручень; 7 тел на стойку — см. solids
+
+  - id: DECO-001
+    name: Декоративная накладка
+    role: deco
+    group: purchased
+    form: part
+    material: stainless
+    source: Rail_Lid_01
+    count: 4
+    note: Штампованный колпачок, скрывает посадку стойки
+
+  - id: ENDP-001
+    name: Торцевая заглушка
+    role: end_cap
+    group: purchased
+    form: part
+    material: plastic
+    source: Rail_Cap_Start
+    count: 2
+    note: Заглушка торца трубы Ø39,2; оба торца одна позиция

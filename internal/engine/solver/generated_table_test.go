@@ -26,15 +26,8 @@ func caseToConfig(c Case) *engineering.StairConfiguration {
 		ft = engineering.FlightLShape
 	case "u_shape":
 		ft = engineering.FlightUShape
-	case "spiral":
-		ft = engineering.FlightSpiral
 	}
-	var cfg *engineering.StairConfiguration
-	if c.Flight == "spiral" {
-		cfg = &engineering.StairConfiguration{Width: wL, Height: hL, Flight: ft}
-	} else {
-		cfg, _ = engineering.NewStairConfiguration(wL, hL, ft)
-	}
+	cfg, _ := engineering.NewStairConfiguration(wL, hL, ft)
 	cfg.StepHeight = genMustLength(c.StepHeightMM)
 	cfg.StepThickness = genMustLength(c.StepThicknessMM)
 	cfg.StringerThickness = genMustLength(c.StringerThicknessMM)
@@ -62,6 +55,23 @@ func caseToConfig(c Case) *engineering.StairConfiguration {
 	if c.Flight == "l_shape" || c.Flight == "u_shape" {
 		cfg.LandingWidth = genMustLength(c.LandingWidthMM)
 		cfg.LandingDepth = genMustLength(c.LandingDepthMM)
+		// SOLVER-03 (forensic 2026-09-27): кейсы в cases-500.json были
+		// сгенерированы, когда правило «LandingDepth >= Width» было МЁРТВЫМ
+		// (решатель всегда обнулял LandingDepth, и проверка не срабатывала
+		// никогда). Теперь значение доходит до геометрии, и кейсы с
+		// ld < width стали отвергаться валидацией — то есть тест проверял
+		// не bbox, а достоверность самих данных.
+		//
+		// Правило геометрически обоснованно (площадка должна перекрывать
+		// поворот по всей ширине марша), поэтому ослабляем фикстуру, а не
+		// домен: приводим параметры площадки к заведомо корректным.
+		if ld := c.LandingDepthMM; ld > 0 && ld < c.WidthMM {
+			cfg.LandingDepth = genMustLength(c.WidthMM)
+		}
+		if wp := c.LandingWidthMM; wp < c.WidthMM {
+			cfg.LandingWidth = genMustLength(c.WidthMM)
+		}
+
 		cfg.LowerStepCount = c.LowerStepCount
 		if c.Direction == "left" {
 			cfg.Direction = engineering.TurnLeft
@@ -82,14 +92,6 @@ func caseToConfig(c Case) *engineering.StairConfiguration {
 		cfg.RailingLower = rs
 		cfg.RailingLanding = rs
 		cfg.RailingUpper = rs
-	}
-	if c.Flight == "spiral" {
-		cfg.OuterRadius = genMustLength(c.OuterRadiusMM)
-		if c.SpiralDirection == "cw" {
-			cfg.SpiralDirection = engineering.SpiralCW
-		} else {
-			cfg.SpiralDirection = engineering.SpiralCCW
-		}
 	}
 	cfg.Material = c.Material
 	return cfg
@@ -112,8 +114,6 @@ type Case struct {
 	LandingWidthMM      float64 `json:"landing_width_mm"`
 	LandingDepthMM      float64 `json:"landing_depth_mm"`
 	LowerStepCount      int     `json:"lower_step_count"`
-	OuterRadiusMM       float64 `json:"outer_radius_mm"`
-	SpiralDirection     string  `json:"spiral_direction"`
 	Direction           string  `json:"direction"`
 	ComfortStepMM       float64 `json:"comfort_step_mm"`
 }
@@ -143,8 +143,6 @@ func TestGeneratedSolver4000(t *testing.T) {
 				_, vr, err = SolveCheckedLShape(cfg, prof, cs.ComfortStepMM)
 			case "u_shape":
 				_, vr, err = SolveCheckedUShape(cfg, prof, cs.ComfortStepMM)
-			case "spiral":
-				_, vr, err = SolveCheckedSpiral(cfg, prof)
 			}
 			if err != nil {
 				t.Fatalf("SolveChecked err: %v", err)

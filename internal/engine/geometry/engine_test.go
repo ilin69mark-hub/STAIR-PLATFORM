@@ -188,13 +188,15 @@ func TestGenerateStraightApproach(t *testing.T) {
 }
 
 // TestGenerateApproachShiftAllKinds — свободное пространство перед первой
-// ступенью (EDR-0023) сдвигает модель (и, значит, габаритный бокс) по оси X
-// для ВСЕХ типов марша, а не только прямого. Проверяем, что при увеличении
-// ApproachSpace на Δ габарит по X сдвигается ровно на Δ, а по Y/Z не меняется.
+// ступенью (норма 1000–1200 мм) сдвигает модель (и, значит, габаритный бокс)
+// по оси X для ВСЕХ типов марша, а не только прямого. Проверяем, что при
+// увеличении ApproachSpace на Δ габарит по X сдвигается ровно на Δ, а по
+// Y/Z не меняется.
 //
-// Важно: при ApproachSpace == 0 движок использует значение по умолчанию 1000
-// (см. Generate), поэтому для чистого сравнения берём два явных ненулевых
-// значения (500 и 1500) — их разница и есть ожидаемый сдвиг.
+// Значения взяты ВНУТРИ нормы (1000 и 1200): до S-167 диапазон проверялся
+// только для прямого марша, и тест мог взять 500/1500. Теперь диапазон
+// проверяется для всех типов (решение владельца 2026-10-12), поэтому тест
+// обязан оставаться в норме.
 func TestGenerateApproachShiftAllKinds(t *testing.T) {
 	cases := []struct {
 		name string
@@ -202,9 +204,8 @@ func TestGenerateApproachShiftAllKinds(t *testing.T) {
 	}{
 		{"l_shape", makeLShapeConfigForTest},
 		{"u_shape", makeUShapeConfigForTest},
-		{"spiral", makeSpiralConfigForTest},
 	}
-	const a1, a2 = 500.0, 1500.0
+	const a1, a2 = 1000.0, 1200.0
 	delta := a2 - a1
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -255,13 +256,5 @@ func makeUShapeConfigForTest(t *testing.T) *engineering.StairConfiguration {
 	c.Flight = engineering.FlightUShape
 	c.LowerStepCount = 7
 	c.LandingWidth = mustLength(t, 1000)
-	return c
-}
-
-func makeSpiralConfigForTest(t *testing.T) *engineering.StairConfiguration {
-	c := testConfig(t)
-	c.Flight = engineering.FlightSpiral
-	// Наружный радиус должен превышать ширину марша (радиус колонны = R − W > 0).
-	c.OuterRadius = mustLength(t, 1300)
 	return c
 }

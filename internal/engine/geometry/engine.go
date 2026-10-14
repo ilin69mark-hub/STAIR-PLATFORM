@@ -27,19 +27,81 @@ type GenerationResult struct {
 	RoomMesh    *kerngeo.Mesh
 	Issues      []kerngeo.ValidationIssue
 	Measurement Measurement
+	// MillingFeatures — детали, которым нужна фрезеровная обработка, с
+	// длиной фрезеруемого ребра. Геометрия здесь единственный источник
+	// истины: производство берёт длину отсюда, а не пересчитывает по
+	// конфигурации — иначе расчёт обработки разъехался бы с моделью при
+	// первом же изменении геометрии детали.
+	//
+	// Длина ребра — это и есть объём работы: скругление носка идёт по всей
+	// ширине ступени, поэтому время фрезеровки пропорционально ширине марша,
+	// и именно так оно и тарифицируется.
+	MillingFeatures []MillingFeature
 }
 
-// Generate строит параметрическую B-Rep модель марша (прямого,
-// L-образного, П-образного или спирального согласно cfg.Flight),
-// валидирует её (ENG-GEO-0018), измеряет (ENG-GEO-0013) и строит preview
-// mesh (ENG-GEO-0008) — фасад Geometry Engine (ENG-0003). Предусловие: конфигурация с положительными решёнными
-// параметрами (после Solver, ENG-0001); невыполнение возвращает ошибку.
-// Валидация не блокирует результат: отчёт issues собирается в результат
-// (валидная модель из корректных параметров не содержит ошибок уровня
-// SeverityError). Результат детерминирован при детерминированной конфигурации.
-// Контекст отмены (B2, EDR-0033 §3.1): errgroup.WithContext глобально
-// отменяет обработку при отмене/ошибке любого воркера.
-func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*GenerationResult, error) {
+// MillingFeature — одна деталь, требующая фрезеровки.
+type MillingFeature struct {
+	// Role — роль тела в модели ("tread", "landing", …), по ней производство
+	// сопоставляет деталь из раскроя.
+	Role string
+	// EdgeLengthMM — длина фрезеруемого ребра, мм.
+	EdgeLengthMM float64
+	// RadiusMM — радиус скругления, мм. В операцию попадает как описание
+	// работы, на тариф не влияет.
+	RadiusMM float64
+	// Quantity — сколько таких деталей (ступени одинаковые, но считать их
+	// по одной было бы неверно: 15 ступеней — это 15 носов по 900 мм).
+	Quantity int
+}
+
+// buildModel строит B-Rep модель по типу марша и сдвигает её от стены на
+// ApproachSpace. Общая часть для Generate и ModelBoundingBox: обе точки входа
+// обязаны давать ОДИН И ТОТ ЖЕ габарит, иначе проверка вписываемости в
+// вариациях считала бы не то.
+func buildModel(ctx context.Context, cfg *engineering.StairConfiguration) (*kerngeo.Compound, error) {
+	return buildModelQ(ctx, cfg, ProductionQuality)
+}
+
+// buildModelQ собирает модель с заданным качеством тесселяции (S-165).
+func buildModelQ(ctx context.Context, cfg *engineering.StairConfiguration, q Quality) (*kerngeo.Compound, error) {
+	model, err := buildGeometry(ctx, cfg, q)
+	if err != nil {
+		return nil, err
+	}
+	shift := approachShift(cfg)
+	if shift > 0 {
+		t := kerngeo.Translate(shift, 0, 0)
+		solids := model.Solids()
+		shifted := make([]*kerngeo.Solid, len(solids))
+		for i, s := range solids {
+			shifted[i] = kerngeo.TransformSolid(s, t)
+		}
+		model = kerngeo.NewCompound(shifted...)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("geometry: %w", ctx.Err())
+	}
+	return model, nil
+}
+
+// approachShift — сдвиг модели от стены на ApproachSpace (норма 1000–1200 мм).
+// Применяется ко ВСЕМ типам марша (прямой, L, П), оставляя перед
+// входом (первой ступенью) свободную зону; зона входит в габаритный бокс
+// модели, поэтому требуемая ширина помещения учитывается в fit-check.
+// Решение владельца 2026-10-12 (S-167).
+func approachShift(cfg *engineering.StairConfiguration) float64 {
+	approach := cfg.ApproachSpace.Millimeters()
+	if approach == 0 {
+		approach = 1000
+	}
+	return approach
+}
+
+// buildGeometry строит B-Rep модель марша БЕЗ сдвига от стены.
+func buildGeometry(ctx context.Context, cfg *engineering.StairConfiguration, q Quality) (*kerngeo.Compound, error) {
+	if dbgHook != nil {
+		dbgHook()
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -53,40 +115,65 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 	var err error
 	switch cfg.Flight {
 	case engineering.FlightStraight:
-		model, err = BuildStraightFlight(cfg)
+		model, err = buildStraightFlight(cfg, q)
 	case engineering.FlightLShape:
-		model, err = BuildLShapeFlight(cfg)
+		model, err = buildLShapeFlight(cfg, q)
 	case engineering.FlightUShape:
-		model, err = BuildUShapeFlight(cfg)
-	case engineering.FlightSpiral:
-		model, err = BuildSpiralFlight(cfg)
+		model, err = buildUShapeFlight(cfg, q)
 	default:
-		model, err = BuildStraightFlight(cfg)
+		model, err = buildStraightFlight(cfg, q)
 	}
 	if err != nil {
 		return nil, err
 	}
-	// Свободное пространство перед первой ступенью (EDR-0023) — для ВСЕХ
-	// типов марша (прямой, L, П, спираль). Сдвигаем модель от стены на
-	// ApproachSpace по оси X, оставляя перед входом (первой ступенью) свободную
-	// зону; требуемая ширина помещения автоматически учитывается в fit-check
-	// (ниже), так как зона входит в габаритный бокс модели.
-	approach := cfg.ApproachSpace.Millimeters()
-	if approach == 0 {
-		approach = 1000
+	return model, nil
+}
+
+// ModelBoundingBox возвращает ТОЛЬКО габарит модели марша — без валидации,
+// триангуляции и preview mesh.
+//
+// Зачем: подбор вариантов (variation.ForRoomFit) перебирает около тысячи
+// конфигураций на кейс и из результата Geometry Engine берёт РОВНО габарит
+// (X, Y). Полный Generate на металлокаркасе — это 96 тел, триангуляция всех
+// граней с отверстиями и сборка меша, то есть ~97% лишней работы на каждый
+// кандидат.
+//
+// Габарит совпадает с Measurement.BoundingBox из Generate: обе точки входа
+// берут одну и ту же модель из buildGeometry, а сдвиг от стены прибавляется
+// к X габарита — трансляция не меняет размеры бокса, поэтому копировать
+// вершины ради сдвига не нужно.
+func ModelBoundingBox(ctx context.Context, cfg *engineering.StairConfiguration) (kerngeo.BBox, error) {
+	// Производственная точность: по габариту принимаются решения о вписывании
+	// в помещение, и он обязан совпадать с габаритом Generate.
+	model, err := buildGeometry(ctx, cfg, ProductionQuality)
+	if err != nil {
+		return kerngeo.BBox{}, err
 	}
-	if approach > 0 {
-		t := kerngeo.Translate(approach, 0, 0)
-		solids := model.Solids()
-		shifted := make([]*kerngeo.Solid, len(solids))
-		for i, s := range solids {
-			shifted[i] = kerngeo.TransformSolid(s, t)
-		}
-		model = kerngeo.NewCompound(shifted...)
+	bb := kerngeo.BoundingBox(model)
+	if shift := approachShift(cfg); shift > 0 {
+		bb.Min.X += shift
+		bb.Max.X += shift
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("geometry: %w", ctx.Err())
+	return bb, nil
+}
+
+// Generate строит параметрическую B-Rep модель марша (прямого,
+// L-образного или П-образного согласно cfg.Flight),
+// валидирует её (ENG-GEO-0018), измеряет (ENG-GEO-0013) и строит preview
+// mesh (ENG-GEO-0008) — фасад Geometry Engine (ENG-0003). Предусловие: конфигурация с положительными решёнными
+// параметрами (после Solver, ENG-0001); невыполнение возвращает ошибку.
+//
+// Валидация не блокирует результат: отчёт issues собирается в результат
+// (валидная модель из корректных параметров не содержит ошибок уровня
+// SeverityError). Результат детерминирован при детерминированной конфигурации.
+// Контекст отмены (B2, EDR-0033 §3.1): errgroup.WithContext глобально
+// отменяет обработку при отмене/ошибке любого воркера.
+func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*GenerationResult, error) {
+	model, err := buildModel(ctx, cfg)
+	if err != nil {
+		return nil, err
 	}
+
 	result := &GenerationResult{Model: model}
 
 	// Каждая грань принадлежит ровно одному телу, поэтому кеш на тело даёт
@@ -102,11 +189,17 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 		caches[i] = kerngeo.NewTessellationCache()
 	}
 
+	// Общая точка отсчёта UV для всех деталей: минимальный угол габарита
+	// модели. Считается до параллельной стадии, чтобы все тела мешали
+	// одинаково (см. meshSolid).
+	uvOrigin := kerngeo.BoundingBox(model).Min
+
 	type solidOut struct {
 		issues []kerngeo.ValidationIssue
 		vol    float64
 		area   float64
 		verts  []kerngeo.Point3
+		uvs    []kerngeo.Point2
 		tris   [][3]int
 		err    error
 	}
@@ -124,7 +217,7 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 			o.area, o.err = kerngeo.SurfaceAreaCached(solid, caches[i])
 		}
 		if o.err == nil {
-			o.verts, o.tris, o.err = meshSolid(solid, caches[i])
+			o.verts, o.uvs, o.tris, o.err = meshSolid(solid, caches[i], uvOrigin)
 		}
 		outs[i] = o
 		return o.err
@@ -140,24 +233,46 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 	}
 	result.Measurement.SolidCount = kerngeo.SolidCount(model)
 	result.Measurement.BoundingBox = kerngeo.BoundingBox(model)
+	// Детали под фрезеровку: длина ребра берётся из габарита построенной
+	// модели, поэтому совпадает с тем, что действительно изготовят.
+	result.MillingFeatures = millingFeaturesOf(cfg, model)
 
 	// preview mesh — производная величина, собранная из слотов в порядке тел.
-	result.Mesh = &kerngeo.Mesh{}
+	// Ёмкости считаются заранее: при append без резерва срез вершин меша
+	// перевыделялся логарифмически, и на металлокаркасе это были гигабайты
+	// копирования за один вызов Generate.
+	nv, nuv, ntr := 0, 0, 0
+	for i := range outs {
+		nv += len(outs[i].verts)
+		nuv += len(outs[i].uvs)
+		ntr += len(outs[i].tris)
+	}
+	result.Mesh = kerngeo.NewMesh(nv, nuv, ntr)
 	base := 0
 	for i := range outs {
 		result.Mesh.Vertices = append(result.Mesh.Vertices, outs[i].verts...)
+		result.Mesh.UV = append(result.Mesh.UV, outs[i].uvs...)
+		start := len(result.Mesh.Triangles)
 		for _, tr := range outs[i].tris {
 			if err := result.Mesh.AddTriangle(base+tr[0], base+tr[1], base+tr[2]); err != nil {
 				return nil, err
 			}
 		}
+		// Роль тела (этап 1): 3D-вьювер красит ступени/косоуры/площадку
+		// разными материалами по диапазону треугольников.
+		result.Mesh.PartRanges = append(result.Mesh.PartRanges, kerngeo.PartRange{
+			Solid: i,
+			Role:  solids[i].Role(),
+			Start: start,
+			End:   len(result.Mesh.Triangles),
+		})
 		base += len(outs[i].verts)
 	}
 
 	// Декоративные перила (CONF-RAILING): добавляются только в preview mesh.
 	// Они не являются частью несущей модели и не участвуют в измерениях
 	// (SolidCount, объём, площадь, габарит) и в производственной декомпозиции.
-	if err := appendRailingMesh(result, cfg); err != nil {
+	if err := appendRailingMesh(result, cfg, ProductionQuality); err != nil {
 		return nil, err
 	}
 
@@ -170,10 +285,11 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 		rw := cfg.RoomWidth.Millimeters()
 		rl := cfg.RoomLength.Millimeters()
 		if room := buildRoomSolid(rw, rl); room != nil {
-			if verts, tris, rerr := meshSolid(room, kerngeo.NewTessellationCache()); rerr == nil {
+			if verts, uvs, tris, rerr := meshSolid(room, kerngeo.NewTessellationCache(), kerngeo.Point3{}); rerr == nil {
 				rb := 0
 				result.RoomMesh = &kerngeo.Mesh{}
 				result.RoomMesh.Vertices = append(result.RoomMesh.Vertices, verts...)
+				result.RoomMesh.UV = append(result.RoomMesh.UV, uvs...)
 				for _, tr := range tris {
 					if aerr := result.RoomMesh.AddTriangle(rb+tr[0], rb+tr[1], rb+tr[2]); aerr != nil {
 						return nil, aerr
@@ -195,7 +311,105 @@ func Generate(ctx context.Context, cfg *engineering.StairConfiguration) (*Genera
 		}
 	}
 
+	// Просвет под перекрытием (S-168). Считается ПО ГОТОВОЙ МОДЕЛИ, а не по
+	// числу, введённому пользователем: для каждой проступи берётся вертикаль
+	// от её верха до низа перекрытия, и проверяется худшая ступень — самая
+	// высокая из тех, что ещё находятся ПОД перекрытием. Чем выше ступень,
+	// тем меньше просвет, поэтому худшая — последняя под перекрытием, а не
+	// первая. Без CeilingHeight (0) проверка не выполняется.
+	if cfg.CeilingHeight.Millimeters() > 0 {
+		if clear := minTreadClearance(model, cfg.CeilingHeight.Millimeters()); clear > 0 && clear < MinHeadroomMM {
+			result.Issues = append(result.Issues, kerngeo.ValidationIssue{
+				Code:     "clearance_fit",
+				Severity: kerngeo.SeverityWarning,
+				Element:  "ceiling",
+				Message: fmt.Sprintf(
+					"Просвет под перекрытием %.0f мм — меньше нормы %.0f мм. Поднимите перекрытие или уменьшите высоту этажа",
+					clear, MinHeadroomMM,
+				),
+			})
+		}
+	}
+
 	return result, nil
+}
+
+// MinHeadroomMM — минимальный проход под перекрытием над маршем (EDR-0002,
+// GEO-CLEARANCE). Используется геометрической проверкой просвета.
+const MinHeadroomMM = 2000.0
+
+// minTreadClearance возвращает худший просвет между верхом проступи и низом
+// перекрытия, мм. Рассматриваются только ступени, расположенные ПОД
+// перекрытием: ступень на уровне самого перекрытия — это точка выхода на
+// этаж, проходить под ней не нужно, и её просвет всегда был бы нулём.
+// Возвращает 0, если под перекрытием нет ни одной ступени.
+func minTreadClearance(model *kerngeo.Compound, ceiling float64) float64 {
+	worst := 0.0
+	for _, s := range model.Solids() {
+		if s.Role() != "tread" {
+			continue
+		}
+		bb := kerngeo.SolidBoundingBox(s)
+		top := bb.Max.Z
+		clear := ceiling - top
+		if clear <= kerngeo.Precision {
+			continue // ступень на уровне перекрытия или выше — не проходим
+		}
+		if worst == 0 || clear < worst {
+			worst = clear
+		}
+	}
+	return worst
+}
+
+// millingFeaturesOf собирает список деталей под фрезеровку по ГОТОВОЙ модели.
+//
+// Количество ступеней берётся подсчётом тел с ролью "tread", а не из
+// конфигурации: у L/П-маршей ступени набираются из двух сегментов, у П-лестницы
+// на поворотных ступенях — из вееров, и любой расчёт «n1 + n2» в конфигурации
+// рано или поздно разошёлся бы с тем, что реально построено. Единственный
+// источник истины — сама модель.
+//
+// Длина ребра носа равна ширине марша: нос идёт по всей ширине проступи, и
+// именно эта длина тарифицируется как работа.
+func millingFeaturesOf(cfg *engineering.StairConfiguration, model *kerngeo.Compound) []MillingFeature {
+	radius := cfg.TreadNoseRadiusMM.Millimeters()
+	if radius <= kerngeo.Precision || model == nil {
+		// Металл (или явный ноль): фасок нет, фрезеровка не нужна.
+		return nil
+	}
+	treads, landings := 0, 0
+	for _, solid := range model.Solids() {
+		switch solid.Role() {
+		case "tread":
+			treads++
+		case "landing":
+			landings++
+		}
+	}
+	if treads == 0 && landings == 0 {
+		return nil
+	}
+	bb := kerngeo.BoundingBox(model)
+	width := bb.Max.Y - bb.Min.Y
+	if width <= kerngeo.Precision {
+		return nil
+	}
+	features := make([]MillingFeature, 0, 2)
+	if treads > 0 {
+		features = append(features, MillingFeature{
+			Role: "tread", EdgeLengthMM: width, RadiusMM: radius, Quantity: treads,
+		})
+	}
+	// Площадка: фрезеруется её ВНЕШНЯЯ кромка вдоль Y, то есть на всю ширину
+	// марша — столько же, сколько нос ступени. Кромка, которой примыкает
+	// верхний марш, не фрезеруется (см. landingRoundSide).
+	if landings > 0 {
+		features = append(features, MillingFeature{
+			Role: "landing", EdgeLengthMM: width, RadiusMM: radius, Quantity: landings,
+		})
+	}
+	return features
 }
 
 // buildRoomSolid строит тонкую декоративную плиту «пола комнаты» размером
@@ -218,8 +432,8 @@ func buildRoomSolid(rw, rl float64) *kerngeo.Solid {
 // appendRailingMesh строит декоративные тела перил (BuildRailingDecor) и
 // добавляет их в preview mesh. Валидация перил выполняется, но их тела не
 // влияют на Measurement и Model (ENG-GEO-0008: mesh — производная величина).
-func appendRailingMesh(result *GenerationResult, cfg *engineering.StairConfiguration) error {
-	decor, err := BuildRailingDecor(cfg)
+func appendRailingMesh(result *GenerationResult, cfg *engineering.StairConfiguration, q Quality) error {
+	decor, err := buildRailingDecor(cfg, q)
 	if err != nil {
 		return fmt.Errorf("geometry: railing decor: %w", err)
 	}
@@ -249,23 +463,114 @@ func appendRailingMesh(result *GenerationResult, cfg *engineering.StairConfigura
 		result.RailingMesh = &kerngeo.Mesh{}
 	}
 	base := len(result.RailingMesh.Vertices)
+	// Точка отсчёта UV одна на всю модель: считаем её ОДИН раз до цикла, иначе
+	// габарит пересчитывался заново на каждом теле декора.
+	uvOrigin := kerngeo.BoundingBox(result.Model).Min
 	for _, solid := range decor {
 		cache := kerngeo.NewTessellationCache()
 		for _, issue := range kerngeo.ValidateCached(solid, cache) {
 			issue.Element = fmt.Sprintf("decor:%s/%s", solid.Role(), issue.Element)
 			result.Issues = append(result.Issues, issue)
 		}
-		verts, tris, err := meshSolid(solid, cache)
+		verts, uvs, tris, err := meshSolid(solid, cache, uvOrigin)
 		if err != nil {
 			return fmt.Errorf("geometry: railing mesh: %w", err)
 		}
 		result.RailingMesh.Vertices = append(result.RailingMesh.Vertices, verts...)
+		result.RailingMesh.UV = append(result.RailingMesh.UV, uvs...)
+		start := len(result.RailingMesh.Triangles)
 		for _, tr := range tris {
 			if err := result.RailingMesh.AddTriangle(base+tr[0], base+tr[1], base+tr[2]); err != nil {
 				return fmt.Errorf("geometry: railing mesh triangle: %w", err)
 			}
 		}
+		// Роль декора (поручень/балясина) — для материала ограждения (этап 1).
+		result.RailingMesh.PartRanges = append(result.RailingMesh.PartRanges, kerngeo.PartRange{
+			Role:  solid.Role(),
+			Start: start,
+			End:   len(result.RailingMesh.Triangles),
+		})
 		base += len(verts)
 	}
 	return nil
+}
+
+// SetDbgCounter — счётчик вызовов buildModel для диагностики.
+func SetDbgCounter(f func()) { dbgHook = f }
+
+var dbgHook func()
+
+// GeneratePreviewMesh строит ТОЛЬКО меш для отображения, облегчённой
+// тесселяцией (S-165).
+//
+// Зачем второй проход. Владелец решил: геометрия у витрины и админки должна
+// быть одна, расходиться может только плотность треугольников. Измерено,
+// что просто так это не сделать: одна и та же проступь R = 10 при 4 сегментах
+// даёт объём 4 461 783 мм³, при 10 — 4 489 322 (+0,62 %), при 64 — 4 494 505
+// (+0,73 %). Плотность меняет объём, а объём идёт в стоимость. Причина в том,
+// что в B-Rep нет аналитических кривых: дуга уже многоугольник, поэтому
+// плотность и есть геометрия.
+//
+// Поэтому расчёт идёт ДВАЖДЫ. Первый — производственный (Generate): из него
+// берутся объём, площадь, раскрой и цена. Второй — этот: из него берётся
+// ТОЛЬКО картинка. Цена из облегчённой сборки не берётся никогда, поэтому
+// расхождения цен не возникает по построению, а не «мы стараемся не
+// допустить».
+//
+// Из этого прохода НЕ берутся: Measurement, Issues, Package, Cost, Price.
+// Если они понадобятся — это баг вызывающего кода, и он должен падать.
+func GeneratePreviewMesh(ctx context.Context, cfg *engineering.StairConfiguration) (*GenerationResult, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("geometry: configuration is required")
+	}
+	model, err := buildModelQ(ctx, cfg, DisplayQuality)
+	if err != nil {
+		return nil, err
+	}
+
+	solids := model.Solids()
+	result := &GenerationResult{Model: model}
+	if len(solids) == 0 {
+		return result, nil
+	}
+
+	verts := make([]kerngeo.Point3, 0, len(solids)*24)
+	uvs := make([]kerngeo.Point2, 0, len(solids)*24)
+	tris := make([][3]int, 0, len(solids)*16)
+	caches := make([]*kerngeo.TessellationCache, len(solids))
+	for i := range caches {
+		caches[i] = kerngeo.NewTessellationCache()
+	}
+	result.Mesh = kerngeo.NewMesh(len(verts), len(uvs), len(tris))
+
+	base := 0
+	for _, solid := range solids {
+		v, uv, tr, merr := meshSolid(solid, kerngeo.NewTessellationCache(), kerngeo.Point3{})
+		if merr != nil {
+			return nil, merr
+		}
+		start := len(result.Mesh.Triangles)
+		// Вершины добавляются ДО треугольников: AddTriangle проверяет
+		// индексы по длине Vertices, иначе получим «index out of range».
+		result.Mesh.Vertices = append(result.Mesh.Vertices, v...)
+		result.Mesh.UV = append(result.Mesh.UV, uv...)
+		verts = append(verts, v...)
+		uvs = append(uvs, uv...)
+		for _, t := range tr {
+			if aerr := result.Mesh.AddTriangle(base+t[0], base+t[1], base+t[2]); aerr != nil {
+				return nil, aerr
+			}
+		}
+		result.Mesh.PartRanges = append(result.Mesh.PartRanges, kerngeo.PartRange{
+			Solid: len(result.Mesh.PartRanges),
+			Role:  solid.Role(),
+			Start: start,
+			End:   len(result.Mesh.Triangles),
+		})
+		base += len(v)
+	}
+	if err := appendRailingMesh(result, cfg, DisplayQuality); err != nil {
+		return nil, err
+	}
+	return result, nil
 }

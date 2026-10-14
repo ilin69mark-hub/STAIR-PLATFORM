@@ -1,15 +1,17 @@
 package manufacturing
 
 import (
+	"math"
 	"reflect"
 	"testing"
 
+	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
 )
 
 func TestPlanOperationsRoutes(t *testing.T) {
 	cfg := testConfig(t)
-	pkg, err := Manufacture(cfg, genResult(t, cfg))
+	pkg, err := Manufacture(cfg, genResult(t, cfg), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -17,8 +19,12 @@ func TestPlanOperationsRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Parts) != 32 {
-		t.Fatalf("plan parts = %d, want 32", len(plan.Parts))
+	// Металлокаркас: 4 куска косоура-гребёнки (2 косоура × 2 сварных куска,
+	// длиннее поля лазерного стола 3000 мм), 15 ступеней, 15 подступенков и
+	// 64 пятки выреза (30 пяток 1, 28 пяток 2, 2 пола, 2 выхода, 2 пластины
+	// 1-й ступени).
+	if len(plan.Parts) != 98 {
+		t.Fatalf("plan parts = %d, want 98", len(plan.Parts))
 	}
 	for _, part := range plan.Parts {
 		if len(part.Operations) != 2 {
@@ -39,7 +45,7 @@ func TestPlanOperationsRoutes(t *testing.T) {
 
 func TestPlanOperationsCutTimes(t *testing.T) {
 	cfg := testConfig(t)
-	pkg, err := Manufacture(cfg, genResult(t, cfg))
+	pkg, err := Manufacture(cfg, genResult(t, cfg), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,8 +56,18 @@ func TestPlanOperationsCutTimes(t *testing.T) {
 	for _, part := range plan.Parts {
 		// Cutting: setup 2 + периметр/2000 мм/мин; Finishing: 3 мин.
 		p := findPart(pkg, part.PartNumber)
-		perimeter := 2 * (p.Length.Millimeters() + p.Width.Millimeters())
-		wantCut := 2 + perimeter/2000
+		// Время реза считается по длине РЕЗА из геометрии детали: контур
+		// плюс отверстия и овалы. Для детали с отверстиями это больше
+		// прямоугольного периметра — проверяем, что взялась именно длина
+		// реза, а не габарит.
+		wantCut := 2 + p.CutPerimeterMM/2000
+		if p.Kind == dommfg.PartHeel || p.Kind == dommfg.PartWeb ||
+			p.Kind == dommfg.PartAnchor || p.Kind == dommfg.PartFirstWeb {
+			if p.CutPerimeterMM <= 2*(p.Length.Millimeters()+p.Width.Millimeters()) {
+				t.Fatalf("part %q cut %v мм — отверстия не учтены",
+					part.PartNumber, p.CutPerimeterMM)
+			}
+		}
 		if !nearlyEqual(part.Operations[0].EstimatedTime, wantCut) {
 			t.Fatalf("part %q cut time = %v, want %v", part.PartNumber, part.Operations[0].EstimatedTime, wantCut)
 		}
@@ -63,7 +79,7 @@ func TestPlanOperationsCutTimes(t *testing.T) {
 
 func TestPlanOperationsTotalTime(t *testing.T) {
 	cfg := testConfig(t)
-	pkg, err := Manufacture(cfg, genResult(t, cfg))
+	pkg, err := Manufacture(cfg, genResult(t, cfg), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,17 +87,28 @@ func TestPlanOperationsTotalTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// stringers 2×(2+perim/2000) + treads 15×3.21 + risers 15×3.04
-	// + 32×3 finish.
-	want := 2*(2+2*(4050.0+2660)/2000) + 15*3.21 + 15*3.04 + 32*3
-	if !nearlyEqual(plan.TotalTime(), want) {
+	// stringers 2×(2+perim/2000) + treads 15× + risers 15× + 32×3 finish.
+	// Периметр заготовки косоура — пластина 4620.65×300 (длина по склону ×
+	// глубина по нормали), а не блок 4050×2660: время резки считается по
+	// длине реза, и с блоком косоур «пилил» бы в полтора раза больше,
+	// чем есть металла.
+	// Итог = наладка на каждую деталь + длина её реза / скорость + финиш.
+	// Покупные детали ограждения в техмаршрут НЕ входят: они приходят
+	// готовыми, у них нет операций реза. Поэтому время считаем по режущимся
+	// деталям — ровно тем же перебором, каким считает PlanOperations.
+	want := 0.0
+	for _, pp := range cuttableParts(pkg) {
+		speed := 2000.0
+		want += 2 + pp.CutPerimeterMM/speed + 3
+	}
+	if math.Abs(plan.TotalTime()-want) > 1e-9 {
 		t.Fatalf("total time = %v, want %v", plan.TotalTime(), want)
 	}
 }
 
 func TestPlanOperationsDeterminism(t *testing.T) {
 	cfg := testConfig(t)
-	pkg, err := Manufacture(cfg, genResult(t, cfg))
+	pkg, err := Manufacture(cfg, genResult(t, cfg), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +127,7 @@ func TestPlanOperationsDeterminism(t *testing.T) {
 
 func TestPlanOperationsErrors(t *testing.T) {
 	cfg := testConfig(t)
-	pkg, err := Manufacture(cfg, genResult(t, cfg))
+	pkg, err := Manufacture(cfg, genResult(t, cfg), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +159,7 @@ func TestMachineRatesValidate(t *testing.T) {
 		t.Fatal("empty cut speeds must be rejected")
 	}
 	rates = DefaultMachineRates()
-	rates.CutSpeed["STEEL-S235"] = 0
+	rates.CutSpeed["STEEL-C245"] = 0
 	if err := rates.Validate(); err == nil {
 		t.Fatal("non-positive cut speed must be rejected")
 	}
@@ -140,5 +167,98 @@ func TestMachineRatesValidate(t *testing.T) {
 	rates.FinishMin = -1
 	if err := rates.Validate(); err == nil {
 		t.Fatal("negative finish time must be rejected")
+	}
+}
+
+// --- Фрезеровка кромки (скругление носа ступени) ---------------------------
+//
+// Фаска — это трудозатраты, поэтому обязана попадать в техмаршрут и в цену.
+// Заготовка при этом остаётся прямоугольной: раскрой и закупка не меняются.
+
+func TestPlanOperationsAddsMillingForChamferedPart(t *testing.T) {
+	part := dommfg.Part{
+		Number: "P1", Kind: dommfg.PartTread, Material: "WOOD-OAK",
+		Thickness: engineering.Length(40), Length: engineering.Length(310),
+		Width: engineering.Length(900),
+		// Нос длиной 900 мм (вся ширина марша), радиус 8 мм.
+		MillEdgeLengthMM: 900, MillRadiusMM: 8,
+	}
+	pkg := &dommfg.ManufacturingPackage{Parts: []dommfg.Part{part}}
+	plan, err := PlanOperations(pkg, DefaultMachineRates())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops := plan.Parts[0].Operations
+	if len(ops) != 3 {
+		t.Fatalf("operations = %d, want 3 (cut, mill, finish): %+v", len(ops), ops)
+	}
+	if ops[1].Type != dommfg.OpMilling {
+		t.Fatalf("second operation = %q, want %q", ops[1].Type, dommfg.OpMilling)
+	}
+	// Фрезеровка — работа мастера: идёт на ручное рабочее место, иначе цена
+	// посчитала бы её по машинному тарифу.
+	if ops[1].Machine != dommfg.MachineManualWorkstation {
+		t.Fatalf("milling machine = %q, want %q (ручная операция)", ops[1].Machine, dommfg.MachineManualWorkstation)
+	}
+	// Последовательности строго возрастают: рез → фрезеровка → финиш.
+	if ops[0].Sequence != 1 || ops[1].Sequence != 2 || ops[2].Sequence != 3 {
+		t.Fatalf("sequences = %d,%d,%d — want 1,2,3", ops[0].Sequence, ops[1].Sequence, ops[2].Sequence)
+	}
+	// Время = наладка + длина/подача = 1 + 900/350.
+	rates := DefaultMachineRates()
+	want := rates.MillSetupMin + 900/rates.MillFeed["WOOD-OAK"]
+	if math.Abs(ops[1].EstimatedTime-want) > 1e-9 {
+		t.Fatalf("milling time = %v, want %v", ops[1].EstimatedTime, want)
+	}
+}
+
+func TestPlanOperationsSkipsMillingWithoutChamfer(t *testing.T) {
+	// Металлическая ступень: фасок нет, маршрут прежний — две операции.
+	part := dommfg.Part{
+		Number: "P1", Kind: dommfg.PartTread, Material: "STEEL-C245",
+		Thickness: engineering.Length(6), Length: engineering.Length(310),
+		Width: engineering.Length(900),
+	}
+	pkg := &dommfg.ManufacturingPackage{Parts: []dommfg.Part{part}}
+	plan, err := PlanOperations(pkg, DefaultMachineRates())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops := plan.Parts[0].Operations
+	if len(ops) != 2 {
+		t.Fatalf("operations = %d, want 2 (cut, finish)", len(ops))
+	}
+	for _, op := range ops {
+		if op.Type == dommfg.OpMilling {
+			t.Fatal("metal stair must not be scheduled for milling")
+		}
+	}
+}
+
+func TestPlanOperationsRejectsMillingWithoutFeed(t *testing.T) {
+	// Фрезеровка нужна, а подачи по материалу нет — это ошибка ставок, а не
+	// повод молча пропустить операцию и занизить цену.
+	part := dommfg.Part{
+		Number: "P1", Kind: dommfg.PartTread, Material: "SOME-UNKNOWN",
+		Thickness: engineering.Length(40), Length: engineering.Length(310),
+		Width: engineering.Length(900), MillEdgeLengthMM: 900,
+	}
+	rates := DefaultMachineRates()
+	rates.CutSpeed["SOME-UNKNOWN"] = 5000
+	pkg := &dommfg.ManufacturingPackage{Parts: []dommfg.Part{part}}
+	if _, err := PlanOperations(pkg, rates); err == nil {
+		t.Fatal("expected an error: milling without a feed rate must not be silently skipped")
+	}
+}
+
+func TestMillFeedZeroOnlyForSteel(t *testing.T) {
+	rates := DefaultMachineRates()
+	if rates.MillFeed["STEEL-C245"] != 0 {
+		t.Fatal("steel must have no milling feed: no chamfers on metal")
+	}
+	for _, code := range []dommfg.MaterialCode{"WOOD-OAK", "WOOD-WALNUT", "WOOD-ASH", "WOOD-SOFT"} {
+		if rates.MillFeed[code] <= 0 {
+			t.Fatalf("wood %q must have a positive mill feed", code)
+		}
 	}
 }

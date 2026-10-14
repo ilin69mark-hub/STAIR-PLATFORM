@@ -15,8 +15,18 @@ import (
 type Role string
 
 const (
-	RoleUser  Role = "user"
+	RoleUser Role = "user"
+	// RoleAdmin — служебная роль с полными правами. Её создаёт сид, и
+	// на неё опираются существующие администраторы: сузить её набор в этой
+	// же задаче означало бы молча отнять доступ у всех, кто уже работает.
+	// В интерфейсе владельца этой роли нет — он выбирает owner/sales/user.
 	RoleAdmin Role = "admin"
+	// RoleSales — руководитель отдела продаж: заказы, воронка, сотрудники.
+	// Права приходят из шаблона (grant.go RoleTemplate), а не из кода роли.
+	RoleSales Role = "sales"
+	// RoleOwner — владелец компании. Единственная роль, которой можно
+	// выдать право выдавать права и полный набор метрик (EDR-0041 §4.2).
+	RoleOwner Role = "owner"
 )
 
 // Permission — именованное право на операцию (EDR-0015 §3.1). Системные
@@ -50,10 +60,22 @@ const (
 	PermissionOrdersList Permission = "orders.list"
 	// PermissionOrdersManage — смена статуса заказа (Store).
 	PermissionOrdersManage Permission = "orders.manage"
+	// PermissionPaymentsList — просмотр платежей tenant (админ).
+	PermissionPaymentsList Permission = "payments.list"
+	// PermissionPaymentsManage — ручной возврат платежа (админ).
+	PermissionPaymentsManage Permission = "payments.manage"
 	// PermissionTestimonialsList — просмотр отзывов клиентов (Store).
 	PermissionTestimonialsList Permission = "testimonials.list"
 	// PermissionTestimonialsManage — создание/редактирование отзывов (Store).
 	PermissionTestimonialsManage Permission = "testimonials.manage"
+	// PermissionStoreSettingsRead — чтение настроек магазина (волна 0).
+	PermissionStoreSettingsRead Permission = "store.settings.read"
+	// PermissionStoreSettingsWrite — правка настроек магазина (волна 0).
+	PermissionStoreSettingsWrite Permission = "store.settings.write"
+	// PermissionStorePricesRead — чтение прайса материалов магазина (волна 0).
+	PermissionStorePricesRead Permission = "store.prices.read"
+	// PermissionStorePricesWrite — правка прайса материалов магазина (волна 0).
+	PermissionStorePricesWrite Permission = "store.prices.write"
 )
 
 // AllPermissions возвращает полный набор известных прав системы.
@@ -65,7 +87,10 @@ func AllPermissions() []Permission {
 		PermissionUsersManage, PermissionSettingsRead, PermissionSettingsWrite,
 		PermissionDataExport, PermissionApiKeysManage, PermissionIntegrationsManage,
 		PermissionAnalyticsRead, PermissionOrdersList, PermissionOrdersManage,
+		PermissionPaymentsList, PermissionPaymentsManage,
 		PermissionTestimonialsList, PermissionTestimonialsManage,
+		PermissionStoreSettingsRead, PermissionStoreSettingsWrite,
+		PermissionStorePricesRead, PermissionStorePricesWrite,
 	}
 }
 
@@ -89,9 +114,16 @@ func (r Role) Permissions() []Permission {
 			PermissionUsersManage, PermissionSettingsRead, PermissionSettingsWrite,
 			PermissionDataExport, PermissionApiKeysManage, PermissionIntegrationsManage,
 			PermissionAnalyticsRead, PermissionOrdersList, PermissionOrdersManage,
+			PermissionPaymentsList, PermissionPaymentsManage,
 			PermissionTestimonialsList, PermissionTestimonialsManage,
+			PermissionStoreSettingsRead, PermissionStoreSettingsWrite,
+			PermissionStorePricesRead, PermissionStorePricesWrite,
 		}
 	case RoleUser:
+		return nil
+	case RoleOwner, RoleSales:
+		// Явно перечислены, чтобы exhaustive-линтер видел все роли. Набор
+		// прав выдаётся поуровнево (grant.go), а не по роли, поэтому здесь nil.
 		return nil
 	default:
 		return nil
@@ -111,7 +143,9 @@ func (r Role) HasPermission(p Permission) bool {
 // ParseRole нормализует роль из строки DTO; ErrUnknownRole — невалидная.
 func ParseRole(s string) (Role, error) {
 	switch Role(s) {
-	case RoleUser, RoleAdmin:
+	// admin — служебная роль с полными правами (сид); sales — руководитель
+	// отдела продаж; owner — владелец компании.
+	case RoleUser, RoleAdmin, RoleSales, RoleOwner:
 		return Role(s), nil
 	default:
 		return "", ErrUnknownRole
@@ -143,8 +177,32 @@ type User struct {
 	PasswordHash string
 	Role         Role
 	Status       Status
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// GrantsInitialized — права сотрудника заданы точечно в user_grants.
+	// Пока флаг сброшен, действует шаблон роли: переходный период, чтобы
+	// переезд на выдачи не отнял доступ у тех, кто настроен не был.
+	GrantsInitialized bool
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	// DeletedAt — мягкое удаление сотрудника. Строка остаётся (проекты,
+	// заказы, история), но человек скрыт из списков и не может войти.
+	// Отдельное поле, а не StatusDisabled: «заблокирован» можно снять
+	// одним щелчком, а «удалён» — это прощание, у него нет обратного хода
+	// в том же смысле.
+	DeletedAt *time.Time
+}
+
+// Deleted сообщает, что сотрудник удалён (мягко) и больше не существует
+// для бизнес-логики.
+func (u *User) Deleted() bool { return u != nil && u.DeletedAt != nil }
+
+// UserDeletionStats — что будет с сотрудником при удалении. Считается заранее,
+// чтобы интерфейс мог показать точные числа, а не «возможно, что-то пропадёт».
+type UserDeletionStats struct {
+	Projects     int `json:"projects"`
+	Calculations int `json:"calculations"`
+	Comments     int `json:"comments"`
+	Orders       int `json:"orders"`
+	ProjectRoles int `json:"project_roles"`
 }
 
 // Session — серверная сессия. TokenHash — SHA-256 от opaque-токена;
@@ -292,6 +350,21 @@ type Repository interface {
 	// EDR-0016 §3.1; немедленная ревокация).
 	DeleteUserSessions(ctx context.Context, userID string) error
 
+	// SoftDeleteUser — мягкое удаление: deleted_at + deleted_by + блокировка
+	// входа (сессии и API-ключи) в одной транзакции. Возвращает
+	// ErrNotFound, если сотрудника нет или он уже удалён.
+	SoftDeleteUser(ctx context.Context, tenantID, userID, deletedBy string) error
+	// TransferProjects переводит все проекты с fromUserID на toUserID:
+	// projects.owner_id и строка владельца в project_members. Возвращает
+	// число переданных проектов.
+	TransferProjects(ctx context.Context, fromUserID, toUserID string) (int, error)
+	// CountOwners считает неудалённых сотрудников tenant с ролью owner —
+	// чтобы не дать удалить последнего владельца компании.
+	CountOwners(ctx context.Context, tenantID string) (int, error)
+	// UserDeletionStats собирает цифры для предупреждения перед удалением:
+	// что именно перейдёт к другому человеку и что останется в истории.
+	UserDeletionStats(ctx context.Context, userID string) (UserDeletionStats, error)
+
 	// GetPolicy возвращает политику безопасности tenant (EDR-0016 §3.2);
 	// ErrNotFound — настройки отсутствуют (дефолтная политика).
 	GetPolicy(ctx context.Context, tenantID string) (Policy, error)
@@ -306,6 +379,27 @@ type Repository interface {
 	GetApiKeyByTokenHash(ctx context.Context, tokenHash string) (*ApiKey, error)
 	// RevokeApiKey отзывает ключ (мягко: revoked_at); ErrNotFound — нет.
 	RevokeApiKey(ctx context.Context, tenantID, keyID string) error
+	// RevokeApiKeysByUser отзывает ВСЕ API-ключи пользователя (мягко:
+	// revoked_at = now). Вызывается при блокировке учётной записи вместе с
+	// DeleteUserSessions: сессии и ключи — два независимых способа войти,
+	// и отзыв только сессий оставлял «чёрный вход» через Bearer.
+	//
+	// Deprecated: для блокировки используйте DisableUser — здесь отказ ключей
+	// отделён от смены статуса отдельным вызовом, и сбой одного из них
+	// оставлял учётную запись в промежуточном состоянии (CRITICAL-05).
+	RevokeApiKeysByUser(ctx context.Context, tenantID, userID string) error
+	// DisableUser АТОМАРНО блокирует учётную запись: статус → disabled,
+	// удаление всех сессий и отзыв всех API-ключей в одной транзакции
+	// (CRITICAL-05, 2026-09-27).
+	//
+	// Почему одна транзакция: раньше UpdateUser вызывал UpdateUserStatus,
+	// DeleteUserSessions и RevokeApiKeysByUser тремя отдельными вызовами, при
+	//чём ошибки последних двух глотались через `_ =`. Сбой отзыва ключей при
+	// уже применённой блокировке давал «заблокированного» пользователя с
+	// работающим Bearer-ключом, и заметить это можно было только в логах.
+	//
+	// ErrNotFound — пользователя нет в tenant (или вовсе).
+	DisableUser(ctx context.Context, tenantID, userID string) error
 	// TouchApiKey обновляет last_used_at (использование ключа).
 	TouchApiKey(ctx context.Context, keyID string) error
 

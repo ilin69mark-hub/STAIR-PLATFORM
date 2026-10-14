@@ -1,15 +1,17 @@
 package http
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"math"
 
 	"stairplatform/internal/application/stair"
 	"stairplatform/internal/domain/engineering"
 	dommfg "stairplatform/internal/domain/manufacturing"
 	domprc "stairplatform/internal/domain/pricing"
-	engprc "stairplatform/internal/engine/pricing"
 	"stairplatform/internal/engine/solver"
+	"stairplatform/internal/engine/validation"
 )
 
 // All DTOs use mm / degrees / mm³ / mm² / mm и руб (старшие единицы валюты)
@@ -31,34 +33,79 @@ type calculateRequest struct {
 	LandingDepthMM      float64 `json:"landing_depth_mm,omitempty"`
 	RoomWidthMM         float64 `json:"room_width_mm,omitempty"`
 	RoomLengthMM        float64 `json:"room_length_mm,omitempty"`
-	ApproachSpaceMM     float64 `json:"approach_space_mm,omitempty"`
-	LowerStepCount      int     `json:"lower_step_count,omitempty"`
-	OuterRadiusMM       float64 `json:"outer_radius_mm,omitempty"`
-	Material            string  `json:"material,omitempty"`
-	// Перила и направления (CONF-RAILING/DIRECTION/SPIRAL).
-	Railing         string    `json:"railing,omitempty"`          // прямой: none|left|right|both
-	RailingLower    string    `json:"railing_lower,omitempty"`    // L/U: первый марш
-	RailingLanding  string    `json:"railing_landing,omitempty"`  // L/U: площадка
-	RailingUpper    string    `json:"railing_upper,omitempty"`    // L/U: второй марш
-	Direction       string    `json:"direction,omitempty"`        // L/U: left|right (поворот площадки)
-	SpiralDirection string    `json:"spiral_direction,omitempty"` // спираль: cw|ccw
-	Rates           *ratesDTO `json:"rates,omitempty"`
-}
-
-// ratesDTO — опциональное переопределение ставок цены (в руб/натуральной
-// единице); пустые поля наследуются от DefaultRates.
-type ratesDTO struct {
-	MaterialPerKg struct {
-		STEEL_S235 float64 `json:"STEEL-S235"`
-		ALUM_5083  float64 `json:"ALUM-5083"`
-		WOOD_OAK   float64 `json:"WOOD-OAK"`
-	} `json:"material_per_kg_rub"`
-	MachinePerHour  float64 `json:"machine_per_hour_rub,omitempty"`
-	LaborPerHour    float64 `json:"labor_per_hour_rub,omitempty"`
-	OverheadPercent float64 `json:"overhead_percent,omitempty"`
-	MarginPercent   float64 `json:"margin_percent,omitempty"`
-	DiscountPercent float64 `json:"discount_percent,omitempty"`
-	TaxPercent      float64 `json:"tax_percent,omitempty"`
+	CeilingHeightMM     float64 `json:"ceiling_height_mm,omitempty"`
+	// PreviewMesh — попросить облегчённую сетку для показа (S-165).
+	//
+	// Витрина ставит true: картинка легче, а цена та же — она считается по
+	// производственной модели вторым, отдельным проходом. Админка оставляет
+	// false и получает точную сетку для замеров и раскроя.
+	PreviewMesh     bool    `json:"preview_mesh,omitempty"`
+	ApproachSpaceMM float64 `json:"approach_space_mm,omitempty"`
+	LowerStepCount  int     `json:"lower_step_count,omitempty"`
+	// Purpose — назначение здания: выбирает нормативный профиль правил
+	// (S-236, п. 67 библии): house (по умолчанию, СП 55), flat (СП 54),
+	// public (СП 118), industrial (СП 56). Пусто = дом.
+	Purpose  string `json:"purpose,omitempty"`
+	Material string `json:"material,omitempty"`
+	// TreadMaterial — материал СТУПЕНЕЙ (проступи, площадки, поворотные
+	// ступени), отдельно от материала каркаса. Пусто → наследуется от
+	// material (лестница из одного материала). Нужен потому, что у дерева
+	// минимальная толщина 20 мм, а стальной косоур бывает 6–10 мм: одним
+	// полем материал оба случая не описать.
+	TreadMaterial string `json:"tread_material,omitempty"`
+	// RiserThicknessMM — толщина подступенка. Пусто → равна толщине ступени.
+	// Отдельно, потому что подступенок — деталь каркаса: стальной подступенок
+	// под деревянной проступью должен остаться тонким.
+	RiserThicknessMM float64 `json:"riser_thickness_mm,omitempty"`
+	// Тип поворота маршей с площадкой (DOM-001, CONF-TURN-KIND) и число
+	// поворотных ступеней.
+	//
+	// ДО 2026-09-26 этих полей НЕ БЫЛО в DTO, хотя вся функциональность
+	// поворотных ступеней была реализована в солвере, геометрии, построителе
+	// перил и advisor'е. Клиент, отправивший turn_kind=winder, молча получал
+	// HTTP 200 valid:true и лестницу С ПЛОЩАДКОЙ вместо поворотных ступеней
+	// (воспроизведено: upper_step_count=10 вместо n1=7 + nw=5 + n2=5).
+	TurnKind    string `json:"turn_kind,omitempty"`    // platform|winder (пусто = platform)
+	WinderCount int    `json:"winder_count,omitempty"` // nw, >= 3, только при turn_kind=winder
+	// Перила и направления (CONF-RAILING/DIRECTION).
+	Railing        string `json:"railing,omitempty"`         // прямой: none|left|right|both
+	RailingLower   string `json:"railing_lower,omitempty"`   // L/U: первый марш
+	RailingLanding string `json:"railing_landing,omitempty"` // L/U: площадка
+	RailingUpper   string `json:"railing_upper,omitempty"`   // L/U: второй марш
+	Direction      string `json:"direction,omitempty"`       // L/U: left|right (поворот площадки)
+	// FloorFixing / CeilingFixing — основания крепления (CONF-FIXING,
+	// решение владельца 2026-10-08): concrete|wood. Пусто → бетон.
+	// Влияют только на состав крепежа в смете: в бетон глухарь идёт через
+	// дюбель, в дерево — без него.
+	FloorFixing   string `json:"floor_fixing,omitempty"`
+	CeilingFixing string `json:"ceiling_fixing,omitempty"`
+	// ExtraFasteners — дополнительный крепёж по объекту: коды позиций
+	// каталога, либо «КОД», либо «КОД@количество» («SCREW-8x80@12»).
+	// Неизвестные коды пропускаются молча: справочник крепежа редактируется
+	// в админке, и старый проект не должен переставать считаться из-за того,
+	// что позицию убрали из каталога.
+	ExtraFasteners []string `json:"extra_fasteners,omitempty"`
+	// Герметик (CONF-SEALANT): толщина слоя, мм, и доп. картриджи по
+	// объекту. Толщина 0 → дефолт 1 мм. Расход считается по формуле
+	// V = S × t, где S — площадь швов обоймы выреза и торца косоура.
+	SealantLayerMM         float64 `json:"sealant_layer_mm,omitempty"`
+	ExtraSealantCartridges int     `json:"extra_sealant_cartridges,omitempty"`
+	// Rates — СТАВКИ ЦЕНЫ, ПРИНИМАЕМЫЕ ИЗ ТЕЛА ЗАПРОСА, ЗАПРЕЩЕНЫ (SEC-001).
+	//
+	// Поле намеренно осталось в DTO, но ТОЛЬКО как детектор присутствия:
+	// значение НИКОГДА не декодируется и не применяется к расчёту. Любой
+	// непустой `rates` отклоняется 422 rates_not_allowed во всех маршрутах
+	// расчёта (см. rejectClientRates).
+	//
+	// До 2026-09-26 поле было *ratesDTO и подставлялось в stair.Options.Rates
+	// на 9 авторизованных маршрутах. Аутентифицированный клиент мог отправить
+	// margin=0.0001, discount=99.999, tax=0.0001, material_per_kg=0.01 и
+	// получить цену 0 руб вместо 3 832 042 руб (воспроизведено на
+	// POST /api/v1/stairs:calculate). Публичный quote был защищён явно
+	// (public.go), аутентифицированные пути — нет. Источником ставок теперь
+	// может быть только сервер: engprc.DefaultRates() либо ставки магазина
+	// (store_rates через publicStoreRates).
+	Rates json.RawMessage `json:"rates,omitempty"`
 }
 
 // optimizeRequest — запрос оптимизации конфигурации (POST /api/v1/stairs:optimize).
@@ -116,6 +163,13 @@ type validationIssueDTO struct {
 	// Variations — альтернативные конфигурации (варианты A/B/C) для
 	// неблокирующих нарушений (room_fit и т.п.), предлагаемые как выбор.
 	Variations []variationDTO `json:"variations,omitempty"`
+	// Source — откуда взяты числа правила (S-235): документ, пункт,
+	// основание. ПОЛЯ НЕ БЫЛО, хотя Issue.Source заполнялся с S-235:
+	// конвертер его просто не переносил, и вся нормативная библиотека
+	// оставалась в бэкенде. Клиент не мог показать, по какому документу
+	// выставлен предел, а отчёт без источника — мнение, а не проверка.
+	// Поле аддитивное: старые клиенты его просто не увидят.
+	Source string `json:"source,omitempty"`
 }
 
 // suggestionDTO — готовый вариант конфигурации, проходящий нормы
@@ -127,9 +181,8 @@ type suggestionDTO struct {
 	StepHeightMm   float64 `json:"step_height_mm"`
 	TreadDepthMm   float64 `json:"tread_depth_mm"`
 	AngleDeg       float64 `json:"angle_deg"`
-	// OuterRadiusMm и WidthMm — для спиральных вариантов (EDR-0007).
-	OuterRadiusMm float64 `json:"outer_radius_mm,omitempty"`
-	WidthMm       float64 `json:"width_mm,omitempty"`
+	// WidthMm — ширина марша варианта (EDR-0007).
+	WidthMm float64 `json:"width_mm,omitempty"`
 }
 
 // variationDTO — альтернативная конфигурация (вариант A/B/C), устраняющая
@@ -145,11 +198,64 @@ type variationDTO struct {
 	Summary     string            `json:"summary"`
 }
 
+// reportCheckDTO — одна развёрнутая проверка отчёта (S-240).
+// Повторяет правило, но показывает его развёрнуто: источник, границы,
+// значение, вердикт и что делать. В Issues остаётся короткое сообщение
+// для подсветки поля, здесь — полная картина для человека.
+type reportCheckDTO struct {
+	Code    string `json:"code"`
+	Title   string `json:"title"`
+	Status  string `json:"status"`
+	Element string `json:"element,omitempty"`
+	Doc     string `json:"doc,omitempty"`
+	Clause  string `json:"clause,omitempty"`
+	// Origin — основание: норма, эргономика, производство. Неизвестное
+	// основание остаётся неизвестным, а не превращается в «норму».
+	Origin string  `json:"origin,omitempty"`
+	Note   string  `json:"note,omitempty"`
+	Value  float64 `json:"value,omitempty"`
+	Min    float64 `json:"min,omitempty"`
+	Max    float64 `json:"max,omitempty"`
+	HasMin bool    `json:"has_min,omitempty"`
+	HasMax bool    `json:"has_max,omitempty"`
+	// Margin — запас до ближайшей границы, доля от предела. НЕ запас по
+	// прочности: прочность не считается, и называть это «запасом» значит
+	// обещать цифру, которой нет. Для размерных правил это честная
+	// величина, для остальных — пусто.
+	Margin string `json:"margin,omitempty"`
+	Fix    string `json:"fix,omitempty"`
+	Guide  string `json:"guide,omitempty"`
+}
+
+// reportLevelDTO — уровень отчёта (S-240).
+type reportLevelDTO struct {
+	Code    string `json:"code"`
+	Title   string `json:"title"`
+	Status  string `json:"status"`
+	Summary string `json:"summary"`
+	// Reasons — почему уровень не выполнен. Обязателен при
+	// not_performed: без причины это читается как забытый модуль.
+	Reasons []string         `json:"reasons,omitempty"`
+	Checks  []reportCheckDTO `json:"checks,omitempty"`
+}
+
+// reportDTO — развёрнутый отчёт проверки.
+type reportDTO struct {
+	// Overall — сводный вердикт. not_performed уровень тянет итог в
+	// partial, а не в passed: проект не «проверен полностью».
+	Overall string           `json:"overall"`
+	Levels  []reportLevelDTO `json:"levels"`
+}
+
 // validationDTO — итог валидации конфигурации.
 type validationDTO struct {
 	Valid    bool                 `json:"valid"`
 	Blocking bool                 `json:"blocking"`
 	Issues   []validationIssueDTO `json:"issues"`
+	// Report — развёрнутый отчёт по уровням (S-240). Аддитивно: старый
+	// контракт `valid`/`blocking`/`issues` живёт как был, чтобы правка
+	// отчёта не ломала клиентов, которые о нём ещё не знают.
+	Report *reportDTO `json:"report,omitempty"`
 }
 
 // flightDTO — результат Solver (EDR-0001). Производственные параметры
@@ -167,24 +273,29 @@ type flightDTO struct {
 	RailingHeightMm     float64 `json:"railing_height_mm"`
 	Riser               bool    `json:"riser"`
 	StringerThicknessMm float64 `json:"stringer_thickness_mm"`
+	StringerSpineMm     float64 `json:"stringer_spine_mm"`
 	// Перила прямого марша (CONF-RAILING): none|left|right|both.
 	Railing string `json:"railing,omitempty"`
 }
 
 // configEcho — производственные параметры конфигурации, дублируемые в
 // flight-ответы для 2D-рендера (BC-002) и перил/направлений
-// (CONF-RAILING/DIRECTION/SPIRAL).
+// (CONF-RAILING/DIRECTION).
 type configEcho struct {
 	StepThicknessMm     float64
 	RailingHeightMm     float64
 	Riser               bool
 	StringerThicknessMm float64
+	StringerSpineMm     float64
 	Railing             string
 	RailingLower        string
 	RailingLanding      string
 	RailingUpper        string
 	Direction           string
-	SpiralDirection     string
+	// DOM-001: эхо типа поворота и числа поворотных ступеней, чтобы клиент
+	// видел, ЧТО ИМЕННО посчитано (а не угадывал по upper_step_count).
+	TurnKind    string
+	WinderCount int
 }
 
 func flightEcho(r stair.Result) configEcho {
@@ -193,12 +304,14 @@ func flightEcho(r stair.Result) configEcho {
 		RailingHeightMm:     r.RailingHeight.Millimeters(),
 		Riser:               r.Riser,
 		StringerThicknessMm: r.StringerThickness.Millimeters(),
+		StringerSpineMm:     r.StringerSpine.Millimeters(),
 		Railing:             string(r.Railing),
 		RailingLower:        string(r.RailingLower),
 		RailingLanding:      string(r.RailingLanding),
 		RailingUpper:        string(r.RailingUpper),
 		Direction:           string(r.Direction),
-		SpiralDirection:     string(r.SpiralDir),
+		TurnKind:            string(r.TurnKind),
+		WinderCount:         r.WinderCount,
 	}
 }
 
@@ -225,6 +338,7 @@ type lshapeDTO struct {
 	RailingHeightMm     float64 `json:"railing_height_mm"`
 	Riser               bool    `json:"riser"`
 	StringerThicknessMm float64 `json:"stringer_thickness_mm"`
+	StringerSpineMm     float64 `json:"stringer_spine_mm"`
 	// Перила по сегментам (CONF-RAILING) и поворот площадки (CONF-DIRECTION).
 	RailingLower   string `json:"railing_lower,omitempty"`
 	RailingLanding string `json:"railing_landing,omitempty"`
@@ -252,37 +366,17 @@ type ushapeDTO struct {
 	RailingHeightMm     float64 `json:"railing_height_mm"`
 	Riser               bool    `json:"riser"`
 	StringerThicknessMm float64 `json:"stringer_thickness_mm"`
+	StringerSpineMm     float64 `json:"stringer_spine_mm"`
 	// Перила по сегментам (CONF-RAILING) и поворот площадки (CONF-DIRECTION).
 	RailingLower   string `json:"railing_lower,omitempty"`
 	RailingLanding string `json:"railing_landing,omitempty"`
 	RailingUpper   string `json:"railing_upper,omitempty"`
 	Direction      string `json:"direction,omitempty"`
-}
-
-// spiralDTO — результат Solver для спиральной лестницы (EDR-0007).
-type spiralDTO struct {
-	StepCount           int     `json:"step_count"`
-	StepHeightMm        float64 `json:"step_height_mm"`
-	OuterRadiusMm       float64 `json:"outer_radius_mm"`
-	ColumnRadiusMm      float64 `json:"column_radius_mm"`
-	WalkRadiusMm        float64 `json:"walk_radius_mm"`
-	InnerTreadMm        float64 `json:"inner_tread_mm"`
-	WalkTreadMm         float64 `json:"walk_tread_mm"`
-	OuterTreadMm        float64 `json:"outer_tread_mm"`
-	AngleDeg            float64 `json:"angle_deg"`
-	AngularStepDeg      float64 `json:"angular_step_deg"`
-	ArcLengthMm         float64 `json:"arc_length_mm"`
-	ComfortStepMm       float64 `json:"comfort_step_mm"`
-	AngularTotalDeg     float64 `json:"angular_total_deg"`
-	WidthMm             float64 `json:"width_mm"`
-	StepThicknessMm     float64 `json:"step_thickness_mm"`
-	RailingHeightMm     float64 `json:"railing_height_mm"`
-	Riser               bool    `json:"riser"`
-	StringerThicknessMm float64 `json:"stringer_thickness_mm"`
-	// Перила (авто из направления, CONF-SPIRAL-RAILING) и направление
-	// закрутки (CONF-SPIRAL-DIRECTION).
-	Railing         string `json:"railing,omitempty"`
-	SpiralDirection string `json:"spiral_direction,omitempty"`
+	// DOM-001: тип поворота и число поворотных ступеней. При turn_kind=winder
+	// upper_step_count = n − n1 − nw, и без этих полей клиент не может
+	// отличить веер от площадки.
+	TurnKind    string `json:"turn_kind,omitempty"`
+	WinderCount int    `json:"winder_count,omitempty"`
 }
 
 // geometryIssueDTO — запись валидации геометрии (ENG-GEO-0018).
@@ -322,6 +416,13 @@ type partDTO struct {
 	LengthMm    float64 `json:"length_mm"`
 	WidthMm     float64 `json:"width_mm"`
 	SolidIndex  int     `json:"solid_index"`
+	// Where — куда ставится деталь («ступень 7», «косоур А»). Пусто, если
+	// место не вычислено: наклейка тогда только с номером, без места.
+	Where string `json:"where,omitempty"`
+	// Purchased — деталь покупается готовой и не режется. Фронт по этому
+	// флагу показывает, что в документ реза она не входит: угадывать по
+	// материалу нельзя, потому что нержавейка бывает и резной.
+	Purchased bool `json:"purchased,omitempty"`
 }
 
 // bomLineDTO — строка спецификации (MFG-0001).
@@ -334,6 +435,9 @@ type bomLineDTO struct {
 	Quantity    int     `json:"quantity"`
 	LengthMm    float64 `json:"length_mm"`
 	WidthMm     float64 `json:"width_mm"`
+	// Numbers — стикеры всех экземпляров строки. Спецификация отвечает
+	// «какой стикер куда» только если знает полный перечень наклеек позиции.
+	Numbers []string `json:"numbers,omitempty"`
 }
 
 // cutItemDTO — позиция карты раскроя (MFG-0001).
@@ -353,6 +457,12 @@ type placedPartDTO struct {
 	WidthMm    float64 `json:"width_mm"`
 	X          float64 `json:"x"`
 	Y          float64 `json:"y"`
+	// Сварной стык «шип-паз»: деталь длиннее поля лазерного стола режется
+	// на куски, и монтажнику нужно видеть на карте, где шип, где паз.
+	HasTongue    bool `json:"has_tongue"`
+	HasMortise   bool `json:"has_mortise"`
+	JointOnWidth bool `json:"joint_on_width"`
+	JointCount   int  `json:"joint_count"`
 }
 
 // sheetLayoutDTO — заполненный лист (MFG-0012).
@@ -392,10 +502,15 @@ type costComponentDTO struct {
 
 // pricingDTO — цена проекта (PRC-0004) в рублях.
 type pricingDTO struct {
-	Currency          string             `json:"currency"`
-	MaterialRub       float64            `json:"material_rub"`
-	MachineRub        float64            `json:"machine_rub"`
-	LaborRub          float64            `json:"labor_rub"`
+	Currency    string  `json:"currency"`
+	MaterialRub float64 `json:"material_rub"`
+	MachineRub  float64 `json:"machine_rub"`
+	LaborRub    float64 `json:"labor_rub"`
+	// FastenerRub — крепёж, ₽ (MNT-0001). Отдельная строка в сводке, чтобы
+	// было видно, сколько стоит крепёж, не листая детализацию.
+	FastenerRub float64 `json:"fastener_rub"`
+	// SealantRub — герметик, ₽ (CONF-SEALANT).
+	SealantRub        float64            `json:"sealant_rub"`
 	OverheadRub       float64            `json:"overhead_rub"`
 	ProductionCostRub float64            `json:"production_cost_rub"`
 	MarginRub         float64            `json:"margin_rub"`
@@ -406,13 +521,35 @@ type pricingDTO struct {
 	Lines             []costComponentDTO `json:"lines"`
 }
 
+// publicPricingDTO — цена для анонимного витринного расчёта.
+//
+// Публичный маршрут /api/v1/public/stairs:quote НЕ аутентифицирован, поэтому
+// отдавать полную pricingDTO нельзя: margin_rub, overhead_rub,
+// production_cost_rub и построчные lines — это себестоимость и наценка
+// продавца. Любой посетитель мог их прочитать одним curl, и на этом строилась
+// вся «калькуляция» цены конкурента. Комментарий над publicQuoteDTO обещал
+// «только предварительную цену» — реализация этому не соответствовала.
+//
+// Покупателю отдаём ровно то, что нужно витрине: валюта и итог. Полная
+// разбивка остаётся в авторизованном /api/v1/stairs:calculate (админка).
+type publicPricingDTO struct {
+	Currency      string  `json:"currency"`
+	FinalPriceRub float64 `json:"final_price_rub"`
+}
+
+func toPublicPricing(b *domprc.PriceBreakdown) publicPricingDTO {
+	return publicPricingDTO{
+		Currency:      b.Currency.Code,
+		FinalPriceRub: b.FinalPrice.Major(b.Currency),
+	}
+}
+
 // calculateResponse — полный результат конвейера.
 type calculateResponse struct {
 	Validation    validationDTO    `json:"validation"`
 	Flight        flightDTO        `json:"flight"`
 	LShape        *lshapeDTO       `json:"lshape,omitempty"`
 	UShape        *ushapeDTO       `json:"ushape,omitempty"`
-	Spiral        *spiralDTO       `json:"spiral,omitempty"`
 	Geometry      geometryDTO      `json:"geometry"`
 	Manufacturing manufacturingDTO `json:"manufacturing"`
 	Pricing       pricingDTO       `json:"pricing"`
@@ -420,14 +557,43 @@ type calculateResponse struct {
 
 // ---- converters: domain/engine → DTO ----
 
+// toValidationResult конвертирует результат валидации в DTO. dropDisabledFlights
+// включает фильтрацию вариантов отключённых типов марша (S-152): публичные
+// ручки передают true, внутренние — false, чтобы поведение не зависело от
+// глобального состояния и было безопасно при параллельных запросах.
+// Раньше принимала dropDisabledFlights, и публичный путь звал её с true, но
+// фильтра в теле не было никогда — аргумент ничего не менял. Параметр убран;
+// если отбрасывание замечаний выключенных маршей понадобится, это отдельная
+// задача, а не молчаливо работающий флаг.
+// toValidationResult — конвертер результата приложения в раздел ответа.
+//
+// Рабочая часть вынесена в toValidation, потому что отчёт (S-240) собирается
+// из САМОГО Result: в нём лежат коды материалов, без которых уровень
+// прочности не может назвать причины. Поэтому toValidationResult сначала
+// собирает раздел без отчёта, а затем дописывает его.
 func toValidationResult(r *stair.Result) validationDTO {
-	issues := make([]validationIssueDTO, 0, len(r.Validation.Issues))
-	for _, i := range r.Validation.Issues {
+	dto := toValidation(r.Validation)
+	dto.Report = toReport(r.Report())
+	return dto
+}
+
+// toValidation — сборка раздела валидации из доменного результата без
+// отчёта. Выделено ради гейта контракта (S-240): пропажа источника была не
+// в логике конвертера, а в том, что он не переносил поле, — и заметить
+// это можно было только собранным ответом.
+func toValidation(r validation.Result) validationDTO {
+	issues := make([]validationIssueDTO, 0, len(r.Issues))
+	for _, i := range r.Issues {
 		dto := validationIssueDTO{
 			ID: i.ID, Code: string(i.Code), Severity: string(i.Severity),
 			Element: i.Element, Message: i.Message, Value: i.Value,
 			Min: i.Min, Max: i.Max, Fix: i.Fix,
 			Param: i.Param, Guide: i.Guide,
+			// Source доезжает до клиента (S-240). До этого правило
+			// складывалось в строку и тут же терялось: нормативная
+			// библиотека была собрана, но её не мог увидеть никто, кроме
+			// бэкенда.
+			Source: i.Source,
 		}
 		if len(i.Suggestions) > 0 {
 			dto.Suggestions = make([]suggestionDTO, 0, len(i.Suggestions))
@@ -435,7 +601,7 @@ func toValidationResult(r *stair.Result) validationDTO {
 				dto.Suggestions = append(dto.Suggestions, suggestionDTO{
 					StepCount: s.StepCount, LowerStepCount: s.LowerStepCount,
 					StepHeightMm: s.StepHeightMm, TreadDepthMm: s.TreadDepthMm,
-					AngleDeg: s.AngleDeg, OuterRadiusMm: s.OuterRadiusMm, WidthMm: s.WidthMm,
+					AngleDeg: s.AngleDeg, WidthMm: s.WidthMm,
 				})
 			}
 		}
@@ -447,10 +613,67 @@ func toValidationResult(r *stair.Result) validationDTO {
 					Config: v.Config, Fits: v.Fits, Summary: v.Summary,
 				})
 			}
+			if len(dto.Variations) == 0 {
+				dto.Variations = nil
+			}
 		}
 		issues = append(issues, dto)
 	}
-	return validationDTO{Valid: r.Validation.Valid, Blocking: r.Validation.Blocking, Issues: issues}
+	return validationDTO{
+		Valid: r.Valid, Blocking: r.Blocking,
+		Issues: issues,
+	}
+}
+
+// toReport — доменный отчёт в DTO. Развёрнуто: каждая проверка с
+// источником, границами, вердиктом и запасом до предела.
+func toReport(r *validation.Report) *reportDTO {
+	if r == nil {
+		return nil
+	}
+	out := &reportDTO{Overall: string(r.Overall()), Levels: make([]reportLevelDTO, 0, len(r.Levels))}
+	for _, l := range r.Levels {
+		lv := reportLevelDTO{
+			Code: string(l.Code), Title: l.Title,
+			Status: string(l.Status), Summary: l.Summary,
+			Reasons: append([]string(nil), l.Reasons...),
+		}
+		// Порядок стабильный: иначе отчёт и его гейт зависели бы от
+		// порядка обхода внутри движка.
+		checks := l.SortedChecks()
+		if len(checks) > 0 {
+			lv.Checks = make([]reportCheckDTO, 0, len(checks))
+			for _, c := range checks {
+				lv.Checks = append(lv.Checks, reportCheckDTO{
+					Code: c.Code, Title: c.Title, Status: string(c.Status),
+					Element: c.Element, Doc: c.Doc, Clause: c.Clause,
+					Origin: c.Origin(), Note: c.Note,
+					Value: c.Value, Min: c.Min, Max: c.Max,
+					HasMin: c.HasMin, HasMax: c.HasMax,
+					Margin: marginOf(c), Fix: c.Fix, Guide: c.Guide,
+				})
+			}
+		}
+		out.Levels = append(out.Levels, lv)
+	}
+	return out
+}
+
+// marginOf — запас до ближайшей границы в долях от предела.
+//
+// Только для размерных правил и только когда предел задан. Для проверки
+// без границы запас не вычисляется и не показывается: «запас 0 %» без
+// границы — это число, придуманное на пустом месте.
+func marginOf(c validation.Check) string {
+	switch {
+	case c.HasMin && c.Max != 0:
+		return fmt.Sprintf("%.1f%%", c.Value/c.Max*100)
+	case c.HasMax && c.Min != 0:
+		return fmt.Sprintf("%.1f%%", c.Min/c.Value*100)
+	case c.HasMin && c.HasMax:
+		return fmt.Sprintf("%.1f%%", math.Min(c.Value/c.Max, c.Min/c.Value)*100)
+	}
+	return ""
 }
 
 func toFlight(r stair.Result) flightDTO {
@@ -461,6 +684,7 @@ func toFlight(r stair.Result) flightDTO {
 		StringerMm: r.Flight.Stringer.Millimeters(), AngleDeg: r.Flight.Angle.Degrees(),
 		StepThicknessMm: e.StepThicknessMm, RailingHeightMm: e.RailingHeightMm, Riser: e.Riser,
 		StringerThicknessMm: e.StringerThicknessMm,
+		StringerSpineMm:     e.StringerSpineMm,
 		Railing:             e.Railing,
 	}
 }
@@ -480,6 +704,7 @@ func toLShape(l *solver.LShapeResult, e configEcho) *lshapeDTO {
 		RoomLengthMm:    l.RoomLength.Millimeters(),
 		StepThicknessMm: e.StepThicknessMm, RailingHeightMm: e.RailingHeightMm, Riser: e.Riser,
 		StringerThicknessMm: e.StringerThicknessMm,
+		StringerSpineMm:     e.StringerSpineMm,
 		RailingLower:        e.RailingLower, RailingLanding: e.RailingLanding,
 		RailingUpper: e.RailingUpper, Direction: e.Direction,
 	}
@@ -498,32 +723,10 @@ func toUShape(u *solver.UShapeResult, e configEcho) *ushapeDTO {
 		UpperStringerMm: u.UpperStringer.Millimeters(), LandingWidthMm: u.LandingWidth.Millimeters(),
 		StepThicknessMm: e.StepThicknessMm, RailingHeightMm: e.RailingHeightMm, Riser: e.Riser,
 		StringerThicknessMm: e.StringerThicknessMm,
+		StringerSpineMm:     e.StringerSpineMm,
 		RailingLower:        e.RailingLower, RailingLanding: e.RailingLanding,
 		RailingUpper: e.RailingUpper, Direction: e.Direction,
-	}
-}
-
-func toSpiral(s *solver.SpiralResult, e configEcho) *spiralDTO {
-	if s == nil {
-		return nil
-	}
-	return &spiralDTO{
-		StepCount:       s.StepCount,
-		StepHeightMm:    s.StepHeight.Millimeters(),
-		OuterRadiusMm:   s.OuterRadius.Millimeters(),
-		ColumnRadiusMm:  s.ColumnRadius.Millimeters(),
-		WalkRadiusMm:    s.WalkRadius.Millimeters(),
-		InnerTreadMm:    s.InnerTread.Millimeters(),
-		WalkTreadMm:     s.WalkTread.Millimeters(),
-		OuterTreadMm:    s.OuterTread.Millimeters(),
-		AngleDeg:        s.Angle.Degrees(),
-		AngularStepDeg:  s.AngularStep * 180 / math.Pi,
-		ArcLengthMm:     s.ArcLength.Millimeters(),
-		ComfortStepMm:   s.ComfortStep,
-		AngularTotalDeg: s.AngularTotal * 180 / math.Pi,
-		StepThicknessMm: e.StepThicknessMm, RailingHeightMm: e.RailingHeightMm, Riser: e.Riser,
-		StringerThicknessMm: e.StringerThicknessMm,
-		Railing:             e.Railing, SpiralDirection: e.SpiralDirection,
+		TurnKind: e.TurnKind, WinderCount: e.WinderCount,
 	}
 }
 
@@ -551,14 +754,20 @@ func toManufacturing(p *dommfg.ManufacturingPackage) manufacturingDTO {
 			Number: string(pt.Number), Kind: string(pt.Kind), Material: string(pt.Material),
 			ThicknessMm: pt.Thickness.Millimeters(), LengthMm: pt.Length.Millimeters(),
 			WidthMm: pt.Width.Millimeters(), SolidIndex: pt.SolidIndex,
+			Where: pt.Where, Purchased: pt.Purchased,
 		})
 	}
 	bom := make([]bomLineDTO, 0, len(p.BOM.Lines))
 	for _, l := range p.BOM.Lines {
+		nums := make([]string, 0, len(l.Numbers))
+		for _, n := range l.Numbers {
+			nums = append(nums, string(n))
+		}
 		bom = append(bom, bomLineDTO{
 			Number: l.Number, PartNumber: string(l.PartNumber), Description: l.Description,
 			Material: string(l.MaterialCode), ThicknessMm: l.Thickness.Millimeters(),
 			Quantity: int(l.Quantity), LengthMm: l.Length.Millimeters(), WidthMm: l.Width.Millimeters(),
+			Numbers: nums,
 		})
 	}
 	cut := make([]cutItemDTO, 0, len(p.CutList.Items))
@@ -576,6 +785,8 @@ func toManufacturing(p *dommfg.ManufacturingPackage) manufacturingDTO {
 			placed = append(placed, placedPartDTO{
 				PartNumber: string(pp.PartNumber), LengthMm: pp.Length.Millimeters(),
 				WidthMm: pp.Width.Millimeters(), X: pp.X, Y: pp.Y,
+				HasTongue: pp.HasTongue, HasMortise: pp.HasMortise,
+				JointOnWidth: pp.JointOnWidth, JointCount: pp.JointCount,
 			})
 		}
 		sheets = append(sheets, sheetLayoutDTO{
@@ -604,7 +815,9 @@ func toPricing(b *domprc.PriceBreakdown) pricingDTO {
 	return pricingDTO{
 		Currency:    b.Currency.Code,
 		MaterialRub: b.Material.Major(b.Currency), MachineRub: b.Machine.Major(b.Currency),
-		LaborRub: b.Labor.Major(b.Currency), OverheadRub: b.Overhead.Major(b.Currency),
+		LaborRub: b.Labor.Major(b.Currency), FastenerRub: b.Fastener.Major(b.Currency),
+		SealantRub:        b.Sealant.Major(b.Currency),
+		OverheadRub:       b.Overhead.Major(b.Currency),
 		ProductionCostRub: b.ProductionCost.Major(b.Currency), MarginRub: b.Margin.Major(b.Currency),
 		DiscountRub: b.Discount.Major(b.Currency), PreTaxRub: b.PreTax.Major(b.Currency),
 		TaxRub: b.Tax.Major(b.Currency), FinalPriceRub: b.FinalPrice.Major(b.Currency),
@@ -629,73 +842,67 @@ func toConfig(req calculateRequest) stair.Config {
 		LandingDepth:      engineering.Length(req.LandingDepthMM),
 		RoomWidth:         engineering.Length(req.RoomWidthMM),
 		RoomLength:        engineering.Length(req.RoomLengthMM),
+		CeilingHeight:     engineering.Length(req.CeilingHeightMM),
 		ApproachSpace:     engineering.Length(req.ApproachSpaceMM),
 		LowerStepCount:    req.LowerStepCount,
-		OuterRadius:       engineering.Length(req.OuterRadiusMM),
-		Material:          dommfg.MaterialCode(req.Material),
-		Railing:           engineering.RailingSide(req.Railing),
-		RailingLower:      engineering.RailingSide(req.RailingLower),
-		RailingLanding:    engineering.RailingSide(req.RailingLanding),
-		RailingUpper:      engineering.RailingSide(req.RailingUpper),
-		Direction:         engineering.TurnDirection(req.Direction),
-		SpiralDir:         engineering.SpiralDirection(req.SpiralDirection),
+		// Назначение здания → нормативный профиль правил (S-236).
+		Purpose:                engineering.BuildingPurpose(req.Purpose),
+		Material:               dommfg.MaterialCode(req.Material),
+		TreadMaterial:          dommfg.MaterialCode(req.TreadMaterial),
+		RiserThickness:         engineering.Length(req.RiserThicknessMM),
+		TurnKind:               engineering.TurnKind(req.TurnKind),
+		WinderCount:            req.WinderCount,
+		Railing:                engineering.RailingSide(req.Railing),
+		RailingLower:           engineering.RailingSide(req.RailingLower),
+		RailingLanding:         engineering.RailingSide(req.RailingLanding),
+		RailingUpper:           engineering.RailingSide(req.RailingUpper),
+		Direction:              engineering.TurnDirection(req.Direction),
+		FloorFixing:            engineering.FixingBase(req.FloorFixing),
+		CeilingFixing:          engineering.FixingBase(req.CeilingFixing),
+		ExtraFasteners:         req.ExtraFasteners,
+		SealantLayerMM:         req.SealantLayerMM,
+		ExtraSealantCartridges: req.ExtraSealantCartridges,
 	}
 	return cfg
 }
 
-func toOptions(req calculateRequest) (stair.Options, error) {
+// toOptions собирает серверные опции расчёта из DTO.
+//
+// SEC-001 (2026-09-26): функция БОЛЬШЕ НЕ принимает ставки цены от клиента.
+// Раньше здесь декодировался `rates` и результат писался в
+// stair.Options.Rates, из-за чего любой аутентифицированный клиент мог
+// обнулить цену (воспроизведено: 3 832 042 руб -> 0 руб). Ставки теперь
+// задаются исключительно сервером: nil -> движок берёт
+// engprc.DefaultRates(), а витрина подкладывает ставки магазина через
+// publicStoreRates (public.go).
+//
+// Возвращаемое значение — (Options, bool ok): ok=false означает, что клиент
+// прислал запрещённое поле `rates` (см. rejectClientRates), и вызывающий
+// обязан ответить 422. Сигнатура без error, потому что иных ошибочных
+// веток не осталось: ошибочный JSON отсекает decodeJSON, а невалидные
+// числа отсекает json.Unmarshal.
+func toOptions(req calculateRequest) (stair.Options, bool) {
 	opts := stair.Options{}
 	if req.ComfortStepMM > 0 {
 		opts.ComfortStep = req.ComfortStepMM
 	}
-	if req.Rates == nil {
-		return opts, nil
+	opts.PreviewMesh = req.PreviewMesh
+	return opts, !clientRatesPresent(req.Rates)
+}
+
+// clientRatesPresent — признак того, что клиент прислал непустое поле
+// `rates`. Трактовка:
+//   - отсутствует / пустой массив байт / JSON null / "false" -> false;
+//   - "true", объект, массив, число, строка -> true.
+//
+// Всё, что не является «полем не передано», считаем попыткой
+// переопределить цену и отклоняем: fail-closed.
+func clientRatesPresent(raw json.RawMessage) bool {
+	t := bytes.TrimSpace(raw)
+	if len(t) == 0 || string(t) == "null" || string(t) == "false" {
+		return false
 	}
-	r := req.Rates
-	rates := engprc.DefaultRates()
-	for code, price := range map[dommfg.MaterialCode]float64{
-		"STEEL-S235": r.MaterialPerKg.STEEL_S235,
-		"ALUM-5083":  r.MaterialPerKg.ALUM_5083,
-		"WOOD-OAK":   r.MaterialPerKg.WOOD_OAK,
-	} {
-		if price > 0 {
-			m, err := domprc.CurrencyRUB.FromMajor(price)
-			if err != nil {
-				return opts, err
-			}
-			rates.Material[code] = m
-		}
-	}
-	if r.MachinePerHour > 0 {
-		m, err := domprc.CurrencyRUB.FromMajor(r.MachinePerHour)
-		if err != nil {
-			return opts, err
-		}
-		rates.MachinePerHour = m
-	}
-	if r.LaborPerHour > 0 {
-		m, err := domprc.CurrencyRUB.FromMajor(r.LaborPerHour)
-		if err != nil {
-			return opts, err
-		}
-		rates.LaborPerHour = m
-	}
-	for pct, dst := range map[float64]*domprc.Rate{
-		r.OverheadPercent: &rates.OverheadPercent,
-		r.MarginPercent:   &rates.MarginPercent,
-		r.DiscountPercent: &rates.DiscountPercent,
-		r.TaxPercent:      &rates.TaxPercent,
-	} {
-		if pct > 0 {
-			rt, err := domprc.NewRate(pct)
-			if err != nil {
-				return opts, err
-			}
-			*dst = rt
-		}
-	}
-	opts.Rates = &rates
-	return opts, nil
+	return true
 }
 
 // toOptimizeRequest собирает параметры поиска из DTO. Не указанные границы
@@ -768,10 +975,6 @@ func stepMetrics(res *stair.Result) stepMetricsResult {
 		m.stepHeight = res.UShape.StepHeight.Millimeters()
 		m.treadDepth = res.UShape.TreadDepth.Millimeters()
 		m.lowerStepCount = res.UShape.LowerStepCount
-	case res.Spiral != nil:
-		m.stepCount = res.Spiral.StepCount
-		m.stepHeight = res.Spiral.StepHeight.Millimeters()
-		m.treadDepth = res.Spiral.WalkTread.Millimeters()
 	default:
 		m.stepCount = res.Flight.StepCount
 		m.stepHeight = res.Flight.StepHeight.Millimeters()

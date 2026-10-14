@@ -22,7 +22,7 @@ export interface PlanFlight {
   Railing?: string
 }
 
-// PlanExtras — дополнительные параметры L/U/спирали (структурно совместима).
+// PlanExtras — дополнительные параметры L/U (структурно совместима).
 export interface PlanExtras {
   lowerStepCount?: number
   upperStepCount?: number
@@ -47,17 +47,9 @@ export interface PlanExtras {
   // Направление поворота (CONF-DIRECTION): 'right' — площадка справа (как сейчас),
   // 'left' — план зеркалится по горизонтали.
   direction?: 'left' | 'right'
-  outerRadius?: number
-  columnRadius?: number
-  walkRadius?: number
-  innerTread?: number
-  outerTread?: number
-  angularStep?: number
-  angularTotal?: number
-  arcLength?: number
 }
 
-export type PlanKind = 'straight' | 'l_shape' | 'u_shape' | 'spiral'
+export type PlanKind = 'straight' | 'l_shape' | 'u_shape'
 
 interface Props {
   flight: PlanFlight
@@ -88,7 +80,7 @@ function contentMm(p: Props): { w: number; h: number; pts: Array<{ x: number; y:
       // оно рисуется справа от марша, поэтому включаем в габарит по X.
       // ВАЖНО: угол зоны подхода (f.Run+approach) должен входить в pts, иначе
       // габарит размещения (sb) игнорирует 1000 мм и лестница прижимается
-      // к стене без резерва подхода (для L/U/спирали pts это уже учитывает).
+      // к стене без резерва подхода (для L/U pts это уже учитывает).
       const ap = effectiveApproach(s.approachSpace)
       return {
         w: f.Run + ap,
@@ -128,48 +120,33 @@ function contentMm(p: Props): { w: number; h: number; pts: Array<{ x: number; y:
       }
     }
     case 'u_shape': {
+      // Раскладка повторяет 3D-модель (EDR-0006 §4.8.1, geometry
+      // uShapePlatformTransforms), а НЕ классический switchback:
+      //   нижний марш  [0, L1]      × [0, W]
+      //   площадка     [L1, L1+W]   × [0, 2W]
+      //   верхний марш [L1−L2, L1] × [W, 2W]
+      // Раньше здесь рисовался switchback (верхний марш [0, L2] над нижним),
+      // из-за чего план показывал лестницу в другом месте, чем 3D-вьювер, а
+      // проверка вписывания в помещение считалась по bbox 3D-модели: одно и
+      // то же выглядело двумя разными лестницами.
       const lr = s.lowerRun ?? f.Run
       const ur = s.upperRun ?? f.Run
-      const lw = s.landingWidth ?? f.Width
-      const gap = Math.max(60, (lw - f.Width) / 2)
+      const W2 = f.Width * 2
       // Свободное пространство перед первой ступенью (EDR-0023) слева от входа
-      // (нижнего марша, x=0); учитывается в габарите по X.
+      // (нижний марш, x=0); учитывается в габарите по X.
       const ap = effectiveApproach(s.approachSpace)
-      const pts = [
-        { x: 0, y: 0 },
-        { x: lr, y: 0 },
-        { x: lr + lw, y: 0 },
-        { x: lr + lw, y: gap + f.Width },
-        { x: ur, y: gap + f.Width },
-        { x: ur, y: gap },
-        { x: 0, y: gap },
-        { x: -ap, y: 0 },
-      ]
-      // Габарит по X: верхний марш (0..ur) может выступать за площадку
-      // (lr..lr+lw) при малом нижнем марше (напр. lower=1, upper=17) —
-      // иначе масштаб завышается и чертёж вылезает за viewBox.
+      const minX = Math.min(0, lr - ur)
+      const maxX = lr + f.Width
       return {
-        w: Math.max(lr + lw, ur) + ap,
-        h: gap + f.Width,
-        pts: pts.map((q) => ({ x: (s.direction === 'left' ? -1 : 1) * q.x, y: q.y })),
-      }
-    }
-    case 'spiral': {
-      const r = s.outerRadius ?? f.Width + 400
-      const d = r * 2
-      // Свободное пространство перед первой ступенью (EDR-0023) — снаружи у
-      // входа (внешний радиус, +X); учитывается в габарите по X.
-      const ap = effectiveApproach(s.approachSpace)
-      return {
-        w: d + ap,
-        h: d,
+        w: maxX - minX + ap,
+        h: W2,
         pts: [
-          { x: -r, y: -r },
-          { x: r, y: -r },
-          { x: r, y: r },
-          { x: -r, y: r },
-          { x: r + ap, y: 0 },
-        ],
+          { x: minX, y: 0 },
+          { x: maxX, y: 0 },
+          { x: maxX, y: W2 },
+          { x: minX, y: W2 },
+          { x: -ap, y: 0 },
+        ].map((q) => ({ x: (s.direction === 'left' ? -1 : 1) * q.x, y: q.y })),
       }
     }
   }
@@ -218,7 +195,7 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
   const areaH = H - PAD * 2
   const scale = Math.min(areaW / cw, areaH / ch)
   // Центрирование чертежа с учётом знака координат: слева сверху — minX,
-  // сверху (screen y) — maxY. Без этого при minX<0<spiral/maxY>0 контент
+  // сверху (screen y) — maxY. Без этого при minX<0<maxX и maxY>0 контент
   // сдвигается влево/вверх и вылезает за пределы viewBox.
   const ox = PAD + (areaW - cw * scale) / 2 - mathMin(pts.map((q) => q.x)) * scale
   const oy = PAD + (areaH - ch * scale) / 2 + mathMax(pts.map((q) => q.y)) * scale
@@ -526,17 +503,23 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
   } else if (kind === 'u_shape') {
     const lr = s.lowerRun ?? f.Run
     const ur = s.upperRun ?? f.Run
-    const lw = s.landingWidth ?? f.Width
-    const gap = Math.max(60, (lw - f.Width) / 2)
     const wBig = f.Width
+    const wUp = f.Width * 2 // верхняя кромка площадки и верхнего марша
+    // Раскладка как в 3D (EDR-0006 §4.8.1): площадка [lr, lr+wBig] × [0, 2W],
+    // верхний марш [lr−ur, lr] × [W, 2W]. При ur > lr верхний марш выходит
+    // в отрицательные X — ровно как bbox 3D-модели.
+    const upX0 = lr - ur
+    const gap = wBig // отметка, с которой начинается верхний марш
     const ap = effectiveApproach(s.approachSpace)
-    // Направление поворота (CONF-DIRECTION): 'left' зеркалит план по горизонтали.
+    // Направление поворота (CONF-DIRECTION): 'left' зеркалит план по
+    // горизонтали; зеркальство воспроизводит раскладку 3D левого поворота
+    // (площадка [0,W], оба марша [W, W+L]).
     const mp = s.direction === 'left' ? -1 : 1
     const P = (x: number) => px(mp * x)
     const rects: Array<[number, number, number, number]> = [
       [0, 0, lr, wBig],
-      [lr, 0, lw, gap + wBig],
-      [0, gap, ur, wBig],
+      [lr, 0, wBig, wUp],
+      [upX0, gap, ur, wBig],
     ]
     // rail — см. ветку l_shape: 'right' → ВНЕШНЯЯ грань сегмента,
     // 'left' → ВНУТРЕННЯЯ грань сегмента (едино для всех маршей/площадок).
@@ -590,8 +573,8 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
         {rail(
           [
             [lr, 0],
-            [lr + lw, 0],
-            [lr + lw, gap + wBig],
+            [lr + wBig, 0],
+            [lr + wBig, wUp],
           ],
           s.railingLanding,
           'right',
@@ -607,9 +590,9 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
         )}
         {rail(
           [
-            [lr + lw, gap + wBig],
-            [ur, gap + wBig],
-            [0, gap + wBig],
+            [lr, wUp],
+            [upX0, wUp],
+            [upX0, gap],
           ],
           s.railingUpper,
           'right',
@@ -629,93 +612,37 @@ export function StairPlan({ flight: f, kind, solver: s }: Props) {
         )}
         {Array.from({ length: s.upperStepCount ?? Math.floor(ur / f.TreadDepth) }, (_, i) => i + 1).map((i) =>
           i * f.TreadDepth < ur ? (
-            <line key={`u${i}`} x1={P(i * f.TreadDepth)} y1={py(gap)} x2={P(i * f.TreadDepth)} y2={py(gap + wBig)} className="scheme__tread scheme__tread--upper" />
+            <line
+              key={`u${i}`}
+              x1={P(upX0 + i * f.TreadDepth)}
+              y1={py(gap)}
+              x2={P(upX0 + i * f.TreadDepth)}
+              y2={py(gap + wBig)}
+              className="scheme__tread scheme__tread--upper"
+            />
           ) : null,
         )}
         {dirArrow(P(0), py(wBig / 2), P(lr), py(wBig / 2), 'pln-dir')}
-        {dirArrow(P(ur), py(gap + wBig / 2), P(0), py(gap + wBig / 2), 'pln-dir')}
-        {arrowLine(P(0), py(gap + wBig) - 18, P(lr), py(gap + wBig) - 18, 'pln-arr')}
-        {dim('L₁ ' + fmt(lr), (P(0) + P(lr)) / 2, py(gap + wBig) - 18, 'middle', 0, -1)}
-        {arrowLine(P(0), py(gap) + 18, P(ur), py(gap) + 18, 'pln-arr')}
-        {dim('L₂ ' + fmt(ur), (P(0) + P(ur)) / 2, py(gap) + 18, 'middle', 0, 1)}
-        {arrowLine(P(0) - mp * 18, py(gap + wBig), P(0) - mp * 18, py(gap), 'pln-arr')}
-        {dim('B ' + fmt(wBig), P(0) - mp * 18, (py(gap + wBig) + py(gap)) / 2, 'middle', -1, 0)}
+        {dirArrow(P(lr), py(gap + wBig / 2), P(upX0), py(gap + wBig / 2), 'pln-dir')}
+        {arrowLine(P(0), py(wUp) - 18, P(lr), py(wUp) - 18, 'pln-arr')}
+        {dim('L₁ ' + fmt(lr), (P(0) + P(lr)) / 2, py(wUp) - 18, 'middle', 0, -1)}
+        {arrowLine(P(upX0), py(gap) + 18, P(lr), py(gap) + 18, 'pln-arr')}
+        {dim('L₂ ' + fmt(ur), (P(upX0) + P(lr)) / 2, py(gap) + 18, 'middle', 0, 1)}
+        {arrowLine(P(0) - mp * 18, py(wUp), P(0) - mp * 18, py(0), 'pln-arr')}
+        {dim('B ' + fmt(wBig), P(0) - mp * 18, py(wUp / 2), 'middle', -1, 0)}
         {/* Свободное пространство перед первой ступенью (EDR-0023): зона перед
             входом (нижним маршем, x=0), рисуется слева. */}
         {ap > 0 && (
           <>
             <rect
               x={Math.min(P(0), P(-ap))}
-              y={py(gap + wBig)}
+              y={py(wBig)}
               width={Math.abs(P(0) - P(-ap))}
               height={wBig * scale}
               className="scheme__approach"
             />
-            {arrowLine(P(0), py(gap + wBig / 2), P(-ap), py(gap + wBig / 2), 'pln-arr')}
-            {dim('Свободное место ' + fmt(ap), (P(0) + P(-ap)) / 2, py(gap + wBig / 2), 'middle', 0, 1)}
-          </>
-        )}
-      </g>
-      </>
-    )
-  } else {
-    // spiral
-    const r = s.outerRadius ?? f.Width + 400
-    const ap = effectiveApproach(s.approachSpace)
-    const cr = s.columnRadius ?? 80
-    const cx = 0
-    const cy = 0
-    const steps = Array.from({ length: f.StepCount }, (_, i) => i + 1).map((i) => {
-      const a = (i * (s.angularStep ?? 15) * Math.PI) / 180
-      return { a }
-    })
-    const rw = s.roomWidth ?? 0
-    const rl = s.roomLength ?? 0
-    const roomFits = s.roomFits ?? false
-    const roomRect =
-      rw > 0 && rl > 0 ? (
-        <rect
-          x={Math.min(px(0), px(rw))}
-          y={Math.min(py(0), py(rl))}
-          width={Math.abs(px(rw) - px(0))}
-          height={Math.abs(py(rl) - py(0))}
-          className={roomFits ? 'scheme__room' : 'scheme__room scheme__room--overflow'}
-        />
-      ) : null
-    body = (
-      <>{roomRect}
-      <g transform={`translate(${placement.offsetX * scale} ${-placement.offsetY * scale})`}>
-        <circle cx={px(cx)} cy={py(cy)} r={r * scale} className="scheme__outline" fill="none" />
-        {ANNOTATE && (
-          <>
-            <circle cx={px(cx)} cy={py(cy)} r={r * scale} className="scheme__edge" style={{ stroke: edgeColor(0) }} fill="none" strokeWidth={3} />
-            <text x={px(cx)} y={py(cy) - r * scale - 6} className="scheme__elabel" style={{ fill: edgeColor(0) }} textAnchor="middle" dominantBaseline="middle">К</text>
-          </>
-        )}
-        <circle cx={px(cx)} cy={py(cy)} r={cr * scale} className="scheme__column" />
-        {steps.map((st, i) => {
-          const x1 = Math.cos(st.a) * cr
-          const y1 = Math.sin(st.a) * cr
-          const x2 = Math.cos(st.a) * r
-          const y2 = Math.sin(st.a) * r
-          return <line key={i} x1={px(x1)} y1={py(y1)} x2={px(x2)} y2={py(y2)} className="scheme__tread" />
-        })}
-        <line x1={px(0)} y1={py(0)} x2={px(r)} y2={py(0)} className="scheme__dimline" markerStart="url(#pln-arr)" markerEnd="url(#pln-arr)" />
-        {dim('R ' + fmt(r), px(r / 2), py(0) - 16, 'middle', 0, -1)}
-        {dim('α ' + (s.angularTotal ?? 360).toFixed(0) + '°', px(cx), py(cy) - cr * scale - 14, 'middle', 0, -1)}
-        <text x={px(cx)} y={py(cy)} textAnchor="middle" dominantBaseline="middle" className="scheme__label">
-          {f.StepCount} ступ.
-        </text>
-        {/* Свободное пространство перед первой ступенью (EDR-0023): зона снаружи
-            у входа (внешний радиус, +X). */}
-        {ap > 0 && (
-          <>
-            <rect x={px(r)} y={py(f.Width / 2)} width={ap * scale} height={f.Width * scale} className="scheme__approach" />
-            {arrowLine(px(r), py(0), px(r + ap), py(0), 'pln-arr')}
-            {dim('Свободное место ' + fmt(ap), (px(r) + px(r + ap)) / 2, py(0) + 16, 'middle', 0, 1)}
-            {ANNOTATE && (
-              <text x={px(r + ap / 2)} y={py(f.Width / 2)} className="scheme__elabel" style={{ fill: edgeColor(1) }} textAnchor="middle" dominantBaseline="middle">Пд</text>
-            )}
+            {arrowLine(P(0), py(wBig / 2), P(-ap), py(wBig / 2), 'pln-arr')}
+            {dim('Свободное место ' + fmt(ap), (P(0) + P(-ap)) / 2, py(wBig / 2), 'middle', 0, 1)}
           </>
         )}
       </g>

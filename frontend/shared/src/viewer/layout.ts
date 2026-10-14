@@ -3,7 +3,7 @@
 // стены периметра (виджет В/Н/П/Л) и плита «выхода на 2-й этаж».
 // Чистые функции от bounding box отражённого меша в локальных координатах;
 // отделены от three.js, чтобы покрыть тестами на реальных данных маршей
-// всех типов (straight, l_shape, u_shape, spiral).
+// всех типов (straight, l_shape, u_shape).
 
 export interface Box3Like {
   min: { x: number; y: number; z: number }
@@ -20,8 +20,8 @@ export interface BoxSpec {
 // X линии верха марша (в группе марша). Для straight меш зеркалится по X
 // (mirrorX): верх марша оказывается у box.min.x. Для u_shape верх — конец
 // верхнего марша, возвращающегося вдоль −X (правый поворот: box.min.x; левый
-// зеркалит компоновку — box.max.x). Для l_shape и spiral верх считается по
-// box.max.x: для l_shape это кромка площадки (приближение верха), для spiral —
+// зеркалит компоновку — box.max.x). Для l_shape верх считается по
+// box.max.x: для l_shape это кромка площадки (приближение верха),
 // радиальное приближение. direction учитывается только для u_shape.
 export function stairTopLineX(box: Box3Like, flight: string, direction?: 'left' | 'right'): number {
   if (flight === 'straight') return box.min.x
@@ -54,24 +54,6 @@ export function approachZoneCenterX(
 // bottom/Н — ближняя (Z min), right/П — правый торец (X max),
 // left/Л — левый торец (X min). Совпадает с разметкой scheme-annot.ts.
 export type WallSide = 'top' | 'bottom' | 'right' | 'left'
-
-// Высота «блока второго этажа» (плиты выхода), мм: статична, не зависит от
-// состояния чекбокса. Передаётся в wallBox, чтобы выходная стена доводилась
-// ровно до низа блока (не «прорезала» его) в обоих состояниях тумблера.
-export const EXIT_BLOCK_H = 200
-
-// Сторона периметра, куда уходит выход на 2-й этаж (направление плиты в
-// exitSlabBox). На этой стене высота уменьшается на высоту блока:
-//   - straight: выход у box.min.x → стена Л (left);
-//   - u_shape: правый поворот — верхний марш у box.min.x → Л; левый — П;
-//   - l_shape: верхний марш поднимается вдоль +Z → стена В (top);
-//   - spiral: торец угловой → П (right).
-export function exitWallSide(flight: string, direction?: 'left' | 'right'): WallSide {
-  if (flight === 'l_shape') return 'top'
-  if (flight === 'spiral') return 'right'
-  if (flight === 'u_shape') return direction === 'left' ? 'right' : 'left'
-  return 'left'
-}
 
 // Входные данные для построения периметра стен.
 export interface WallBoundsInput {
@@ -142,20 +124,11 @@ export function wallSpanZ(box: Box3Like): { z0: number; z1: number } {
 // габаритам лестницы: В — дальняя стена позади марша (Z max), Н — ближняя,
 // перед маршем внутри помещения (Z min), П — правая (X max), Л — левая (X min).
 // Высота стены — из Y-диапазона bounds (верх = заданная пользователем высота
-// марша). Выходная стена (secondFloor.side, куда уходит выход на 2-й этаж)
-// доводится ровно до низа блока выхода: её высота на secondFloor.height меньше,
-// блок «ложится» на стену, поверхности на торце заподлицо. Расчёт не зависит от
-// того, включён ли тумблер выхода (плита только меняет .visible).
-export function wallBox(
-  box: Box3Like,
-  side: WallSide,
-  thickness: number,
-  secondFloor?: { side: WallSide; height: number },
-): BoxSpec {
-  const atExit = secondFloor != null && secondFloor.side === side
-  const topY = atExit ? box.max.y - secondFloor!.height : box.max.y
-  const yH = Math.max(topY - box.min.y, 1)
-  const midY = (box.min.y + topY) / 2
+// марша). Стены строятся на всю высоту: плиты выхода в 3D нет (владелец
+// убрал её целиком), поэтому понижать стену под блок больше не нужно.
+export function wallBox(box: Box3Like, side: WallSide, thickness: number): BoxSpec {
+  const yH = Math.max(box.max.y - box.min.y, 1)
+  const midY = (box.min.y + box.max.y) / 2
   if (side === 'top' || side === 'bottom') {
     const xs = wallSpanX(box)
     return {
@@ -167,42 +140,5 @@ export function wallBox(
   return {
     size: [thickness, yH, zs.z1 - zs.z0],
     pos: [wallPlaneX(box, side, thickness), midY, (zs.z0 + zs.z1) / 2],
-  }
-}
-
-// Плита «выхода на 2-й этаж»: плоский бокс, верх на уровне верха марша,
-// примыкает к верхней ступени и уходит наружу на depth. Направление/ось
-// зависят от типа марша:
-//   - straight: верхний торец у box.min.x (после mirrorX) → глубина вдоль −X,
-//     ширина по Z (марш);
-//   - u_shape: правый поворот — верхний марш возвращается вдоль −X (мин.
-//     кромка); левый зеркалит компоновку (макс. кромка) → глубина вдоль X;
-//   - l_shape: верхний марш поднимается вдоль ширины (+Y в плане = +Z в
-//     three.js) → глубина вдоль +Z от box.max.z, ширина по X (bbox-приближение);
-//   - spiral: торец угловой, bbox симметричный → приближение вдоль +X.
-export function exitSlabBox(
-  box: Box3Like,
-  flight: string,
-  direction: 'left' | 'right' | undefined,
-  depth: number,
-  thickness: number,
-): BoxSpec {
-  const topY = box.max.y
-  if (flight === 'l_shape') {
-    const xs = wallSpanX(box)
-    return {
-      size: [xs.x1 - xs.x0, thickness, depth],
-      pos: [(xs.x0 + xs.x1) / 2, topY - thickness / 2, box.max.z + depth / 2],
-    }
-  }
-  const zs = wallSpanZ(box)
-  const zSpan = zs.z1 - zs.z0
-  const midZ = (zs.z0 + zs.z1) / 2
-  const atMinX = flight === 'straight' || (flight === 'u_shape' && direction !== 'left')
-  const inner = atMinX ? box.min.x : box.max.x
-  const dir = atMinX ? -1 : 1
-  return {
-    size: [depth, thickness, zSpan],
-    pos: [inner + (dir * depth) / 2, topY - thickness / 2, midZ],
   }
 }

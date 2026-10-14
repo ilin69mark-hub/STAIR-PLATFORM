@@ -54,7 +54,7 @@ func TestS3StorePutGetDelete(t *testing.T) {
 		t.Fatalf("unexpected put: method=%s key=%s ct=%s", gotMethod, gotKey, gotCT)
 	}
 
-	data, err := store.Get(ctx, "t/exports/cad/f.dxf")
+	data, _, err := store.Get(ctx, "t/exports/cad/f.dxf")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestS3StoreNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewS3Store: %v", err)
 	}
-	if _, err := store.Get(context.Background(), "t/f"); !errors.Is(err, ErrNotFound) {
+	if _, _, err := store.Get(context.Background(), "t/f"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Get: err = %v, want ErrNotFound", err)
 	}
 }

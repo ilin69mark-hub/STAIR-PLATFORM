@@ -11,7 +11,6 @@ import type {
   Pricing,
   Project,
   Snapshot,
-  SpiralResult,
   UShapeResult,
 } from '@shared/types'
 
@@ -27,8 +26,8 @@ export const flightFixture: FlightResult = {
   RoomLength: 4200,
 }
 
-// Нулевое поле flight, которое бэкенд шлёт всегда — даже для L/U/спирали
-// (их реальные данные лежат в lshape/ushape/spiral). Похожие тесты обязаны
+// Нулевое поле flight, которое бэкенд шлёт всегда — даже для L/U
+// (их реальные данные лежат в lshape/ushape). Похожие тесты обязаны
 // включать его рядом с конкретным типом, иначе сценарий REGB-01 (тип
 // «съедается» нулевым flight) не воспроизводится.
 export const zeroFlightFixture: FlightResult = {
@@ -76,21 +75,6 @@ export const ushapeFixture: UShapeResult = {
   direction: 'right',
 }
 
-export const spiralFixture: SpiralResult = {
-  StepCount: 15,
-  StepHeight: 180,
-  OuterRadius: 800,
-  ColumnRadius: 300,
-  WalkRadius: 633.333,
-  InnerTread: 125.664,
-  WalkTread: 265.29,
-  OuterTread: 335.103,
-  Angle: (34.15 * Math.PI) / 180,
-  AngularStep: (2 * Math.PI) / 15,
-  ArcLength: 5026.548,
-  ComfortStep: 625.29,
-  AngularTotal: 2 * Math.PI,
-}
 
 export const measurementFixture: Measurement = {
   SolidCount: 20,
@@ -107,7 +91,7 @@ export const manufacturingFixture: Manufacturing = {
     {
       Number: 'P1',
       Kind: 'stringer',
-      Material: 'STEEL-S235',
+      Material: 'STEEL-C245',
       Thickness: 50,
       Length: 4783,
       Width: 300,
@@ -120,7 +104,7 @@ export const manufacturingFixture: Manufacturing = {
         Number: 1,
         PartNumber: 'P1',
         Description: 'Косоур',
-        Material: 'STEEL-S235',
+        Material: 'STEEL-C245',
         Thickness: 50,
         Quantity: 2,
         Length: 4783,
@@ -132,7 +116,7 @@ export const manufacturingFixture: Manufacturing = {
   Nesting: {
     Sheets: [
       {
-        Material: 'STEEL-S235',
+        Material: 'STEEL-C245',
         Thickness: 50,
         Length: 6000,
         Width: 1500,
@@ -152,6 +136,12 @@ export const pricingFixture: Pricing = {
   Material: 100000,
   Machine: 20000,
   Labor: 30000,
+  // Крепёж (MNT-0001): в фикстуре ноль, чтобы суммы существующих тестов не
+  // поехали. Боевое значение приходит из расчёта.
+  Fastener: 0,
+  // Герметик (CONF-SEALANT): в фикстуре ноль, чтобы суммы существующих
+  // тестов не поехали.
+  Sealant: 0,
   Overhead: 5000,
   ProductionCost: 155000,
   Margin: 30000,
@@ -181,18 +171,6 @@ export function makeUShapeSnapshot(overrides: Partial<Snapshot> = {}): Snapshot 
       flight: undefined,
       lshape: undefined,
       ushape: ushapeFixture,
-    }),
-    ...overrides,
-  }
-}
-
-export function makeSpiralSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
-  return {
-    ...makeSnapshot({
-      flight: undefined,
-      lshape: undefined,
-      ushape: undefined,
-      spiral: spiralFixture,
     }),
     ...overrides,
   }

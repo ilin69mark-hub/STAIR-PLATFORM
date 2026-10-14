@@ -84,8 +84,32 @@ func PrepareCost(pkg *dommfg.ManufacturingPackage, materials *dommfg.MaterialReg
 		dataset.SurfaceArea += a.surfaceArea
 		dataset.Mass += a.volume * 1e-9 * m.Density
 	}
-	dataset.PartCount = dommfg.Quantity(len(pkg.Parts))
-	dataset.FastenerCount = 0 // в текущей модели крепёж отсутствует; счётчик подготовлен
+	// PartCount — число деталей, по которым считается РАБОТА. Покупные
+	// детали (ограждение) в техмаршрут не входят: они приходят готовыми, у них
+	// нет операций реза. Поэтому считаем только режущиеся детали, иначе
+	// OperationPlan (без покупных) не сойдётся с PartCount.
+	cuttable := 0
+	for _, part := range pkg.Parts {
+		if !part.Purchased {
+			cuttable++
+		}
+	}
+	dataset.PartCount = dommfg.Quantity(cuttable)
+	// Крепёж (MNT-0001). Счётчик FastenerCount был заведён в наборе заранее и
+	// оставался нулём: пятки обоймы выреза просверливались лазером вместе с
+	// контуром, но в цену крепёж не попадал. Теперь он считается — по
+	// отверстиям пяток плюс доп. крепёж объекта.
+	dataset.SealantConsumption = pkg.Sealant
+	dataset.FastenerConsumption = append(dataset.FastenerConsumption, pkg.Fasteners...)
+	for _, f := range pkg.Fasteners {
+		dataset.FastenerCount += f.Quantity
+	}
+
+	// Покупные детали ограждения (S-162). Раньше потребность в них нигде не
+	// фиксировалась: 29 позиций были в пакете, но не доходили до сметы, и
+	// менеджер выдавал цену без ограждения. Считается так же, как крепёж, —
+	// физическое количество в штуках, цену подставит Pricing.
+	dataset.PurchasedConsumption = dommfg.PurchasedDemandFor(pkg.Parts)
 
 	plan, err := PlanOperations(pkg, rates)
 	if err != nil {

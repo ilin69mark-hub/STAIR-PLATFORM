@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strconv"
 
 	"stairplatform/internal/application/audit"
 	"stairplatform/internal/application/stair"
+	dommfg "stairplatform/internal/domain/manufacturing"
 	kerngeo "stairplatform/internal/geometry"
 )
 
@@ -54,12 +57,20 @@ func NewService(repo Repository, calc *stair.Service, rules RuleSet, auditSvc ..
 }
 
 // record пишет событие аудита (best-effort, EDR-0013 §4.1).
+//
+// AUDIT-002 (2026-09-27): отказ записи логируется с action/tenant/actor/
+// request_id, а не выбрасывается через `_ =`. Это самая частая точка записи
+// аудита в проектах (вызывается на create/modify/review/restore), и раньше
+// именно здесь молча терялись события: операция проходила, в журнале не
+// появлялось ничего, обнаружить это было нечем. Business-операция при этом
+// НЕ отменяется — аудит не должен ронять расчёт, но его пробел обязан быть
+// виден в логах.
 func (s *Service) record(ctx context.Context, tenantID, userID, projectID string, action audit.Action, result audit.Result, detail string) {
 	if s.audit == nil {
 		return
 	}
 	m := audit.MetaFrom(ctx)
-	_ = s.audit.Record(ctx, &audit.Event{
+	e := &audit.Event{
 		ActorID:   userID,
 		TenantID:  tenantID,
 		ProjectID: projectID,
@@ -68,7 +79,13 @@ func (s *Service) record(ctx context.Context, tenantID, userID, projectID string
 		Detail:    detail,
 		RequestID: m.RequestID,
 		IP:        m.IP,
-	})
+	}
+	if err := s.audit.Record(ctx, e); err != nil {
+		slog.Error("audit: event not recorded",
+			"action", string(e.Action), "tenant_id", e.TenantID,
+			"actor_id", e.ActorID, "project_id", e.ProjectID,
+			"request_id", e.RequestID, "error", err)
+	}
 }
 
 // CreateProject создаёт проект с именем и описанием в tenant (BC-001)
@@ -201,6 +218,65 @@ func (s *Service) RemoveMember(ctx context.Context, tenantID, actorID, projectID
 	return nil
 }
 
+// TransferOwnership передаёт владение проектом другому участнику.
+//
+// Кто может: владелец проекта либо человек с платформенным правом
+// staff.project_transfer (его проверяет транспорт и передаёт сюда флагом
+// byCapability — сервис доверяет этому флагу, потому что проверить право
+// в прикладном уровне нечем).
+//
+// Кому: только тому, кто уже участник проекта. Передача «на улице» означала
+// бы, что человек появится в проекте без приглашения и без своего согласия.
+//
+// Что с прежним владельцем: он становится редактором, а не исчезает. Он
+// работал с проектом, и уйти из него может сам. Так же ведёт себя удаление
+// сотрудника: работа не пропадает, меняется человек.
+func (s *Service) TransferOwnership(ctx context.Context, tenantID, actorID, projectID, toUserID string, byCapability bool) error {
+	me, ok, err := s.member(ctx, tenantID, actorID, projectID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		// Не участник проекта: забрать чужой проект может только владелец
+		// компании с staff.project_transfer.
+		if !byCapability {
+			s.record(ctx, tenantID, actorID, projectID, audit.ActionAuthzDenied, audit.ResultDenied,
+				"transfer: not a member")
+			return ErrForbidden
+		}
+		// Участника нет, значит проверяем проект через членство будущего
+		// владельца: он существует, принадлежит нашему tenant и уже в проекте.
+		// Это же отсекает «передачу» несуществующего проекта.
+		if _, err := s.repo.GetMember(ctx, tenantID, projectID, toUserID); err != nil {
+			return err
+		}
+	} else if me.Role != RoleOwner {
+		s.record(ctx, tenantID, actorID, projectID, audit.ActionAuthzDenied, audit.ResultDenied,
+			"transfer: project owner required")
+		return ErrForbidden
+	}
+
+	if toUserID == "" {
+		return fmt.Errorf("%w: не указан новый владелец", ErrConflict)
+	}
+	if toUserID == actorID {
+		// Передать самому себе — не ошибка прав, а пустое действие: владелец
+		// уже этот человек.
+		s.record(ctx, tenantID, actorID, projectID, audit.ActionAuthzDenied, audit.ResultDenied,
+			"transfer: to self")
+		return ErrConflict
+	}
+
+	if err := s.repo.TransferOwnership(ctx, tenantID, projectID, toUserID); err != nil {
+		s.record(ctx, tenantID, actorID, projectID, audit.ActionProjectTransferred, audit.ResultFailed,
+			"transfer failed: "+err.Error())
+		return err
+	}
+	s.record(ctx, tenantID, actorID, projectID, audit.ActionProjectTransferred, audit.ResultOK,
+		"ownership to "+toUserID)
+	return nil
+}
+
 // member возвращает членство вызывающего в проекте и признак наличия.
 func (s *Service) member(ctx context.Context, tenantID, userID, projectID string) (*ProjectMember, bool, error) {
 	m, err := s.repo.GetMember(ctx, tenantID, projectID, userID)
@@ -211,6 +287,16 @@ func (s *Service) member(ctx context.Context, tenantID, userID, projectID string
 		return nil, false, nil
 	}
 	return nil, false, err
+}
+
+// IsMember возвращает true, если пользователь является членом проекта
+// (EDR-0008). Публичный порт членства для кросс-сервисной авторизации
+// (S-142): AI-ассистенты гейтят conversation-memory проверкой членства
+// (IDOR-фикс S-141 №1). Чужой/несуществующий проект — (false, nil);
+// сбой хранилища — (false, err).
+func (s *Service) IsMember(ctx context.Context, tenantID, userID, projectID string) (bool, error) {
+	_, ok, err := s.member(ctx, tenantID, userID, projectID)
+	return ok, err
 }
 
 // AddComment добавляет комментарий к проекту (EDR-0009). Требуется
@@ -330,6 +416,69 @@ func (s *Service) GetResult(ctx context.Context, tenantID, userID, projectID str
 // пересчитывается детерминированно из параметрической модели. Требуется
 // членство с правом project.read.
 func (s *Service) ExportCAD(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, error) {
+	// DOM-003: сетка лестницы без перил (совместимость с прежним поведением).
+	// Новым вызывающим следует использовать ExportCADWithRailings.
+	mesh, _, err := s.ExportCADWithRailings(ctx, tenantID, userID, projectID)
+	return mesh, err
+}
+
+// ExportCADWithRailings возвращает сетку лестницы И сетку перил.
+//
+// DOM-003 (2026-09-26): ExportCAD отдавал только res.Mesh, а перила
+// строятся отдельным телом (RailingMesh, CONF-RAILING) и в основной меш не
+// входят. В результате экспортируемые DXF/STL/SVG НЕ СОДЕРЖАЛИ ПЕРИЛ ВООБЩЕ,
+// хотя пользователь их задавал и видел в 3D. Отдельный метод нужен, чтобы не
+// ломать существующую сигнатуру ExportCAD (её использует порт ProjectService).
+func (s *Service) ExportCADWithRailings(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, *kerngeo.Mesh, error) {
+	me, ok, err := s.member(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !ok {
+		return nil, nil, ErrNotFound
+	}
+	if !me.Role.HasPermission(PermissionProjectRead) {
+		return nil, nil, ErrForbidden
+	}
+
+	sc, err := s.repo.GetLatestConfiguration(ctx, tenantID, projectID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if sc == nil {
+		return nil, nil, ErrNotFound
+	}
+	// DOM-003: fromConfigEntity теперь восстанавливает тип поворота, стороны
+	// перил, направления и материал, поэтому экспорт совпадает с тем, что
+	// пользователь рассчитал и утвердил.
+	cfg, opts, err := fromConfigEntity(sc)
+	if err != nil {
+		return nil, nil, err
+	}
+	res, err := s.calc.Calculate(ctx, cfg, opts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("project: export cad: %w", err)
+	}
+	if res.Mesh == nil {
+		return nil, nil, fmt.Errorf("project: export cad: %w", ErrConflict)
+	}
+	s.record(ctx, tenantID, userID, projectID, audit.ActionProjectModified, audit.ResultOK, "cad export")
+	// DOM-003: перила возвращаются отдельным мешем; при railing=none он
+	// пустой (не nil), чтобы транспорт не путал «нет перил» с «ошибка».
+	return res.Mesh, res.RailingMesh, nil
+}
+
+// ExportCutting возвращает производственный пакет последней сохранённой
+// конфигурации — всё, что нужно для документов производства: раскрой на
+// листах, спецификацию, положение каждой детали в сборке.
+//
+// Отдельный метод, а не перегрузка ExportCADWithRailings, потому что у
+// документа реза другой вход: не меш, а карта раскроя. Меш не знает ни
+// номера детали, ни отверстий, ни места детали на листе — то есть ровно того,
+// из чего состоит документ реза.
+//
+// Требуется членство проекта и право чтения, как у остальных выгрузок.
+func (s *Service) ExportCutting(ctx context.Context, tenantID, userID, projectID string) (*dommfg.ManufacturingPackage, error) {
 	me, ok, err := s.member(ctx, tenantID, userID, projectID)
 	if err != nil {
 		return nil, err
@@ -340,7 +489,6 @@ func (s *Service) ExportCAD(ctx context.Context, tenantID, userID, projectID str
 	if !me.Role.HasPermission(PermissionProjectRead) {
 		return nil, ErrForbidden
 	}
-
 	sc, err := s.repo.GetLatestConfiguration(ctx, tenantID, projectID)
 	if err != nil {
 		return nil, err
@@ -354,13 +502,58 @@ func (s *Service) ExportCAD(ctx context.Context, tenantID, userID, projectID str
 	}
 	res, err := s.calc.Calculate(ctx, cfg, opts)
 	if err != nil {
-		return nil, fmt.Errorf("project: export cad: %w", err)
+		return nil, fmt.Errorf("project: export cutting: %w", err)
 	}
-	if res.Mesh == nil {
-		return nil, fmt.Errorf("project: export cad: %w", ErrConflict)
+	if res.Package == nil {
+		return nil, fmt.Errorf("project: export cutting: %w", ErrConflict)
 	}
-	s.record(ctx, tenantID, userID, projectID, audit.ActionProjectModified, audit.ResultOK, "cad export")
-	return res.Mesh, nil
+	s.record(ctx, tenantID, userID, projectID, audit.ActionProjectModified, audit.ResultOK, "cutting export")
+	return res.Package, nil
+}
+
+// ExportAssembly — геометрия и производственный пакет для сборочного
+// чертежа: меш (включая перила) плюс детали с их положением.
+//
+// Один метод, а не два вызова ExportCADWithRailings + ExportCutting:
+// чертёж рисует метки на геометрии, и оба должны прийти из ОДНОГО расчёта.
+// Два пересчёта дали бы две копии пакета, и метка могла бы встать на
+// геометрию другого пересчёта — расхождение, которое выглядело бы как
+// ошибка раскроя.
+//
+// Требуется членство проекта и право чтения, как у остальных выгрузок.
+func (s *Service) ExportAssembly(ctx context.Context, tenantID, userID, projectID string) (*kerngeo.Mesh, *kerngeo.Mesh, *dommfg.ManufacturingPackage, error) {
+	me, ok, err := s.member(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if !ok {
+		return nil, nil, nil, ErrNotFound
+	}
+	if !me.Role.HasPermission(PermissionProjectRead) {
+		return nil, nil, nil, ErrForbidden
+	}
+	sc, err := s.repo.GetLatestConfiguration(ctx, tenantID, projectID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if sc == nil {
+		return nil, nil, nil, ErrNotFound
+	}
+	cfg, opts, err := fromConfigEntity(sc)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	res, err := s.calc.Calculate(ctx, cfg, opts)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("project: export assembly: %w", err)
+	}
+	if res.Mesh == nil || res.Package == nil {
+		return nil, nil, nil, fmt.Errorf("project: export assembly: %w", ErrConflict)
+	}
+	// Слияние мешей — в транспорте через cad.Merge, как у ExportCADWithRailings:
+	// сервис отдаёт геометрию как есть, а склейка для отрисовки — дело вывода.
+	s.record(ctx, tenantID, userID, projectID, audit.ActionProjectModified, audit.ResultOK, "assembly export")
+	return res.Mesh, res.RailingMesh, res.Package, nil
 }
 
 // GetLatestConfig возвращает текущую (или последнюю) сохранённую
@@ -429,6 +622,37 @@ func (s *Service) RestoreConfiguration(ctx context.Context, tenantID, userID, pr
 		return nil, err
 	}
 	s.record(ctx, tenantID, userID, projectID, audit.ActionConfigRestored, audit.ResultOK, "revision="+cfg.ID)
+	return cfg, nil
+}
+
+// MarkConfigurationAsMeasurement помечает ревизию как снятую по факту на
+// объекте (решение владельца 2026-10-08). Те же права, что у восстановления
+// ревизии: owner/editor — те, кто вносит размеры.
+//
+// Метка нужна, чтобы в истории проекта было видно, какие размеры пришли от
+// клиента по телефону, а какие — с замера. Разница между «примерно 900» и
+// «ровно 937» меняет число ступеней и цену, а по дате ревизии не читается.
+func (s *Service) MarkConfigurationAsMeasurement(ctx context.Context, tenantID, userID, projectID, configurationID string, mark bool) (*StairConfiguration, error) {
+	me, ok, err := s.member(ctx, tenantID, userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if !me.Role.HasPermission(PermissionProjectEdit) {
+		s.record(ctx, tenantID, userID, projectID, audit.ActionAuthzDenied, audit.ResultDenied, "mark configuration as measurement: editor required")
+		return nil, ErrForbidden
+	}
+	if err := s.repo.MarkConfigurationAsMeasurement(ctx, tenantID, projectID, configurationID, mark); err != nil {
+		return nil, err
+	}
+	cfg, err := s.repo.GetConfigurationByID(ctx, tenantID, projectID, configurationID)
+	if err != nil {
+		return nil, err
+	}
+	detail := "revision=" + configurationID + " marked=" + strconv.FormatBool(mark)
+	s.record(ctx, tenantID, userID, projectID, audit.ActionConfigRestored, audit.ResultOK, detail)
 	return cfg, nil
 }
 

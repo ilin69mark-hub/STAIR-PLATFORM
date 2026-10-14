@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState } from 'react'
-import type { Pricing, Snapshot, Variation } from '@shared/types'
+import type { Cost, Pricing, Snapshot, Variation } from '@shared/types'
 import { fmt } from '@shared/format'
 import { exportCsv } from '../lib/export'
 import { StairProfile } from '@shared/schemes/StairProfile'
@@ -21,6 +21,19 @@ interface Props {
   // Высота марша из ввода пользователя (поле «Высота», мм): задаёт высоту
   // стен периметра в 3D-вьювере.
   heightMM?: number
+  // drag — перетаскивание деталей в 3D (S-205): колбэки вызываются один раз
+  // на завершённый жест и КЛАДУТ значения в форму, а не считают. Пересчёт —
+  // только кнопкой «Рассчитать»: сцена показывает уже посчитанную модель,
+  // сервер во время жеста не трогаем. Нет drag — вьювер просто смотрит.
+  drag?: {
+    onHeight: (mm: number) => void
+    onComfort: (mm: number) => void
+    onLandingWidth: (mm: number) => void
+    onLandingDepth: (mm: number) => void
+  }
+  comfortStepMM?: number
+  landingWidthMM?: number
+  landingDepthMM?: number
 }
 
 // ResultTab — ключ активной под-вкладки результата. Часть панелей
@@ -28,7 +41,7 @@ interface Props {
 // не растягивать страницу в бесконечную портянку.
 type ResultTab = 'flight' | 'geometry' | 'manufacturing' | 'pricing'
 
-export function ResultPanel({ snapshot, onApplyVariation, activeVariantId, heightMM }: Props) {
+export function ResultPanel({ snapshot, onApplyVariation, activeVariantId, heightMM, drag, comfortStepMM, landingWidthMM, landingDepthMM }: Props) {
   const s = snapshot
   const stopped = !s.manufacturing || !s.pricing
   const [tab, setTab] = useState<ResultTab>('flight')
@@ -37,8 +50,6 @@ export function ResultPanel({ snapshot, onApplyVariation, activeVariantId, heigh
     <LShapePanel snapshot={s} heightMM={heightMM} />
   ) : s.ushape ? (
     <UShapePanel snapshot={s} heightMM={heightMM} />
-  ) : s.spiral ? (
-    <SpiralPanel snapshot={s} heightMM={heightMM} />
   ) : s.flight ? (
     <FlightPanel snapshot={s} heightMM={heightMM} />
   ) : null
@@ -92,7 +103,7 @@ export function ResultPanel({ snapshot, onApplyVariation, activeVariantId, heigh
           )}
           {active === 'flight' && flightPanel}
           {active === 'geometry' && s.measurement && (
-            <GeometryPanel snapshot={s} heightMM={heightMM} />
+            <GeometryPanel snapshot={s} heightMM={heightMM} drag={drag} comfortStepMM={comfortStepMM} landingWidthMM={landingWidthMM} landingDepthMM={landingDepthMM} />
           )}
           {active === 'manufacturing' && s.manufacturing && (
             <ManufacturingPanel snapshot={s} />
@@ -113,12 +124,12 @@ function SolverDrawings({ snapshot, heightMM }: { snapshot: Snapshot; heightMM?:
 
   // Фиолетовая линия верха марша на 3D: суммарный подъём марша.
   const stairTop =
-    sch.flight && sch.kind !== 'spiral'
+    sch.flight
       ? { rise: sch.flight.StepHeight * sch.flight.StepCount }
       : undefined
 
-  // Профиль (вид сбоку) осмыслен только для прямого марша; L/U/спираль
-  // показываем планом по умолчанию.
+  // Профиль (вид сбоку) осмыслен только для прямого марша; L/U показываем
+  // планом по умолчанию.
   const activeTab = sch.kind === 'straight' ? tab : tab === 'profile' ? 'plan' : tab
   const tabs: Array<['profile' | 'plan' | 'threed', string]> =
     sch.kind === 'straight'
@@ -236,7 +247,8 @@ function ValidationPanel({
       )}
       {firstVar && firstVar.Variations && onApplyVariation && (
         <div className="variations">
-          <h3 className="panel__sub">Варианты решения (выберите подходящий)</h3>
+          {/* Заголовка «Варианты решения (выберите подходящий)» нет — тот же
+              список строк без галереи, что и в конструкторе. */}
           <VariationPicker
             variations={firstVar.Variations}
             onApply={onApplyVariation}
@@ -420,66 +432,29 @@ function UShapePanel({ snapshot, heightMM }: { snapshot: Snapshot; heightMM?: nu
   )
 }
 
-// SpiralPanel — результат Solver спиральной лестницы с центральной колонной
-// (EDR-0007): веерные проступи вокруг оси Z, полный поворот 360°.
-function SpiralPanel({ snapshot, heightMM }: { snapshot: Snapshot; heightMM?: number }) {
-  const sp = snapshot.spiral
-  if (!sp) return null
-  return (
-    <section className="panel">
-      <h2 className="panel__title">Спиральный марш (Solver)</h2>
-      <dl className="kv">
-        <div>
-          <dt>Ступеней (полный поворот 360°)</dt>
-          <dd>{sp.StepCount}</dd>
-        </div>
-        <div>
-          <dt>Высота ступени</dt>
-          <dd>{fmt.mm(sp.StepHeight)}</dd>
-        </div>
-        <div>
-          <dt>Наружный радиус R</dt>
-          <dd>{fmt.mm(sp.OuterRadius)}</dd>
-        </div>
-        <div>
-          <dt>Радиус колонны r</dt>
-          <dd>{fmt.mm(sp.ColumnRadius)}</dd>
-        </div>
-        <div>
-          <dt>Радиус линии хода r_ход</dt>
-          <dd>{fmt.mm(sp.WalkRadius)}</dd>
-        </div>
-        <div>
-          <dt>Проступь у колонны / по линии хода / у кромки</dt>
-          <dd>
-            {fmt.mm(sp.InnerTread)} / {fmt.mm(sp.WalkTread)} / {fmt.mm(sp.OuterTread)}
-          </dd>
-        </div>
-        <div>
-          <dt>Угол подъёма</dt>
-          <dd>{fmt.deg(sp.Angle)}</dd>
-        </div>
-        <div>
-          <dt>Угловой шаг / полный угол</dt>
-          <dd>
-            {fmt.deg(sp.AngularStep)} / {fmt.deg(sp.AngularTotal)}
-          </dd>
-        </div>
-        <div>
-          <dt>Длина дуги по наружной кромке</dt>
-          <dd>{fmt.mm(sp.ArcLength)}</dd>
-        </div>
-        <div>
-          <dt>Шаг комфорта S = 2h + b_ход</dt>
-          <dd>{fmt.mm(sp.ComfortStep)}</dd>
-        </div>
-      </dl>
-      <SolverDrawings snapshot={snapshot} heightMM={heightMM} />
-    </section>
-  )
-}
 
-function GeometryPanel({ snapshot, heightMM }: { snapshot: Snapshot; heightMM?: number }) {
+function GeometryPanel({ snapshot, heightMM, drag, comfortStepMM, landingWidthMM, landingDepthMM }: {
+  snapshot: Snapshot
+  heightMM?: number
+  drag?: {
+    onHeight: (mm: number) => void
+    onComfort: (mm: number) => void
+    onLandingWidth: (mm: number) => void
+    onLandingDepth: (mm: number) => void
+  }
+  comfortStepMM?: number
+  landingWidthMM?: number
+  landingDepthMM?: number
+}) {
+  // Выбранная деталь и живое значение перетаскивания — локально: сервер
+  // не участвует, пока не нажата кнопка «Рассчитать».
+  const [selected, setSelected] = useState<{ solid: number; role: string } | null>(null)
+  const [preview, setPreview] = useState<{
+    heightMM: number
+    comfortStepMM: number
+    landingWidthMM?: number
+    landingDepthMM?: number
+  } | null>(null)
   const m = snapshot.measurement
   if (!m) return null
   const sch = schematicOf(snapshot)
@@ -533,10 +508,53 @@ function GeometryPanel({ snapshot, heightMM }: { snapshot: Snapshot; heightMM?: 
             approachSpace={sch?.solver?.approachSpace}
             heightMM={heightMM}
             stepThickness={snapshot.step_thickness}
+            interactive={!!drag}
+            selectedPart={selected}
+            onSelectPart={setSelected}
+            onDragPreview={drag ? setPreview : undefined}
+            onDragHeight={drag?.onHeight}
+            onDragComfortStep={drag?.onComfort}
+            comfortStepMM={comfortStepMM}
+            onDragLandingWidth={drag?.onLandingWidth}
+            onDragLandingDepth={drag?.onLandingDepth}
+            landingWidthMM={landingWidthMM}
+            landingDepthMM={landingDepthMM}
           />
         </Suspense>
       )}
+      {drag && (
+        <p className="muted" style={{ fontSize: 12 }}>
+          Детали можно тянуть прямо в 3D (ступень — высоту и шаг, площадку — размер).
+          Сцена не пересчитывается: жест кладёт значения в форму, считает только кнопка «Рассчитать».
+        </p>
+      )}
+      {selected && <SelectedPartLine snapshot={snapshot} selected={selected} />}
+      {preview && (
+        <p className="muted" style={{ fontSize: 12 }}>
+          Будет: высота {preview.heightMM} мм, шаг {preview.comfortStepMM} мм
+          {preview.landingWidthMM !== undefined && `, площадка ${preview.landingWidthMM} мм`}
+          {preview.landingDepthMM !== undefined && `, глубина ${preview.landingDepthMM} мм`}
+          {' '}— нажмите «Рассчитать».
+        </p>
+      )}
     </section>
+  )
+}
+
+// SelectedPartLine — строка выбранной в 3D детали: номер, куда, материал.
+// Связь деталь→строка спецификации — по SolidIndex (BC-007). Чисто клиентская,
+// сервер не вызывается.
+function SelectedPartLine({ snapshot, selected }: {
+  snapshot: Snapshot
+  selected: { solid: number; role: string }
+}) {
+  const part = snapshot.manufacturing?.Parts.find((p) => p.SolidIndex === selected.solid)
+  return (
+    <p className="muted" style={{ fontSize: 12 }}>
+      {part
+        ? `Деталь ${part.Number} — ${part.Where || selected.role}, ${part.Material} ${part.Thickness}×${part.Length}×${part.Width}`
+        : `Тело ${selected.solid} (${selected.role}) — в спецификации нет`}
+    </p>
   )
 }
 
@@ -601,6 +619,8 @@ function ManufacturingPanel({ snapshot }: { snapshot: Snapshot }) {
         </tbody>
       </table>
 
+      <OperationSummary cost={snapshot.cost} />
+
       <h3 className="panel__sub">Раскрой (листов: {nesting.Sheets.length})</h3>
       <dl className="kv">
         <div>
@@ -641,12 +661,94 @@ function ManufacturingPanel({ snapshot }: { snapshot: Snapshot }) {
   )
 }
 
+// Сводка техмаршрута: сколько операций каждого типа и сколько они заняли
+// времени. Без неё администратор видит в цене одну строку «труд» и не может
+// понять, что именно её увеличило (например, фрезеровку фасок на проступях).
+function OperationSummary({ cost }: { cost?: Cost }) {
+  const plan = cost?.OperationPlan
+  const ops = plan?.Parts?.flatMap((p) => p.Operations) ?? []
+  if (ops.length === 0) return null
+
+  // Сворачиваем по типу операции: деталей десятки, а типов операций единицы, и
+  // именно сводка отвечает на вопрос «сколько стоит обработка».
+  const byType = new Map<string, { count: number; time: number; machine: string }>()
+  for (const op of ops) {
+    const row = byType.get(op.Type) ?? { count: 0, time: 0, machine: op.Machine }
+    row.count += 1
+    row.time += op.EstimatedTime
+    byType.set(op.Type, row)
+  }
+
+  const NAMES: Record<string, string> = {
+    cutting: 'Лазерный рез',
+    milling: 'Фрезеровка кромки (фаска)',
+    finishing: 'Финишная обработка',
+  }
+  const MACHINES: Record<string, string> = {
+    ['']: '',
+    'laser-cutter': 'лазер',
+    'manual-workstation': 'ручное рабочее место',
+  }
+
+  const minutes = (v: number) => `${v.toFixed(1).replace('.', ',')}`
+
+  return (
+    <>
+      <h3 className="panel__sub">Технологический маршрут</h3>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Операция</th>
+            <th>Оборудование</th>
+            <th>Кол-во</th>
+            <th>Время, мин</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[...byType.entries()].map(([type, row]) => (
+            <tr key={type}>
+              <td>{NAMES[type] ?? type}</td>
+              <td>{MACHINES[row.machine] ?? row.machine}</td>
+              <td>{row.count}</td>
+              <td>{minutes(row.time)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <dl className="kv">
+        <div>
+          <dt>Машинное время</dt>
+          <dd>{minutes(cost?.EstimatedMachineTime ?? 0)} мин</dd>
+        </div>
+        <div>
+          <dt>Труд</dt>
+          <dd>{minutes(cost?.EstimatedLaborTime ?? 0)} мин</dd>
+        </div>
+        <div>
+          <dt>Всего</dt>
+          <dd>{minutes(cost?.EstimatedProductionTime ?? 0)} мин</dd>
+        </div>
+      </dl>
+    </>
+  )
+}
+
 function PricingPanel({ snapshot, pricing }: { snapshot: Snapshot; pricing: Pricing }) {
   const p = pricing
   const rows: Array<[string, number | undefined]> = [
     ['Материалы', p.Material],
     ['Обработка (станки)', p.Machine],
     ['Труд', p.Labor],
+    // Крепёж (MNT-0001) — отдельной строкой: дюбели и глухари считаются по
+    // отверстиям пяток, и без этой строки в смете не видно, сколько стоит
+    // крепёж, хотя в детализации он есть.
+    ['Крепёж (дюбели, глухари)', p.Fastener],
+    // Герметик (CONF-SEALANT) — отдельной строкой: расход идёт по
+    // формуле V = S × t по площади швов, и без этой строки не видно, что
+    // три картриджа взялись из 0,69 м² шва.
+    // Герметик (CONF-SEALANT). Расход всегда в картриджах, с запасом 15%
+    // на брак и обрезку; объём в литрах — только в детализации строки.
+    ['Герметик (картриджи, запас 15%)', p.Sealant],
     ['Накладные расходы', p.Overhead],
     ['Производственная себестоимость', p.ProductionCost],
     ['Маржа', p.Margin],

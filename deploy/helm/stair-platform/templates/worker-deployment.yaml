@@ -32,7 +32,7 @@ spec:
         - name: worker
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ include "stair-platform.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["/bin/worker"]
           envFrom:
@@ -50,12 +50,30 @@ spec:
                 secretKeyRef:
                   name: {{ include "stair-platform.fullname" . }}-secrets
                   key: secrets-key
+            {{- if and .Values.sso .Values.sso.clientSecret }}
+            # INF-12: OAuth-секрет приходит из Secret, а не из ConfigMap.
+            - name: STAIR_SSO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "stair-platform.fullname" . }}-secrets
+                  key: sso-client-secret
+            {{- end }}
           # S2-1: worker пишет только в ТЗ БД/Redis; /tmp — tmpfs (RO root).
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+          # INF-10 (forensic 2026-09-27): `toYaml X | default Y` НЕ работает
+          # как задумано, когда X отсутствует: toYaml nil возвращает строку
+          # "null", а default срабатывает только на пустом значении — "null"
+          # непусто, поэтому подставлялось `resources:\n  null` (подтверждено
+          # `helm template`). Воркер уходил в BestEffort без limits: первым
+          # вытеснялся при давлении на ноду, утечка не ограничена.
+          #
+          # default обязан быть ВНУТРИ скобок toYaml. Порядок важен: сначала
+          # выбираем источник (worker.resources → общий resources), потом
+          # сериализуем.
           resources:
-            {{- toYaml .Values.worker.resources | default .Values.resources | nindent 12 }}
+            {{- toYaml (.Values.worker.resources | default .Values.resources) | nindent 12 }}
       volumes:
         - name: tmp
           emptyDir:

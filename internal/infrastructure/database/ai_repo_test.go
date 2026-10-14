@@ -311,6 +311,49 @@ func TestMemoryAppendRecentPrune(t *testing.T) {
 	}
 }
 
+func TestMemoryDeleteMessages(t *testing.T) {
+	// S-148 (S-141 №13): purge памяти проекта + tenant-изоляция.
+	repo := integrationAI(t)
+	ctx := context.Background()
+	pr := NewProjectRepository(repo.pool)
+	tenant := testTenantID(t, pr)
+	owner := testOwnerID(t, pr, tenant)
+	p := &project.Project{Name: "Забвение", Description: "тест", Status: project.StatusDraft}
+	if err := pr.CreateProject(ctx, tenant, owner, p); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	msgs := []appast.MemoryMessage{
+		{TenantID: tenant, ProjectID: p.ID, Role: "user", Content: "забудь меня", CreatedAt: time.Now().UTC()},
+		{TenantID: tenant, ProjectID: p.ID, Role: "assistant", Content: "забыто", CreatedAt: time.Now().UTC()},
+	}
+	if err := repo.AppendMessages(ctx, msgs); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	n, err := repo.DeleteMessages(ctx, tenant, p.ID)
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("deleted = %d, want 2", n)
+	}
+	if left, err := repo.RecentMessages(ctx, tenant, p.ID, 10); err != nil || len(left) != 0 {
+		t.Fatalf("after delete: %+v err=%v", left, err)
+	}
+
+	// Повторный purge — идемпотентен (0, без ошибки).
+	if n, err := repo.DeleteMessages(ctx, tenant, p.ID); err != nil || n != 0 {
+		t.Fatalf("repeat delete: n=%d err=%v", n, err)
+	}
+
+	// Чужой tenant тем же projectID — не трогаем (SEC-0005).
+	foreign := createTestTenant(t, pr, "forget-"+randWord())
+	if n, err := repo.DeleteMessages(ctx, foreign, p.ID); err != nil || n != 0 {
+		t.Fatalf("foreign tenant delete: n=%d err=%v", n, err)
+	}
+}
+
 // --- Unit-тесты векторных хелперов (без БД) ---
 
 func TestEncodeDecodeVector(t *testing.T) {

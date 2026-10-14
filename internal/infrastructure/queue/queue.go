@@ -19,6 +19,13 @@ const (
 	JobCleanupSessions  = "sys.cleanup_sessions"
 	JobCleanupSsoStates = "sys.cleanup_sso_states"
 	JobCleanupAudit     = "sys.cleanup_audit"
+	// JobCleanupWebEvents — очистка событий воронки витрины (миграция
+	// 000035). Срок короче, чем у аудита: события нужны для разбора оттока
+	// «почему бросили», а не как доказательство на годы.
+	// #nosec G101 — ложное срабатывание: это имя задания очистки, а не
+	// учётные данные. Отдельный джоб Security Scan запускает gosec напрямую
+	// и читает только #nosec, директивы //nolint из golangci-lint он не видит.
+	JobCleanupWebEvents = "sys.cleanup_web_events"
 	// JobQuoteSend — доставка коммерческого предложения в ERP (EDR-0023).
 	// Payload: {event_id, endpoint_id}.
 	JobQuoteSend = "erp.quote_send"

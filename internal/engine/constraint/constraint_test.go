@@ -46,7 +46,6 @@ func TestStandardProfileAdvice(t *testing.T) {
 	suggested := map[RuleCode]bool{
 		GEO_STEP_HEIGHT: true, GEO_TREAD_DEPTH: true, GEO_ANGLE: true,
 		GEO_CLEARANCE: false, GEO_STRINGER_THICKNESS: false, SAF_RAILING_HEIGHT: false,
-		GEO_SPIRAL_TREAD: true, GEO_SPIRAL_RADIUS: true,
 	}
 	for code, want := range suggested {
 		rule, ok := set.Active(code)
@@ -61,22 +60,22 @@ func TestStandardProfileAdvice(t *testing.T) {
 
 func TestDuplicateVersionRejected(t *testing.T) {
 	set := NewSet("cs", "test")
-	if err := set.Add(&Constraint{Code: "A", Category: "g", Version: 1}); err != nil {
+	if err := set.Add(&Constraint{Code: "A", Category: "g", Version: 1, Source: testSource()}); err != nil {
 		t.Fatalf("add error: %v", err)
 	}
-	if err := set.Add(&Constraint{Code: "A", Category: "g", Version: 1}); err == nil {
+	if err := set.Add(&Constraint{Code: "A", Category: "g", Version: 1, Source: testSource()}); err == nil {
 		t.Fatal("duplicate (code, version) must be rejected")
 	}
-	if err := set.Add(&Constraint{Code: "A", Category: "g", Version: 2}); err != nil {
+	if err := set.Add(&Constraint{Code: "A", Category: "g", Version: 2, Source: testSource()}); err != nil {
 		t.Fatalf("another version of the same code must be allowed: %v", err)
 	}
 }
 
 func TestActivateSingleVersion(t *testing.T) {
 	set := NewSet("cs", "test")
-	a1 := &Constraint{Code: "A", Category: "g", Version: 1, Active: true}
-	a2 := &Constraint{Code: "A", Category: "g", Version: 2}
-	b := &Constraint{Code: "B", Category: "g", Version: 1, Active: true}
+	a1 := &Constraint{Code: "A", Category: "g", Version: 1, Active: true, Source: testSource()}
+	a2 := &Constraint{Code: "A", Category: "g", Version: 2, Source: testSource()}
+	b := &Constraint{Code: "B", Category: "g", Version: 1, Active: true, Source: testSource()}
 	for _, c := range []*Constraint{a1, a2, b} {
 		if err := set.Add(c); err != nil {
 			t.Fatal(err)
@@ -137,10 +136,10 @@ func TestResolve(t *testing.T) {
 func TestOverlappingRangesDetected(t *testing.T) {
 	set := NewSet("cs", "test")
 	// две версии одного правила с пересекающимися диапазонами.
-	if err := set.Add(&Constraint{Code: "X", Version: 1, Category: "g", Range: Range{Min: 0, Max: 100, HasMin: true, HasMax: true}}); err != nil {
+	if err := set.Add(&Constraint{Code: "X", Version: 1, Category: "g", Source: testSource(), Range: Range{Min: 0, Max: 100, HasMin: true, HasMax: true}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := set.Add(&Constraint{Code: "X", Version: 2, Category: "g", Range: Range{Min: 50, Max: 200, HasMin: true, HasMax: true}}); err != nil {
+	if err := set.Add(&Constraint{Code: "X", Version: 2, Category: "g", Source: testSource(), Range: Range{Min: 50, Max: 200, HasMin: true, HasMax: true}}); err != nil {
 		t.Fatal(err)
 	}
 	violations := ValidateIntegrity(set)
@@ -158,10 +157,10 @@ func TestOverlappingRangesDetected(t *testing.T) {
 func TestNonOverlappingVersionsClean(t *testing.T) {
 	set := NewSet("cs", "test")
 	// две версии с непересекающимися диапазонами.
-	if err := set.Add(&Constraint{Code: "X", Version: 1, Category: "g", Active: true, Range: Range{Min: 0, Max: 100, HasMin: true, HasMax: true}}); err != nil {
+	if err := set.Add(&Constraint{Code: "X", Version: 1, Category: "g", Active: true, Source: testSource(), Range: Range{Min: 0, Max: 100, HasMin: true, HasMax: true}}); err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	if err := set.Add(&Constraint{Code: "X", Version: 2, Category: "g", Range: Range{Min: 200, Max: 300, HasMin: true, HasMax: true}}); err != nil {
+	if err := set.Add(&Constraint{Code: "X", Version: 2, Category: "g", Source: testSource(), Range: Range{Min: 200, Max: 300, HasMin: true, HasMax: true}}); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 	if violations := ValidateIntegrity(set); len(violations) > 0 {
@@ -172,10 +171,10 @@ func TestNonOverlappingVersionsClean(t *testing.T) {
 func TestMultipleActiveVersionsDetected(t *testing.T) {
 	set := NewSet("cs", "test")
 	// две активные версии одного правила — нарушение инварианта.
-	if err := set.Add(&Constraint{Code: "X", Version: 1, Category: "g", Active: true, Range: Range{Min: 0, Max: 100, HasMin: true, HasMax: true}}); err != nil {
+	if err := set.Add(&Constraint{Code: "X", Version: 1, Category: "g", Active: true, Source: testSource(), Range: Range{Min: 0, Max: 100, HasMin: true, HasMax: true}}); err != nil {
 		t.Fatalf("add: %v", err)
 	}
-	if err := set.Add(&Constraint{Code: "X", Version: 2, Category: "g", Active: true, Range: Range{Min: 200, Max: 300, HasMin: true, HasMax: true}}); err != nil {
+	if err := set.Add(&Constraint{Code: "X", Version: 2, Category: "g", Active: true, Source: testSource(), Range: Range{Min: 200, Max: 300, HasMin: true, HasMax: true}}); err != nil {
 		t.Fatalf("add: %v", err)
 	}
 	violations := ValidateIntegrity(set)
@@ -188,4 +187,11 @@ func TestMultipleActiveVersionsDetected(t *testing.T) {
 	if !found {
 		t.Fatal("multiple active versions must be reported")
 	}
+}
+
+// testSource — источник для синтетических правил тестов. С S-235 правило
+// без источника не добавляется, поэтому тестовые правила тоже должны
+// объяснять, откуда взято число (пусть и фиктивно).
+func testSource() *Source {
+	return &Source{Doc: "тест", Basis: BasisErgonomics}
 }

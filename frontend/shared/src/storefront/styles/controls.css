@@ -1,0 +1,654 @@
+/* Ползунок и сегментированные кнопки калькулятора. */
+
+.slider {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.slider__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.slider__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--sp-text);
+  cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slider__value {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  flex: 0 0 auto;
+}
+
+/* Селектор с .field — не избыточность: в index.css витрины есть
+   `.field input` (0,1,1) с border-radius 8px, и он перебивал бы
+   .slider__number (0,1,0), то есть чип рисовался бы скруглённым на 8px
+   вместо своих 5px. `.field .slider__number` (0,2,0) выигрывает. */
+.field .slider__number {
+  /* 54px, а не 40px. Замерено в Chromium на реальных метриках шрифта
+     (system-ui/SF, 12px, tabular-nums): цифра 7.56px, четыре цифры 30.2px,
+     курсор в конце 3.1px — нужно 33.3px. При width 40px в content-box
+     попадало 32px, и стоило поставить курсор, как старшая цифра уезжала
+     за левый край: четырёхзначные пределы (высота 6000, ширина марша 3000,
+     глубина площадки 5000, помещение 8000) обрезались, трёхзначные — нет.
+     Теперь content-box 44px: запас 8.7px (26%), пять цифр (40.9px)
+     тоже помещаются. */
+  width: 54px;
+  padding: 0 4px;
+  text-align: right;
+  font: inherit;
+  font-size: 12px;
+  /* 1.2 вместо 1.35: высота чипа 18.2px → 16.4px. Число влезает в строку
+     целиком, а строка не давит на подпись ползунка. */
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  color: var(--sp-text);
+  background: var(--sp-card);
+  border: 1px solid var(--sp-border);
+  border-radius: 5px;
+}
+
+.field .slider__number:focus-visible {
+  outline: 2px solid var(--sp-primary);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+.slider[data-empty] .slider__number {
+  border-style: dashed;
+  color: var(--sp-muted);
+}
+
+.slider__unit {
+  font-size: 10px;
+  color: var(--sp-muted);
+}
+
+/* Ползунок: нативный range с оформленной дорожкой. accent-color даёт
+   цвет без единой картинки и без вендорных префиксов. */
+.slider__range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  /* 14px вместо 18px: пять полей в секции давали минус 20px высоты панели. */
+  height: 14px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  accent-color: var(--sp-primary);
+}
+
+.slider__range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: #dbe4e0;
+}
+
+.slider__range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: var(--sp-primary);
+  border: 2px solid var(--sp-card);
+  box-shadow: 0 1px 3px rgba(11, 110, 79, 0.35);
+}
+
+.slider__range::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: #dbe4e0;
+}
+
+.slider__range::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--sp-primary);
+  border: 2px solid var(--sp-card);
+  box-shadow: 0 1px 3px rgba(11, 110, 79, 0.35);
+}
+
+.slider__range:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.slider__scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  line-height: 1.2;
+  color: #9aa7a2;
+  font-variant-numeric: tabular-nums;
+  margin-top: -3px;
+}
+
+.slider__hint {
+  font-size: 12px;
+  color: var(--sp-muted);
+}
+
+/* --- Сегментированные кнопки --- */
+
+.segmented {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.segmented__legend {
+  padding: 0;
+  margin-bottom: 3px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--sp-text);
+}
+
+.segmented__grid {
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.segmented[data-cols='3'] .segmented__grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.segmented[data-cols='4'] .segmented__grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.segmented__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  /* 32px. Было 38px: пять секций по 2–3 чипа давали лишние ~20px на секцию.
+     Высота 32px = 6px отступа + строка 15px при 12.5px + 2px рамки. */
+  min-height: 32px;
+  padding: 4px 5px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--sp-text);
+  background: var(--sp-card);
+  border: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius-sm, 8px);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+/* Чипы ограждения: подписи «Перила: первый марш» в кнопке 38px занимали две
+   строки. Здесь 28px и одна строка с многоточием — три группы сегментов
+   помещаются в панель без прокрутки. */
+.segmented[data-compact] .segmented__item {
+  min-height: 26px;
+  padding: 2px 4px;
+  font-size: 11.5px;
+}
+
+.segmented[data-compact] .segmented__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.segmented__item:hover {
+  border-color: #c3d2cc;
+}
+
+.segmented__item.is-active {
+  color: var(--sp-primary);
+  background: rgba(11, 110, 79, 0.07);
+  border-color: var(--sp-primary);
+  font-weight: 600;
+}
+
+.segmented__item:focus-visible {
+  outline: 2px solid var(--sp-primary);
+  outline-offset: 1px;
+}
+
+/* Заблокированный переключатель: значение производное (материал подступенков
+   следует за материалом ступеней), показать его надо, а нажать — нельзя.
+   Кнопка остаётся читаемой и остаётся в порядке обхода (aria-disabled, не
+   нативный disabled): с aria-disabled скринридер читает поле как
+   «недоступно», с disabled — просто выкидывает его из обхода, и значение
+   нельзя было бы послушать с клавиатуры. */
+/* Заблокированный переключатель. Блокировку надо видеть сразу, а не
+   вычислять: владелец попросил «выделить ярче, сейчас бледно и не видно».
+   Четыре независимых признака, потому что одного мало:
+   рамка вокруг всего блока + штриховые кнопки (штрих = не редактируется),
+   курсор not-allowed, замок в подписи и приглушённый фон.
+   Растянуто на 0.75 не делаем — это гасит и текст, и рамку, и читаемость. */
+.segmented[data-locked] {
+  border: 1px dashed #b9c6c0;
+  border-radius: 10px;
+  background: #f2f5f4;
+  padding: 8px 10px 10px;
+}
+
+.segmented[data-locked] .segmented__item {
+  cursor: not-allowed;
+  border-style: dashed;
+  background: #eef1f0;
+  color: var(--sp-muted);
+}
+
+.segmented[data-locked] .segmented__item:hover {
+  border-color: #b9c6c0;
+  background: #eef1f0;
+  color: var(--sp-muted);
+}
+
+/* Активный показывает значение, а не выбор: сплошная заливка, но спокойного
+   серого — зелёная «галочка» читалась бы как доступный для нажатия вариант. */
+.segmented[data-locked] .segmented__item.is-active {
+  border-color: #9fb0a9;
+  border-style: solid;
+  background: #dde4e1;
+  color: var(--sp-text);
+  font-weight: 600;
+}
+
+.segmented[data-locked] .segmented__hint-line {
+  color: #6b7a72;
+}
+
+/* Замок + слово в подписи заблокированного блока. */
+.segmented__lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  padding: 1px 6px 1px 5px;
+  border-radius: 999px;
+  background: #dde4e1;
+  color: #55665e;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  vertical-align: 1px;
+}
+
+.segmented__lock svg {
+  display: block;
+}
+
+.segmented__label {
+  text-align: center;
+  line-height: 1.2;
+}
+
+.segmented__hint {
+  font-size: 11px;
+  color: var(--sp-muted);
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.segmented__hint-line {
+  display: block;
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--sp-muted);
+}
+
+/* --- Переключатель изделий --- */
+
+.product-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  background: #eef2f0;
+  border-radius: 10px;
+}
+
+.product-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--sp-muted);
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.product-tab:hover:not(:disabled) {
+  color: var(--sp-text);
+}
+
+.product-tab.is-active {
+  color: var(--sp-primary);
+  background: var(--sp-card);
+  box-shadow: 0 1px 3px rgba(11, 110, 79, 0.14);
+}
+
+.product-tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.product-tab__badge {
+  padding: 1px 5px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #8a6d3b;
+  background: #fdf3e0;
+  border-radius: 999px;
+}
+
+/* --- Аккордеон секций --- */
+
+.accordion {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 10px;
+}
+
+/* Заголовки секций — компактная сетка в две колонки. Раньше каждая секция
+   была отдельной карточкой в свой ряд, и пять рядов по 38px съедали высоту,
+   из-за чего тело открытой секции сжималось до ~280px: данные приходилось
+   вводить в узкое окошко. Три ряда по 30px дают телу всю оставшуюся
+   высоту панели, при этом все пять разделов по-прежнему видны. */
+.accordion__heads {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Равные строки: заголовки должны быть одного размера, а не «как текст
+     влез». grid-auto-rows: 1fr уравнивает и третий ряд, когда у L-марша
+     появляется пятая секция. */
+  grid-auto-rows: 1fr;
+  gap: 6px;
+}
+
+/* Заголовок секции = вкладка. Четыре одинаковых прямоугольника сеткой 2×2 в
+   фиксированном порядке: основные | ограждение / цвет | помещение.
+   Раньше открытая вкладка прыгала наверх (order: -1) и растягивалась на всю
+   ширину — из-за этого «плитки» меняли размер и место при каждом щелчке, и
+   человек терял из виду раздел, который только что открывал. Порядок вкладок
+   теперь неизменен, поэтому ищут по тому же месту. */
+.acc__head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  /* 34px — размер активного чипа Segmented: вкладка должна читаться как
+     переключатель, а не как мелкая подпись. */
+  min-height: 34px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: center;
+  color: var(--sp-text);
+  background: var(--sp-card);
+  border: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius-sm, 8px);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+.acc__head:hover {
+  border-color: #c3d2cc;
+}
+
+/* Пятая вкладка (у L/П-марша появляется «Настройки поворота») осталась бы
+   одна в нижнем ряду с дырой рядом. Растягиваем её на всю ширину: дыры в
+   сетке не остаётся, ряд читается как строка, а сама вкладка остаётся в
+   прежнем размере по высоте. Правило по :nth-child(odd), а не по id секции:
+   при чётном числе вкладок (прямой марш) последняя плитка должна остаться
+   в своей половине, и id тут ни при чём — важно только количество. */
+.acc__head:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+/* Активная вкладка — тем же оформлением, что и выбранный чип
+   Segmented: тот же зелёный, та же заливка, тот же жирный шрифт. Иначе
+   «где я сейчас» приходится вычислять по знаку +/−. */
+.acc__head.is-open {
+  color: var(--sp-primary);
+  background: rgba(11, 110, 79, 0.07);
+  border-color: var(--sp-primary);
+  font-weight: 600;
+}
+
+.acc__head:focus-visible {
+  outline: 2px solid var(--sp-primary);
+  outline-offset: -2px;
+}
+
+.acc__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.acc__sign {
+  flex: 0 0 auto;
+  /* 12px — знак не должен конкурировать с заголовком. */
+  font-size: 12px;
+  line-height: 1;
+  color: var(--sp-muted);
+}
+
+.acc__head.is-open .acc__sign {
+  color: var(--sp-primary);
+}
+
+/* Обёртка тела секции — неподвижный слой для указателя «снизу есть ещё».
+   Без неё стрелка жила бы внутри .acc__body, а position: absolute внутри
+   прокручиваемого контейнера уезжает вместе с содержимым. */
+.acc__body-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Мягкое затухание у нижнего края + кружок со стрелкой вниз. Виден, пока
+   низ тела не доскроллен, и пропадает, когда доскроллили (считает
+   Accordion.tsx) — знак «есть ещё», а не украшение. */
+.acc__more {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  height: 40px;
+  padding-bottom: 6px;
+  background: linear-gradient(to top, var(--sp-card) 45%, rgba(255, 255, 255, 0));
+  /* Не перехватываем клик: под стрелкой всё ещё лежат поля раздела. */
+  pointer-events: none;
+}
+
+.acc__more-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--sp-primary);
+  background: var(--sp-card);
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(11, 110, 79, 0.18), 0 1px 4px rgba(11, 110, 79, 0.2);
+  animation: acc-more-nudge 1.7s ease-in-out infinite;
+}
+
+@keyframes acc-more-nudge {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acc__more-dot {
+    animation: none;
+  }
+}
+.acc__body {
+  display: flex;
+  flex-direction: column;
+  background: var(--sp-card);
+  border-radius: var(--sp-radius-sm, 8px);
+  box-shadow: inset 0 0 0 1px rgba(11, 110, 79, 0.09);
+  overflow: hidden;
+  /* 14px между полями и 16px по бокам: в колонке 460px поля перестали
+     тесниться, и 12px выглядели бы нищенски. */
+  gap: 14px;
+  padding: 16px 16px 20px;
+}
+
+/* Тело открытой секции — ЕДИНСТВЕННОЕ место во всей панели, где допустим
+   скролл. Панель и её заголовки не прокручиваются никогда: открытие
+   секции не должно уводить нижние вкладки за край экрана.
+   flex + min-height:0 обязательны, иначе содержимое растягивает карточку и
+   overflow не включается. Полоса тонкая и появляется только при реальном
+   переполнении (низкое окно, длинный раздел). */
+.calc__rail .acc__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* overflow-x: hidden — страховка от горизонтальной полосы. По спецификации
+     при overflow-y: auto невидимый overflow-x вычисляется в auto, то есть
+     ОДНА длинная подпись даёт панели горизонтальный скролл, который не
+     нужен ни в одном сценарии. */
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+/* --- Образцы цвета --- */
+
+.swatches {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.swatches__legend {
+  padding: 0;
+  margin-bottom: 5px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--sp-text);
+}
+
+.swatches__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.swatch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--sp-text);
+  background: var(--sp-card);
+  border: 1px solid var(--sp-border);
+  border-radius: var(--sp-radius-sm, 8px);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+.swatch:hover {
+  border-color: #c3d2cc;
+}
+
+.swatch.is-active {
+  color: var(--sp-primary);
+  background: rgba(11, 110, 79, 0.07);
+  border-color: var(--sp-primary);
+  font-weight: 600;
+}
+
+.swatch:focus-visible {
+  outline: 2px solid var(--sp-primary);
+  outline-offset: 1px;
+}
+
+.swatch__dot {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.45);
+}
+
+.swatch__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.swatches__hint {
+  display: block;
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--sp-muted);
+}
+
+/* Заголовок секции аккордеона заменяет прежний h3 — старые стили формы
+   секций больше не используются конструктором. */
+.form-grid {
+  display: grid;
+  gap: 10px;
+}
+
+/* Значение, когда выбирать нечего: один материал каркаса — это факт
+   калькулятора, а не выбор пользователя. Показываем строкой, чтобы рядом
+   не висела кнопка из одного пункта, которая ничего не переключает. */
+.readonly-value {
+  margin: 0;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--sp-text);
+  background: #f4f7f6;
+  border-radius: var(--sp-radius-sm, 8px);
+}
