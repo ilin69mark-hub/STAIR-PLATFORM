@@ -1,6 +1,7 @@
 package manufacturing_test
 
 import (
+	"strings"
 	"testing"
 
 	dommfg "stairplatform/internal/domain/manufacturing"
@@ -42,6 +43,41 @@ func TestMechanicalsStatus(t *testing.T) {
 		}
 		if (c.m.Known()) != (c.want == dommfg.MechKnown) {
 			t.Errorf("%s: Known()=%v при статусе %q", c.name, c.m.Known(), got(c.m))
+		}
+	}
+}
+
+// TestDeviationsAreRecorded — решения владельца, выходящие за пределы
+// нормы, обязаны быть записаны в Mechanicals.Source, а не остаться в
+// переписке.
+//
+// Сейчас таких решений два: дуб как основной материал лестницы вопреки
+// п. 5.1 СП 64, и Ø42,4 вопреки сортаменту ГОСТ 11068-81. Оба оформлены
+// по одному правилу — если отклонение исчезнет из Source, расчёт
+// прочности потом выдаст себя за нормативно проверенный, а это ровно то
+// самое, ради чего набор с неизвестными полями вообще не считается
+// известным.
+func TestDeviationsAreRecorded(t *testing.T) {
+	reg, err := engmfg.DefaultMaterialRegistry()
+	if err != nil {
+		t.Fatalf("каталог материалов: %v", err)
+	}
+	want := map[dommfg.MaterialCode][]string{
+		// п. 5.1 СП 64: твёрдые лиственные — только нагели и детали.
+		"WOOD-OAK": {"п. 5.1"},
+		// сортамент ГОСТ 11068-81: стенка 1,5 нормирована, 42,4 — нет.
+		"STAINLESS-304": {"ОТКЛОНЕНИЕ", "42,4", "42,0"},
+	}
+	for _, m := range reg.Materials() {
+		for _, needle := range want[m.Code] {
+			if m.Mechanicals == nil {
+				t.Errorf("%s: набор пуст, а отклонение должно быть записано", m.Code)
+				break
+			}
+			if !strings.Contains(m.Mechanicals.Source, needle) {
+				t.Errorf("%s: в Source нет %q — отклонение от нормы не "+
+					"зафиксировано: %s", m.Code, needle, m.Mechanicals.Source)
+			}
 		}
 	}
 }
@@ -98,6 +134,9 @@ func TestDefaultMaterialsStrengthMatchesNorms(t *testing.T) {
 		// СП 16.13330.2017, табл. В.3 (С245, 2,0–20 мм): Ryn=245, Run=370.
 		// E=2,06·10⁵ — прил. Б табл. Б.1. γm=1,05 — табл. 3.
 		"STEEL-C245": {dommfg.MechKnown, 245, 370, 206000, 0, 0, 1.05, false},
+		// ГОСТ 11068-81, табл. 4, марка 08Х18Н10Т (аналог AISI 304):
+		// σт=216, σв=530. E и γm стандартом не даны → partial.
+		"STAINLESS-304": {dommfg.MechPartial, 216, 530, 0, 0, 0, 0, false},
 		// СП 64.13330.2017, табл. 3 поз. 1а/2а/4а/5а сорт 1 × mдл 0,66
 		// (режим В, табл. 4); E0,ср=10 ГПа — прил. В.2.
 		"WOOD-SOFT": {dommfg.MechKnown, 13.86, 9.9, 10000, 2.97, 1.78, 0, true},
